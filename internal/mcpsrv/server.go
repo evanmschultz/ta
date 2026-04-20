@@ -1,5 +1,3 @@
-// Package mcpsrv wires ta's three tools (get, list_sections, upsert) onto a
-// mark3labs/mcp-go server and serves them over stdio.
 package mcpsrv
 
 import (

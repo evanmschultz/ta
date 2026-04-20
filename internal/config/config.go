@@ -1,6 +1,3 @@
-// Package config resolves the schema config file that governs a given
-// TOML data file. It walks up from the data file's directory looking for
-// .ta/config.toml; if none is found it falls back to ~/.ta/config.toml.
 package config
 
 import (
