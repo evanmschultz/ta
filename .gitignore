@@ -1,0 +1,18 @@
+# Binaries
+/bin/
+/dist/
+
+# Test and coverage artifacts
+coverage.out
+coverage.html
+*.test
+*.prof
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Mage cache
+mage_output_file.go
