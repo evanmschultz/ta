@@ -30,8 +30,13 @@ type Section struct {
 // File is a parsed TOML file: the raw byte buffer plus discovered sections.
 // The zero value is not useful; construct via Parse or ParseBytes.
 type File struct {
-	Path     string
-	Buf      []byte
+	// Path is the filesystem path recorded at parse time. It is never
+	// re-read during splicing; callers route writes back through WriteAtomic.
+	Path string
+	// Buf is the raw file bytes. Splice operates on Buf byte-for-byte so it
+	// must not be mutated after parsing.
+	Buf []byte
+	// Sections lists every discovered section in file order.
 	Sections []Section
 }
 

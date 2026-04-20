@@ -7,37 +7,87 @@ import (
 )
 
 // FailureKind names the category of a single schema validation failure.
+// The string form is stable and travels verbatim in the JSON contract emitted
+// by *ValidationError, so agent clients can branch on kind without parsing
+// free-form messages.
 type FailureKind string
 
-// Failure kinds returned by Validate.
+// Failure kinds returned by Validate. Each value is emitted verbatim in the
+// "kind" field of the per-failure JSON payload.
 const (
+	// FailureMissingRequired indicates a required field was absent from the
+	// supplied section data.
 	FailureMissingRequired FailureKind = "missing_required"
-	FailureTypeMismatch    FailureKind = "type_mismatch"
-	FailureEnumMismatch    FailureKind = "enum_mismatch"
-	FailureUnknownField    FailureKind = "unknown_field"
+	// FailureTypeMismatch indicates a field was present but its Go value did
+	// not match the declared schema type.
+	FailureTypeMismatch FailureKind = "type_mismatch"
+	// FailureEnumMismatch indicates a field's value is not contained in the
+	// field's declared enum.
+	FailureEnumMismatch FailureKind = "enum_mismatch"
+	// FailureUnknownField indicates the supplied data contains a key that is
+	// not declared on the target SectionType.
+	FailureUnknownField FailureKind = "unknown_field"
 )
 
 // FieldFailure is a single field-level validation failure. It implements
-// error so it can be returned through errors.Join/Unwrap chains.
+// error so it can be returned through errors.Join/Unwrap chains, and it is
+// the leaf shape inside ValidationError's JSON payload. Omitted JSON fields
+// follow standard omitempty rules — Description, ExpectedType, ActualType,
+// and AllowedValues are only populated when relevant to the specific Kind.
 type FieldFailure struct {
-	Field         string      `json:"field"`
-	Kind          FailureKind `json:"kind"`
-	Message       string      `json:"message"`
-	Description   string      `json:"description,omitempty"`
-	ExpectedType  Type        `json:"expected_type,omitempty"`
-	ActualType    string      `json:"actual_type,omitempty"`
-	AllowedValues []any       `json:"allowed_values,omitempty"`
+	// Field is the name of the offending field, as it appeared (or would
+	// have appeared) in the section data map.
+	Field string `json:"field"`
+	// Kind categorizes the failure; see the FailureKind constants.
+	Kind FailureKind `json:"kind"`
+	// Message is the human-readable description of the failure.
+	Message string `json:"message"`
+	// Description echoes the schema field's description so agents can surface
+	// the intended semantics without a second lookup.
+	Description string `json:"description,omitempty"`
+	// ExpectedType is the declared schema type, populated for type-mismatch,
+	// missing-required, and enum-mismatch failures.
+	ExpectedType Type `json:"expected_type,omitempty"`
+	// ActualType is the Go type (%T) of the supplied value, populated when a
+	// value was present but did not match the schema.
+	ActualType string `json:"actual_type,omitempty"`
+	// AllowedValues is the field's enum, populated for enum and
+	// missing-required failures on enum-constrained fields.
+	AllowedValues []any `json:"allowed_values,omitempty"`
 }
 
 // Error returns the human-readable failure message.
 func (f *FieldFailure) Error() string { return f.Message }
 
-// ValidationError aggregates every field-level failure for one section.
-// It implements error, multi-error Unwrap, and json.Marshaler so MCP tool
-// handlers can surface the failures as structured JSON.
+// ValidationError aggregates every field-level failure discovered for one
+// section. It implements error, multi-error Unwrap, and json.Marshaler so MCP
+// tool handlers can surface failures as structured JSON.
+//
+// JSON contract (stable; agent-facing):
+//
+//	{
+//	  "section_path": "task.task_001",
+//	  "failures": [
+//	    {
+//	      "field":           "status",
+//	      "kind":            "enum_mismatch",
+//	      "message":         "field \"status\" value wip is not in allowed set",
+//	      "description":     "Task lifecycle state.",
+//	      "expected_type":   "string",
+//	      "actual_type":     "string",
+//	      "allowed_values":  ["todo", "doing", "done"]
+//	    }
+//	  ]
+//	}
+//
+// Failures are ordered by (Field, Kind) so repeated validations on equivalent
+// inputs produce identical payloads.
 type ValidationError struct {
-	SectionPath string          `json:"section_path"`
-	Failures    []*FieldFailure `json:"failures"`
+	// SectionPath is the full bracketed path of the section that failed
+	// validation, e.g. "task.task_001".
+	SectionPath string `json:"section_path"`
+	// Failures lists every per-field failure detected during validation.
+	Failures []*FieldFailure `json:"failures"`
 }
 
 // Error renders the validation error in the shape shown in ta.md §Validation.

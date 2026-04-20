@@ -9,10 +9,17 @@ import (
 // If the section does not exist, replacement is appended to the buffer with a
 // blank-line separator if needed.
 //
-// Invariant: bytes outside the replaced section's range are preserved
-// byte-for-byte. Trailing blank lines that separated the section from the
-// next header are preserved; the replacement content itself is canonicalized
-// by the caller (typically via EmitSection).
+// Byte-identity invariant (load-bearing for ta's whole design):
+// every byte of f.Buf that falls outside the target section's Range is copied
+// through to the output unchanged. Comments, whitespace, unrelated sections,
+// literal and multi-line strings, and header ordering are all preserved
+// exactly as the user wrote them. Only the bytes of the target section
+// itself — header through the boundary before the next section — are
+// rewritten, and exactly one trailing newline that separated the section
+// from what followed is kept. The replacement content is assumed to be
+// canonicalized by the caller (typically via EmitSection).
+//
+// This function never mutates f.Buf.
 func (f *File) Splice(sectionPath string, replacement []byte) ([]byte, error) {
 	if sectionPath == "" {
 		return nil, fmt.Errorf("splice: empty section path")
