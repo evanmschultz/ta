@@ -24,23 +24,32 @@ Requires Go 1.26 or newer at build time. The binary is pure Go and statically li
 
 ## MCP client config
 
-For Claude Code, add this to `.mcp.json` (or the equivalent in your client):
+For Claude Code, register `ta` with the `claude mcp add` CLI — not by hand-editing a config file. From inside your project (or the bare root of a bare-repo-plus-worktree layout), run:
 
-```json
-{
-  "mcpServers": {
-    "ta": {
-      "command": "ta"
-    }
-  }
-}
+```sh
+claude mcp add --transport stdio ta -- ta
+```
+
+Breakdown:
+
+- `--transport stdio` — how `ta` speaks MCP (over child-process stdin/stdout).
+- First `ta` — the **name** the server is registered under (tools appear as `mcp__ta__*`).
+- `--` — separator; everything after is the spawn command, not a Claude flag.
+- Second `ta` — the **command** to spawn (shell-resolved via `$PATH`).
+
+No `--scope` flag → defaults to **local scope**, which writes to `~/.claude.json` under the current project's cwd and keeps the registration private to your machine. Pass `--scope project` if you want the registration committed to the repo (lands in `.mcp.json` at the project root, managed by the CLI — don't hand-edit it).
+
+Verify the registration landed with:
+
+```sh
+claude mcp list
 ```
 
 `ta` reads no runtime arguments; all tool arguments arrive over MCP. Use `ta --help` for a summary of CLI flags (`--version`, `--log-startup`).
 
 ## Schemas
 
-`ta` looks up the schema for a given TOML data file by walking up from the file's directory for a `.ta/config.toml`, then falling back to `~/.ta/config.toml`. The closest match wins.
+`ta` resolves schemas by cascade-merging from `~/.ta/config.toml` (the base) down through every `.ta/config.toml` in the target file's directory chain. Schemas defined closer to the target file supersede same-named schemas from further out; schemas unique to any level are additive. If neither home nor any ancestor has a `.ta/config.toml`, the call fails with a clear error.
 
 Example `.ta/config.toml`:
 
@@ -55,7 +64,7 @@ required = true
 [schema.task.fields.status]
 type = "string"
 required = true
-allowed = ["todo", "doing", "blocked", "done"]
+enum = ["todo", "doing", "blocked", "done"]
 
 [schema.task.fields.body]
 type = "string"
