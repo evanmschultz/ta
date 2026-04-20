@@ -2,7 +2,7 @@
 
 Target: MCP server that exposes `get` / `list_sections` / `upsert` over a directory of schema-validated TOML files, per `ta.md`.
 
-Everything in this plan is sized for a single worktree (`main/`) on a bare repo. No sibling worktrees, no parallel lanes. MVP = the three tools work, schemas validate, tree-sitter splices preserve human content.
+Everything in this plan is sized for a single worktree (`main/`) on a bare repo. No sibling worktrees, no parallel lanes. MVP = the three tools work, schemas validate, byte-surgical splices preserve human content.
 
 ---
 
@@ -12,7 +12,7 @@ Everything in this plan is sized for a single worktree (`main/`) on a bare repo.
 
 - MCP server over stdio, three tools: `get`, `list_sections`, `upsert`.
 - Schema resolution by walking up from the file path arg → project `.ta/config.toml` → `~/.ta/config.toml`.
-- Tree-sitter-based parse + surgical byte-splice for upsert (comments outside touched section preserved verbatim).
+- Pure-Go section scanner + surgical byte-splice for upsert (comments outside touched section preserved verbatim).
 - Canonical emission for the upserted section only.
 - Structured validation errors returned to the agent (required / type / enum).
 - Atomic writes (temp-file + rename).
@@ -33,7 +33,7 @@ Verified via `gh api` today. All pinned to concrete versions in `go.mod`.
 |---|---|---|
 | Go toolchain | `1.26.2` | verified via `go version` on this machine |
 | `github.com/magefile/mage` | `v1.17.1` | build automation (installed as a dev tool, not a module dep) |
-| `github.com/odvcencio/gotreesitter` | `v0.14.0` | pure-Go tree-sitter runtime; provides `grammars` subpkg with TOML grammar (`grammars/toml_register.go`, `toml_lexer.go`) |
+| `github.com/odvcencio/gotreesitter` | `v0.15.1` | **Anchored, not load-bearing.** The pinned TOML grammar cannot parse multi-line strings (confirmed via probe; see `docs/api-notes.md`), so ta ships a purpose-built pure-Go section scanner in `internal/tomlfile`. The dep stays in `go.mod` as a candidate replacement if upstream lands multi-line support. |
 | `github.com/mark3labs/mcp-go` | `v0.48.0` | MCP SDK (stdio transport, tool registration, structured errors) |
 | `github.com/pelletier/go-toml/v2` | `v2.3.0` | schema config parser only; user TOML never touches this |
 | `github.com/evanmschultz/laslig` | `v0.2.4` | human-facing CLI output (sections, notices, printer) — used on `--help` / `--version` / startup errors, NOT on MCP responses |
@@ -109,7 +109,7 @@ main/
 │   │   ├── error.go             # ValidationError — Unwrap/Errors accessor, structured to JSON for MCP
 │   │   └── *_test.go
 │   ├── tomlfile/
-│   │   ├── parse.go             # tree-sitter parser wrapper; Section spans with byte ranges
+│   │   ├── parse.go             # pure-Go section scanner; Section spans with byte ranges
 │   │   ├── splice.go            # Upsert: byte-surgical replace of target section
 │   │   ├── emit.go              # canonical TOML section emission for the upserted block only
 │   │   ├── atomic.go            # WriteAtomic(path string, data []byte) — temp + fsync + rename
@@ -148,7 +148,7 @@ mcpsrv.Upsert(ctx, req)
    │                                            fail ▼
    │                          mcp.NewToolResultError(structured JSON)
    │
-   ├──► tomlfile.Parse(path) ──► *tomlfile.File       (tree-sitter CST + byte buffer)
+   ├──► tomlfile.Parse(path) ──► *tomlfile.File       (section byte ranges + byte buffer)
    ├──► file.Splice(req.Section, emitCanonical(req.Data)) ──► []byte (new full buffer)
    ├──► tomlfile.WriteAtomic(path, newBuf)
    │
@@ -159,7 +159,7 @@ Everything outside the section's byte range passes through unchanged. That is th
 
 ### 5.3 Dependencies between packages
 
-`cmd/ta` → `mcpsrv` → {`config`, `schema`, `tomlfile`}. No cycles. `schema` does not import `tomlfile`; validation operates on `map[string]any`, the format-neutral decoded form. Keeps the validator unit-testable without tree-sitter.
+`cmd/ta` → `mcpsrv` → {`config`, `schema`, `tomlfile`}. No cycles. `schema` does not import `tomlfile`; validation operates on `map[string]any`, the format-neutral decoded form. Keeps the validator unit-testable without any parser.
 
 ---
 
@@ -172,7 +172,7 @@ Decisions locked in before any code lands. If an implementation choice contradic
 - **6.3 Context first.** Every exported function that does I/O or can be cancelled takes `ctx context.Context` as its first parameter. MCP handlers already receive one.
 - **6.4 Interfaces defined by consumer.** `mcpsrv` declares any small interface it needs (e.g., `schemaResolver`) locally. `schema` exports concrete types. This keeps dependency direction clean and lets tests inject fakes without touching producer packages.
 - **6.5 Zero values useful.** `schema.Schema{}` and `tomlfile.File{}` should be safe to zero-value where possible; constructors (`schema.Load`, `tomlfile.Parse`) return populated values.
-- **6.6 No globals.** The MCP server is constructed in `cmd/ta/main.go`, passed its deps explicitly. No package-level state in `schema`, `tomlfile`, or `mcpsrv`. Parsers that should be reused (tree-sitter `Parser`) live on a struct field.
+- **6.6 No globals.** The MCP server is constructed in `cmd/ta/main.go`, passed its deps explicitly. No package-level state in `schema`, `tomlfile`, or `mcpsrv`. The scanner is stateless and operates on a caller-supplied byte buffer.
 - **6.7 Functional options only where warranted.** `mcpsrv.New(cfg, opts ...Option)` is fine; nothing else needs options for MVP.
 - **6.8 Small files, cohesive packages.** Every file in one package should plausibly need to know about every other file's types. Split when that stops being true.
 - **6.9 Test package choice.** Use external test package (`package schema_test`) when testing public API; use internal (`package schema`) only when the test genuinely needs unexported access. Prefer table tests with `t.Run` subtests.
@@ -228,11 +228,13 @@ Tests: use `t.TempDir()` for filesystem layouts; do not mock `os`.
 
 ### 8.4 Phase 4 — `tomlfile.parse`
 
-1. Construct tree-sitter parser for TOML via `gotreesitter` + `grammars.TomlLanguage` (confirm exact symbol with `go doc`).
-2. Walk the CST, record every `[section]` and `[[array_of_tables]]` header's byte range plus the byte range of the full section body (header + trailing body until next header or EOF).
-3. `Parse(path) (*File, error)` returns `{buf []byte, sections []Section}` where `Section{Path string, HeaderRange [2]int, BodyRange [2]int}`.
+**Pivot from original plan:** the `gotreesitter` TOML grammar produces an ERROR root for any multi-line string (probe evidence in `docs/api-notes.md`). Multi-line strings are load-bearing for ta's markdown-in-TOML-bodies design, so Phase 4 ships a purpose-built pure-Go section scanner instead of a tree-sitter walk.
 
-Tests: golden fixtures in `testdata/` covering comments, multiline strings, nested tables, `[[array_of_tables]]` (discovery only — upsert semantics deferred).
+1. `scanSections(buf []byte) ([]sectionHeader, error)` — byte-level state machine that tracks basic / literal / multi-line-basic / multi-line-literal string state plus `#` comment state, recording every `[x]` / `[[x]]` header it finds at line start.
+2. `Parse(path) (*File, error)` returns `{buf []byte, sections []Section}` where `Section{Path, ArrayOfTables, Range, HeaderRange, BodyRange}`. `Range` spans from the header `[` to the start of the next header (or EOF); `HeaderRange` ends at the first newline after `]`; `BodyRange` is the remainder.
+3. Strict on unterminated strings / headers — returns a wrapped error so the caller can surface it verbatim.
+
+Tests: inline fixtures covering top-level keys, nested paths, `[[array_of_tables]]`, quoted keys, trailing comments on header lines, brackets inside strings and comments, multi-line basic and literal strings, and explicit error paths for unterminated constructs.
 
 ### 8.5 Phase 5 — `tomlfile.emit` + `tomlfile.splice`
 
@@ -297,7 +299,7 @@ Tests: in-process round-trip tests. Construct the server, hand it a test TOML fi
 
 Carried from `ta.md` §"Open questions." Each will get an ADR-style comment in code at the point of decision.
 
-- **`gotreesitter` TOML grammar coverage.** Phase 4's golden fixtures are where this gets proven. If a fixture fails, file upstream and pick a fallback (manual bracket-matching fallback is ~50 LOC).
+- **`gotreesitter` TOML grammar coverage.** ~~Phase 4 golden fixtures.~~ **Resolved in Phase 4:** the pinned grammar (v0.15.1) fails on multi-line strings, so ta ships a pure-Go section scanner instead. The dep is anchored in `go.mod` as a candidate replacement if upstream lands multi-line support — revisit via `docs/api-notes.md` when that happens.
 - **mcp-go structured error shape.** Resolved in Phase 6 via `go doc`. If errors flatten to strings, wrap our JSON into the string and accept the ergonomic tax.
 - **`[[array_of_tables]]` upsert semantics.** MVP: `list_sections` surfaces them; `get` reads them by index; `upsert` errors with `ErrArrayOfTablesNotSupported` and a message saying "use index syntax in section path" — full semantics deferred.
 - **Upsert on a missing file.** Default: create it with just the new section. Verified in Phase 6 tests.

@@ -59,57 +59,58 @@ mcp.NewToolResultError(text string) *mcp.CallToolResult
 
 Docstring on `NewToolResultError` says: *"Any errors that originate from the tool SHOULD be reported inside the result object."* → validation errors go here as structured JSON strings, not as returned Go errors.
 
-## `github.com/odvcencio/gotreesitter` v0.15.1
+## `github.com/odvcencio/gotreesitter` v0.15.1 — ANCHORED, NOT LOAD-BEARING
 
-> Note: tidy resolved v0.15.1 (higher semver tag) rather than the v0.14.0 shown as latest GitHub release. Newer tag honored per "newest versions" directive.
+> **Status (Phase 4, 2026-04-20):** demoted to anchored dependency. `ta`'s section scanner is a purpose-built pure-Go state machine in `internal/tomlfile`; gotreesitter is retained in `go.mod` only as a candidate replacement to revisit if upstream lands multi-line-string support in the TOML grammar. No runtime code path imports it.
 >
-> **Changelog check (v0.14.0 → v0.15.1):** verified via `gh api repos/odvcencio/gotreesitter/contents/CHANGELOG.md`. All changes in this window are internal: Go grammar compilation, arena sizing, GLR cache tuning, retry path, query backtracking. Public API (`NewParser`, `Parser.Parse`, `Tree.RootNode`/`Release`, `Node.StartByte`/`EndByte`/children/siblings, `grammars.TomlLanguage`) is unchanged. TOML grammar files (`toml_lexer.go`, `toml_register.go`) are stable across the window. Safe for ta's usage.
+> **Why the pivot:** the gotreesitter TOML grammar rejects both multi-line-string forms that are load-bearing for ta's design. Probe evidence below.
 
-### Parser lifecycle
+### Multi-line-string probe (Phase 4, 2026-04-20)
+
+Tested three fixtures against `gts.NewParser(grammars.TomlLanguage()).Parse(buf)`:
+
+1. **Single-line basic string.** `[task.t]\nid = "TASK-001"\n` — parses clean, `HasError=false`.
+2. **Multi-line basic string.** `[task.t]\nbody = """\nline one\nline two\n"""\n` — `HasError=true`, S-expression surfaces `(ERROR (table (bare_key)) (ERROR (bare_key)))`. The triple-double-quote token sequence is not recognized.
+3. **Multi-line literal string.** `[task.t]\nbody = '''\nline one\nline two\n'''\n` — same failure as (2): `HasError=true`, grammar treats the `'''` opener as an error.
+
+Upstream confirmation: `gotreesitter`'s own `ParseSmokeSamples["toml"]` fixture covers only single-line key/value pairs. No multi-line-string cases are exercised in the vendored test corpus.
+
+This is a blocker for `ta` because multi-line strings carry the markdown body of every task/note/plan section — see `docs/ta.md` §"TOML and code blocks."
+
+### When to revisit
+
+Re-evaluate if upstream:
+1. Adds multi-line-string production rules to `toml_lexer.go` / `toml_register.go`, **and**
+2. Publishes a release that clears both probe fixtures (2) and (3) above with `HasError=false`.
+
+Keep `import _ "github.com/odvcencio/gotreesitter"` in `internal/tomlfile/doc.go` anchored until then.
+
+### Changelog check (v0.14.0 → v0.15.1)
+
+Verified via `gh api repos/odvcencio/gotreesitter/contents/CHANGELOG.md`. All changes in this window are internal: Go grammar compilation, arena sizing, GLR cache tuning, retry path, query backtracking. Public API is unchanged, TOML grammar files (`toml_lexer.go`, `toml_register.go`) stable across the window. The multi-line-string gap pre-dates v0.14.0.
+
+### Reference API (for the revisit)
 
 ```go
 gts.NewParser(lang *gts.Language) *gts.Parser
 func (p *Parser) Parse(source []byte) (*Tree, error)
-```
 
-Parser is **not** safe for concurrent use — one parser per goroutine, or construct fresh per call. Given ta's low call volume, construct-fresh-per-call is fine.
-
-### TOML grammar
-
-```go
 import "github.com/odvcencio/gotreesitter/grammars"
+grammars.TomlLanguage() *gts.Language  // note: TomlLanguage, not TOMLLanguage
 
-grammars.TomlLanguage() *gts.Language
-```
-
-Confirmed symbol name: `TomlLanguage` (not `TOMLLanguage`).
-
-### Tree and Node walking
-
-```go
 func (t *Tree) RootNode() *Node
-func (t *Tree) Source() []byte
-func (t *Tree) Release()
+func (t *Tree) Release()  // defer after Parse
 
 func (n *Node) StartByte() uint32
 func (n *Node) EndByte() uint32
-func (n *Node) ChildCount() int
-func (n *Node) Child(i int) *Node
 func (n *Node) NamedChild(i int) *Node
 func (n *Node) NamedChildCount() int
-func (n *Node) NextSibling() *Node
-func (n *Node) Text(source []byte) string
-func (n *Node) IsNamed() bool
 func (n *Node) HasError() bool
 
 gts.Walk(node *Node, fn func(node *Node, depth int) WalkAction)
 ```
 
-Phase 4 plan: `gts.Walk` the tree, collect nodes whose S-expression type is `table` / `table_array_element`, pull their header byte range and body byte range via `StartByte` / `EndByte`. Confirm node-type strings via a small exploratory test against fixture TOML before locking the walker.
-
-### Cleanup
-
-`Tree.Release()` must be deferred after `Parse` to return internal buffers to the arena pool.
+Parser is **not** safe for concurrent use — one parser per goroutine, or construct fresh per call.
 
 ## `github.com/pelletier/go-toml/v2` v2.3.0
 
