@@ -62,6 +62,8 @@ Docstring on `NewToolResultError` says: *"Any errors that originate from the too
 ## `github.com/odvcencio/gotreesitter` v0.15.1
 
 > Note: tidy resolved v0.15.1 (higher semver tag) rather than the v0.14.0 shown as latest GitHub release. Newer tag honored per "newest versions" directive.
+>
+> **Changelog check (v0.14.0 → v0.15.1):** verified via `gh api repos/odvcencio/gotreesitter/contents/CHANGELOG.md`. All changes in this window are internal: Go grammar compilation, arena sizing, GLR cache tuning, retry path, query backtracking. Public API (`NewParser`, `Parser.Parse`, `Tree.RootNode`/`Release`, `Node.StartByte`/`EndByte`/children/siblings, `grammars.TomlLanguage`) is unchanged. TOML grammar files (`toml_lexer.go`, `toml_register.go`) are stable across the window. Safe for ta's usage.
 
 ### Parser lifecycle
 
