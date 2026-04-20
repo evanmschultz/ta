@@ -10,22 +10,40 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 const binDir = "bin"
 
-// Build compiles the ta binary to ./bin/ta.
+// localBuildVCSFlag disables VCS stamping so `go build` stays quiet in
+// bare-worktree checkouts that confuse Go's VCS auto-detection.
+const localBuildVCSFlag = "-buildvcs=false"
+
+// Build compiles the ta binary to ./bin/ta for local dev.
 func Build() error {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return err
 	}
-	return run("go", "build", "-o", binDir+"/ta", "./cmd/ta")
+	return run("go", "build", localBuildVCSFlag, "-o", binDir+"/ta", "./cmd/ta")
 }
 
-// Install installs the ta binary into $GOBIN.
+// Install builds ta from the current working tree and drops the binary at
+// $HOME/.local/bin/ta so MCP clients can invoke it by bare name without
+// requiring a Go toolchain on the end user's machine.
+//
+// Dev-only dogfood target. Orchestrator and subagents MUST NOT invoke it.
 func Install() error {
-	return run("go", "install", "./cmd/ta")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home: %w", err)
+	}
+	installDir := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return fmt.Errorf("create install dir %q: %w", installDir, err)
+	}
+	installedPath := filepath.Join(installDir, "ta")
+	return run("go", "build", localBuildVCSFlag, "-o", installedPath, "./cmd/ta")
 }
 
 // Test runs the full test suite with the race detector.
