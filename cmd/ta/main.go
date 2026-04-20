@@ -13,20 +13,21 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/evanmschultz/laslig"
-
 	"github.com/evanmschultz/ta/internal/mcpsrv"
 )
 
 const appName = "ta"
 
-const helpBody = `ta speaks MCP over stdio. Point an MCP client (e.g. Claude Code) at this binary and it exposes three tools:
+const helpBody = `ta speaks MCP over stdio. Point an MCP client (e.g. Claude Code) at this binary
+and it exposes three tools:
 
   get            read a TOML section by bracket path
   list_sections  list every section in a file
   upsert         create or update a section, validated against .ta/config.toml
 
-Schemas are resolved by walking up from the target file for a .ta/config.toml, then falling back to ~/.ta/config.toml. The ta binary reads no flags beyond those listed below at runtime; all tool arguments arrive via MCP.`
+Schemas resolve by walking up from the target file for a .ta/config.toml,
+then falling back to ~/.ta/config.toml. All tool arguments arrive via MCP;
+the binary itself reads only the flags listed below.`
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -40,96 +41,66 @@ func run(args []string, stdout, stderr io.Writer) int {
 		showHelp    = fs.Bool("help", false, "print usage and exit")
 		logStartup  = fs.Bool("log-startup", false, "log a startup banner to stderr before serving")
 	)
-	fs.Usage = func() { renderHelp(stdout, fs) }
+	fs.Usage = func() { writeHelp(stdout, fs) }
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			renderHelp(stdout, fs)
+			writeHelp(stdout, fs)
 			return 0
 		}
-		renderError(stderr, fmt.Sprintf("parse flags: %v", err))
+		fmt.Fprintf(stderr, "ta: parse flags: %v\n", err)
 		return 2
 	}
 
 	if *showHelp {
-		renderHelp(stdout, fs)
+		writeHelp(stdout, fs)
 		return 0
 	}
 	if *showVersion {
-		renderVersion(stdout)
+		writeVersion(stdout)
 		return 0
 	}
 
 	srv, err := mcpsrv.New(mcpsrv.Config{Name: appName, Version: version()})
 	if err != nil {
-		renderError(stderr, err.Error())
+		fmt.Fprintf(stderr, "ta: %v\n", err)
 		return 1
 	}
 
 	if *logStartup {
-		renderStartup(stderr)
+		fmt.Fprintf(stderr, "ta %s: serving MCP over stdio\n", version())
 	}
 
 	if err := srv.Run(context.Background()); err != nil {
-		renderError(stderr, err.Error())
+		fmt.Fprintf(stderr, "ta: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func renderHelp(w io.Writer, fs *flag.FlagSet) {
-	p := laslig.New(w, humanPolicy())
-	_ = p.Section(fmt.Sprintf("%s %s", appName, version()))
-	_ = p.Paragraph(laslig.Paragraph{Body: helpBody})
-	pairs := []laslig.Field{}
+func writeHelp(w io.Writer, fs *flag.FlagSet) {
+	fmt.Fprintf(w, "%s %s\n\n%s\n\nFlags:\n", appName, version(), helpBody)
 	fs.VisitAll(func(f *flag.Flag) {
-		pairs = append(pairs, laslig.Field{
-			Label: "--" + f.Name,
-			Value: f.Usage,
-		})
+		fmt.Fprintf(w, "  --%-12s %s\n", f.Name, f.Usage)
 	})
-	_ = p.KV(laslig.KV{Title: "Flags", Pairs: pairs})
 }
 
-func renderVersion(w io.Writer) {
-	p := laslig.New(w, humanPolicy())
-	info, _ := debug.ReadBuildInfo()
-	pairs := []laslig.Field{
-		{Label: "name", Value: appName},
-		{Label: "version", Value: version()},
+func writeVersion(w io.Writer) {
+	fmt.Fprintf(w, "%s %s\n", appName, version())
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
 	}
-	if info != nil {
-		if rev := vcsSetting(info, "vcs.revision"); rev != "" {
-			pairs = append(pairs, laslig.Field{Label: "commit", Value: rev, Identifier: true})
+	if rev := vcsSetting(info, "vcs.revision"); rev != "" {
+		if len(rev) > 12 {
+			rev = rev[:12]
 		}
-		if modified := vcsSetting(info, "vcs.modified"); modified != "" {
-			pairs = append(pairs, laslig.Field{Label: "modified", Value: modified, Muted: true})
-		}
-		pairs = append(pairs, laslig.Field{Label: "go", Value: info.GoVersion, Muted: true})
+		fmt.Fprintf(w, "commit %s\n", rev)
 	}
-	_ = p.KV(laslig.KV{Title: appName, Pairs: pairs})
-}
-
-func renderStartup(w io.Writer) {
-	p := laslig.New(w, humanPolicy())
-	_ = p.Notice(laslig.Notice{
-		Level: laslig.NoticeInfoLevel,
-		Title: fmt.Sprintf("%s %s ready", appName, version()),
-		Body:  "serving MCP over stdio",
-	})
-}
-
-func renderError(w io.Writer, msg string) {
-	p := laslig.New(w, humanPolicy())
-	_ = p.Notice(laslig.Notice{
-		Level: laslig.NoticeErrorLevel,
-		Title: appName,
-		Body:  msg,
-	})
-}
-
-func humanPolicy() laslig.Policy {
-	return laslig.Policy{Format: laslig.FormatAuto, Style: laslig.StyleAuto}
+	if modified := vcsSetting(info, "vcs.modified"); modified == "true" {
+		fmt.Fprintln(w, "modified")
+	}
+	fmt.Fprintf(w, "go %s\n", info.GoVersion)
 }
 
 func version() string {

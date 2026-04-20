@@ -12,11 +12,11 @@ func TestRunVersionPrintsToStdout(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "ta") {
-		t.Errorf("stdout missing app name: %q", out.String())
+	if !strings.HasPrefix(out.String(), "ta ") {
+		t.Errorf("stdout should start with 'ta <version>': %q", out.String())
 	}
-	if !strings.Contains(out.String(), "version") {
-		t.Errorf("stdout missing version label: %q", out.String())
+	if !strings.Contains(out.String(), "go ") {
+		t.Errorf("stdout missing go version line: %q", out.String())
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("stderr should be empty on --version: %q", errOut.String())
