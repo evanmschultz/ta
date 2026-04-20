@@ -29,10 +29,14 @@ func main() {
 		return
 	}
 
-	srv := mcpsrv.New(mcpsrv.Config{
+	srv, err := mcpsrv.New(mcpsrv.Config{
 		Name:    appName,
 		Version: version(),
 	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ta: %v\n", err)
+		os.Exit(1)
+	}
 	if err := srv.Run(context.Background()); err != nil {
 		fmt.Fprintf(os.Stderr, "ta: %v\n", err)
 		os.Exit(1)

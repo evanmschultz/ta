@@ -1,7 +1,10 @@
+// Package mcpsrv wires ta's three tools (get, list_sections, upsert) onto a
+// mark3labs/mcp-go server and serves them over stdio.
 package mcpsrv
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -18,15 +21,28 @@ type Server struct {
 	srv *server.MCPServer
 }
 
-// New constructs an MCP server configured with ta's three tools. Phase 6
-// fills in tool registration; this stub anchors the mcp-go dependency.
-func New(cfg Config) *Server {
+// New constructs an MCP server configured with ta's three tools.
+func New(cfg Config) (*Server, error) {
+	if cfg.Name == "" {
+		return nil, fmt.Errorf("mcpsrv: Config.Name is required")
+	}
+	if cfg.Version == "" {
+		return nil, fmt.Errorf("mcpsrv: Config.Version is required")
+	}
 	srv := server.NewMCPServer(cfg.Name, cfg.Version)
-	return &Server{cfg: cfg, srv: srv}
+	s := &Server{cfg: cfg, srv: srv}
+	s.registerTools()
+	return s, nil
 }
 
-// Run serves MCP over stdio until ctx is cancelled or the transport closes.
+// Run serves MCP over stdio until the transport closes.
 func (s *Server) Run(ctx context.Context) error {
 	_ = ctx
 	return server.ServeStdio(s.srv)
+}
+
+func (s *Server) registerTools() {
+	s.srv.AddTool(getTool(), handleGet)
+	s.srv.AddTool(listSectionsTool(), handleListSections)
+	s.srv.AddTool(upsertTool(), handleUpsert)
 }
