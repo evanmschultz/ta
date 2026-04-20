@@ -12,11 +12,15 @@ Design notes: [`docs/ta.md`](docs/ta.md). Build plan: [`docs/PLAN.md`](docs/PLAN
 
 ## Install
 
+From a clone of this repo:
+
 ```sh
-go install github.com/evanmschultz/ta/cmd/ta@latest
+mage install
 ```
 
-Requires Go 1.26 or newer. The binary is pure Go and statically linkable.
+This builds `ta` and drops the binary at `$HOME/.local/bin/ta`. That directory is on the default `$PATH` on modern Unix, so no Go toolchain is needed to *run* `ta` — only to build it.
+
+Requires Go 1.26 or newer at build time. The binary is pure Go and statically linkable.
 
 ## MCP client config
 
@@ -81,7 +85,7 @@ Validation failures come back as structured JSON — the agent sees exactly whic
 ```sh
 mage check   # fmtcheck, vet, test, tidy
 mage build   # produces ./bin/ta
-mage install # go install into $GOBIN
+mage install # builds and drops the binary at $HOME/.local/bin/ta
 ```
 
 Run `mage -l` for the full target list.
