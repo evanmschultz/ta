@@ -1,0 +1,53 @@
+# Base schema for `ta`. Copied to ~/.ta/schema.toml by `mage install` when
+# the file does not already exist; edit freely after install — re-running
+# `mage install` will not clobber your edits.
+#
+# Each [schema.<name>] table defines a section type. Fields live under
+# [schema.<name>.fields.<field>] with metadata (type, required, enum,
+# description, default). Types: string, integer, float, boolean, datetime,
+# array, table.
+#
+# Resolution: home `~/.ta/schema.toml` is the base layer. Every
+# `.ta/schema.toml` found on the target TOML file's ancestor chain
+# (filesystem-root-to-file order) folds on top. Same-named section types
+# override; types unique to any level are additive.
+
+[schema.task]
+description = "A unit of work tracked in a TOML file."
+
+[schema.task.fields.id]
+type = "string"
+required = true
+description = "Stable identifier, e.g. 'TASK-001'."
+
+[schema.task.fields.status]
+type = "string"
+required = true
+enum = ["todo", "doing", "blocked", "done"]
+description = "Current state of the task."
+
+[schema.task.fields.title]
+type = "string"
+required = true
+description = "One-line summary."
+
+[schema.task.fields.body]
+type = "string"
+description = "Freeform writeup. Markdown with code fences supported."
+
+[schema.note]
+description = "A freeform note — use for meeting notes, journal entries, scratch thinking."
+
+[schema.note.fields.title]
+type = "string"
+required = true
+description = "Short headline for the note."
+
+[schema.note.fields.body]
+type = "string"
+required = true
+description = "Body of the note. Markdown."
+
+[schema.note.fields.tags]
+type = "array"
+description = "Optional tag list, each an unstructured string."

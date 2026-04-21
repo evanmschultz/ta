@@ -7,7 +7,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +32,9 @@ func Build() error {
 
 // Install builds ta from the current working tree and drops the binary at
 // $HOME/.local/bin/ta so MCP clients can invoke it by bare name without
-// requiring a Go toolchain on the end user's machine.
+// requiring a Go toolchain on the end user's machine. Also seeds
+// $HOME/.ta/schema.toml from examples/schema.toml on first install;
+// existing user schemas are never overwritten.
 //
 // Dev-only dogfood target. Orchestrator and subagents MUST NOT invoke it.
 func Install() error {
@@ -43,7 +47,38 @@ func Install() error {
 		return fmt.Errorf("create install dir %q: %w", installDir, err)
 	}
 	installedPath := filepath.Join(installDir, "ta")
-	return run("go", "build", localBuildVCSFlag, "-o", installedPath, "./cmd/ta")
+	if err := run("go", "build", localBuildVCSFlag, "-o", installedPath, "./cmd/ta"); err != nil {
+		return err
+	}
+	return seedHomeSchema(home)
+}
+
+// seedHomeSchema creates $HOME/.ta/ if missing and copies
+// examples/schema.toml to $HOME/.ta/schema.toml when no schema file is
+// already present. An existing schema is left untouched so repeated
+// `mage install` runs never clobber user edits.
+func seedHomeSchema(home string) error {
+	taDir := filepath.Join(home, ".ta")
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
+		return fmt.Errorf("create %q: %w", taDir, err)
+	}
+	dst := filepath.Join(taDir, "schema.toml")
+	if _, err := os.Stat(dst); err == nil {
+		fmt.Printf("ta: leaving existing %s untouched\n", dst)
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("stat %q: %w", dst, err)
+	}
+	src := filepath.Join("examples", "schema.toml")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("read %q: %w", src, err)
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return fmt.Errorf("write %q: %w", dst, err)
+	}
+	fmt.Printf("ta: seeded %s\n", dst)
+	return nil
 }
 
 // Test runs the full test suite with the race detector.
