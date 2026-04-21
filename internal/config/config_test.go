@@ -41,11 +41,11 @@ required = true
 
 func writeConfig(t *testing.T, dir, body string) string {
 	t.Helper()
-	taDir := filepath.Join(dir, ConfigDirName)
+	taDir := filepath.Join(dir, SchemaDirName)
 	if err := os.MkdirAll(taDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	path := filepath.Join(taDir, ConfigFileName)
+	path := filepath.Join(taDir, SchemaFileName)
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -183,18 +183,18 @@ func TestResolveHomeMergesWithAncestor(t *testing.T) {
 	}
 }
 
-func TestResolveNoConfig(t *testing.T) {
+func TestResolveNoSchema(t *testing.T) {
 	isolateHome(t)
 	orphanRoot := t.TempDir()
 	dataFile := filepath.Join(orphanRoot, "tasks.toml")
 
 	_, err := Resolve(dataFile)
-	if !errors.Is(err, ErrNoConfig) {
-		t.Fatalf("err = %v, want ErrNoConfig", err)
+	if !errors.Is(err, ErrNoSchema) {
+		t.Fatalf("err = %v, want ErrNoSchema", err)
 	}
 }
 
-func TestResolveMalformedConfigPropagates(t *testing.T) {
+func TestResolveMalformedSchemaPropagates(t *testing.T) {
 	isolateHome(t)
 	root := t.TempDir()
 	writeConfig(t, root, "[schema.task")
@@ -202,10 +202,10 @@ func TestResolveMalformedConfigPropagates(t *testing.T) {
 	dataFile := filepath.Join(root, "tasks.toml")
 	_, err := Resolve(dataFile)
 	if err == nil {
-		t.Fatal("expected error from malformed config")
+		t.Fatal("expected error from malformed schema")
 	}
-	if errors.Is(err, ErrNoConfig) {
-		t.Fatalf("malformed config must not surface as ErrNoConfig: %v", err)
+	if errors.Is(err, ErrNoSchema) {
+		t.Fatalf("malformed schema must not surface as ErrNoSchema: %v", err)
 	}
 }
 

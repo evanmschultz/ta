@@ -11,19 +11,19 @@ import (
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
-// ErrNoConfig is returned when no .ta/config.toml is found at the home
+// ErrNoSchema is returned when no .ta/schema.toml is found at the home
 // directory nor at any ancestor of the target file path.
-var ErrNoConfig = errors.New("no .ta/config.toml found in project tree or home directory")
+var ErrNoSchema = errors.New("no .ta/schema.toml found in project tree or home directory")
 
-// ConfigFileName is the on-disk name of the schema config file, relative to
+// SchemaFileName is the on-disk name of the schema file, relative to
 // a .ta/ directory.
-const ConfigFileName = "config.toml"
+const SchemaFileName = "schema.toml"
 
-// ConfigDirName is the directory name that holds the schema config.
-const ConfigDirName = ".ta"
+// SchemaDirName is the directory name that holds the schema file.
+const SchemaDirName = ".ta"
 
 // Resolution is the cascade-merged schema for a target file. Sources lists
-// every .ta/config.toml that contributed, in merge order: home first (when
+// every .ta/schema.toml that contributed, in merge order: home first (when
 // not already on the ancestor chain), then ancestors from filesystem root
 // toward the target file. Registry is the merged result; section types
 // defined closer to the target file override same-named types from further
@@ -34,12 +34,12 @@ type Resolution struct {
 }
 
 // Resolve builds the cascade-merged schema Resolution for filePath. It
-// collects every candidate .ta/config.toml along the cascade, loads the
+// collects every candidate .ta/schema.toml along the cascade, loads the
 // ones that exist, and folds them into a single Registry with closer
-// configs overriding further-out ones per section type.
+// schemas overriding further-out ones per section type.
 //
-// If no candidate exists, Resolve returns ErrNoConfig. Malformed configs
-// surface their parse error wrapped in context, never ErrNoConfig.
+// If no candidate exists, Resolve returns ErrNoSchema. Malformed schema
+// files surface their parse error wrapped in context, never ErrNoSchema.
 func Resolve(filePath string) (Resolution, error) {
 	abs, err := filepath.Abs(filePath)
 	if err != nil {
@@ -66,7 +66,7 @@ func Resolve(filePath string) (Resolution, error) {
 	}
 
 	if len(sources) == 0 {
-		return Resolution{}, ErrNoConfig
+		return Resolution{}, ErrNoSchema
 	}
 	return Resolution{Sources: sources, Registry: merged}, nil
 }
@@ -81,7 +81,7 @@ func candidatePaths(absFilePath string) ([]string, error) {
 	var ancestors []string
 	dir := filepath.Dir(absFilePath)
 	for {
-		ancestors = append(ancestors, filepath.Join(dir, ConfigDirName, ConfigFileName))
+		ancestors = append(ancestors, filepath.Join(dir, SchemaDirName, SchemaFileName))
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
@@ -95,7 +95,7 @@ func candidatePaths(absFilePath string) ([]string, error) {
 
 	var out []string
 	if home, err := os.UserHomeDir(); err == nil {
-		homePath := filepath.Join(home, ConfigDirName, ConfigFileName)
+		homePath := filepath.Join(home, SchemaDirName, SchemaFileName)
 		if !slices.Contains(ancestors, homePath) {
 			out = append(out, homePath)
 		}

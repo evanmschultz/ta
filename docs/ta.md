@@ -132,21 +132,21 @@ Stdio MCP servers do not reliably inherit the client's working directory. This i
 
 `ta` sidesteps the problem entirely by **never needing CWD in the first place**.
 
-Every tool already requires a `path` argument — `get` needs to know which file to read, `upsert` needs to know which file to write. Once we have that path, we have all the anchoring we need: start from `~/.ta/config.toml` as the cascade base, then fold in every `.ta/config.toml` found on the ancestor chain from filesystem root down toward the target file.
+Every tool already requires a `path` argument — `get` needs to know which file to read, `upsert` needs to know which file to write. Once we have that path, we have all the anchoring we need: start from `~/.ta/schema.toml` as the cascade base, then fold in every `.ta/schema.toml` found on the ancestor chain from filesystem root down toward the target file.
 
 ```
-~/.ta/config.toml                        ← base layer (home)
+~/.ta/schema.toml                        ← base layer (home)
   ↓
-/Users/me/projects/.ta/config.toml       ← folded in next, if present
+/Users/me/projects/.ta/schema.toml       ← folded in next, if present
   ↓
-/Users/me/projects/foo/.ta/config.toml   ← folded in on top
+/Users/me/projects/foo/.ta/schema.toml   ← folded in on top
   ↓
 /Users/me/projects/foo/work/tasks.toml   ← path arg
 ```
 
-**Cascade-merge, not "closest config wins."** At each level, same-named section types *override* (the closer config's definition replaces the further-out one), while unique section types are *additive* (they carry forward into the merged registry). So a home config that defines `task` and a project config that defines `note` yield a resolved registry containing both. A project config that redefines `task` wins over home's `task` but does not blow away `note` from a child `.ta/config.toml` on the way in.
+**Cascade-merge, not "closest config wins."** At each level, same-named section types *override* (the closer config's definition replaces the further-out one), while unique section types are *additive* (they carry forward into the merged registry). So a home config that defines `task` and a project config that defines `note` yield a resolved registry containing both. A project config that redefines `task` wins over home's `task` but does not blow away `note` from a child `.ta/schema.toml` on the way in.
 
-If neither home nor any ancestor has a `.ta/config.toml`, resolution fails with `ErrNoConfig` — validated upserts are impossible without a schema.
+If neither home nor any ancestor has a `.ta/schema.toml`, resolution fails with `ErrNoSchema` — validated upserts are impossible without a schema.
 
 This approach — walking from a stable base through a known file's ancestor chain — is how `git`, `eslint`, `prettier`, and most of the modern tool ecosystem solve the same problem. It's well-understood by both users and agents.
 
@@ -163,7 +163,7 @@ Schemas are required. Not optional.
 Each section type gets a schema entry. Each field within that type gets its own sub-table with metadata:
 
 ```toml
-# ~/.ta/config.toml or <project>/.ta/config.toml
+# ~/.ta/schema.toml or <project>/.ta/schema.toml
 
 [schema.task]
 description = "A unit of work an agent picks up"
@@ -230,7 +230,7 @@ The schema is the human's contract. The agent reads it — never declares it —
 
 **Validation steps on `upsert`:**
 
-1. Resolve schema by cascade-merge from `~/.ta/config.toml` through every `.ta/config.toml` on the target file's ancestor chain.
+1. Resolve schema by cascade-merge from `~/.ta/schema.toml` through every `.ta/schema.toml` on the target file's ancestor chain.
 2. Determine section type from the first segment of the section path.
 3. Look up `[schema.<type>]` in the merged registry. If not found, fail with a clear error.
 4. For every field marked `required = true`, check the incoming data has it.
@@ -283,7 +283,7 @@ These came up during design and were deliberately rejected. Documented here so t
 Minimal. Three direct dependencies plus stdlib.
 
 - `github.com/mark3labs/mcp-go` — MCP server SDK.
-- `github.com/pelletier/go-toml/v2` — used **only for parsing the schema config file** (`~/.ta/config.toml` and project overrides). The user's actual TOML data files go through the scanner, not this library. Using a real TOML parser for our own config keeps schema-loading code trivial; we only pay the no-comment-preservation cost on a file we own and control.
+- `github.com/pelletier/go-toml/v2` — used **only for parsing the schema config file** (`~/.ta/schema.toml` and project overrides). The user's actual TOML data files go through the scanner, not this library. Using a real TOML parser for our own config keeps schema-loading code trivial; we only pay the no-comment-preservation cost on a file we own and control.
 - `github.com/odvcencio/gotreesitter` — anchored dependency, not load-bearing. Retained in `go.mod` as a candidate replacement for the scanner if upstream fixes the multi-line-string grammar bug.
 - Standard library: `os`, `path/filepath`, `context`, `fmt`, `errors`.
 

@@ -114,7 +114,7 @@ Parser is **not** safe for concurrent use — one parser per goroutine, or const
 
 ## `github.com/pelletier/go-toml/v2` v2.3.0
 
-Used only for schema config parsing (`~/.ta/config.toml` and project overrides).
+Used only for schema file parsing (`~/.ta/schema.toml` and project overrides).
 
 ```go
 toml.Unmarshal(data []byte, v any) error

@@ -50,9 +50,9 @@ claude mcp list
 
 ## Schemas
 
-`ta` resolves schemas by cascade-merging from `~/.ta/config.toml` (the base) down through every `.ta/config.toml` in the target file's directory chain. Schemas defined closer to the target file supersede same-named schemas from further out; schemas unique to any level are additive. If neither home nor any ancestor has a `.ta/config.toml`, the call fails with a clear error.
+`ta` resolves schemas by cascade-merging from `~/.ta/schema.toml` (the base) down through every `.ta/schema.toml` in the target file's directory chain. Schemas defined closer to the target file supersede same-named schemas from further out; schemas unique to any level are additive. If neither home nor any ancestor has a `.ta/schema.toml`, the call fails with a clear error.
 
-Example `.ta/config.toml`:
+Example `.ta/schema.toml`:
 
 ```toml
 [schema.task]

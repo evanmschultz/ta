@@ -26,7 +26,7 @@ type = "string"
 required = true
 `
 
-// fixture builds a project root with a .ta/config.toml and returns the path
+// fixture builds a project root with a .ta/schema.toml and returns the path
 // that should be passed as the data-file argument to each tool.
 type fixture struct {
 	projectRoot string
@@ -43,7 +43,7 @@ func newFixture(t *testing.T) fixture {
 	if err := os.MkdirAll(taDir, 0o755); err != nil {
 		t.Fatalf("mkdir .ta: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(taDir, "config.toml"), []byte(taskSchema), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(taskSchema), 0o644); err != nil {
 		t.Fatalf("write schema: %v", err)
 	}
 	return fixture{projectRoot: root, dataPath: filepath.Join(root, "tasks.toml")}

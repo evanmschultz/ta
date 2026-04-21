@@ -11,7 +11,7 @@ Everything in this plan is sized for a single worktree (`main/`) on a bare repo.
 **In scope for MVP (single `main/` worktree):**
 
 - MCP server over stdio, three tools: `get`, `list_sections`, `upsert`.
-- Schema resolution by walking up from the file path arg → project `.ta/config.toml` → `~/.ta/config.toml`.
+- Schema resolution by walking up from the file path arg → project `.ta/schema.toml` → `~/.ta/schema.toml`.
 - Pure-Go section scanner + surgical byte-splice for upsert (comments outside touched section preserved verbatim).
 - Canonical emission for the upserted section only.
 - Structured validation errors returned to the agent (required / type / enum).
@@ -101,7 +101,7 @@ main/
 │       └── main.go              # entrypoint — flag parsing, laslig for CLI surfaces, hand off to mcpsrv
 ├── internal/
 │   ├── config/
-│   │   ├── config.go            # walk-up resolution; load ~/.ta/config.toml + project override via go-toml
+│   │   ├── config.go            # walk-up resolution; load ~/.ta/schema.toml + project override via go-toml
 │   │   └── config_test.go
 │   ├── schema/
 │   │   ├── schema.go            # Schema, Field, Type types
@@ -221,7 +221,7 @@ Tests: table-driven; cover every failure mode from the example error in `ta.md`.
 
 ### 8.3 Phase 3 — `config` package
 
-1. `config.Resolve(filePath string) (*schema.Schema, error)` walking from `filePath`'s directory upward until a `.ta/config.toml` is found, else `~/.ta/config.toml`, else a typed `ErrNoConfig`.
+1. `config.Resolve(filePath string) (*schema.Schema, error)` walking from `filePath`'s directory upward until a `.ta/schema.toml` is found, else `~/.ta/schema.toml`, else a typed `ErrNoSchema`.
 2. Caching is YAGNI for MVP — re-resolve per call, cheap.
 
 Tests: use `t.TempDir()` for filesystem layouts; do not mock `os`.

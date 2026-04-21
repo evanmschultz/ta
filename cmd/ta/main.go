@@ -38,8 +38,8 @@ const longDescription = "# ta\n\n" +
 	"- `ta list-sections <path>` — enumerate every section in a file\n" +
 	"- `ta schema <path> [section]` — show the resolved schema\n" +
 	"- `ta upsert <path> <section> --data <json>` — create or update a section\n\n" +
-	"Schemas resolve by cascade-merge: `~/.ta/config.toml` is the base " +
-	"layer, and every `.ta/config.toml` on the target file's ancestor " +
+	"Schemas resolve by cascade-merge: `~/.ta/schema.toml` is the base " +
+	"layer, and every `.ta/schema.toml` on the target file's ancestor " +
 	"chain is folded on top — same-named section types override, unique " +
 	"types are additive."
 
