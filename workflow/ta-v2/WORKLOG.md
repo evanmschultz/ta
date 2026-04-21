@@ -60,7 +60,7 @@ Status: ⏳ spawned 2026-04-21.
 
 **Surprises:** none. Clean rename + one adapter file.
 
-**Commit:** pending.
+**Commit:** `1e636d9` — `refactor(backend): extract record.Backend and move tomlfile to backend/toml`.
 
 ### QA Proof — go-qa-proof-agent
 
