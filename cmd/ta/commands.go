@@ -110,8 +110,15 @@ func newSchemaCmd() *cobra.Command {
 					db, _ := resolution.Registry.LookupDB(section)
 					db.Types = map[string]schema.SectionType{t.Name: t}
 					dbs = map[string]schema.DB{db.Name: db}
-				} else if db, ok := resolution.Registry.LookupDB(section); ok {
-					dbs = map[string]schema.DB{db.Name: db}
+				} else if !strings.Contains(section, ".") {
+					// Db-scoped fallback is only valid for a bare db name —
+					// a dotted section with no type match is a typo, not an
+					// alias for the whole db (see V2-PLAN §1.1).
+					if db, ok := resolution.Registry.LookupDB(section); ok {
+						dbs = map[string]schema.DB{db.Name: db}
+					} else {
+						return fmt.Errorf("no schema registered for section %q in %s", section, path)
+					}
 				} else {
 					return fmt.Errorf("no schema registered for section %q in %s", section, path)
 				}

@@ -485,6 +485,26 @@ func TestSchemaUnknownSectionTypeReturnsError(t *testing.T) {
 	}
 }
 
+// TestSchemaDottedTypoDoesNotFallBackToDB guards V2-PLAN §1.1 "path typos
+// fail loudly": a dotted query like "plans.ghost" must error when the type
+// is unknown, not silently resolve to the whole plans db via the LookupDB
+// first-segment fallback (regression from §12.2 commit ca0b63e).
+func TestSchemaDottedTypoDoesNotFallBackToDB(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+
+	res := callTool(t, c, "schema", map[string]any{
+		"path":    fx.dataPath,
+		"section": "plans.ghost",
+	})
+	if !res.IsError {
+		t.Fatalf("expected IsError=true for dotted typo, got: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "no schema registered") {
+		t.Errorf("error missing 'no schema registered': %s", firstText(t, res))
+	}
+}
+
 func TestSchemaNoConfigReturnsResolveError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

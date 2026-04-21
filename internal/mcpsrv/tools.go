@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/config"
@@ -246,15 +247,19 @@ func handleSchema(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 				Type:        &tv,
 			})
 		}
-		// Fall back to db-scoped (<db>).
-		if db, ok := resolution.Registry.LookupDB(section); ok {
-			dv := toDBView(db)
-			return mcp.NewToolResultJSON(schemaResult{
-				Path:        path,
-				SchemaPaths: resolution.Sources,
-				Section:     section,
-				DB:          &dv,
-			})
+		// Db-scoped fallback is only valid for a bare db name — a dotted
+		// section with no type match is a typo, not an alias for the whole
+		// db (see V2-PLAN §1.1).
+		if !strings.Contains(section, ".") {
+			if db, ok := resolution.Registry.LookupDB(section); ok {
+				dv := toDBView(db)
+				return mcp.NewToolResultJSON(schemaResult{
+					Path:        path,
+					SchemaPaths: resolution.Sources,
+					Section:     section,
+					DB:          &dv,
+				})
+			}
 		}
 		return mcp.NewToolResultError(
 			fmt.Sprintf("no schema registered for section %q in %s", section, path)), nil
