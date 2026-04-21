@@ -9,6 +9,17 @@ import (
 
 // Section describes a TOML section (or array-of-tables entry) within a file,
 // with byte ranges that make surgical splicing possible.
+//
+// Byte layout from lowest to highest offset is:
+//
+//	HeadRange.Start == Range.Start
+//	HeadRange.End   == HeaderRange.Start     (leading comment block attached
+//	                                          to this header, possibly empty)
+//	HeaderRange.End == BodyRange.Start       (the '[path]' line + its '\n')
+//	BodyRange.End   == Range.End             (body content, trailing blank
+//	                                          lines and the next section's
+//	                                          leading comment block are NOT
+//	                                          included here)
 type Section struct {
 	// Path is the bracketed path, e.g. "task.task_001" for [task.task_001]
 	// or "notes" for [[notes]]. Surrounding whitespace inside the brackets
@@ -16,14 +27,21 @@ type Section struct {
 	Path string
 	// ArrayOfTables is true if the section was declared with [[...]].
 	ArrayOfTables bool
-	// Range is [start, end) bytes of the entire section: the opening '['
-	// through the byte before the next section header or EOF.
+	// Range is [start, end) bytes of everything this section owns: leading
+	// comment block, header line, and body (no trailing blank separator or
+	// next section's leading comments).
 	Range [2]int
+	// HeadRange is [start, end) bytes of the leading comment block —
+	// comment lines directly above the header with no blank line between
+	// the last comment and the header. Empty when no such block exists;
+	// in that case HeadRange.Start == HeadRange.End == HeaderRange.Start.
+	HeadRange [2]int
 	// HeaderRange is [start, end) bytes of the header line including the
 	// trailing newline (or EOF if the header is on the last line).
 	HeaderRange [2]int
 	// BodyRange is [start, end) bytes of the section body — everything
-	// between HeaderRange.End and Range.End.
+	// between HeaderRange.End and the last content newline before the next
+	// section's leading comment block (or EOF).
 	BodyRange [2]int
 }
 
@@ -98,20 +116,106 @@ type sectionHeader struct {
 
 func buildSections(buf []byte, headers []sectionHeader) []Section {
 	sections := make([]Section, len(headers))
+	leadStarts := make([]int, len(headers))
 	for i, h := range headers {
-		endByte := len(buf)
+		leadStarts[i] = scanLeadingCommentStart(buf, h.startByte)
+	}
+	for i, h := range headers {
+		var nextLead int
 		if i+1 < len(headers) {
-			endByte = headers[i+1].startByte
+			nextLead = leadStarts[i+1]
+		} else {
+			nextLead = len(buf)
 		}
+		bodyEnd := scanBodyEnd(buf, h.headerEndByte, nextLead)
 		sections[i] = Section{
 			Path:          h.path,
 			ArrayOfTables: h.isArrayOfTables,
-			Range:         [2]int{h.startByte, endByte},
+			Range:         [2]int{leadStarts[i], bodyEnd},
+			HeadRange:     [2]int{leadStarts[i], h.startByte},
 			HeaderRange:   [2]int{h.startByte, h.headerEndByte},
-			BodyRange:     [2]int{h.headerEndByte, endByte},
+			BodyRange:     [2]int{h.headerEndByte, bodyEnd},
 		}
 	}
 	return sections
+}
+
+// scanLeadingCommentStart walks back from headerStart to find the start of
+// the leading comment block attached to this header. A comment line is
+// "attached" when the line immediately above the header is a comment (no
+// blank line between); the block extends upward through adjacent comment
+// lines, stopping at a blank line, non-comment content, or BOF.
+// Returns headerStart when no leading block exists.
+func scanLeadingCommentStart(buf []byte, headerStart int) int {
+	if headerStart == 0 || buf[headerStart-1] != '\n' {
+		return headerStart
+	}
+	blockStart := headerStart
+	lineEnd := headerStart - 1
+	for {
+		lineStart := lineEnd
+		for lineStart > 0 && buf[lineStart-1] != '\n' {
+			lineStart--
+		}
+		if !isCommentLine(buf, lineStart, lineEnd) {
+			break
+		}
+		blockStart = lineStart
+		if lineStart == 0 {
+			break
+		}
+		lineEnd = lineStart - 1
+	}
+	return blockStart
+}
+
+// scanBodyEnd returns the offset after the last content (key-value) line of
+// a section body. It walks back from nextLeadStart, skipping trailing blank
+// lines and comment lines so that stranded comments and blank separators
+// between sections survive UPDATE splicing unchanged. The first non-blank,
+// non-comment line encountered defines the body's logical end; the returned
+// offset is just past that line's trailing newline.
+//
+// Trailing comments inside a section that end up "relocated" after a new
+// body are preserved bytes, never regenerated ones — this keeps byte-identity
+// for human-authored content even though a reader may now read them as
+// attached to the new body rather than the old one.
+//
+// If the entire span between headerEnd and nextLeadStart is blank or
+// comment-only, scanBodyEnd returns headerEnd.
+func scanBodyEnd(buf []byte, headerEnd, nextLeadStart int) int {
+	i := nextLeadStart
+	for i > headerEnd {
+		if buf[i-1] != '\n' {
+			return i
+		}
+		lineStart := i - 1
+		for lineStart > headerEnd && buf[lineStart-1] != '\n' {
+			lineStart--
+		}
+		if !isBlankLine(buf, lineStart, i-1) && !isCommentLine(buf, lineStart, i-1) {
+			return i
+		}
+		i = lineStart
+	}
+	return headerEnd
+}
+
+func isCommentLine(buf []byte, lineStart, lineEnd int) bool {
+	j := lineStart
+	for j < lineEnd && (buf[j] == ' ' || buf[j] == '\t') {
+		j++
+	}
+	return j < lineEnd && buf[j] == '#'
+}
+
+func isBlankLine(buf []byte, lineStart, lineEnd int) bool {
+	for j := lineStart; j < lineEnd; j++ {
+		if buf[j] != ' ' && buf[j] != '\t' {
+			return false
+		}
+	}
+	return true
 }
 
 // scanSections walks buf and records every TOML section header it finds.

@@ -28,7 +28,7 @@ type server.ToolHandlerFunc func(
 ) (*mcp.CallToolResult, error)
 ```
 
-This is the canonical handler signature for ta's three tools.
+This is the canonical handler signature for ta's four tools (`get`, `list_sections`, `schema`, `upsert`).
 
 ### Tool definition
 

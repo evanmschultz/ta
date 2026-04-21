@@ -305,6 +305,86 @@ func TestFileFind(t *testing.T) {
 	}
 }
 
+// TestParseBytesLeadingCommentAttachesToFollowingSection verifies that a
+// comment block directly above a header is attached to that header via
+// HeadRange, and Range spans lead+header+body.
+func TestParseBytesLeadingCommentAttachesToFollowingSection(t *testing.T) {
+	src := []byte("# lead one\n# lead two\n[task.a]\nid = \"A\"\n")
+	f, err := ParseBytes("x.toml", src)
+	if err != nil {
+		t.Fatalf("ParseBytes: %v", err)
+	}
+	if len(f.Sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(f.Sections))
+	}
+	s := f.Sections[0]
+	head := string(src[s.HeadRange[0]:s.HeadRange[1]])
+	if head != "# lead one\n# lead two\n" {
+		t.Errorf("HeadRange = %q, want both lead lines", head)
+	}
+	full := string(src[s.Range[0]:s.Range[1]])
+	if !strings.HasPrefix(full, "# lead one\n# lead two\n[task.a]\n") {
+		t.Errorf("Range does not start with lead+header: %q", full)
+	}
+}
+
+// TestParseBytesBlankLineBreaksLeadAttachment verifies the adjacency rule:
+// when a blank line separates comments from the header, the comments are NOT
+// part of the leading block.
+func TestParseBytesBlankLineBreaksLeadAttachment(t *testing.T) {
+	src := []byte("# orphan\n\n# adjacent\n[task.a]\nid = \"A\"\n")
+	f, err := ParseBytes("x.toml", src)
+	if err != nil {
+		t.Fatalf("ParseBytes: %v", err)
+	}
+	s := f.Sections[0]
+	head := string(src[s.HeadRange[0]:s.HeadRange[1]])
+	if head != "# adjacent\n" {
+		t.Errorf("HeadRange = %q, want only '# adjacent\\n'", head)
+	}
+}
+
+// TestParseBytesLeadBelongsToFollowingNotPrevious verifies that a comment
+// block between two sections is attached to the FOLLOWING section, not the
+// previous one — the fix for the bug where upsert wiped trailing comments.
+func TestParseBytesLeadBelongsToFollowingNotPrevious(t *testing.T) {
+	src := []byte("[task.a]\nid = \"A\"\n\n# lead for b\n[task.b]\nid = \"B\"\n")
+	f, err := ParseBytes("x.toml", src)
+	if err != nil {
+		t.Fatalf("ParseBytes: %v", err)
+	}
+	if len(f.Sections) != 2 {
+		t.Fatalf("sections = %d, want 2", len(f.Sections))
+	}
+	a, b := f.Sections[0], f.Sections[1]
+	aFull := string(src[a.Range[0]:a.Range[1]])
+	if strings.Contains(aFull, "# lead for b") {
+		t.Errorf("task.a Range leaked task.b's lead: %q", aFull)
+	}
+	bHead := string(src[b.HeadRange[0]:b.HeadRange[1]])
+	if bHead != "# lead for b\n" {
+		t.Errorf("task.b HeadRange = %q, want '# lead for b\\n'", bHead)
+	}
+}
+
+// TestParseBytesNoLeadingCommentHasEmptyHead verifies that HeadRange is
+// correctly empty (collapsed at HeaderRange.Start) when no leading comment
+// block exists.
+func TestParseBytesNoLeadingCommentHasEmptyHead(t *testing.T) {
+	src := []byte("[task.a]\nid = \"A\"\n")
+	f, err := ParseBytes("x.toml", src)
+	if err != nil {
+		t.Fatalf("ParseBytes: %v", err)
+	}
+	s := f.Sections[0]
+	if s.HeadRange[0] != s.HeadRange[1] {
+		t.Errorf("HeadRange = %v, want empty", s.HeadRange)
+	}
+	if s.HeadRange[1] != s.HeaderRange[0] {
+		t.Errorf("HeadRange.End = %d, HeaderRange.Start = %d", s.HeadRange[1], s.HeaderRange[0])
+	}
+}
+
 func stringsEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

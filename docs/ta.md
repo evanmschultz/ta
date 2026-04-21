@@ -22,22 +22,26 @@ It also happens to read as **T**OML + **A**ST, or "TOML t**a**ker.", an accident
 
 ## What it does
 
-Only three tools.
+Four tools.
 
 ### `get`
 
-Read a section from a TOML file by its bracket path, (supporting nested schemas (`x.y.z`).
+Read a section from a TOML file by its bracket path (supporting nested paths like `x.y.z`). Returns the section's leading comment block together with the header and body — human-written docstrings survive the round-trip.
 
 ### `list_sections`
 
-Enumerate all sections in a TOML file.
+Enumerate all sections in a TOML file, in file order.
+
+### `schema`
+
+Return the resolved schema for a TOML file. Without a `section` argument, returns every section type in the cascade-merged registry. With `section` set (dot-notated like `task.task_001`), returns just the type matched by the first segment. This is the **authoring / discovery signal** — agents call `schema` to learn the contract before authoring, and rely on `upsert`'s structured validation errors as the **enforcement signal** on write.
 
 ### `upsert`
 
-Create or update a section. Validates against the resolved schema. Fails loudly if required fields are missing or types don't match.
+Create or update a section. Validates against the resolved schema. Fails loudly with a structured JSON error if required fields are missing, types don't match, or enum values are violated.
 
 > [IMPORTANT!] NOTE
-> All three take a file path as an argument. The path is always required (see "CWD problem" below for why).
+> All four tools take a file path as an argument. The path is always required (see "CWD problem" below for why).
 
 ---
 
@@ -128,20 +132,23 @@ Stdio MCP servers do not reliably inherit the client's working directory. This i
 
 `ta` sidesteps the problem entirely by **never needing CWD in the first place**.
 
-Every tool already requires a `path` argument — `get` needs to know which file to read, `upsert` needs to know which file to write. Once we have that path, we have all the anchoring we need: walk up from the file's directory looking for `.ta/config.toml`, and if nothing is found, fall back to `~/.ta/config.toml`.
+Every tool already requires a `path` argument — `get` needs to know which file to read, `upsert` needs to know which file to write. Once we have that path, we have all the anchoring we need: start from `~/.ta/config.toml` as the cascade base, then fold in every `.ta/config.toml` found on the ancestor chain from filesystem root down toward the target file.
 
 ```
-/Users/me/projects/foo/work/tasks.toml  ← path arg
-  ↑ walk up looking for .ta/config.toml
-  ↑
-/Users/me/projects/foo/.ta/config.toml  ← found here? use it
-  ↑
-~/.ta/config.toml                       ← otherwise fall back to global
+~/.ta/config.toml                        ← base layer (home)
+  ↓
+/Users/me/projects/.ta/config.toml       ← folded in next, if present
+  ↓
+/Users/me/projects/foo/.ta/config.toml   ← folded in on top
+  ↓
+/Users/me/projects/foo/work/tasks.toml   ← path arg
 ```
 
-**Closer configs win.** A project-local `.ta/config.toml` supersedes the root config. This mirrors how most "walk up to find config" tools behave and keeps per-project schema customization trivial.
+**Cascade-merge, not "closest config wins."** At each level, same-named section types *override* (the closer config's definition replaces the further-out one), while unique section types are *additive* (they carry forward into the merged registry). So a home config that defines `task` and a project config that defines `note` yield a resolved registry containing both. A project config that redefines `task` wins over home's `task` but does not blow away `note` from a child `.ta/config.toml` on the way in.
 
-This approach — walking up from a known file path to find config — is how `git`, `eslint`, `prettier`, and most of the modern tool ecosystem solve the same problem. It's well-understood by both users and agents.
+If neither home nor any ancestor has a `.ta/config.toml`, resolution fails with `ErrNoConfig` — validated upserts are impossible without a schema.
+
+This approach — walking from a stable base through a known file's ancestor chain — is how `git`, `eslint`, `prettier`, and most of the modern tool ecosystem solve the same problem. It's well-understood by both users and agents.
 
 ---
 
@@ -211,13 +218,21 @@ Field metadata supports:
 
 No magic `_type` field needed in each section. Predictable, simple, easy for agents to learn.
 
-### Validation
+### Discovery and validation
 
-On `upsert`:
+The schema is the human's contract. The agent reads it — never declares it — through the `schema` tool; the server enforces it on `upsert`.
 
-1. Resolve schema by walking up from the file path arg.
+**Agent workflow:**
+
+1. Call `schema(path)` once per file to learn every section type the human has registered (fields, types, required flags, enums, descriptions, defaults). With `schema(path, section="task.task_001")` the result is narrowed to just the `task` type.
+2. Author data for `upsert`, knowing the contract in advance.
+3. On malformed calls, `upsert` returns a structured validation error (same rules listed below) — fallback teaching signal.
+
+**Validation steps on `upsert`:**
+
+1. Resolve schema by cascade-merge from `~/.ta/config.toml` through every `.ta/config.toml` on the target file's ancestor chain.
 2. Determine section type from the first segment of the section path.
-3. Look up `[schema.<type>]`. If not found, fail with a clear error.
+3. Look up `[schema.<type>]` in the merged registry. If not found, fail with a clear error.
 4. For every field marked `required = true`, check the incoming data has it.
 5. For every field in the incoming data, check its type matches the schema declaration.
 6. If `enum` is set, check the value is in the allowed list.
@@ -249,7 +264,7 @@ These came up during design and were deliberately rejected. Documented here so t
 - **Diffing or merging.** Out of scope.
 - **A separate formatter library (taplo, etc.).** The splicer is the formatter. Adding a separate formatter would mutate human-authored regions, which defeats the point.
 - **Optional schemas.** Schemas are required by design — see "Schema design" reasoning above.
-- **Comment preservation inside upserted sections.** Comments outside the section are preserved by splicing. Comments _inside_ the section being upserted are replaced along with the section. (Acceptable: the agent owns its own sections; the human's comments belong in untouched parts of the file.)
+- **Comment preservation inside upserted sections.** Comments outside the target section are preserved by splicing. The section's own **leading comment block** (contiguous `#` lines directly above `[header]`, no blank line between the last comment and the header) is also preserved on update — it's treated as the section's docstring, returnable by `get` and carried through `upsert` unchanged. Trailing comments and blank separators between the body and the next section survive too. Comments _inside_ the body (interleaved between key-value pairs) are still replaced along with the body. (Acceptable: the agent owns its own body; the human's docstring and the file's whitespace structure around the section survive every agent interaction.)
 
 ---
 

@@ -162,6 +162,49 @@ func TestSpliceAddsMissingNewlineToReplacement(t *testing.T) {
 	}
 }
 
+// TestSpliceUpdatePreservesLeadingCommentBlock guards against regressing the
+// bug where updating an existing section wiped the human-written comment
+// block attached to its header.
+func TestSpliceUpdatePreservesLeadingCommentBlock(t *testing.T) {
+	src := []byte("# docstring for a\n# second line\n[task.a]\nid = \"OLD\"\n\n[task.b]\nid = \"B\"\n")
+	f, err := ParseBytes("x.toml", src)
+	if err != nil {
+		t.Fatalf("ParseBytes: %v", err)
+	}
+	replacement := []byte("[task.a]\nid = \"NEW\"\n")
+	out, err := f.Splice("task.a", replacement)
+	if err != nil {
+		t.Fatalf("Splice: %v", err)
+	}
+	if !bytes.Contains(out, []byte("# docstring for a\n# second line\n[task.a]")) {
+		t.Errorf("leading comment block wiped on update: %s", out)
+	}
+	if bytes.Contains(out, []byte(`id = "OLD"`)) {
+		t.Errorf("old body leaked: %s", out)
+	}
+}
+
+// TestSpliceUpdatePreservesTrailingStrandedComments guards against regressing
+// the bug where updating a section wiped blank lines and stranded comments
+// that fell between the section's body and the next section's leading block.
+func TestSpliceUpdatePreservesTrailingStrandedComments(t *testing.T) {
+	src := []byte("[task.a]\nid = \"OLD\"\n\n# stranded between\n\n# lead for b\n[task.b]\nid = \"B\"\n")
+	f, err := ParseBytes("x.toml", src)
+	if err != nil {
+		t.Fatalf("ParseBytes: %v", err)
+	}
+	replacement := []byte("[task.a]\nid = \"NEW\"\n")
+	out, err := f.Splice("task.a", replacement)
+	if err != nil {
+		t.Fatalf("Splice: %v", err)
+	}
+	for _, want := range []string{"# stranded between", "# lead for b", "[task.b]", `id = "B"`} {
+		if !bytes.Contains(out, []byte(want)) {
+			t.Errorf("missing %q after update: %s", want, out)
+		}
+	}
+}
+
 func TestSpliceEmptyPathRejected(t *testing.T) {
 	f, _ := ParseBytes("x.toml", []byte("[a]\nx = 1\n"))
 	if _, err := f.Splice("", []byte("[x]\n")); err == nil {

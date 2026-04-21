@@ -1,5 +1,7 @@
 package schema
 
+import "maps"
+
 // Type is the declared type of a schema field, matching TOML's native types.
 // The string form is the wire representation in the schema config and in the
 // JSON contract of *ValidationError.
@@ -71,6 +73,20 @@ func (r Registry) Lookup(sectionPath string) (SectionType, bool) {
 	name := firstSegment(sectionPath)
 	t, ok := r.Types[name]
 	return t, ok
+}
+
+// Override returns a new Registry containing every SectionType from r, with
+// same-named SectionTypes from other replacing r's entries, and SectionTypes
+// unique to either retained. Neither r nor other is mutated.
+//
+// This is the cascade-merge primitive: callers walk the config chain from
+// base (home) to most-specific (closest to the target file) and fold each
+// loaded Registry with accumulator = accumulator.Override(loaded).
+func (r Registry) Override(other Registry) Registry {
+	merged := Registry{Types: make(map[string]SectionType, len(r.Types)+len(other.Types))}
+	maps.Copy(merged.Types, r.Types)
+	maps.Copy(merged.Types, other.Types)
+	return merged
 }
 
 func firstSegment(path string) string {

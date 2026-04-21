@@ -19,15 +19,17 @@ import (
 const appName = "ta"
 
 const helpBody = `ta speaks MCP over stdio. Point an MCP client (e.g. Claude Code) at this binary
-and it exposes three tools:
+and it exposes four tools:
 
   get            read a TOML section by bracket path
   list_sections  list every section in a file
+  schema         show the resolved schema (whole file or a single section type)
   upsert         create or update a section, validated against .ta/config.toml
 
-Schemas resolve by walking up from the target file for a .ta/config.toml,
-then falling back to ~/.ta/config.toml. All tool arguments arrive via MCP;
-the binary itself reads only the flags listed below.`
+Schemas resolve by cascade-merge: ~/.ta/config.toml is the base layer, and
+every .ta/config.toml on the target file's ancestor chain is folded on top —
+same-named section types override, unique types are additive. All tool
+arguments arrive via MCP; the binary itself reads only the flags listed below.`
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))

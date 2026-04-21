@@ -97,13 +97,13 @@ func firstText(t *testing.T, res *mcp.CallToolResult) string {
 	return tc.Text
 }
 
-func TestListToolsExposesAllThree(t *testing.T) {
+func TestListToolsExposesAllFour(t *testing.T) {
 	c := newClient(t)
 	res, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	want := map[string]bool{"get": false, "list_sections": false, "upsert": false}
+	want := map[string]bool{"get": false, "list_sections": false, "schema": false, "upsert": false}
 	for _, tool := range res.Tools {
 		if _, tracked := want[tool.Name]; tracked {
 			want[tool.Name] = true
@@ -326,6 +326,120 @@ func TestNewRejectsEmptyConfig(t *testing.T) {
 	}
 	if _, err := mcpsrv.New(mcpsrv.Config{Version: "1.0"}); err == nil {
 		t.Fatal("expected error on missing Name")
+	}
+}
+
+func TestSchemaReturnsAllTypesWhenSectionOmitted(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+
+	res := callTool(t, c, "schema", map[string]any{"path": fx.dataPath})
+	if res.IsError {
+		t.Fatalf("schema errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Path        string   `json:"path"`
+		SchemaPaths []string `json:"schema_paths"`
+		Types       map[string]struct {
+			Name   string `json:"name"`
+			Fields map[string]struct {
+				Type     string `json:"type"`
+				Required bool   `json:"required"`
+			} `json:"fields"`
+		} `json:"types"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("schema body is not JSON: %v", err)
+	}
+	if payload.Path != fx.dataPath {
+		t.Errorf("path = %q, want %q", payload.Path, fx.dataPath)
+	}
+	if len(payload.SchemaPaths) == 0 {
+		t.Errorf("schema_paths empty")
+	}
+	task, ok := payload.Types["task"]
+	if !ok {
+		t.Fatalf("task type missing from types: %s", firstText(t, res))
+	}
+	if task.Name != "task" {
+		t.Errorf("task.name = %q, want 'task'", task.Name)
+	}
+	if _, ok := task.Fields["id"]; !ok {
+		t.Errorf("task.id field missing")
+	}
+	if !task.Fields["status"].Required {
+		t.Errorf("task.status should be required")
+	}
+}
+
+func TestSchemaNarrowsToSingleTypeWhenSectionGiven(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+
+	res := callTool(t, c, "schema", map[string]any{
+		"path":    fx.dataPath,
+		"section": "task.task_001",
+	})
+	if res.IsError {
+		t.Fatalf("schema errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Section string `json:"section"`
+		Type    *struct {
+			Name   string `json:"name"`
+			Fields map[string]struct {
+				Type     string `json:"type"`
+				Required bool   `json:"required"`
+			} `json:"fields"`
+		} `json:"type"`
+		Types map[string]any `json:"types"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("schema body is not JSON: %v", err)
+	}
+	if payload.Section != "task.task_001" {
+		t.Errorf("section = %q, want task.task_001", payload.Section)
+	}
+	if payload.Type == nil {
+		t.Fatal("type field nil, want task type")
+	}
+	if payload.Type.Name != "task" {
+		t.Errorf("type.name = %q, want task", payload.Type.Name)
+	}
+	if len(payload.Types) != 0 {
+		t.Errorf("types field should be omitted when section narrows: %v", payload.Types)
+	}
+}
+
+func TestSchemaUnknownSectionTypeReturnsError(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+
+	res := callTool(t, c, "schema", map[string]any{
+		"path":    fx.dataPath,
+		"section": "nope.x",
+	})
+	if !res.IsError {
+		t.Fatalf("expected IsError=true for unknown section type, got: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "no schema registered") {
+		t.Errorf("error missing 'no schema registered': %s", firstText(t, res))
+	}
+}
+
+func TestSchemaNoConfigReturnsResolveError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	orphan := t.TempDir()
+	dataPath := filepath.Join(orphan, "nope.toml")
+
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{"path": dataPath})
+	if !res.IsError {
+		t.Fatal("expected IsError=true when no schema config resolvable")
+	}
+	if !strings.Contains(firstText(t, res), "resolve schema") {
+		t.Errorf("unexpected error text: %s", firstText(t, res))
 	}
 }
 

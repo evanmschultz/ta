@@ -10,14 +10,17 @@ import (
 // blank-line separator if needed.
 //
 // Byte-identity invariant (load-bearing for ta's whole design):
-// every byte of f.Buf that falls outside the target section's Range is copied
-// through to the output unchanged. Comments, whitespace, unrelated sections,
-// literal and multi-line strings, and header ordering are all preserved
-// exactly as the user wrote them. Only the bytes of the target section
-// itself — header through the boundary before the next section — are
-// rewritten, and exactly one trailing newline that separated the section
-// from what followed is kept. The replacement content is assumed to be
-// canonicalized by the caller (typically via EmitSection).
+// every byte of f.Buf that falls outside the target section's [HeaderRange.Start,
+// BodyRange.End) span is copied through to the output unchanged. This preserves:
+//   - file-level content before the first section,
+//   - the target section's own leading comment block (HeadRange),
+//   - blank-line separators between sections,
+//   - the next section's leading comment block (its HeadRange),
+//   - all bytes of unrelated sections.
+//
+// Only the header line and body of the target section are rewritten. The
+// replacement is assumed to be canonicalized by the caller (typically via
+// EmitSection) and therefore does not carry a leading comment.
 //
 // This function never mutates f.Buf.
 func (f *File) Splice(sectionPath string, replacement []byte) ([]byte, error) {
@@ -36,18 +39,10 @@ func (f *File) Splice(sectionPath string, replacement []byte) ([]byte, error) {
 		rep = append(append([]byte{}, rep...), '\n')
 	}
 
-	contentEnd := s.Range[1]
-	for contentEnd > s.HeaderRange[0] && f.Buf[contentEnd-1] == '\n' {
-		contentEnd--
-	}
-	if contentEnd < s.Range[1] {
-		contentEnd++
-	}
-
-	out := make([]byte, 0, s.Range[0]+len(rep)+(len(f.Buf)-s.Range[1])+(s.Range[1]-contentEnd))
-	out = append(out, f.Buf[:s.Range[0]]...)
+	out := make([]byte, 0, len(f.Buf)+len(rep))
+	out = append(out, f.Buf[:s.HeaderRange[0]]...)
 	out = append(out, rep...)
-	out = append(out, f.Buf[contentEnd:]...)
+	out = append(out, f.Buf[s.BodyRange[1]:]...)
 	return out, nil
 }
 

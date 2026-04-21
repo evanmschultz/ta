@@ -19,7 +19,7 @@ type Server struct {
 	srv *server.MCPServer
 }
 
-// New constructs an MCP server configured with ta's three tools.
+// New constructs an MCP server configured with ta's four tools.
 func New(cfg Config) (*Server, error) {
 	if cfg.Name == "" {
 		return nil, fmt.Errorf("mcpsrv: Config.Name is required")
@@ -42,5 +42,6 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) registerTools() {
 	s.srv.AddTool(getTool(), handleGet)
 	s.srv.AddTool(listSectionsTool(), handleListSections)
+	s.srv.AddTool(schemaTool(), handleSchema)
 	s.srv.AddTool(upsertTool(), handleUpsert)
 }

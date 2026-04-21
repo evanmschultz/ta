@@ -2,10 +2,11 @@
 
 A tiny MCP server that lets LLM coding agents read and write TOML files as if they were a structured database — with schemas to keep agents honest.
 
-`ta` exposes three tools over MCP stdio:
+`ta` exposes four tools over MCP stdio:
 
-- **`get`** — read a section by bracket path, returning the raw TOML bytes.
+- **`get`** — read a section by bracket path, returning the raw TOML bytes (leading comment block included, so human-written docstrings come along for the ride).
 - **`list_sections`** — enumerate every section in a file, in file order.
+- **`schema`** — return the resolved schema for a file; with an optional `section` argument, return just the type matched by its first segment.
 - **`upsert`** — create or update a section, validated against a schema; untouched bytes (comments, blank lines, other sections) are preserved byte-for-byte.
 
 Design notes: [`docs/ta.md`](docs/ta.md). Build plan: [`docs/PLAN.md`](docs/PLAN.md).
