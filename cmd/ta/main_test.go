@@ -23,6 +23,34 @@ func TestRootCmdWiring(t *testing.T) {
 	}
 }
 
+func TestSubcommandsRegistered(t *testing.T) {
+	root := newRootCmd()
+	want := []string{"get", "list-sections", "schema", "upsert"}
+	for _, name := range want {
+		sub, _, err := root.Find([]string{name})
+		if err != nil {
+			t.Errorf("subcommand %q not found: %v", name, err)
+			continue
+		}
+		if sub.Name() != name {
+			t.Errorf("resolved %q got %q", name, sub.Name())
+		}
+		if sub.RunE == nil {
+			t.Errorf("subcommand %q has nil RunE", name)
+		}
+	}
+}
+
+func TestUpsertDataFlagsMutuallyExclusive(t *testing.T) {
+	cmd := newUpsertCmd()
+	if cmd.Flags().Lookup("data") == nil {
+		t.Error("--data flag missing")
+	}
+	if cmd.Flags().Lookup("data-file") == nil {
+		t.Error("--data-file flag missing")
+	}
+}
+
 func TestVersionFallsBackToDevel(t *testing.T) {
 	if v := version(); v == "" {
 		t.Fatal("version empty")

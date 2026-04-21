@@ -27,18 +27,21 @@ import (
 const appName = "ta"
 
 const longDescription = "# ta\n\n" +
-	"Tiny MCP server that exposes TOML files as schema-validated, " +
-	"agent-accessible structured data. Runs over **stdio** — point an MCP " +
-	"client (e.g. Claude Code) at the binary and it exposes four tools:\n\n" +
-	"- `get` — read a TOML section by bracket path\n" +
-	"- `list_sections` — list every section in a file\n" +
-	"- `schema` — show the resolved schema (whole file or one section type)\n" +
-	"- `upsert` — create or update a section, validated against config\n\n" +
-	"Schemas resolve by cascade-merge: `~/.ta/config.toml` is the base layer, " +
-	"and every `.ta/config.toml` on the target file's ancestor chain is " +
-	"folded on top — same-named section types override, unique types are " +
-	"additive. All tool arguments arrive over MCP; the binary itself reads " +
-	"only its CLI flags."
+	"Tiny MCP server (and matching CLI) that exposes TOML files as " +
+	"schema-validated, agent-accessible structured data. Running `ta` with " +
+	"no subcommand starts the MCP server over **stdio** — point an MCP " +
+	"client (e.g. Claude Code) at the binary.\n\n" +
+	"The same four operations the MCP client sees are also available as " +
+	"terminal subcommands, so a human can read and write TOML the same way " +
+	"an agent would:\n\n" +
+	"- `ta get <path> <section>` — read a section by bracket path\n" +
+	"- `ta list-sections <path>` — enumerate every section in a file\n" +
+	"- `ta schema <path> [section]` — show the resolved schema\n" +
+	"- `ta upsert <path> <section> --data <json>` — create or update a section\n\n" +
+	"Schemas resolve by cascade-merge: `~/.ta/config.toml` is the base " +
+	"layer, and every `.ta/config.toml` on the target file's ancestor " +
+	"chain is folded on top — same-named section types override, unique " +
+	"types are additive."
 
 func main() {
 	err := fang.Execute(
@@ -48,6 +51,7 @@ func main() {
 		fang.WithCommit(commitRev()),
 		fang.WithNotifySignal(os.Interrupt),
 		fang.WithErrorHandler(renderErrorHandler),
+		fang.WithoutCompletions(),
 	)
 	if err != nil {
 		os.Exit(1)
@@ -58,7 +62,7 @@ func newRootCmd() *cobra.Command {
 	var logStartup bool
 	cmd := &cobra.Command{
 		Use:   appName,
-		Short: "MCP server exposing TOML files as schema-validated structured data",
+		Short: "MCP server (and matching CLI) for schema-validated TOML",
 		Long:  longDescription,
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -68,6 +72,12 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.Flags().BoolVar(&logStartup, "log-startup", false, "log a startup banner to stderr before serving")
+	cmd.AddCommand(
+		newGetCmd(),
+		newListSectionsCmd(),
+		newSchemaCmd(),
+		newUpsertCmd(),
+	)
 	return cmd
 }
 
