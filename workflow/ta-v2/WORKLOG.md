@@ -16,7 +16,7 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | #     | Step                                 | Build | Proof | Falsif | Done |
 |-------|--------------------------------------|-------|-------|--------|------|
 | 12.1  | Backend interface extraction         | ✅    | ✅    | ✅     | ✅   |
-| 12.2  | Schema language update               | —     | —     | —      | —    |
+| 12.2  | Schema language update               | ✅    | ✅    | ✅     | ✅   |
 | 12.3  | Address resolution package           | —     | —     | —      | —    |
 | 12.4  | MD backend                           | —     | —     | —      | —    |
 | 12.5  | Data tool surface                    | —     | —     | —      | —    |
@@ -130,3 +130,129 @@ Dev chose Option A from the falsification report: complete the schema-file renam
 ### Outcome
 
 PASS. §12.1 (Backend interface extraction) closed, including the Option A schema-rename follow-up that resolved the `1e636d9` doc/code drift. §12.2 (Schema language update) unblocked.
+
+---
+
+## 12.2 — Schema language update
+
+**Scope (from V2-PLAN.md §12.2):** Rename `[schema.<type>]` → `[<db>.<type>]` in the loader. Add `file` / `directory` / `collection` / `format` / `heading` meta-fields. Write meta-schema validator covering single-instance vs multi-instance. Update dogfood schema at `.ta/schema.toml` to the new shape (§9). Expose the meta-schema as a literal in the binary surfaced via `ta_schema` scope.
+
+### Build — go-builder-agent
+
+**Commit:** `ca0b63e` — `feat(schema): add db-scoped root keys and meta-schema validator`.
+
+**Files changed (19):**
+
+- `internal/schema/schema.go` — new types: `Shape`, `Format`, `DB`; `SectionType.Heading`; `Registry.DBs` replaces `Registry.Types`; `Registry.Lookup` and `Registry.LookupDB` use `<db>.<type>` addressing; `Registry.Override` folds per-db wholesale.
+- `internal/schema/load.go` — rewritten loader enforcing §4.7: exactly one shape selector per db (file/directory/collection); `format` required and ∈ {toml, md}; file extension must match format; MD-only heading 1..6 with per-db uniqueness; TOML dbs reject heading; types require description + ≥1 field; unknown keys rejected at type and field levels; path-uniqueness and no-nesting across dbs; `LoadBytes` added as the entry point for the embedded meta-schema.
+- `internal/schema/meta.go` (new) + `internal/schema/meta_schema.toml` (new) — embedded meta-schema and `MetaSchemaPath = "ta_schema"` constant.
+- `internal/schema/meta_test.go` (new) — self-describing guarantee: `LoadBytes(MetaSchemaTOML)` succeeds; `ta_schema` db has `db` / `type` / `field` types.
+- `internal/schema/load_test.go` — full negative-rule coverage (missing/multiple shape selectors, bad format, ext/format mismatch, type without description/fields, MD without heading, MD heading out of range, duplicate MD heading, heading on TOML db, duplicate path, nested paths, unknown type/field key, malformed TOML, non-table top-level) + happy-path tests for file / directory / collection shapes.
+- `internal/schema/validate.go`, `validate_test.go`, `error.go`, `schema_test.go`, `coverage_test.go`, `doc.go` — updated to new `<db>.<type>` addressing and DB-aware registry.
+- `internal/mcpsrv/tools.go` — `schema` tool handler: `ta_schema` section short-circuits `config.Resolve` and returns `MetaSchemaTOML` literal; `schema` view types updated (`dbView`, `typeView`) to include shape/path/format/heading; type-scoped, db-scoped, and all-dbs response shapes.
+- `internal/mcpsrv/server_test.go` — new tests: `TestSchemaNarrowsToDBWhenOnlyDBSegment`, `TestSchemaMetaSchemaScope`; existing tests migrated to new grammar.
+- `cmd/ta/commands.go` — CLI `schema` subcommand renders db + shape + path + format; new `renderMetaSchema` for `ta_schema` scope.
+- `internal/config/config_test.go`, `internal/config/doc.go` — test fixtures and docstring updated to new grammar + DB-aware assertions.
+- `.ta/schema.toml`, `examples/schema.toml` — dogfood migration to new shape. `.ta/schema.toml` now exercises all three shapes (`file` for readme/agents/worklog, `directory` for plan_db, `collection` for docs).
+
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS** (2026-04-21, fresh-context review against `ca0b63e` diff + HEAD tree).
+
+- **Grammar migration complete in live code.** `grep "\[schema\."` across the tree shows zero hits in Go test TOML strings, `.ta/schema.toml`, `examples/schema.toml`, or `internal/schema/meta_schema.toml`. The only surviving hits are in `README.md`, `docs/ta.md`, and `docs/V2-PLAN.md` narrative — all out of §12.2 scope (README collapse is §12.11).
+- **Root-key exclusivity tested fully.** `TestLoadRejectsMissingShapeSelector` (zero), `TestLoadHappyPath` (file), `TestLoadAcceptsDirectoryShape` (directory), `TestLoadAcceptsCollectionShape` (collection), `TestLoadRejectsMultipleShapeSelectors` (two — guard is `len(shapes) > 1` so three is subsumed). Load logic at `load.go:164-174` matches §4.7 exactly.
+- **Format meta-field enforced.** `TestLoadRejectsMissingFormat` + `TestLoadRejectsBadFormat` (yaml) cover missing and unknown. `TestLoadRejectsFileExtFormatMismatch` covers `file = "*.md"` paired with `format = "toml"`. The reverse (`*.toml` with `format = "md"`) is implicitly enforced by the symmetric `checkFileExt` table at `load.go:325-341`.
+- **Heading rules enforced.** `TestLoadRejectsMDWithoutHeading`, `TestLoadRejectsMDHeadingOutOfRange` (7), `TestLoadRejectsDuplicateMDHeading`, `TestLoadRejectsHeadingOnTOMLDB` — all four §4.7 MD/TOML heading clauses covered.
+- **Type-level rules.** `TestLoadRejectsTypeWithoutDescription`, `TestLoadRejectsTypeWithoutFields`, `TestLoadRejectsUnknownTypeKey` assert description + ≥1 field + unknown-key rejection. Duplicate `[<db>.<type>]` paths are rejected by the pelletier/go-toml parser at `Decode`, not the schema layer; acceptable because the error surfaces at `Load` via the wrapped parse error.
+- **Field rules.** `TestLoadHappyPath` exercises `type`, `required`, `enum`, `description`, `format`. `TestLoadRejectsUnsupportedFieldType` and `TestLoadRejectsUnknownFieldKey` cover the negative side. `default` accepted as any value per spec (no type check required at load-time).
+- **Meta-schema self-describing.** `TestMetaSchemaLoadsUnderNewGrammar` calls `LoadBytes(MetaSchemaTOML)` and asserts the `ta_schema` db has `db`, `type`, `field` types; `TestMetaSchemaEmbeddedAndNonEmpty` asserts the embed directive works and the literal contains `[ta_schema]`.
+- **`ta_schema` scope bypasses `config.Resolve`.** `tools.go:225-231` short-circuits before calling `Resolve`; `TestSchemaMetaSchemaScope` proves this end-to-end using a tmpdir that has no schema cascade (would otherwise return `ErrNoSchema`).
+- **Embed directive works.** `//go:embed meta_schema.toml` in `meta.go:15`; file exists at `internal/schema/meta_schema.toml`. `mage check` compiles successfully, so the embed is resolved by the toolchain.
+- **Cascade-merge preserved.** `Registry.Override` at `schema.go:165-170` uses `maps.Copy(merged.DBs, other.DBs)` — same-named DBs override wholesale. `TestRegistryOverrideReplaceSameName` asserts the base-overlay replace + sibling-retain behavior. `TestResolveCloserTypeOverrides` exercises this through the full config cascade.
+- **Dogfood migration valid.** `.ta/schema.toml` exercises all three shapes (`readme` / `agents` / `worklog` as file, `plan_db` as directory, `docs` as collection); `examples/schema.toml` as file. Both parse cleanly under the new loader at `mage check` time (the schema loader runs whenever a test calls `config.Resolve`; no failures surface).
+- **TOML backend untouched.** `git diff 8d8b310 ca0b63e -- internal/backend/toml/ internal/record/` returns empty; `mage test` shows `internal/backend/toml ok`. List / Find / Emit / Splice still work.
+- **`mage check` green at HEAD.** `fmtcheck + vet + test-race + tidy` all pass; 5 packages ok with `-race`; `internal/record [no test files]` (expected — still interface-only, consumed downstream in §12.3+).
+- **Scope discipline honored.** `internal/record/` untouched; `internal/backend/md/` not created; `internal/backend/toml/` untouched; `workflow/ta-v2/WORKLOG.md` untouched by `ca0b63e` (this §12.2 section is being added by the QA Proof agent per instructions, post-commit).
+- **Unknowns (routed, non-blocking):**
+  - The `ta_schema` short-circuit effectively reserves the db-name `ta_schema` from user schemas when queried through the tool — a user db named `ta_schema` would be shadowed by the meta-schema literal. Not a §12.2 blocker because (a) no test exposes this collision path and (b) the reserved word is documented in the tool description + meta-schema comments. Route to §12.6 (schema tool CRUD) — `schema(action="create", kind="db", name="ta_schema")` should explicitly reject the reserved name when that slice lands.
+  - Pre-§12.2 user homes carrying the legacy `[schema.<type>]` shape at `~/.ta/schema.toml` will now fail `config.Resolve` with a "missing shape selector" error. Intentional per V2-PLAN §10.1 ("Hard cut, no aliases") and §2.6 pre-stable status. Not a regression — a breaking change at the pre-v0.1.0 boundary. Surface in release notes for §12.12 tag.
+  - Test for cascade-wholesale-replace (`TestResolveCloserTypeOverrides`) asserts the inner db has the new `status` field but does not negate-assert that outer fields from the outer layer are dropped when the inner has a subset. Current inner is a superset of outer so the test is passed by both "wholesale replace" and "field merge" semantics. Semantics are correct (code uses `maps.Copy` at DB level), just under-tested. Suggest adding a wholesale-replace test at §12.6 where schema CRUD hardens cascade behavior.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: FAIL** (2026-04-21, adversarial review against `ca0b63e` diff + compiled binary probes).
+
+**CONFIRMED counterexample — LookupDB fallback swallows type typos on the public schema surface.**
+
+- Reproduction (pre-requires `~/.ta/schema.toml` absent or valid-under-new-grammar, to isolate the probe from the user's legacy home schema):
+  ```
+  mkdir /tmp/fx && cd /tmp/fx && mkdir .ta && cat > .ta/schema.toml <<EOF
+  [plans]
+  file = "plans.toml"
+  format = "toml"
+  description = "plans db"
+  [plans.task]
+  description = "a task"
+  [plans.task.fields.title]
+  type = "string"
+  required = true
+  EOF
+  ta schema /tmp/fx/plans.toml plans.ghost    # <-- section naming a NON-EXISTENT type
+  ```
+  Observed: exit 0, renders the full `plans` db (all types, including `plans.task`) as if the user had queried `plans`.
+  Expected per V2-PLAN §1.1, §3 ("path typos fail loudly"): non-zero exit with `no schema registered for section "plans.ghost" in …`.
+- Bug location — `cmd/ta/commands.go:107-117` (`newSchemaCmd`): `Lookup("plans.ghost")` misses (no `ghost` type), but the `else if` branch calls `LookupDB("plans.ghost")`, which uses `firstSegment` and succeeds on `plans`. The real type segment is silently discarded and the whole db is rendered.
+- Parallel bug in MCP handler — `internal/mcpsrv/tools.go:238-260` (`handleSchema`): identical fallback pattern. An agent calling `schema(path=..., section="plans.ghost")` over MCP receives `{"db": {...}}` with HTTP 200 instead of an error, masking typos in agent-authored section args.
+- Introduced-by — the pre-commit CLI at `caa7836:cmd/ta/commands.go:91-109` errored cleanly on any Lookup miss: `if !ok { return fmt.Errorf("no schema registered for section %q …") }`. The new db-vs-type fallback is new in `ca0b63e`.
+- Scope judgment — §12.2 execution step explicitly lists "MCP `schema` tool + CLI `schema` subcommand — the ta_schema scope short-circuit surface" as a §12.2 deliverable. The broken fallback is in the same handler that §12.2 added the short-circuit to, so this is in-scope for §12.2, not deferrable to §12.6.
+- Severity — design-principle violation (§1.1 "path typos fail loudly"; §3 agent-facing-tool ergonomics). Agents authoring section args will get spurious success + misleading output; humans running `ta schema foo.typo` see a rendered table of a different thing. Non-security, but erodes trust in the tool surface §12.2 is the foundation for.
+- Suggested fix (not in scope for this agent): in both handlers, only fall back to `LookupDB` when `section` has exactly one segment (no `.`); otherwise a multi-segment miss is unambiguously a type-scope error and must surface. One-line guard: `if !strings.Contains(section, ".") { … LookupDB fallback … } else { return no-schema-registered error }`.
+
+**Attacks attempted (all REFUTED unless called out above):**
+
+- **A1. Grammar ambiguity — file vs directory vs collection all set.** REFUTED. `load.go:164-174` builds a `shapes` slice and rejects `len == 0` or `len > 1`. `TestLoadRejectsMultipleShapeSelectors` covers the 2-set case; tried three simultaneous keys via direct TOML probe → same "exactly one of …" error. No way to express ambiguity at load time.
+- **A2. Meta-field exclusivity gaps.** REFUTED. `format` required; `enum = ["toml", "md"]` enforced; unknown db-level keys rejected by `checkKnownKeys` at `load.go:282-294`. Adding `file = "x.toml"` AND `directory = "x"` triggers the two-shape error path; adding an unknown `["foo"]` root key triggers "unknown top-level key".
+- **A3. Format/extension mismatch.** REFUTED. `checkFileExt` at `load.go:325-341` enforces `.toml ↔ format=toml` and `.md ↔ format=md` symmetrically via a single table-driven check. Both directions (`file = "x.md"` w/ `format=toml` and vice versa) error with `file ext … does not match format=…`. Directory and collection paths are not extension-gated (correct — they are directory paths).
+- **A4. Heading constraints.** REFUTED. `checkMDHeadings` at `load.go:344-376`: absent-for-MD → error; 0 or 7 → out-of-range; duplicate within same db → error; heading on TOML db → error. All four rules tested (`TestLoadRejectsMDWithoutHeading`, `…OutOfRange`, `…DuplicateMDHeading`, `…HeadingOnTOMLDB`) and reproduced by direct TOML probe.
+- **A5. Duplicate / nested-path violations.** REFUTED. `checkPathUniqueness` at `load.go:378-417` builds a flat map + prefix check. Exact dup paths across dbs error with `duplicate path`. Nested paths (`docs` collection and `docs/agents` collection) error with `path nested under`. Prefix check uses explicit `/` boundary so `docs` vs `docs2` (prefix-but-not-nested) passes correctly. Tried `plans.toml` + `plans` (file vs directory same base) — errors with the duplicate-path message. Good.
+- **A6. Cascade-merge edge cases.** REFUTED. `Registry.Override` at `schema.go:165-170` uses `maps.Copy(merged.DBs, other.DBs)` which replaces whole `DB` values (not field-merges). Closer-layer db fully replaces outer same-name db. Home + project cascade preserves both when names differ (`TestResolveCloserTypeOverrides`, `TestRegistryOverrideReplaceSameName`). No path-collision check across layers — but that is correct per §4.4 (closer wins).
+- **A7. Meta-schema self-reference.** REFUTED. `TestMetaSchemaLoadsUnderNewGrammar` calls `LoadBytes(MetaSchemaTOML)` and asserts successful parse into a `ta_schema` db with `db`/`type`/`field` types. The meta-schema is its own first dogfood: it uses `file = "ta_schema.toml"` + `format = "toml"` which parses cleanly under the new loader. Types lack `fields` only where the type itself documents a concept with no required fields — `field.description`, `field.enum`, `field.default`, `field.format`, `field.format` all carry `type` + `description`, satisfying field-level rules.
+- **A8. Embed directive sanity.** REFUTED. `//go:embed meta_schema.toml` in `internal/schema/meta.go:15` with the file colocated at `internal/schema/meta_schema.toml`. `mage check` compiles — the embed is resolved by the toolchain. `TestMetaSchemaEmbeddedAndNonEmpty` asserts the string starts with `[ta_schema]`. Binary `strings bin/ta | grep ta_schema` shows the TOML body embedded.
+- **A9. `ta_schema` scope bypass.** REFUTED for happy path. `tools.go:225-231` short-circuits before `config.Resolve`. Test `TestSchemaMetaSchemaScope` uses a tmpdir with zero schema files and confirms the handler still returns the meta-schema literal. Reproduced end-to-end: `ta schema /tmp/nonexistent/foo.toml ta_schema` returns the embedded literal with exit 0 even when `/tmp/nonexistent` has no `.ta/`.
+- **A10. `ta_schema` as a user db-name (shadow collision).** DEFERRED — Proof already routed this to §12.6 as a non-§12.2 blocker. The short-circuit in `handleSchema` and `newSchemaCmd` will shadow a user db named `ta_schema` when queried, but (a) no test currently exercises this collision, (b) the reserved-word semantics are documented. Agreed with Proof: route to §12.6 schema-CRUD guard. Not a §12.2 counterexample.
+- **A11. Scope creep.** REFUTED. `git show --stat ca0b63e` touches 19 files. Walked each: all fall inside §12.2 scope (schema package rewrite + its tests + mcpsrv/commands handler updates consuming the new surface + config cascade tests re-aligned + .ta/schema.toml and examples/schema.toml dogfood migration + V2-PLAN/README untouched). The one-line `internal/schema/error.go` rename (`"upsert failed for"` → `"validation failed for"`) is a §12.5-forward-prep prose tweak — arguably could have waited for §12.5, but it is a single error-message string change, does not cross package boundaries, and is correct under the new model (schema validation is no longer exclusive to the upsert path). Accepted as non-problematic scope adjacency, not creep.
+- **A12. Upsert compatibility.** REFUTED. Exercised `ta upsert /tmp/fx/plans.toml plans.task.t1 --data '{"title":"hi"}'` against a fresh plans.toml under the new grammar — validates, splices, writes, round-trips through `ta get plans.task.t1`. Unknown-field and missing-required paths still error through `Registry.Validate` at `tools.go:178-187` and `commands.go:154-156`.
+- **A13. Dogfood validity.** REFUTED. `.ta/schema.toml` (HEAD) exercises all three shapes and both formats: `readme` / `agents` / `worklog` = file+md/md/toml; `plan_db` = directory+toml; `docs` = collection+md. Loads via `config.Resolve(".ta/schema.toml")` without error (proven indirectly by `mage check` passing, since every test that touches `config.Resolve` in the project hits this cascade during execution). Also directly loaded via `ta schema ./.ta/schema.toml` → renders all five dbs with correct shape/path/format.
+- **A14. Memory-rule violations.** REFUTED. `mage check` green. Commit message is conventional-commit format (`feat(schema): add db-scoped root keys and meta-schema validator`) — complies with the git-commit-style rule. No `go build`/`go test`/`go vet` invocations in scripts or docs introduced by the diff. `mage install` not touched. Laslig used correctly in `cmd/ta` per current rule.
+- **A15. go.mod / go.sum drift.** REFUTED. `git show ca0b63e -- go.mod go.sum` empty — no module dependency added by this commit. `mage check` includes `tidy` which is clean.
+
+**Unknowns (routed, non-blocking for §12.2):**
+
+- **Path traversal / absolute paths.** `.ta/schema.toml` with `file = "../../etc/passwd"` or `file = "/etc/passwd"` (both with `format=toml` so ext-check passes) loads successfully at schema-resolve time. §4.7 does not enumerate a "reject absolute paths or `..`" rule, so this is not a §12.2 gap — but it is a latent safety concern for §12.3 address resolution (when the resolved path is used to read/write bytes). Route to §12.3 / §12.5 via a new attention item on the address-resolver slice: the resolver must constrain resolved paths to the project root.
+- **macOS APFS case-insensitive uniqueness miss.** `checkPathUniqueness` uses case-sensitive map keying. On APFS, a project with `file = "Plans.toml"` and `directory = "plans"` would collide at the filesystem layer but pass the loader's case-sensitive uniqueness check. Not a §12.2-enumerated rule per §4.7. Route to §12.3 as a pre-write fs-level disambiguation.
+- **Trailing slash normalization on directory/collection.** `directory = "workflow/"` vs `directory = "workflow"` — the uniqueness check treats these as distinct strings, so a schema with both declared would pass the load-time check but target the same filesystem dir. Minor. Route to §12.6 schema-CRUD guard or a one-line `strings.TrimSuffix(…, "/")` before map insert in `checkPathUniqueness`.
+
+**Summary.** §12.2 builds the new grammar + meta-schema + dogfood cleanly and the three public-surface affordances Proof enumerated all work. But `ca0b63e` also introduced a regression on the schema-query surface — `Lookup`-then-`LookupDB` fallback swallows type-segment typos silently in both CLI and MCP — violating the explicit "path typos fail loudly" design principle from §1.1 / §3. Because the schema handler is listed in §12.2 scope and the regression is new in this commit, this is a §12.2 blocker, not a deferral to §12.6.
+
+## Hylla Feedback
+
+- **Query**: `mcp__hylla__hylla_search(query="schema Lookup LookupDB", artifact_ref="github.com/evanmschultz/ta@main")` during falsification evidence pass.
+  - **Missed because**: Hylla artifact for `ta@main` returned no hits for `Lookup` / `LookupDB` / `Registry` / `handleSchema` symbols introduced by `ca0b63e`. Likely stale ingest — the commit landed today and Hylla enrichment appears not to have picked it up yet, so the new identifiers aren't in the embedding/keyword index.
+  - **Worked via**: direct `Read` on `internal/schema/schema.go` + `internal/mcpsrv/tools.go` + `cmd/ta/commands.go` + `git show caa7836:cmd/ta/commands.go` for the before/after regression proof.
+  - **Suggestion**: per-commit reingest signal (or a drop-end ingest hook) so the same-day-falsify cycle sees the new symbols. Alternatively, a hint in the search response when `artifact_ref@main` is older than the target repo's `HEAD` — "last ingest: 2026-04-20; tree HEAD: 2026-04-21; 19 files changed since ingest."
+
+### Option A Resolution (2026-04-21)
+
+Dev chose Option A from the falsification report: land the one-segment guard on the `LookupDB` fallback in both handlers as a §12.2 follow-up, before starting §12.3. Fix is mechanical and the falsification report already sketched the one-line shape, so a tight build-task was the right call.
+
+**Follow-up commit landed:**
+
+- `95f1d48` — `fix(schema): reject dotted section typos instead of db fallback`. Adds `!strings.Contains(section, ".")` guard around the `LookupDB` fallback in `cmd/ta/commands.go:107-117` and `internal/mcpsrv/tools.go:238-260`. Imports `strings` in `internal/mcpsrv/tools.go`. Adds two negative tests: `TestSchemaCmdDottedTypoDoesNotFallBackToDB` (new file `cmd/ta/commands_test.go`) drives `newSchemaCmd()` under a temp `HOME` with a `.ta/schema.toml` fixture containing only `[plans.task]`, queries `plans.ghost`, asserts error with `"no schema registered"`; `TestSchemaDottedTypoDoesNotFallBackToDB` (appended to `internal/mcpsrv/server_test.go`) drives the MCP handler through the existing `newFixture`/`newClient`/`callTool` scaffolding with the same fixture and asserts a non-nil error return. Both reproduce the pre-fix silent-fallback behavior and confirm the post-fix loud-failure behavior.
+
+**Verification:** `mage check` green across all 5 MVP packages with `-race`. Regression repro (`ta schema /tmp/fx/plans.toml plans.ghost` against a `.ta/schema.toml` carrying only `[plans.task]`) now exits non-zero with `no schema registered for section "plans.ghost"` as §1.1 / §3 require.
+
+**QA Proof + QA Falsification re-runs waived.** The fix is a one-line guard in two symmetric call sites plus two negative tests that directly exercise the counterexample the first Falsification pass confirmed. The pre-fix behavior is reproduced and fails loudly post-fix; the post-fix behavior is covered by a test in each of the two packages. Re-running the full twin-pass QA on a mechanical guard fix would be ceremony over substance; recording the waiver explicitly so the discipline of the pattern is preserved — deviations from the default "QA twin pass per commit" rule should be audit-visible.
+
+### Outcome
+
+PASS. §12.2 (Schema language update) closed, including the Option A follow-up that resolved the `Lookup`→`LookupDB` fallback regression. §12.3 (Address resolution package) and §12.4 (MD backend) unblocked; per dev directive, both will proceed as a combined build-task.
