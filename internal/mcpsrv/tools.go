@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/config"
 	"github.com/evanmschultz/ta/internal/schema"
-	"github.com/evanmschultz/ta/internal/tomlfile"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -57,8 +57,8 @@ func schemaTool() mcp.Tool {
 		"schema",
 		mcp.WithDescription(
 			"Return the resolved schema for a TOML file. Without 'section', returns every "+
-				"section type in the file's cascade-merged registry (home ~/.ta/config.toml "+
-				"folded with every .ta/config.toml on the target file's ancestor chain). "+
+				"section type in the file's cascade-merged registry (home ~/.ta/schema.toml "+
+				"folded with every .ta/schema.toml on the target file's ancestor chain). "+
 				"With 'section' set (dot-notated, e.g. 'task.task_001'), returns just the "+
 				"type matched by the first segment.",
 		),
@@ -110,7 +110,7 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	if errRes != nil {
 		return errRes, nil
 	}
-	f, err := tomlfile.Parse(path)
+	f, err := toml.Parse(path)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("parse %s: %v", path, err)), nil
 	}
@@ -127,9 +127,9 @@ func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
 	}
-	f, err := tomlfile.Parse(path)
+	f, err := toml.Parse(path)
 	if err != nil {
-		if errors.Is(err, tomlfile.ErrNotExist) {
+		if errors.Is(err, toml.ErrNotExist) {
 			return mcp.NewToolResultJSON(listResult{Path: path, Sections: []string{}})
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("parse %s: %v", path, err)), nil
@@ -168,15 +168,15 @@ func handleUpsert(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		return mcp.NewToolResultError(fmt.Sprintf("validation: %v", err)), nil
 	}
 
-	f, err := tomlfile.Parse(path)
+	f, err := toml.Parse(path)
 	if err != nil {
-		if !errors.Is(err, tomlfile.ErrNotExist) {
+		if !errors.Is(err, toml.ErrNotExist) {
 			return mcp.NewToolResultError(fmt.Sprintf("parse %s: %v", path, err)), nil
 		}
-		f = &tomlfile.File{Path: path}
+		f = &toml.File{Path: path}
 	}
 
-	emitted, err := tomlfile.EmitSection(section, data)
+	emitted, err := toml.EmitSection(section, data)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("emit %q: %v", section, err)), nil
 	}
@@ -184,7 +184,7 @@ func handleUpsert(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("splice %q: %v", section, err)), nil
 	}
-	if err := tomlfile.WriteAtomic(path, newBuf); err != nil {
+	if err := toml.WriteAtomic(path, newBuf); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("write %s: %v", path, err)), nil
 	}
 	return mcp.NewToolResultJSON(upsertSuccess{

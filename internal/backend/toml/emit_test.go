@@ -1,4 +1,4 @@
-package tomlfile
+package toml
 
 import (
 	"bytes"

@@ -12,9 +12,9 @@ import (
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
+	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/config"
 	"github.com/evanmschultz/ta/internal/schema"
-	"github.com/evanmschultz/ta/internal/tomlfile"
 )
 
 func newGetCmd() *cobra.Command {
@@ -29,7 +29,7 @@ func newGetCmd() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
 			path, section := args[0], args[1]
-			f, err := tomlfile.Parse(path)
+			f, err := toml.Parse(path)
 			if err != nil {
 				return fmt.Errorf("parse %s: %w", path, err)
 			}
@@ -55,8 +55,8 @@ func newListSectionsCmd() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
 			path := args[0]
-			f, err := tomlfile.Parse(path)
-			if err != nil && !errors.Is(err, tomlfile.ErrNotExist) {
+			f, err := toml.Parse(path)
+			if err != nil && !errors.Is(err, toml.ErrNotExist) {
 				return fmt.Errorf("parse %s: %w", path, err)
 			}
 			var paths []string
@@ -145,14 +145,14 @@ func newUpsertCmd() *cobra.Command {
 				return err
 			}
 
-			f, err := tomlfile.Parse(path)
+			f, err := toml.Parse(path)
 			if err != nil {
-				if !errors.Is(err, tomlfile.ErrNotExist) {
+				if !errors.Is(err, toml.ErrNotExist) {
 					return fmt.Errorf("parse %s: %w", path, err)
 				}
-				f = &tomlfile.File{Path: path}
+				f = &toml.File{Path: path}
 			}
-			emitted, err := tomlfile.EmitSection(section, data)
+			emitted, err := toml.EmitSection(section, data)
 			if err != nil {
 				return fmt.Errorf("emit %q: %w", section, err)
 			}
@@ -160,7 +160,7 @@ func newUpsertCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("splice %q: %w", section, err)
 			}
-			if err := tomlfile.WriteAtomic(path, newBuf); err != nil {
+			if err := toml.WriteAtomic(path, newBuf); err != nil {
 				return fmt.Errorf("write %s: %w", path, err)
 			}
 
