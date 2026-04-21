@@ -15,7 +15,7 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 
 | #     | Step                                 | Build | Proof | Falsif | Done |
 |-------|--------------------------------------|-------|-------|--------|------|
-| 12.1  | Backend interface extraction         | ✅    | ⏳    | ✅     | —    |
+| 12.1  | Backend interface extraction         | ✅    | ✅    | ✅     | ✅   |
 | 12.2  | Schema language update               | —     | —     | —      | —    |
 | 12.3  | Address resolution package           | —     | —     | —      | —    |
 | 12.4  | MD backend                           | —     | —     | —      | —    |
@@ -113,8 +113,20 @@ Dev chose Option A from the falsification report: complete the schema-file renam
 
 ### QA Proof (re-run) — go-qa-proof-agent
 
-Status: pending (after tree-clean commits land).
+**Verdict: PASS** (2026-04-21, fresh-context re-run over the full 7-commit chain `1e636d9`..`14b22d2`).
+
+- **V2-PLAN §5.1 interface shape matches exactly.** `internal/record/record.go` defines `Record = map[string]any`, `Section{Path string, Range [2]int, Record Record}`, and `Backend{List(buf,scope), Find(buf,section), Emit(section,rec), Splice(buf,section,emitted)}` with signatures identical to V2-PLAN §5.1 (docs/V2-PLAN.md:290-323).
+- **Compile-time satisfaction confirmed.** `var _ record.Backend = (*Backend)(nil)` at `internal/backend/toml/backend.go:23`. LSP `findReferences` on `record.Backend` returns exactly 2 hits (definition + assertion); consumer-side interface correctly placed.
+- **Byte-identity of 9 moved files verified.** `diff <(git show 1e636d9^:internal/tomlfile/<f>) <internal/backend/toml/<f>>` for all 8 non-doc moved files returns only the `package tomlfile` → `package toml` 1-line delta. `doc.go` adds one documented sentence ("It sits behind the record.Backend interface in internal/record.") plus a comment-line reflow — legitimate package-doc update per worklog.
+- **Doc/code consistency at HEAD post-Option-A.** `internal/config/doc.go` references `.ta/schema.toml` / "Schema parsing" / `internal/backend/toml`; `internal/config/config.go` exports `ErrNoSchema`, `SchemaFileName = "schema.toml"`, `SchemaDirName = ".ta"`, error `"no .ta/schema.toml found ..."`. Prose and code match. `internal/mcpsrv/tools.go` schema-tool description references `~/.ta/schema.toml` and `.ta/schema.toml`, also consistent. The `1e636d9` doc/code drift the first Falsification caught is fully resolved.
+- **Rename completeness at HEAD.** Grep for `ErrNoConfig|ConfigFileName|ConfigDirName` → zero hits outside WORKLOG narrative. Grep for `config.toml` literal (excluding workflow/) → zero hits. `tomlfile` survives only as the intentional `"tomlfile: ..."` error-message prefixes (2 in `parse.go`, 5 in `atomic.go` — preserved for byte-identity) and in legacy `docs/PLAN.md` / `docs/api-notes.md` / `docs/V2-PLAN.md` narrative (out of §12.1 scope per V2-PLAN §12.11 README collapse).
+- **Scope-creep re-audit of `1e636d9`.** 16 files touched, all accounted for: 9 moved backend files + 1 new `backend.go` + 1 new `internal/record/record.go` + 2 call-site import updates (`cmd/ta/commands.go`, `internal/mcpsrv/tools.go`) + 3 prose updates (`internal/config/doc.go`, `internal/mcpsrv/doc.go`, `internal/mcpsrv/tools.go` schema-tool description) + WORKLOG. The original Falsification pass flagged the `internal/config/doc.go` schema-rename leak; noted for retrospective that the `internal/mcpsrv/tools.go` schema-tool description ALSO carried the same type of scope-creep prose leak (2 lines, `config.toml` → `schema.toml`) which the first Falsification missed. Both are resolved at HEAD by the Option A chain.
+- **Adapter semantics correct.** `List` empty-scope returns all `f.Paths()` in source order; non-empty uses `p == scope || (len(p) > len(prefix) && p[:len(prefix)] == prefix)` — operator precedence (`&&` > `||`) parses correctly. `Find` returns locator-only `record.Section{Path, Range}` with nil Record (documented). `Emit` delegates to `EmitSection`. `Splice` delegates to `(*File).Splice` after `ParseBytes`.
+- **`mage check` green at HEAD.** fmtcheck + vet + test-race + tidy all pass. 5 MVP packages OK with race detector; `internal/record` `[no test files]` (interface-only, consumed downstream in §12.2+; spec-aligned). No `go.mod` / `go.sum` churn across the full chain.
+- **`seedHomeSchema` in `b436017` behaves as documented.** Idempotent — `os.Stat` gate short-circuits with "leaving existing … untouched" when schema exists. Non-destructive — no truncate, no overwrite on existing file. Reads from `examples/schema.toml`, writes to `$HOME/.ta/schema.toml`. `mage install` is dev-only per magefile docstring; `mage check` does not touch `$HOME/.ta/`.
+- **`examples/schema.toml` and `.ta/schema.toml` well-formed.** Both use pre-§12.2 `[schema.<type>]` root-table shape. Valid TOML (parsed through the schema loader in `mage check`'s test suite). `.ta/schema.toml` demonstrates cascade semantics (overrides `task`, adds `plan`) — pre-§12.2 dogfood override, will be rewritten to `[<db>.<type>]` shape at §12.2.
+- **Unknowns:** None load-bearing for §12.1. Historical retrospective note only: the first Falsification pass flagged `internal/config/doc.go` but missed the parallel `internal/mcpsrv/tools.go` schema-description prose leak inside the same `1e636d9` commit. Recording so the falsification-pass discipline captures it next time a refactor touches multiple prose surfaces in one commit.
 
 ### Outcome
 
-Pending QA Proof re-run. §12.2 still blocked until the re-spawned Proof verdict is recorded.
+PASS. §12.1 (Backend interface extraction) closed, including the Option A schema-rename follow-up that resolved the `1e636d9` doc/code drift. §12.2 (Schema language update) unblocked.
