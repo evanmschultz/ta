@@ -82,9 +82,11 @@ func newSchemaCmd() *cobra.Command {
 		Use:   "schema <path> [section]",
 		Short: "Show the resolved schema for a TOML file (glamour-rendered markdown)",
 		Long: "Mirrors the MCP tool `schema`. Without a section arg, renders " +
-			"every type in the cascade-merged registry. With a dot-notated " +
-			"section arg (e.g. `task.task_001`), renders just the type matched " +
-			"by the first segment.",
+			"every db in the cascade-merged registry. With a dot-notated " +
+			"section arg (e.g. `plans.task.task_001` or `plans`), renders just " +
+			"the db or type selected by the first one or two segments. The " +
+			"reserved value `ta_schema` prints the embedded meta-schema " +
+			"literal.",
 		Args:          cobra.RangeArgs(1, 2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -94,19 +96,27 @@ func newSchemaCmd() *cobra.Command {
 			if len(args) == 2 {
 				section = args[1]
 			}
+			if section == schema.MetaSchemaPath {
+				return renderMetaSchema(c.OutOrStdout())
+			}
 			resolution, err := config.Resolve(path)
 			if err != nil {
 				return fmt.Errorf("resolve schema for %s: %w", path, err)
 			}
-			types := resolution.Registry.Types
+			dbs := resolution.Registry.DBs
 			if section != "" {
-				t, ok := resolution.Registry.Lookup(section)
-				if !ok {
+				if t, ok := resolution.Registry.Lookup(section); ok {
+					// Type-scoped: render just the owning db with this one type.
+					db, _ := resolution.Registry.LookupDB(section)
+					db.Types = map[string]schema.SectionType{t.Name: t}
+					dbs = map[string]schema.DB{db.Name: db}
+				} else if db, ok := resolution.Registry.LookupDB(section); ok {
+					dbs = map[string]schema.DB{db.Name: db}
+				} else {
 					return fmt.Errorf("no schema registered for section %q in %s", section, path)
 				}
-				types = map[string]schema.SectionType{t.Name: t}
 			}
-			return renderSchemaMarkdown(c.OutOrStdout(), path, section, resolution.Sources, types)
+			return renderSchemaMarkdown(c.OutOrStdout(), path, section, resolution.Sources, dbs)
 		},
 	}
 }
@@ -193,7 +203,7 @@ func readUpsertData(inline, file string, stdin io.Reader) ([]byte, error) {
 	}
 }
 
-func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, types map[string]schema.SectionType) error {
+func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, dbs map[string]schema.DB) error {
 	var sb strings.Builder
 	if section != "" {
 		fmt.Fprintf(&sb, "# Schema for `%s` (section `%s`)\n\n", path, section)
@@ -207,40 +217,67 @@ func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, t
 		}
 		sb.WriteString("\n")
 	}
-	names := make([]string, 0, len(types))
-	for n := range types {
-		names = append(names, n)
+	dbNames := make([]string, 0, len(dbs))
+	for n := range dbs {
+		dbNames = append(dbNames, n)
 	}
-	sort.Strings(names)
-	for _, name := range names {
-		t := types[name]
-		fmt.Fprintf(&sb, "## `%s`\n\n", name)
-		if t.Description != "" {
-			sb.WriteString(t.Description + "\n\n")
+	sort.Strings(dbNames)
+	for _, dbName := range dbNames {
+		db := dbs[dbName]
+		fmt.Fprintf(&sb, "## `%s`\n\n", dbName)
+		fmt.Fprintf(&sb, "- **shape**: `%s`\n- **path**: `%s`\n- **format**: `%s`\n\n",
+			db.Shape, db.Path, db.Format)
+		if db.Description != "" {
+			sb.WriteString(db.Description + "\n\n")
 		}
-		sb.WriteString("| field | type | required | default | description |\n")
-		sb.WriteString("|---|---|---|---|---|\n")
-		fieldNames := make([]string, 0, len(t.Fields))
-		for fn := range t.Fields {
-			fieldNames = append(fieldNames, fn)
+		typeNames := make([]string, 0, len(db.Types))
+		for n := range db.Types {
+			typeNames = append(typeNames, n)
 		}
-		sort.Strings(fieldNames)
-		for _, fn := range fieldNames {
-			f := t.Fields[fn]
-			req := ""
-			if f.Required {
-				req = "yes"
+		sort.Strings(typeNames)
+		for _, name := range typeNames {
+			t := db.Types[name]
+			fmt.Fprintf(&sb, "### `%s.%s`\n\n", dbName, name)
+			if t.Heading != 0 {
+				fmt.Fprintf(&sb, "- **heading**: `%d`\n\n", t.Heading)
 			}
-			def := ""
-			if f.Default != nil {
-				def = fmt.Sprintf("`%v`", f.Default)
+			if t.Description != "" {
+				sb.WriteString(t.Description + "\n\n")
 			}
-			desc := strings.ReplaceAll(f.Description, "|", `\|`)
-			fmt.Fprintf(&sb, "| `%s` | `%s` | %s | %s | %s |\n", fn, f.Type, req, def, desc)
+			sb.WriteString("| field | type | required | default | description |\n")
+			sb.WriteString("|---|---|---|---|---|\n")
+			fieldNames := make([]string, 0, len(t.Fields))
+			for fn := range t.Fields {
+				fieldNames = append(fieldNames, fn)
+			}
+			sort.Strings(fieldNames)
+			for _, fn := range fieldNames {
+				f := t.Fields[fn]
+				req := ""
+				if f.Required {
+					req = "yes"
+				}
+				def := ""
+				if f.Default != nil {
+					def = fmt.Sprintf("`%v`", f.Default)
+				}
+				desc := strings.ReplaceAll(f.Description, "|", `\|`)
+				fmt.Fprintf(&sb, "| `%s` | `%s` | %s | %s | %s |\n", fn, f.Type, req, def, desc)
+			}
+			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
 	}
 
 	p := laslig.New(w, humanPolicy())
 	return p.Markdown(laslig.Markdown{Body: sb.String()})
+}
+
+// renderMetaSchema prints the embedded meta-schema TOML literal directly —
+// glamour-rendering a raw TOML body would add no value and hurt
+// copy-paste. This is the CLI counterpart to MCP's `schema(section=
+// "ta_schema")`.
+func renderMetaSchema(w io.Writer) error {
+	p := laslig.New(w, humanPolicy())
+	body := "# ta_schema — embedded meta-schema\n\n```toml\n" + schema.MetaSchemaTOML + "```\n"
+	return p.Markdown(laslig.Markdown{Body: body})
 }

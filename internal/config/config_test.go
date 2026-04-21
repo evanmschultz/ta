@@ -8,33 +8,48 @@ import (
 )
 
 const taskConfig = `
-[schema.task]
+[plans]
+file = "plans.toml"
+format = "toml"
 description = "A unit of work"
 
-[schema.task.fields.id]
+[plans.task]
+description = "Work item."
+
+[plans.task.fields.id]
 type = "string"
 required = true
 `
 
 const taskConfigStatusRequired = `
-[schema.task]
+[plans]
+file = "plans.toml"
+format = "toml"
 description = "A unit of work, status-required override"
 
-[schema.task.fields.id]
+[plans.task]
+description = "Work item with required status."
+
+[plans.task.fields.id]
 type = "string"
 required = true
 
-[schema.task.fields.status]
+[plans.task.fields.status]
 type = "string"
 required = true
 enum = ["todo", "doing", "done"]
 `
 
 const noteConfig = `
-[schema.note]
+[notes]
+file = "notes.toml"
+format = "toml"
 description = "A note"
 
-[schema.note.fields.title]
+[notes.note]
+description = "Freeform note."
+
+[notes.note.fields.title]
 type = "string"
 required = true
 `
@@ -75,13 +90,13 @@ func TestResolveFindsSiblingConfig(t *testing.T) {
 	if len(res.Sources) != 1 || res.Sources[0] != wantPath {
 		t.Errorf("Sources = %v, want [%q]", res.Sources, wantPath)
 	}
-	if _, ok := res.Registry.Types["task"]; !ok {
-		t.Errorf("task type missing from registry")
+	if _, ok := res.Registry.DBs["plans"]; !ok {
+		t.Errorf("plans db missing from registry")
 	}
 }
 
 // TestResolveCascadeMerge verifies the cascade-merge semantics: outer schemas
-// are retained when inner configs define disjoint types, so the inner config
+// are retained when inner configs define disjoint dbs, so the inner config
 // is additive rather than a replacement.
 func TestResolveCascadeMerge(t *testing.T) {
 	isolateHome(t)
@@ -99,11 +114,11 @@ func TestResolveCascadeMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if _, ok := res.Registry.Types["note"]; !ok {
-		t.Errorf("expected inner note type present")
+	if _, ok := res.Registry.DBs["notes"]; !ok {
+		t.Errorf("expected inner notes db present")
 	}
-	if _, ok := res.Registry.Types["task"]; !ok {
-		t.Errorf("expected outer task type preserved under cascade-merge")
+	if _, ok := res.Registry.DBs["plans"]; !ok {
+		t.Errorf("expected outer plans db preserved under cascade-merge")
 	}
 	// Sources in merge order: root-to-file means outer first, inner second.
 	if got := res.Sources; len(got) != 2 || got[0] != outerPath || got[1] != innerPath {
@@ -112,8 +127,8 @@ func TestResolveCascadeMerge(t *testing.T) {
 }
 
 // TestResolveCloserTypeOverrides verifies that when outer and inner define
-// the same section type, the inner definition wins per-type while other
-// outer types remain.
+// the same db, the inner definition wins wholesale per §4.4 — outer dbs
+// unique to that layer remain, but same-named dbs are replaced entirely.
 func TestResolveCloserTypeOverrides(t *testing.T) {
 	isolateHome(t)
 	root := t.TempDir()
@@ -126,12 +141,16 @@ func TestResolveCloserTypeOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	task, ok := res.Registry.Types["task"]
+	db, ok := res.Registry.DBs["plans"]
+	if !ok {
+		t.Fatalf("plans db missing")
+	}
+	task, ok := db.Types["task"]
 	if !ok {
 		t.Fatalf("task type missing")
 	}
 	if _, ok := task.Fields["status"]; !ok {
-		t.Errorf("inner task.status field missing — closer type did not override")
+		t.Errorf("inner task.status field missing — closer db did not override")
 	}
 	if len(res.Sources) != 2 {
 		t.Errorf("Sources = %v, want two entries", res.Sources)
@@ -155,7 +174,7 @@ func TestResolveHomeIsBase(t *testing.T) {
 }
 
 // TestResolveHomeMergesWithAncestor verifies home config is additive to an
-// ancestor chain: both sets of types survive, and Sources reflects home first,
+// ancestor chain: both sets of dbs survive, and Sources reflects home first,
 // then ancestors root-to-file.
 func TestResolveHomeMergesWithAncestor(t *testing.T) {
 	home := isolateHome(t)
@@ -172,11 +191,11 @@ func TestResolveHomeMergesWithAncestor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if _, ok := res.Registry.Types["task"]; !ok {
-		t.Errorf("home task type missing")
+	if _, ok := res.Registry.DBs["plans"]; !ok {
+		t.Errorf("home plans db missing")
 	}
-	if _, ok := res.Registry.Types["note"]; !ok {
-		t.Errorf("project note type missing")
+	if _, ok := res.Registry.DBs["notes"]; !ok {
+		t.Errorf("project notes db missing")
 	}
 	if got := res.Sources; len(got) != 2 || got[0] != homePath || got[1] != projectPath {
 		t.Errorf("Sources = %v, want [%q, %q]", got, homePath, projectPath)
@@ -197,7 +216,7 @@ func TestResolveNoSchema(t *testing.T) {
 func TestResolveMalformedSchemaPropagates(t *testing.T) {
 	isolateHome(t)
 	root := t.TempDir()
-	writeConfig(t, root, "[schema.task")
+	writeConfig(t, root, "[plans")
 
 	dataFile := filepath.Join(root, "tasks.toml")
 	_, err := Resolve(dataFile)
@@ -219,7 +238,7 @@ func TestResolveHandlesMissingDataFilePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve on non-existent data file: %v", err)
 	}
-	if _, ok := res.Registry.Types["task"]; !ok {
-		t.Errorf("expected task type")
+	if _, ok := res.Registry.DBs["plans"]; !ok {
+		t.Errorf("expected plans db")
 	}
 }

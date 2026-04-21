@@ -93,7 +93,7 @@ type ValidationError struct {
 // Error renders the validation error in the shape shown in ta.md §Validation.
 func (e *ValidationError) Error() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "upsert failed for [%s]:", e.SectionPath)
+	fmt.Fprintf(&b, "validation failed for [%s]:", e.SectionPath)
 	for _, f := range e.Failures {
 		b.WriteString("\n  - ")
 		b.WriteString(f.Message)

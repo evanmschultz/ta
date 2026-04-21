@@ -1,62 +1,197 @@
-# Project-level schema for the `ta` repo itself. Merged on top of
-# ~/.ta/schema.toml when an agent (or CLI user) points `ta` at any TOML
-# file under this project tree. Demonstrates cascade semantics:
+# ============================================================================
+# ta project schema — the dogfood schema. Governs README, CLAUDE.md,
+# planning records, and the worklog. Agents interact via `create`, `update`,
+# `get`, `list_sections`, `search`, never by touching these files directly.
 #
-# - `task` is redefined here: adds a `review` status value and a new
-#   `owner` field. This override replaces the home `task` definition
-#   wholesale — include every field you want to keep.
-# - `plan` is a project-unique type (no home analogue). It is added to
-#   the resolved registry alongside home's `note` and this file's `task`.
-#
-# Run `ta schema <any .toml path under this project>` to see both
-# sources folded into the resolved registry.
+# Matches V2-PLAN §9. Once §12.3..§12.11 land, the tool surface this schema
+# describes will be reachable end-to-end. Until then the schema language is
+# already active (§12.2); the multi-instance / MD backends / data tools are
+# in flight.
+# ============================================================================
 
-[schema.task]
-description = "A ta-project work item. Extends the home task schema with project-review gating and an explicit owner."
+# ----------------------------------------------------------------------------
+# README — single-source project doc. One H1 title section at top; the rest
+# are H2 sections.
+# ----------------------------------------------------------------------------
+[readme]
+file = "README.md"
+format = "md"
+description = "Single-source project overview. Replaces all docs/*.md files."
 
-[schema.task.fields.id]
+[readme.title]
+heading = 1
+description = "The H1 at the top of README.md. Exactly one per file."
+
+[readme.title.fields.body]
+type = "string"
+format = "markdown"
+description = "Prose directly under the H1, before the first H2. Tagline plus short intro."
+
+[readme.section]
+heading = 2
+description = "One H2 section. Addressed by its heading slug. Example: 'installation', 'mcp-client-config', 'schema-language'."
+
+[readme.section.fields.body]
+type = "string"
+format = "markdown"
+description = "Prose under this H2, until the next H2 or EOF. Markdown with fenced code, tables, deeper subheadings allowed."
+
+# ----------------------------------------------------------------------------
+# agents — CLAUDE.md / AGENTS.md. Same H1-plus-H2 shape. The schema
+# describes the agent-rules file structure; the file's identity (CLAUDE
+# vs AGENTS) depends on cascade override.
+# ----------------------------------------------------------------------------
+[agents]
+file = "CLAUDE.md"
+format = "md"
+description = "Agent-facing rules file. Top-level H2 sections are rule groups."
+
+[agents.title]
+heading = 1
+description = "The H1 preamble of the agents file."
+
+[agents.title.fields.body]
+type = "string"
+format = "markdown"
+description = "Intro prose under the H1, before the first rule group."
+
+[agents.section]
+heading = 2
+description = "One rule group. Example slugs: 'tillsyn-first-coordination', 'evidence-sources', 'qa-discipline'."
+
+[agents.section.fields.body]
+type = "string"
+format = "markdown"
+description = "The rules under this heading. Bullet lists and subheadings typical."
+
+# ----------------------------------------------------------------------------
+# plan_db — TOML-backed planning records. Multi-instance: each drop gets
+# its own subdir under workflow/ with a canonical db.toml holding that
+# drop's build tasks and QA twins. Address shape:
+# `plan_db.<drop-slug>.build_task.<id>`.
+# ----------------------------------------------------------------------------
+[plan_db]
+directory = "workflow"
+format = "toml"
+description = "Planning worklog. Each immediate subdir of workflow/ is one drop; its db.toml holds build tasks and QA twins for that drop."
+
+[plan_db.build_task]
+description = "One unit of implementation work. Smallest addressable slice of planning."
+
+[plan_db.build_task.fields.id]
 type = "string"
 required = true
-description = "Stable identifier, e.g. 'TASK-001'."
+description = "Stable identifier, e.g. 'TASK-001'. Never reused."
 
-[schema.task.fields.status]
+[plan_db.build_task.fields.status]
 type = "string"
 required = true
 enum = ["todo", "doing", "review", "blocked", "done"]
-description = "Current state of the task. Adds 'review' for project gate before 'done'."
+description = "Current state. 'review' is the project gate before 'done'."
 
-[schema.task.fields.title]
+[plan_db.build_task.fields.title]
 type = "string"
 required = true
-description = "One-line summary."
+description = "One-line headline. No trailing period."
 
-[schema.task.fields.owner]
+[plan_db.build_task.fields.owner]
 type = "string"
 required = true
 description = "GitHub handle of the task owner."
 
-[schema.task.fields.body]
+[plan_db.build_task.fields.body]
 type = "string"
-description = "Freeform writeup. Markdown with code fences supported."
+format = "markdown"
+description = "Approach, evidence, traces, unknowns. Markdown."
 
-[schema.plan]
-description = "A planning artifact — a multi-step implementation plan tied to one or more tasks."
+[plan_db.qa_task]
+description = "QA verification twin of one build_task. Auto-generated on build_task create; owned by a QA role."
 
-[schema.plan.fields.id]
-type = "string"
-required = true
-description = "Plan identifier, e.g. 'PLAN-001'."
-
-[schema.plan.fields.title]
+[plan_db.qa_task.fields.id]
 type = "string"
 required = true
-description = "Plan headline."
+description = "QA identifier matching the build_task: 'QA-001' twins 'TASK-001'."
 
-[schema.plan.fields.tasks]
-type = "array"
-required = true
-description = "Task IDs this plan expands into, in execution order."
-
-[schema.plan.fields.body]
+[plan_db.qa_task.fields.parent_build_task]
 type = "string"
-description = "Full plan body. Markdown; tables and code fences allowed."
+required = true
+description = "Build task id this QA verifies."
+
+[plan_db.qa_task.fields.kind]
+type = "string"
+required = true
+enum = ["proof", "falsification"]
+description = "Which QA pass this twin performs."
+
+[plan_db.qa_task.fields.status]
+type = "string"
+required = true
+enum = ["todo", "doing", "passed", "failed"]
+description = "QA outcome state."
+
+[plan_db.qa_task.fields.body]
+type = "string"
+format = "markdown"
+description = "QA notes: evidence, counterexamples, conclusions."
+
+# ----------------------------------------------------------------------------
+# worklog — append-only narrative. Single-instance: one worklog.toml at
+# project root. Kept separate from plan_db so drop-scoped planning and
+# project-wide chronological notes do not collide in one namespace.
+# ----------------------------------------------------------------------------
+[worklog]
+file = "worklog.toml"
+format = "toml"
+description = "Append-only chronological record of decisions and work done."
+
+[worklog.entry]
+description = "One dated worklog entry."
+
+[worklog.entry.fields.id]
+type = "string"
+required = true
+description = "Entry id, convention 'YYYY-MM-DD-NNN'."
+
+[worklog.entry.fields.date]
+type = "datetime"
+required = true
+description = "Entry datetime (RFC 3339)."
+
+[worklog.entry.fields.title]
+type = "string"
+required = true
+description = "One-line summary."
+
+[worklog.entry.fields.body]
+type = "string"
+format = "markdown"
+description = "Full entry narrative: evidence, reasoning, links."
+
+# ----------------------------------------------------------------------------
+# docs — file-per-instance MD collection. Example / dogfood: README remains
+# the authoritative docs source; `docs/` exists to exercise the collection
+# mode end-to-end (nested dirs, path_hint, cross-instance search, delete
+# semantics). Content here is example material, not real project docs.
+# ----------------------------------------------------------------------------
+[docs]
+collection = "docs"
+format = "md"
+description = "File-per-instance MD collection. Each .md file under docs/ (recursively) is one page. Filename IS the page identity; nested dirs are organizational only."
+
+[docs.title]
+heading = 1
+description = "Page title — H1 at the top of the file, one per page."
+
+[docs.title.fields.body]
+type = "string"
+format = "markdown"
+description = "Intro prose under the H1, before the first H2."
+
+[docs.section]
+heading = 2
+description = "One H2 section within a page. Addressed by heading slug."
+
+[docs.section.fields.body]
+type = "string"
+format = "markdown"
+description = "Section body. Markdown with fenced code and deeper subheadings allowed (H3+ live inside body prose)."

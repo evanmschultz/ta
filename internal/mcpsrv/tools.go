@@ -19,7 +19,7 @@ func getTool() mcp.Tool {
 			"Read a section from a TOML file by its bracket path. Returns the raw TOML bytes of the section (header + body).",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute path to the TOML file.")),
-		mcp.WithString("section", mcp.Required(), mcp.Description("Bracket path of the section, e.g. 'task.task_001'.")),
+		mcp.WithString("section", mcp.Required(), mcp.Description("Bracket path of the section, e.g. 'plans.task.task_001' ('<db>.<type>.<id>').")),
 	)
 }
 
@@ -42,7 +42,7 @@ func upsertTool() mcp.Tool {
 				"If the file does not exist, it is created.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute path to the TOML file.")),
-		mcp.WithString("section", mcp.Required(), mcp.Description("Bracket path of the section to upsert.")),
+		mcp.WithString("section", mcp.Required(), mcp.Description("Bracket path of the section to upsert ('<db>.<type>.<id>').")),
 		mcp.WithObject(
 			"data",
 			mcp.Required(),
@@ -57,15 +57,16 @@ func schemaTool() mcp.Tool {
 		"schema",
 		mcp.WithDescription(
 			"Return the resolved schema for a TOML file. Without 'section', returns every "+
-				"section type in the file's cascade-merged registry (home ~/.ta/schema.toml "+
-				"folded with every .ta/schema.toml on the target file's ancestor chain). "+
-				"With 'section' set (dot-notated, e.g. 'task.task_001'), returns just the "+
-				"type matched by the first segment.",
+				"db in the file's cascade-merged registry (home ~/.ta/schema.toml folded "+
+				"with every .ta/schema.toml on the target file's ancestor chain). With "+
+				"'section' set (dot-notated, e.g. 'plans.task.task_001'), returns just "+
+				"the type matched by the first two segments. Use section='ta_schema' to "+
+				"read the meta-schema (the self-describing record of the schema language).",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute path to the TOML file.")),
 		mcp.WithString(
 			"section",
-			mcp.Description("Optional dot-notated section path. The first segment selects the schema type (e.g. 'task.task_001' resolves to [schema.task])."),
+			mcp.Description("Optional dot-notated section path; first two segments select the db + type (e.g. 'plans.task.task_001' resolves to [plans.task]). The reserved value 'ta_schema' returns the meta-schema literal."),
 		),
 	)
 }
@@ -81,17 +82,34 @@ type upsertSuccess struct {
 	SchemaPaths []string `json:"schema_paths"`
 }
 
+// schemaResult is the JSON body returned by handleSchema. Exactly one of
+// Type, DB, or DBs is populated per call, mirroring the three query
+// shapes supported by the `schema` tool (type-scoped, db-scoped, and
+// whole-registry respectively). MetaSchemaTOML is populated iff the
+// caller passed section = "ta_schema".
 type schemaResult struct {
+	Path           string            `json:"path"`
+	SchemaPaths    []string          `json:"schema_paths"`
+	Section        string            `json:"section,omitempty"`
+	Type           *typeView         `json:"type,omitempty"`
+	DB             *dbView           `json:"db,omitempty"`
+	DBs            map[string]dbView `json:"dbs,omitempty"`
+	MetaSchemaTOML string            `json:"meta_schema_toml,omitempty"`
+}
+
+type dbView struct {
+	Name        string              `json:"name"`
+	Description string              `json:"description,omitempty"`
+	Shape       schema.Shape        `json:"shape"`
 	Path        string              `json:"path"`
-	SchemaPaths []string            `json:"schema_paths"`
-	Section     string              `json:"section,omitempty"`
-	Type        *typeView           `json:"type,omitempty"`
-	Types       map[string]typeView `json:"types,omitempty"`
+	Format      schema.Format       `json:"format"`
+	Types       map[string]typeView `json:"types"`
 }
 
 type typeView struct {
 	Name        string               `json:"name"`
 	Description string               `json:"description,omitempty"`
+	Heading     int                  `json:"heading,omitempty"`
 	Fields      map[string]fieldView `json:"fields"`
 }
 
@@ -202,31 +220,70 @@ func handleSchema(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	}
 	section := req.GetString("section", "")
 
+	// ta_schema scope short-circuits resolution: the meta-schema is
+	// literal-embedded and never read from disk.
+	if section == schema.MetaSchemaPath {
+		return mcp.NewToolResultJSON(schemaResult{
+			Path:           path,
+			Section:        section,
+			MetaSchemaTOML: schema.MetaSchemaTOML,
+		})
+	}
+
 	resolution, err := config.Resolve(path)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolve schema for %s: %v", path, err)), nil
 	}
 
 	if section != "" {
-		t, ok := resolution.Registry.Lookup(section)
-		if !ok {
-			return mcp.NewToolResultError(
-				fmt.Sprintf("no schema registered for section %q in %s", section, path)), nil
+		// Try type-scoped first (<db>.<type> or deeper).
+		if t, ok := resolution.Registry.Lookup(section); ok {
+			tv := toTypeView(t)
+			return mcp.NewToolResultJSON(schemaResult{
+				Path:        path,
+				SchemaPaths: resolution.Sources,
+				Section:     section,
+				Type:        &tv,
+			})
 		}
-		tv := toTypeView(t)
-		return mcp.NewToolResultJSON(schemaResult{
-			Path:        path,
-			SchemaPaths: resolution.Sources,
-			Section:     section,
-			Type:        &tv,
-		})
+		// Fall back to db-scoped (<db>).
+		if db, ok := resolution.Registry.LookupDB(section); ok {
+			dv := toDBView(db)
+			return mcp.NewToolResultJSON(schemaResult{
+				Path:        path,
+				SchemaPaths: resolution.Sources,
+				Section:     section,
+				DB:          &dv,
+			})
+		}
+		return mcp.NewToolResultError(
+			fmt.Sprintf("no schema registered for section %q in %s", section, path)), nil
 	}
 
 	return mcp.NewToolResultJSON(schemaResult{
 		Path:        path,
 		SchemaPaths: resolution.Sources,
-		Types:       toTypesView(resolution.Registry.Types),
+		DBs:         toDBsView(resolution.Registry.DBs),
 	})
+}
+
+func toDBsView(in map[string]schema.DB) map[string]dbView {
+	out := make(map[string]dbView, len(in))
+	for name, db := range in {
+		out[name] = toDBView(db)
+	}
+	return out
+}
+
+func toDBView(db schema.DB) dbView {
+	return dbView{
+		Name:        db.Name,
+		Description: db.Description,
+		Shape:       db.Shape,
+		Path:        db.Path,
+		Format:      db.Format,
+		Types:       toTypesView(db.Types),
+	}
 }
 
 func toTypesView(in map[string]schema.SectionType) map[string]typeView {
@@ -252,6 +309,7 @@ func toTypeView(t schema.SectionType) typeView {
 	return typeView{
 		Name:        t.Name,
 		Description: t.Description,
+		Heading:     t.Heading,
 		Fields:      fields,
 	}
 }

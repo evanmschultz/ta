@@ -21,7 +21,14 @@ func TestFormatAllowedMixedTypes(t *testing.T) {
 
 func TestValidateNumericEnum(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
-[schema.row.fields.n]
+[rows]
+file = "rows.toml"
+format = "toml"
+
+[rows.row]
+description = "Numeric enums."
+
+[rows.row.fields.n]
 type = "integer"
 required = true
 enum = [1, 2, 3]
@@ -29,20 +36,27 @@ enum = [1, 2, 3]
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if err := reg.Validate("row.x", map[string]any{"n": int64(2)}); err != nil {
+	if err := reg.Validate("rows.row.x", map[string]any{"n": int64(2)}); err != nil {
 		t.Errorf("int64(2) should match numeric enum, got %v", err)
 	}
-	if err := reg.Validate("row.x", map[string]any{"n": float64(3)}); err != nil {
+	if err := reg.Validate("rows.row.x", map[string]any{"n": float64(3)}); err != nil {
 		t.Errorf("float64(3) should match numeric enum, got %v", err)
 	}
-	if err := reg.Validate("row.x", map[string]any{"n": 99}); err == nil {
+	if err := reg.Validate("rows.row.x", map[string]any{"n": 99}); err == nil {
 		t.Errorf("99 should be rejected by enum")
 	}
 }
 
 func TestValidateIntegerTypeVariants(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
-[schema.row.fields.n]
+[rows]
+file = "rows.toml"
+format = "toml"
+
+[rows.row]
+description = "Integer variants."
+
+[rows.row.fields.n]
 type = "integer"
 required = true
 `))
@@ -55,7 +69,7 @@ required = true
 		float32(1), float64(1),
 	}
 	for i, v := range values {
-		if err := reg.Validate("row.x", map[string]any{"n": v}); err != nil {
+		if err := reg.Validate("rows.row.x", map[string]any{"n": v}); err != nil {
 			t.Errorf("case %d (%T): %v", i, v, err)
 		}
 	}
@@ -63,7 +77,14 @@ required = true
 
 func TestValidateFloatTypeVariants(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
-[schema.row.fields.f]
+[rows]
+file = "rows.toml"
+format = "toml"
+
+[rows.row]
+description = "Float variants."
+
+[rows.row.fields.f]
 type = "float"
 required = true
 `))
@@ -75,34 +96,41 @@ required = true
 		int(3), int64(4), uint(5),
 	}
 	for i, v := range values {
-		if err := reg.Validate("row.x", map[string]any{"f": v}); err != nil {
+		if err := reg.Validate("rows.row.x", map[string]any{"f": v}); err != nil {
 			t.Errorf("case %d (%T): %v", i, v, err)
 		}
 	}
-	if err := reg.Validate("row.x", map[string]any{"f": "nope"}); err == nil {
+	if err := reg.Validate("rows.row.x", map[string]any{"f": "nope"}); err == nil {
 		t.Fatal("string must not satisfy float")
 	}
 }
 
 func TestValidateArrayAndTableRejections(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
-[schema.row.fields.arr]
+[rows]
+file = "rows.toml"
+format = "toml"
+
+[rows.row]
+description = "Array/table rejection cases."
+
+[rows.row.fields.arr]
 type = "array"
 required = true
-[schema.row.fields.tbl]
+[rows.row.fields.tbl]
 type = "table"
 required = true
 `))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if err := reg.Validate("row.x", map[string]any{
+	if err := reg.Validate("rows.row.x", map[string]any{
 		"arr": "not an array",
 		"tbl": "not a table",
 	}); err == nil {
 		t.Fatal("expected failures")
 	}
-	if err := reg.Validate("row.x", map[string]any{
+	if err := reg.Validate("rows.row.x", map[string]any{
 		"arr": nil,
 		"tbl": nil,
 	}); err == nil {

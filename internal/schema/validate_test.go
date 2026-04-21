@@ -19,7 +19,7 @@ func fixtureRegistry(t *testing.T) Registry {
 
 func TestValidateOK(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_001", map[string]any{
+	err := reg.Validate("plans.task.task_001", map[string]any{
 		"id":     "TASK-001",
 		"status": "todo",
 	})
@@ -28,20 +28,48 @@ func TestValidateOK(t *testing.T) {
 	}
 }
 
-func TestValidateUnknownSectionType(t *testing.T) {
+func TestValidateUnknownDB(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("note.standup_2026_04_19", map[string]any{})
+	err := reg.Validate("note.standup.n1", map[string]any{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	if !errors.Is(err, ErrUnknownSectionType) {
 		t.Errorf("errors.Is ErrUnknownSectionType = false, err = %v", err)
 	}
+	if !strings.Contains(err.Error(), "db") {
+		t.Errorf("error should name the missing db: %v", err)
+	}
+}
+
+func TestValidateUnknownType(t *testing.T) {
+	reg := fixtureRegistry(t)
+	err := reg.Validate("plans.ghost.id", map[string]any{})
+	if !errors.Is(err, ErrUnknownSectionType) {
+		t.Fatalf("errors.Is ErrUnknownSectionType = false, err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "type") {
+		t.Errorf("error should name the missing type: %v", err)
+	}
+}
+
+func TestValidateEmptyPath(t *testing.T) {
+	reg := fixtureRegistry(t)
+	if err := reg.Validate("", nil); !errors.Is(err, ErrUnknownSectionType) {
+		t.Fatalf("empty path should return ErrUnknownSectionType, got %v", err)
+	}
+}
+
+func TestValidateMissingTypeSegment(t *testing.T) {
+	reg := fixtureRegistry(t)
+	if err := reg.Validate("plans", nil); !errors.Is(err, ErrUnknownSectionType) {
+		t.Fatalf("bare db should return ErrUnknownSectionType, got %v", err)
+	}
 }
 
 func TestValidateMissingRequired(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"id": "TASK-042",
 	})
 	var ve *ValidationError
@@ -65,7 +93,7 @@ func TestValidateMissingRequired(t *testing.T) {
 
 func TestValidateTypeMismatch(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"id":             "TASK-042",
 		"status":         "todo",
 		"estimate_hours": "three",
@@ -91,7 +119,7 @@ func TestValidateTypeMismatch(t *testing.T) {
 
 func TestValidateEnumMismatch(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"id":     "TASK-042",
 		"status": "cancelled",
 	})
@@ -106,7 +134,7 @@ func TestValidateEnumMismatch(t *testing.T) {
 
 func TestValidateUnknownField(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"id":      "TASK-042",
 		"status":  "todo",
 		"mystery": 1,
@@ -122,7 +150,7 @@ func TestValidateUnknownField(t *testing.T) {
 
 func TestValidateMultipleFailuresOrdered(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"estimate_hours": "three",
 	})
 	var ve *ValidationError
@@ -142,13 +170,13 @@ func TestValidateMultipleFailuresOrdered(t *testing.T) {
 
 func TestValidationErrorMessage(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"id":             "TASK-042",
 		"status":         "todo",
 		"estimate_hours": "three",
 	})
 	msg := err.Error()
-	if !strings.Contains(msg, "upsert failed for [task.task_042]:") {
+	if !strings.Contains(msg, "validation failed for [plans.task.task_042]:") {
 		t.Errorf("missing section prefix: %q", msg)
 	}
 	if !strings.Contains(msg, `field "estimate_hours" has type "string", expected "integer"`) {
@@ -161,7 +189,7 @@ func TestValidationErrorMessage(t *testing.T) {
 
 func TestValidationErrorJSON(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"id": "TASK-042",
 	})
 	var ve *ValidationError
@@ -185,7 +213,7 @@ func TestValidationErrorJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &round); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if round.SectionPath != "task.task_042" {
+	if round.SectionPath != "plans.task.task_042" {
 		t.Errorf("section_path = %q", round.SectionPath)
 	}
 	if len(round.Failures) != 1 || round.Failures[0].Field != "status" {
@@ -198,7 +226,7 @@ func TestValidationErrorJSON(t *testing.T) {
 
 func TestValidationErrorUnwrap(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{})
+	err := reg.Validate("plans.task.task_042", map[string]any{})
 	var ve *ValidationError
 	if !errors.As(err, &ve) {
 		t.Fatalf("errors.As ValidationError = false")
@@ -215,7 +243,7 @@ func TestValidationErrorUnwrap(t *testing.T) {
 
 func TestValidateIntegerAcceptsFloatWhole(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"id":             "TASK-042",
 		"status":         "todo",
 		"estimate_hours": float64(3),
@@ -227,7 +255,7 @@ func TestValidateIntegerAcceptsFloatWhole(t *testing.T) {
 
 func TestValidateIntegerRejectsFraction(t *testing.T) {
 	reg := fixtureRegistry(t)
-	err := reg.Validate("task.task_042", map[string]any{
+	err := reg.Validate("plans.task.task_042", map[string]any{
 		"id":             "TASK-042",
 		"status":         "todo",
 		"estimate_hours": 3.5,
@@ -237,34 +265,45 @@ func TestValidateIntegerRejectsFraction(t *testing.T) {
 	}
 }
 
-func TestValidateTypeMatrix(t *testing.T) {
-	reg, err := Load(strings.NewReader(`
-[schema.row.fields.s]
+// typeMatrixSchema declares one field per supported TOML type; used to
+// exercise valueMatchesType end-to-end.
+const typeMatrixSchema = `
+[rows]
+file = "rows.toml"
+format = "toml"
+
+[rows.row]
+description = "All supported types in one row."
+
+[rows.row.fields.s]
 type = "string"
 required = true
-[schema.row.fields.i]
+[rows.row.fields.i]
 type = "integer"
 required = true
-[schema.row.fields.f]
+[rows.row.fields.f]
 type = "float"
 required = true
-[schema.row.fields.b]
+[rows.row.fields.b]
 type = "boolean"
 required = true
-[schema.row.fields.d]
+[rows.row.fields.d]
 type = "datetime"
 required = true
-[schema.row.fields.arr]
+[rows.row.fields.arr]
 type = "array"
 required = true
-[schema.row.fields.tbl]
+[rows.row.fields.tbl]
 type = "table"
 required = true
-`))
+`
+
+func TestValidateTypeMatrix(t *testing.T) {
+	reg, err := Load(strings.NewReader(typeMatrixSchema))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	err = reg.Validate("row.x", map[string]any{
+	err = reg.Validate("rows.row.x", map[string]any{
 		"s":   "hi",
 		"i":   42,
 		"f":   1.5,
@@ -280,7 +319,14 @@ required = true
 
 func TestValidateDatetimeFromString(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
-[schema.row.fields.d]
+[rows]
+file = "rows.toml"
+format = "toml"
+
+[rows.row]
+description = "Datetime rows."
+
+[rows.row.fields.d]
 type = "datetime"
 required = true
 `))
@@ -298,7 +344,7 @@ required = true
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := reg.Validate("row.x", map[string]any{"d": tc.val})
+			got := reg.Validate("rows.row.x", map[string]any{"d": tc.val})
 			if (got != nil) != tc.wantErr {
 				t.Fatalf("err = %v, wantErr = %v", got, tc.wantErr)
 			}

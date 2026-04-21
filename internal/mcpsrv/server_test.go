@@ -14,14 +14,19 @@ import (
 )
 
 const taskSchema = `
-[schema.task]
-description = "A unit of work"
+[plans]
+file = "plans.toml"
+format = "toml"
+description = "Test planning db."
 
-[schema.task.fields.id]
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
 type = "string"
 required = true
 
-[schema.task.fields.status]
+[plans.task.fields.status]
 type = "string"
 required = true
 `
@@ -122,7 +127,7 @@ func TestUpsertCreatesFileThenGetRoundTrips(t *testing.T) {
 
 	res := callTool(t, c, "upsert", map[string]any{
 		"path":    fx.dataPath,
-		"section": "task.t1",
+		"section": "plans.task.t1",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	})
 	if res.IsError {
@@ -135,13 +140,13 @@ func TestUpsertCreatesFileThenGetRoundTrips(t *testing.T) {
 
 	getRes := callTool(t, c, "get", map[string]any{
 		"path":    fx.dataPath,
-		"section": "task.t1",
+		"section": "plans.task.t1",
 	})
 	if getRes.IsError {
 		t.Fatalf("get errored: %s", firstText(t, getRes))
 	}
 	body := firstText(t, getRes)
-	if !strings.Contains(body, "[task.t1]") {
+	if !strings.Contains(body, "[plans.task.t1]") {
 		t.Errorf("get body missing header: %s", body)
 	}
 	if !strings.Contains(body, `id = "T1"`) {
@@ -156,14 +161,14 @@ func TestUpsertUpdatesExistingSectionPreservesOthers(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
 
-	initial := "# preserved header\n\n[task.a]\nid = \"A\"\nstatus = \"todo\"\n\n[task.b]\nid = \"B\"\nstatus = \"todo\"\n# preserved footer\n"
+	initial := "# preserved header\n\n[plans.task.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.task.b]\nid = \"B\"\nstatus = \"todo\"\n# preserved footer\n"
 	if err := os.WriteFile(fx.dataPath, []byte(initial), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
 	res := callTool(t, c, "upsert", map[string]any{
 		"path":    fx.dataPath,
-		"section": "task.a",
+		"section": "plans.task.a",
 		"data":    map[string]any{"id": "A", "status": "done"},
 	})
 	if res.IsError {
@@ -175,22 +180,22 @@ func TestUpsertUpdatesExistingSectionPreservesOthers(t *testing.T) {
 		t.Fatalf("read back: %v", err)
 	}
 	s := string(out)
-	for _, must := range []string{"# preserved header", "# preserved footer", "[task.b]", `id = "B"`, `status = "done"`} {
+	for _, must := range []string{"# preserved header", "# preserved footer", "[plans.task.b]", `id = "B"`, `status = "done"`} {
 		if !strings.Contains(s, must) {
 			t.Errorf("missing %q in:\n%s", must, s)
 		}
 	}
 	if strings.Contains(s, `id = "A"`) && strings.Contains(s, `status = "todo"`) {
-		// Check that task.a specifically is now "done" — status=todo may still exist under task.b; that's fine.
-		// But task.a line with status=todo must be gone.
-		aStart := strings.Index(s, "[task.a]")
-		aEnd := strings.Index(s[aStart:], "[task.b]")
+		// Check that plans.task.a specifically is now "done" — status=todo may still exist under
+		// plans.task.b; that's fine. But task.a line with status=todo must be gone.
+		aStart := strings.Index(s, "[plans.task.a]")
+		aEnd := strings.Index(s[aStart:], "[plans.task.b]")
 		if aEnd < 0 {
-			t.Fatalf("could not locate [task.b] after [task.a]: %s", s)
+			t.Fatalf("could not locate [plans.task.b] after [plans.task.a]: %s", s)
 		}
 		aSection := s[aStart : aStart+aEnd]
 		if strings.Contains(aSection, `status = "todo"`) {
-			t.Errorf("task.a still contains old status:\n%s", aSection)
+			t.Errorf("plans.task.a still contains old status:\n%s", aSection)
 		}
 	}
 }
@@ -201,7 +206,7 @@ func TestUpsertValidationErrorReturnsStructuredJSON(t *testing.T) {
 
 	res := callTool(t, c, "upsert", map[string]any{
 		"path":    fx.dataPath,
-		"section": "task.bad",
+		"section": "plans.task.bad",
 		"data":    map[string]any{"id": "X"}, // missing required status
 	})
 	if !res.IsError {
@@ -218,8 +223,8 @@ func TestUpsertValidationErrorReturnsStructuredJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &payload); err != nil {
 		t.Fatalf("validation error body is not JSON: %v\n%s", err, body)
 	}
-	if payload.SectionPath != "task.bad" {
-		t.Errorf("section_path = %q, want task.bad", payload.SectionPath)
+	if payload.SectionPath != "plans.task.bad" {
+		t.Errorf("section_path = %q, want plans.task.bad", payload.SectionPath)
 	}
 	if len(payload.Failures) == 0 {
 		t.Errorf("failures empty: %s", body)
@@ -263,7 +268,7 @@ func TestListSectionsReturnsFileOrder(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
 
-	src := "[task.first]\nid = \"F\"\nstatus = \"todo\"\n\n[task.second]\nid = \"S\"\nstatus = \"todo\"\n"
+	src := "[plans.task.first]\nid = \"F\"\nstatus = \"todo\"\n\n[plans.task.second]\nid = \"S\"\nstatus = \"todo\"\n"
 	if err := os.WriteFile(fx.dataPath, []byte(src), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -277,7 +282,7 @@ func TestListSectionsReturnsFileOrder(t *testing.T) {
 	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	want := []string{"task.first", "task.second"}
+	want := []string{"plans.task.first", "plans.task.second"}
 	if len(payload.Sections) != len(want) {
 		t.Fatalf("Sections = %v, want %v", payload.Sections, want)
 	}
@@ -292,12 +297,12 @@ func TestGetMissingSectionReturnsError(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
 
-	if err := os.WriteFile(fx.dataPath, []byte("[task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(fx.dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	res := callTool(t, c, "get", map[string]any{
 		"path":    fx.dataPath,
-		"section": "task.nope",
+		"section": "plans.task.nope",
 	})
 	if !res.IsError {
 		t.Fatalf("expected IsError=true, got: %s", firstText(t, res))
@@ -329,7 +334,27 @@ func TestNewRejectsEmptyConfig(t *testing.T) {
 	}
 }
 
-func TestSchemaReturnsAllTypesWhenSectionOmitted(t *testing.T) {
+// schemaAllDBsPayload is the subset of schemaResult we assert on for a
+// full-registry call (section arg omitted).
+type schemaAllDBsPayload struct {
+	Path        string   `json:"path"`
+	SchemaPaths []string `json:"schema_paths"`
+	DBs         map[string]struct {
+		Name   string `json:"name"`
+		Shape  string `json:"shape"`
+		Path   string `json:"path"`
+		Format string `json:"format"`
+		Types  map[string]struct {
+			Name   string `json:"name"`
+			Fields map[string]struct {
+				Type     string `json:"type"`
+				Required bool   `json:"required"`
+			} `json:"fields"`
+		} `json:"types"`
+	} `json:"dbs"`
+}
+
+func TestSchemaReturnsAllDBsWhenSectionOmitted(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
 
@@ -337,17 +362,7 @@ func TestSchemaReturnsAllTypesWhenSectionOmitted(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("schema errored: %s", firstText(t, res))
 	}
-	var payload struct {
-		Path        string   `json:"path"`
-		SchemaPaths []string `json:"schema_paths"`
-		Types       map[string]struct {
-			Name   string `json:"name"`
-			Fields map[string]struct {
-				Type     string `json:"type"`
-				Required bool   `json:"required"`
-			} `json:"fields"`
-		} `json:"types"`
-	}
+	var payload schemaAllDBsPayload
 	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
 		t.Fatalf("schema body is not JSON: %v", err)
 	}
@@ -357,18 +372,25 @@ func TestSchemaReturnsAllTypesWhenSectionOmitted(t *testing.T) {
 	if len(payload.SchemaPaths) == 0 {
 		t.Errorf("schema_paths empty")
 	}
-	task, ok := payload.Types["task"]
+	db, ok := payload.DBs["plans"]
 	if !ok {
-		t.Fatalf("task type missing from types: %s", firstText(t, res))
+		t.Fatalf("plans db missing from dbs: %s", firstText(t, res))
 	}
-	if task.Name != "task" {
-		t.Errorf("task.name = %q, want 'task'", task.Name)
+	if db.Format != "toml" {
+		t.Errorf("db.format = %q, want toml", db.Format)
+	}
+	if db.Shape != "file" {
+		t.Errorf("db.shape = %q, want file", db.Shape)
+	}
+	task, ok := db.Types["task"]
+	if !ok {
+		t.Fatalf("plans.task type missing: %s", firstText(t, res))
 	}
 	if _, ok := task.Fields["id"]; !ok {
-		t.Errorf("task.id field missing")
+		t.Errorf("plans.task.id field missing")
 	}
 	if !task.Fields["status"].Required {
-		t.Errorf("task.status should be required")
+		t.Errorf("plans.task.status should be required")
 	}
 }
 
@@ -378,7 +400,7 @@ func TestSchemaNarrowsToSingleTypeWhenSectionGiven(t *testing.T) {
 
 	res := callTool(t, c, "schema", map[string]any{
 		"path":    fx.dataPath,
-		"section": "task.task_001",
+		"section": "plans.task.task_001",
 	})
 	if res.IsError {
 		t.Fatalf("schema errored: %s", firstText(t, res))
@@ -392,13 +414,13 @@ func TestSchemaNarrowsToSingleTypeWhenSectionGiven(t *testing.T) {
 				Required bool   `json:"required"`
 			} `json:"fields"`
 		} `json:"type"`
-		Types map[string]any `json:"types"`
+		DBs map[string]any `json:"dbs"`
 	}
 	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
 		t.Fatalf("schema body is not JSON: %v", err)
 	}
-	if payload.Section != "task.task_001" {
-		t.Errorf("section = %q, want task.task_001", payload.Section)
+	if payload.Section != "plans.task.task_001" {
+		t.Errorf("section = %q, want plans.task.task_001", payload.Section)
 	}
 	if payload.Type == nil {
 		t.Fatal("type field nil, want task type")
@@ -406,8 +428,44 @@ func TestSchemaNarrowsToSingleTypeWhenSectionGiven(t *testing.T) {
 	if payload.Type.Name != "task" {
 		t.Errorf("type.name = %q, want task", payload.Type.Name)
 	}
-	if len(payload.Types) != 0 {
-		t.Errorf("types field should be omitted when section narrows: %v", payload.Types)
+	if len(payload.DBs) != 0 {
+		t.Errorf("dbs field should be omitted when section narrows: %v", payload.DBs)
+	}
+}
+
+func TestSchemaNarrowsToDBWhenOnlyDBSegment(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+
+	res := callTool(t, c, "schema", map[string]any{
+		"path":    fx.dataPath,
+		"section": "plans",
+	})
+	if res.IsError {
+		t.Fatalf("schema errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Section string `json:"section"`
+		DB      *struct {
+			Name   string         `json:"name"`
+			Format string         `json:"format"`
+			Types  map[string]any `json:"types"`
+		} `json:"db"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("schema body is not JSON: %v", err)
+	}
+	if payload.Section != "plans" {
+		t.Errorf("section = %q, want plans", payload.Section)
+	}
+	if payload.DB == nil {
+		t.Fatalf("db field nil, want plans db payload")
+	}
+	if payload.DB.Name != "plans" {
+		t.Errorf("db.name = %q, want plans", payload.DB.Name)
+	}
+	if _, ok := payload.DB.Types["task"]; !ok {
+		t.Errorf("db.types missing task")
 	}
 }
 
@@ -443,6 +501,41 @@ func TestSchemaNoConfigReturnsResolveError(t *testing.T) {
 	}
 }
 
+func TestSchemaMetaSchemaScope(t *testing.T) {
+	// ta_schema scope short-circuits resolution — no .ta/schema.toml needed.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	orphan := t.TempDir()
+	dataPath := filepath.Join(orphan, "any.toml")
+
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":    dataPath,
+		"section": "ta_schema",
+	})
+	if res.IsError {
+		t.Fatalf("meta-schema scope errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Section        string `json:"section"`
+		MetaSchemaTOML string `json:"meta_schema_toml"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("meta-schema body is not JSON: %v", err)
+	}
+	if payload.Section != "ta_schema" {
+		t.Errorf("section = %q, want ta_schema", payload.Section)
+	}
+	if !strings.Contains(payload.MetaSchemaTOML, "[ta_schema]") {
+		t.Errorf("meta-schema literal missing [ta_schema] root")
+	}
+	for _, want := range []string{"[ta_schema.db]", "[ta_schema.type]", "[ta_schema.field]"} {
+		if !strings.Contains(payload.MetaSchemaTOML, want) {
+			t.Errorf("meta-schema literal missing %q", want)
+		}
+	}
+}
+
 func TestUpsertNoSchemaConfigReturnsError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -452,7 +545,7 @@ func TestUpsertNoSchemaConfigReturnsError(t *testing.T) {
 	c := newClient(t)
 	res := callTool(t, c, "upsert", map[string]any{
 		"path":    dataPath,
-		"section": "task.x",
+		"section": "plans.task.x",
 		"data":    map[string]any{"id": "X", "status": "todo"},
 	})
 	if !res.IsError {

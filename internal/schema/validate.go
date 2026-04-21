@@ -9,18 +9,35 @@ import (
 	"time"
 )
 
-// ErrUnknownSectionType is returned by Validate when the first segment of
-// the section path has no registered schema type.
+// ErrUnknownSectionType is returned by Validate when the first two
+// segments of the section path do not resolve to a registered db+type.
+// The wrapped message names the specific db or type segment that failed
+// to resolve.
 var ErrUnknownSectionType = errors.New("unknown section type")
 
 // Validate checks data against the schema entry selected by sectionPath.
-// It returns nil if the data conforms, ErrUnknownSectionType wrapped with
-// the offending type name if no schema is registered, or a *ValidationError
-// aggregating every field-level failure.
+// sectionPath is the simple "<db>.<type>.<id>" form; the multi-instance
+// "<db>.<instance>.<type>.<id>" form is resolved ahead of this call by
+// the §12.3 address resolver. Validate returns nil if the data conforms,
+// ErrUnknownSectionType wrapped with the offending segment if no schema
+// is registered, or a *ValidationError aggregating every field-level
+// failure.
 func (r Registry) Validate(sectionPath string, data map[string]any) error {
-	st, ok := r.Lookup(sectionPath)
+	dbName, typeName, _ := splitFirstTwo(sectionPath)
+	if dbName == "" {
+		return fmt.Errorf("%w: empty section path", ErrUnknownSectionType)
+	}
+	db, ok := r.DBs[dbName]
 	if !ok {
-		return fmt.Errorf("%w: %q", ErrUnknownSectionType, firstSegment(sectionPath))
+		return fmt.Errorf("%w: db %q not registered", ErrUnknownSectionType, dbName)
+	}
+	if typeName == "" {
+		return fmt.Errorf("%w: missing type segment for db %q", ErrUnknownSectionType, dbName)
+	}
+	st, ok := db.Types[typeName]
+	if !ok {
+		return fmt.Errorf("%w: type %q not registered under db %q",
+			ErrUnknownSectionType, typeName, dbName)
 	}
 
 	var failures []*FieldFailure

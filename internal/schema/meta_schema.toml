@@ -1,0 +1,102 @@
+# ============================================================================
+# ta_schema — the meta-schema: a self-describing record of the schema
+# language. Surfaced via `schema(action="get", scope="ta_schema")`. Each
+# `kind` below (db, type, field) corresponds to one of the three addressable
+# shapes `schema(action="create"|"update"|"delete")` accepts; its `data`
+# payload must match the fields declared here.
+#
+# The meta-schema itself is stored as a single-instance TOML db at
+# .ta/meta_schema.toml — conceptually. In practice the literal is embedded
+# in the ta binary and never resolved from disk. See V2-PLAN §4.7, §3.3.
+# ============================================================================
+
+[ta_schema]
+file = "ta_schema.toml"
+format = "toml"
+description = "Meta-schema: the three kinds (db, type, field) an agent constructs via the `schema` tool, and the meta-schema rules enforced on `schema.toml` at load time. See V2-PLAN §4.1 and §4.7."
+
+# ----------------------------------------------------------------------------
+# kind = "db" — the data shape of `schema(action="create"|"update", kind="db",
+# name="<db>", data=...)`. Exactly one of file / directory / collection must
+# be set; `format` is required; `description` recommended. See V2-PLAN §4.1.
+# ----------------------------------------------------------------------------
+[ta_schema.db]
+description = "A database: one of the three shapes (single-instance file, dir-per-instance, file-per-instance). Corresponds to one [<db>] root in the schema file."
+
+[ta_schema.db.fields.format]
+type = "string"
+required = true
+enum = ["toml", "md"]
+description = "Canonical on-disk format. Binds this db to one backend."
+
+[ta_schema.db.fields.file]
+type = "string"
+description = "Single-instance: relative path from project root (e.g. 'plans.toml', 'README.md'). Extension must match `format`. Set exactly one of file / directory / collection."
+
+[ta_schema.db.fields.directory]
+type = "string"
+description = "Dir-per-instance: relative path from project root (e.g. 'workflow'). Each immediate child dir holding the canonical `db.<ext>` file is one instance. Set exactly one of file / directory / collection."
+
+[ta_schema.db.fields.collection]
+type = "string"
+description = "File-per-instance: relative path from project root (e.g. 'docs'). Every file under this dir (recursively) whose extension matches `format` is one instance. Set exactly one of file / directory / collection."
+
+[ta_schema.db.fields.description]
+type = "string"
+format = "markdown"
+description = "Human-readable description of the db. Surfaced through the `schema` tool; recommended but not required."
+
+# ----------------------------------------------------------------------------
+# kind = "type" — the data shape of `schema(action="create"|"update",
+# kind="type", name="<db>.<type>", data=...)`. `description` required;
+# `heading` required when the owning db has format = "md".
+# ----------------------------------------------------------------------------
+[ta_schema.type]
+description = "A record type under a db. Corresponds to one [<db>.<type>] sub-table."
+
+[ta_schema.type.fields.description]
+type = "string"
+required = true
+format = "markdown"
+description = "Human-readable description of the type. Surfaced through the `schema` tool."
+
+[ta_schema.type.fields.heading]
+type = "integer"
+enum = [1, 2, 3, 4, 5, 6]
+description = "MD-only: the ATX heading level (1..6) this type's records occupy. Required when the owning db has format = 'md'; must be absent when format = 'toml'. Each heading level must be unique within a given MD db."
+
+# ----------------------------------------------------------------------------
+# kind = "field" — the data shape of `schema(action="create"|"update",
+# kind="field", name="<db>.<type>.<field>", data=...)`. `type` required;
+# everything else optional.
+# ----------------------------------------------------------------------------
+[ta_schema.field]
+description = "A field on a record type. Corresponds to one [<db>.<type>.fields.<name>] sub-table."
+
+[ta_schema.field.fields.type]
+type = "string"
+required = true
+enum = ["string", "integer", "float", "boolean", "datetime", "array", "table"]
+description = "Declared field type. Matches TOML's native types."
+
+[ta_schema.field.fields.required]
+type = "boolean"
+default = false
+description = "Whether the field must be present in a valid record. Defaults to false."
+
+[ta_schema.field.fields.description]
+type = "string"
+format = "markdown"
+description = "Human-readable description of the field. Surfaced verbatim in validation failures."
+
+[ta_schema.field.fields.enum]
+type = "array"
+description = "Optional allowed-value list. Values must match `type`."
+
+[ta_schema.field.fields.default]
+type = "string"
+description = "Optional default value. Not applied during validation; informational only."
+
+[ta_schema.field.fields.format]
+type = "string"
+description = "Optional format hint (e.g. 'markdown'). Informational; informs alternate renderers per V2-PLAN §13."
