@@ -1,0 +1,62 @@
+# Project-level schema for the `ta` repo itself. Merged on top of
+# ~/.ta/schema.toml when an agent (or CLI user) points `ta` at any TOML
+# file under this project tree. Demonstrates cascade semantics:
+#
+# - `task` is redefined here: adds a `review` status value and a new
+#   `owner` field. This override replaces the home `task` definition
+#   wholesale — include every field you want to keep.
+# - `plan` is a project-unique type (no home analogue). It is added to
+#   the resolved registry alongside home's `note` and this file's `task`.
+#
+# Run `ta schema <any .toml path under this project>` to see both
+# sources folded into the resolved registry.
+
+[schema.task]
+description = "A ta-project work item. Extends the home task schema with project-review gating and an explicit owner."
+
+[schema.task.fields.id]
+type = "string"
+required = true
+description = "Stable identifier, e.g. 'TASK-001'."
+
+[schema.task.fields.status]
+type = "string"
+required = true
+enum = ["todo", "doing", "review", "blocked", "done"]
+description = "Current state of the task. Adds 'review' for project gate before 'done'."
+
+[schema.task.fields.title]
+type = "string"
+required = true
+description = "One-line summary."
+
+[schema.task.fields.owner]
+type = "string"
+required = true
+description = "GitHub handle of the task owner."
+
+[schema.task.fields.body]
+type = "string"
+description = "Freeform writeup. Markdown with code fences supported."
+
+[schema.plan]
+description = "A planning artifact — a multi-step implementation plan tied to one or more tasks."
+
+[schema.plan.fields.id]
+type = "string"
+required = true
+description = "Plan identifier, e.g. 'PLAN-001'."
+
+[schema.plan.fields.title]
+type = "string"
+required = true
+description = "Plan headline."
+
+[schema.plan.fields.tasks]
+type = "array"
+required = true
+description = "Task IDs this plan expands into, in execution order."
+
+[schema.plan.fields.body]
+type = "string"
+description = "Full plan body. Markdown; tables and code fences allowed."
