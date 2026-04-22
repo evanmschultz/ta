@@ -75,6 +75,25 @@ func Resolve(filePath string) (Resolution, error) {
 // config (if it exists as a concept — i.e. os.UserHomeDir resolves) comes
 // first unless it coincides with an ancestor of the target file, in which
 // case the ancestor chain places it naturally. Ancestors follow in
+// CandidatePaths returns the same ordered list of schema file paths
+// that Resolve would consider when called on filePath — the home-slot
+// plus every ancestor's .ta/schema.toml, in root-to-file order. The
+// existence of each returned path is NOT checked here; callers that
+// want the existence-gated subset should stat each path themselves.
+//
+// This is the cheap "what files might contribute right now?" probe
+// used by the mcpsrv cache to detect a cascade layer that appeared
+// mid-session — the bare mtime check on captured sources misses new
+// files by construction. Returning just the candidate list (no parse)
+// keeps the probe O(ancestors) + 1 stat per call.
+func CandidatePaths(filePath string) ([]string, error) {
+	abs, err := filepath.Abs(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("config: abs path: %w", err)
+	}
+	return candidatePaths(abs)
+}
+
 // filesystem-root-to-file order so that `merged.Override(next)` gives
 // closer-to-file precedence.
 func candidatePaths(absFilePath string) ([]string, error) {

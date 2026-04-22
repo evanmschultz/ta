@@ -351,3 +351,79 @@ func TestStartupPreWarmsValidCascade(t *testing.T) {
 		t.Errorf("post-warm resolve triggered extra load; count=%d want 1", got)
 	}
 }
+
+// homeLayerSchema seeds a second db so a mid-session appearance is
+// observable in the resolved Registry — if the cache picks up the new
+// home layer, DBs will include "notes" in addition to "plans".
+const homeLayerSchema = `
+[notes]
+file = "notes.toml"
+format = "toml"
+description = "home-layer db that appears mid-session."
+
+[notes.entry]
+description = "A note."
+
+[notes.entry.fields.title]
+type = "string"
+required = true
+`
+
+// TestCacheReloadsOnNewCascadeLayer locks in the §12.9 Falsification
+// finding 2.1 fix. Before the fix, the cache's mtime check iterated
+// only the source set captured at first-resolve time — a new cascade
+// layer (e.g. a home-level schema created mid-session) was silently
+// ignored because it wasn't in entry.mtimes. The fix re-probes
+// candidate paths on every read via config.CandidatePaths. This test
+// proves the fix by observing the new home-layer db in the resolved
+// Registry without a server restart.
+func TestCacheReloadsOnNewCascadeLayer(t *testing.T) {
+	loader := installCountingLoader(t)
+	root := seedProject(t, cacheTestSchema)
+
+	// First resolve: only plans is declared, home-layer absent.
+	res, err := mcpsrv.ResolveProject(root)
+	if err != nil {
+		t.Fatalf("warm: %v", err)
+	}
+	if _, ok := res.Registry.DBs["notes"]; ok {
+		t.Fatalf("precondition: notes db should not exist before home layer written")
+	}
+	if got := loader.count.Load(); got != 1 {
+		t.Fatalf("warm load count = %d; want 1", got)
+	}
+
+	// Create ~/.ta/schema.toml with a new db. This is the class of
+	// mid-session change the bare-mtime check missed.
+	home := os.Getenv("HOME")
+	homeTA := filepath.Join(home, ".ta")
+	if err := os.MkdirAll(homeTA, 0o755); err != nil {
+		t.Fatalf("mkdir home .ta: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(homeTA, "schema.toml"), []byte(homeLayerSchema), 0o644); err != nil {
+		t.Fatalf("write home schema: %v", err)
+	}
+
+	// Second resolve: must notice the new candidate, re-resolve, and
+	// surface the home-layer db.
+	res2, err := mcpsrv.ResolveProject(root)
+	if err != nil {
+		t.Fatalf("post-home resolve: %v", err)
+	}
+	if _, ok := res2.Registry.DBs["notes"]; !ok {
+		t.Errorf("cache missed the new home layer; DBs=%v", keysOf(res2.Registry.DBs))
+	}
+	if got := loader.count.Load(); got != 2 {
+		t.Errorf("loader invoked %d times; want 2 (initial + reload on new layer)", got)
+	}
+}
+
+// keysOf is a tiny helper so the assertion above can log the actual
+// DB names without depending on reflect or sort ordering.
+func keysOf[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}

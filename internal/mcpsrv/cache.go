@@ -70,19 +70,29 @@ func newSchemaCacheWithLoader(loader func(string) (config.Resolution, error)) *s
 //  1. If no entry exists, load the cascade, stat every source, cache
 //     the (resolution, mtimes) pair, and return it.
 //  2. If an entry exists, stat every source. If any mtime changed or
-//     any source has been removed, drop the stale entry and reload.
-//     Otherwise serve the cached resolution.
+//     any source has been removed OR a new cascade-layer candidate has
+//     appeared on disk since the entry was captured, drop the stale
+//     entry and reload. Otherwise serve the cached resolution.
 //
 // The read path takes only the RLock on the happy mtime-stable case;
 // reloads take the Lock briefly. Double-checked locking covers the
 // race where two goroutines miss the cache at the same time — the
 // second acquires the write lock and sees the entry written by the
 // first.
+//
+// Mtime-precision caveat. On filesystems with coarse mtime granularity
+// (e.g. 1-second HFS+ mounts), an external editor writing twice within
+// the same second may leave the cached mtime unchanged and let the
+// cache serve a stale resolution until the next invalidation trigger.
+// In-process mutations via MutateSchema are unaffected because that
+// path calls Invalidate explicitly. Known v0.1.0 limitation; the §14
+// post-release cleanup removes the class entirely by collapsing the
+// cache to a single project-local entry.
 func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	c.mu.RLock()
 	entry, ok := c.entries[projectPath]
 	c.mu.RUnlock()
-	if ok && !c.mtimesMoved(entry) {
+	if ok && !c.entryStale(projectPath, entry) {
 		return entry.resolution, nil
 	}
 
@@ -91,7 +101,7 @@ func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	// Lock.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if entry, ok := c.entries[projectPath]; ok && !c.mtimesMoved(entry) {
+	if entry, ok := c.entries[projectPath]; ok && !c.entryStale(projectPath, entry) {
 		return entry.resolution, nil
 	}
 
@@ -127,6 +137,45 @@ func (c *schemaCache) Invalidate(projectPath string) {
 // Test-only — production code has no reason to read this.
 func (c *schemaCache) loadCountForTest() uint64 {
 	return c.loadCount.Load()
+}
+
+// entryStale reports whether entry should be discarded in favor of a
+// fresh resolve. Three triggers, in ascending cost:
+//
+//  1. Any captured source has a moved mtime.
+//  2. Any captured source has been deleted (os.Stat fs.ErrNotExist).
+//  3. A new cascade-layer candidate has appeared on disk that was NOT
+//     in the captured source set — e.g. the user created
+//     ~/.ta/schema.toml mid-session after the project resolved
+//     without it. Without this check the cache serves the
+//     pre-home-layer resolution until restart (§12.9 Falsification
+//     finding 2.1).
+//
+// Candidate enumeration goes through config.CandidatePaths, which
+// walks the same ancestor chain Resolve would — so the cache stays
+// consistent with what config.Resolve would return on every read.
+func (c *schemaCache) entryStale(projectPath string, entry *cacheEntry) bool {
+	if c.mtimesMoved(entry) {
+		return true
+	}
+	candidates, err := config.CandidatePaths(joinSentinel(projectPath))
+	if err != nil {
+		// Can't enumerate candidates — safest to re-resolve so the
+		// next loader call surfaces the real error rather than
+		// silently serving stale.
+		return true
+	}
+	for _, path := range candidates {
+		if _, ok := entry.mtimes[path]; ok {
+			continue
+		}
+		if _, err := os.Stat(path); err == nil {
+			// A candidate that wasn't in our snapshot now exists on
+			// disk — a new cascade layer appeared since resolve time.
+			return true
+		}
+	}
+	return false
 }
 
 // mtimesMoved reports whether any of entry's source files has changed
