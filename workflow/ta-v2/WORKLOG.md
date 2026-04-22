@@ -21,8 +21,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.4  | MD backend                           | ✅    | ✅    | ✅     | ✅   |
 | 12.5  | Data tool surface                    | ✅    | ✅    | ✅     | ✅   |
 | 12.6  | Schema tool CRUD                     | ✅    | ✅    | ✅     | ✅   |
-| 12.7  | Laslig CLI rendering                 | —     | —     | —      | —    |
-| 12.8  | Search                               | —     | —     | —      | —    |
+| 12.7  | Laslig CLI rendering                 | ✅    | ✅    | ✅     | ✅   |
+| 12.8  | Search                               | ✅    | ✅    | ✅     | ✅   |
 | 12.9  | MCP caching                          | —     | —     | —      | —    |
 | 12.10 | Dogfood migration                    | —     | —     | —      | —    |
 | 12.11 | README collapse                      | —     | —     | —      | —    |
@@ -369,3 +369,48 @@ Dev chose Option A (fix all three) per the standing "everything should be strict
 ### Outcome
 
 PASS. §12.5 (Data tool surface) and §12.6 (Schema tool CRUD) closed, including the §3.3 spec amendment for type-payload `fields` and the Option A resolution of three fail-loudly findings. §12.7 (Laslig CLI rendering) and §12.8 (Search) unblocked; per dev directive, both will proceed as a combined build-task.
+
+---
+
+## 12.7 + 12.8 — Laslig CLI rendering + Search (combined)
+
+**Scope:** Per dev directive "2 phases at a time," §12.7 + §12.8 ran as one combined build. Final state at `85fe917` delivers:
+
+- **§12.7 render:** new `internal/render/` package consolidates every CLI surface behind a single `Renderer` (`Notice` / `Success` / `Error` / `List` / `Markdown` / `Record`). Moves `humanPolicy` from `cmd/ta/main.go` to `internal/render/policy.go` as `HumanPolicy`. All CLI subcommands (`get`, `list_sections`, `schema`, `create`, `update`, `delete`, `search`) route through it; MCP handlers do NOT — the §13.3 firewall is enforced by dependency direction (`internal/mcpsrv/` imports no `internal/render`). Per §13.2, string-typed fields render through `laslig.Markdown` → glamour for code-fence syntax highlighting.
+- **§12.8 search:** new `internal/search/` package with `Query{Path, Scope, Match, Query, Field}` + `Result{Section, Bytes, Fields}` + `Run(Query)`. Scope supports all five forms (`<db>`, `<db>.<type>`, `<db>.<instance>`, `<db>.<type>.<id-prefix>`, `<db>.<instance>.<type>.<id-prefix>`) with prefix-glob `*` / `-*` suffix. `Match` AND-combines typed exact-equality per-field; `Query` applies RE2 regex over string fields; `Match` runs first (cheap), `Query` second (costly). Cross-instance union for multi-instance dbs. New `search` MCP tool at `internal/mcpsrv/tools.go` + `search` CLI subcommand.
+
+### Build arc
+
+`a482cd0` → `85fe917`. Two commits:
+
+- `a482cd0` — **combined build.** 17 files, +2344/-56. New `internal/render/` (4 files; Renderer + policy + doc + tests) and `internal/search/` (5 files; engine + errors + doc + tests + dogfood probe). Extended `internal/mcpsrv/tools.go` + `server.go` with `search` tool; extended `cmd/ta/commands.go` + `main.go` with `search` CLI and the render wiring. Coverage: `internal/render` ≥ 75% across all exported methods, `internal/search` 77–100% across engine functions, module total 83.3%.
+- `85fe917` — **Option A follow-up on Falsification findings.** Three fail-loudly fixes + matching negative tests:
+  - **2.1 / finding #30** — MD non-body silent drop in search. New `internal/backend/md/layout.go` with shared `CheckBackableFields(requested []string) error` + `ErrFieldNotBackable` sentinel. Both `internal/mcpsrv/fields.go:extractMDFields` and `internal/search/search.go:mdLayoutCheck` consume it so the two entry points cannot drift on the same contract. In the narrowed-scope path, `mdLayoutCheck` fires after `matchFilterErrors`; in the unconstrained-scope per-record path, it fires BEFORE the silent-skip gate so MD-layout violations always propagate. Test: `TestSearchMDNonBodyFieldErrors` (two sub-tests for Match and Field on a declared non-body field).
+  - **2.2 / finding #17** — `--verbose` flag on mutating CLI commands. `newCreateCmd`, `newUpdateCmd`, and `newSchemaCmd` gain `--verbose`; on success, Create/Update call `mcpsrv.Get` and render via the new `renderVerboseRecord` helper (glamour-routed through `renderRawRecord`); schema mutate echoes `runSchemaGet`. Delete remains silent (there is no post-delete record to echo). Test: `TestCreateCmdVerboseEchoesRecord` proves quiet-default vs verbose-echo behavior.
+  - **2.3 / finding #2** — unconstrained-scope unknown-field tightening. New `validateScopeNames(registry, plan, q)` at `Run` entry checks that every Match/Field name is declared on at least one type in scope; errors loudly with `ErrUnknownField: %q not declared on any type in scope` when zero types declare it. Preserves the legitimate "some types declare this, others don't" heterogeneous-type case — a name declared on at least one type in scope still passes through to the per-record silent-skip branch. Test: `TestSearchUnconstrainedScopeUnknownFieldErrors` drives bare-`<db>` scope with a pure typo.
+
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS** (2026-04-21, fresh-context review of `a482cd0`). Every §3.7 / §7 / §13 / §12.7 / §12.8 contract verified with file:line citations. §13.3 MCP firewall confirmed clean (`rg "internal/render" internal/mcpsrv/` returns zero). Scope grammar (5 forms), match+query AND-ordering, cross-instance union, hierarchical CLI routing (Notice for mutators / Markdown for readers), string-field glamour dispatch, `humanPolicy` hard-cut — all backed by code + tests. `mage check` green across 10 packages. Three advisory observations (non-blocking, routed): (a) §13.1 `list_sections` visual grouping by db/type unrealized — flat list rendered (nice-to-have, not spec-breaking); (b) `renderRawRecord`'s TOML-fence wrapping has an edge case where a TOML body containing a literal triple-backtick block would break the outer fence (robustness follow-up, no test); (c) §7.1 literally lists three scope forms while §5.5.3 + implementation support two more (`<db>.<instance>` and `<db>.<instance>.<type>.<id-prefix>`) — one-line spec patch would align. Test count delta +38, exceeds builder's +26 self-report.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: FAIL with one CONFIRMED blocker + two deferred observations** (2026-04-21, fresh-context adversarial review of `a482cd0`). 31 attacks attempted; 1 CONFIRMED, 2 DEFERRED-with-recommendation, 28 REFUTED.
+
+- **#30 MODERATE blocker** — `internal/search/search.go:419-428` `decodeFields` MD branch silently returned `{body: ...}` for MD records, giving zero hits on a Match against a declared non-body field. Reprised the §12.5+§12.6 "two entry points, one guard missing" pattern: `get` errored loudly on the same path, `search` silently dropped. User-visible contract asymmetry.
+- **#17 observation** — `--verbose` flag on mutating CLI commands was in the spawn prompt but not landed by the builder. Fail-loudly-adjacent shortfall of the §13.1 "no content echo unless --verbose" rule.
+- **#2 / #12 observation** — unconstrained-scope unknown-field silent-skip is a doctrinal explicit design but reprises the fail-loudly-violation class the drop's findings have been closing. Recommended a narrow tightening: error when a name is declared on zero types in scope.
+
+Dev chose Option A (fix all three) per the standing "everything should be strict" preference.
+
+### Option A Resolution (2026-04-21)
+
+- `85fe917` — `fix(mcpsrv,search): close md-field silent drop and strictness gaps`. Six files touched: new `internal/backend/md/layout.go`, edits to `internal/mcpsrv/fields.go`, `internal/search/search.go`, `cmd/ta/commands.go`, plus the three negative tests in `internal/search/search_test.go` and `cmd/ta/commands_test.go`. Design choice: shared `CheckBackableFields` helper in `internal/backend/md/` (layer-appropriate — the MD body-only rule is an MD-backend concern); both `mcpsrv/fields.go` and `internal/search/search.go` import it; they independently wrap `md.ErrFieldNotBackable` with their own `ErrUnknownField` sentinels so `errors.Is` checks stay consistent within each package.
+
+**Verification:** `mage check` green at `85fe917` across all 10 packages with race detector.
+
+**QA re-runs waived.** Fix pattern matches §12.2 / §12.4 / §12.6 Option A: mechanical changes with direct negative-test lock-ins. Re-running the full twin-pass QA on three small fixes with targeted regression tests would be ceremony over substance.
+
+### Outcome
+
+PASS. §12.7 (Laslig CLI rendering) and §12.8 (Search) closed, including the Option A resolution of three fail-loudly findings. §12.9 (MCP caching) and §12.10 (Dogfood migration) unblocked; per dev directive, both will proceed as a combined build-task.
