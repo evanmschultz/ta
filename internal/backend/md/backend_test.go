@@ -840,3 +840,79 @@ func TestOrphanH3UnderH1WithMissingH2(t *testing.T) {
 		t.Errorf("got %v\nwant %v", got, want)
 	}
 }
+
+// TestSpliceRejectsMalformedAddress covers the Splice-side
+// counterpart of the Emit malformed-address guard. Splice must reject
+// the same addresses Emit rejects so the two entry points share one
+// contract (V2-PLAN §5.3.2 / §5.1). A bare type segment with no slug
+// ("readme.title" when "title" is declared) has no heading to insert
+// against and must error ErrMalformedSection, not silently append.
+func TestSpliceRejectsMalformedAddress(t *testing.T) {
+	b := newReadme(t)
+	src := []byte("# ta\n\nprose\n")
+	_, err := b.Splice(src, "readme.title", []byte("# new\n"))
+	if !errors.Is(err, ErrMalformedSection) {
+		t.Fatalf("Splice with bare type segment: got %v, want ErrMalformedSection", err)
+	}
+}
+
+// TestSpliceOrphanSiblingCreationRejected locks in the strict-orphan
+// write semantics from V2-PLAN §5.3.2 orphans paragraph. An orphan H3
+// exists under an H1 with H2 declared-but-missing; a NEW H3 sibling
+// at that same orphan level must fail ErrParentMissing because the
+// declared parent (section.ta) is not present in the buffer. The
+// caller's recovery is to create the H2 first, then retry the H3.
+func TestSpliceOrphanSiblingCreationRejected(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "title", Heading: 1},
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("# ta\n\n### Quick start\n\nRun mage install.\n")
+	emitted := []byte("### Troubleshooting\n\nCheck Go version.\n")
+	out, err := b.Splice(src, "subsection.ta.troubleshooting", emitted)
+	if !errors.Is(err, ErrParentMissing) {
+		t.Fatalf("Splice orphan sibling: got %v, want ErrParentMissing", err)
+	}
+	if out != nil {
+		t.Errorf("Splice returned non-nil buf on error: %q", out)
+	}
+}
+
+// TestSpliceOrphanReplaceStillWorks verifies the READ/WRITE asymmetry
+// only bites NEW inserts. Replacing an EXISTING orphan record goes
+// through the exact-address match branch in Splice, which does not
+// consult parentAddress and so is unaffected by strict-orphan. The
+// existing "subsection.ta.quick-start" address is readable by
+// TestOrphanH3UnderH1WithMissingH2; here we confirm it is also
+// writable in-place.
+func TestSpliceOrphanReplaceStillWorks(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "title", Heading: 1},
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("# ta\n\n### Quick start\n\nRun mage install.\n")
+	emitted := []byte("### Quick start\n\nRun `mage install -v` for verbose output.\n")
+	out, err := b.Splice(src, "subsection.ta.quick-start", emitted)
+	if err != nil {
+		t.Fatalf("Splice replace on existing orphan: %v", err)
+	}
+	if !bytes.Contains(out, []byte("# ta\n")) {
+		t.Error("H1 'ta' was lost on replace")
+	}
+	if !bytes.Contains(out, []byte("`mage install -v`")) {
+		t.Error("new body missing from output")
+	}
+	if bytes.Contains(out, []byte("Run mage install.")) {
+		t.Error("old body not replaced")
+	}
+}

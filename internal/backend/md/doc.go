@@ -28,6 +28,17 @@
 //     — e.g. an H3 under an H1 with H2 declared-but-missing becomes
 //     "subsection.<h1-slug>.<h3-slug>".
 //
+//   - Strict-orphan write semantics (V2-PLAN §5.3.2 orphans
+//     paragraph). READ of an existing orphan record succeeds via the
+//     skip-the-gap chain described above. WRITE of a new sibling at
+//     that orphan level (Splice with a non-existent address whose
+//     parentAddress resolves to a declared level with no heading in
+//     the buffer) returns ErrParentMissing. The caller must first
+//     create the missing declared ancestor — e.g. materialize the H2
+//     before adding a second H3 — then retry. Fail-loudly per V2-PLAN
+//     §1.1 / §2.10; keeps tool-authored output schema-consistent
+//     while legacy hand-edited orphans stay readable.
+//
 //   - Body range runs from a declared heading to the start of the
 //     next heading at the SAME OR SHALLOWER declared level, or EOF
 //     for the last such heading (V2-PLAN §2.11 / §5.3.2, 2026-04-21

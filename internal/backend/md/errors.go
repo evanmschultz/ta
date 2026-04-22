@@ -46,5 +46,15 @@ var (
 	// point is the end of its declared parent's body range; without a
 	// parent there is no well-defined insertion point and the caller
 	// must create the parent first.
+	//
+	// Strict-orphan case: when the buffer carries an orphan chain — a
+	// declared heading whose immediate declared parent level is absent
+	// (e.g. an H3 under an H1 with H2 declared-but-missing) — Splice of
+	// a NEW sibling at that orphan level returns this sentinel even
+	// though the scanner READ path emits the existing orphan with a
+	// skip-the-gap chain. This asymmetry is intentional: legacy orphan
+	// files remain readable, new orphan-level writes must materialize
+	// the missing declared ancestor first (V2-PLAN §5.3.2 orphans
+	// paragraph).
 	ErrParentMissing = errors.New("md: declared ancestor missing")
 )

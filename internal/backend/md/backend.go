@@ -239,6 +239,13 @@ func (b *Backend) Splice(buf []byte, section string, emitted []byte) ([]byte, er
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrNotDeclaredType, section)
 	}
+	// Splice must accept exactly the addresses Emit accepts: a bare
+	// type segment with no slug (e.g. "readme.title") is malformed
+	// regardless of whether the type exists. Guard matches Emit at
+	// line 180-183 so the two entry points share one contract.
+	if lastSegment(rel) == "" {
+		return nil, fmt.Errorf("%w: %q", ErrMalformedSection, section)
+	}
 
 	hs, err := scanATX(buf, b.typeByLevel)
 	if err != nil {
@@ -314,16 +321,27 @@ func (b *Backend) levelForRelative(rel string) int {
 // parentAddress derives the declared-parent relative address of rel
 // (V2-PLAN §5.3.2 hierarchical addressing). For "<type>.<chain>" where
 // chain has length K>1, the parent is "<parent-type>.<chain[:K-1]>"
-// and the parent-type is the declared type whose heading is the
-// deepest declared level <  self-level that has a slug in the chain.
+// and the parent-type is the declared type at the deepest declared
+// heading level strictly shallower than self — REGARDLESS of whether
+// that level's slug is present in the chain the scanner produced.
 //
 // Returns ok=false for top-of-chain addresses (chain length 1 — no
 // declared ancestor).
 //
-// Orphan-chain case: if the scanner produced a record with a chain
-// that skips a declared level (H3 under H1 with H2 declared but
-// absent), the parent address likewise skips — parent is the
-// next-shallower slug that IS present.
+// Strict-orphan write semantics (V2-PLAN §5.3.2 orphans paragraph).
+// When the buffer has an orphan chain — e.g. an H3 under an H1 when
+// H1+H2+H3 are all declared but no H2 sits between — Splice of a new
+// sibling at that orphan level fails with ErrParentMissing. This
+// function computes the parent address as "<section-type>.<h1-slug>"
+// (the next-shallower declared level, H2 "section"), the scanner does
+// not find that heading in the buffer, and Splice returns the sentinel.
+//
+// This is intentional: existing orphan records remain readable (the
+// scanner READ path does not call parentAddress), but agent-authored
+// WRITES must materialize the missing declared ancestor first — the
+// caller creates the H2, then the H3 Splice succeeds. Fail-loudly
+// behavior per V2-PLAN §1.1 / §2.10; keeps tool-authored output
+// schema-consistent.
 func (b *Backend) parentAddress(rel string) (string, bool) {
 	segs := strings.Split(rel, ".")
 	if len(segs) < 2 {
