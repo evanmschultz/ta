@@ -12,11 +12,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
 
 	fang "charm.land/fang/v2"
+	"charm.land/huh/v2"
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
@@ -63,9 +65,13 @@ func newRootCmd() *cobra.Command {
 		Use:   appName,
 		Short: "MCP server (and matching CLI) for schema-validated TOML",
 		Long:  longDescription,
-		Args:  cobra.NoArgs,
+		Example: "  ta                         # MCP server (stdio) when spawned by a client\n" +
+			"  ta                         # huh subcommand menu on a TTY\n" +
+			"  ta init /abs/path/proj     # bootstrap a new project\n" +
+			"  ta get ./plans.toml foo    # read one record",
+		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runServe(c.Context(), c.ErrOrStderr(), logStartup)
+			return runRoot(c, logStartup)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -83,6 +89,83 @@ func newRootCmd() *cobra.Command {
 		newInitCmd(),
 	)
 	return cmd
+}
+
+// runRoot is the bare-`ta` entrypoint. Dual behavior per V2-PLAN §14.3:
+//
+//   - BOTH stdin and stdout are TTYs → launch a huh select over the
+//     available subcommands. The chosen subcommand runs with `--help` so
+//     the user sees usage + Example for the picked command, because most
+//     subcommands require positional args that the picker cannot collect.
+//   - EITHER stdin or stdout is NOT a TTY → start the MCP server over
+//     stdio, unchanged from the pre-§12.16 behavior. MCP clients spawn
+//     `ta` with stdio pipes (not TTYs), so this keeps existing
+//     `.mcp.json` / `claude mcp add` invocations working byte-identically.
+func runRoot(cmd *cobra.Command, logStartup bool) error {
+	if ttyInteractive(false) {
+		return runMenu(cmd)
+	}
+	return runServe(cmd.Context(), cmd.ErrOrStderr(), logStartup)
+}
+
+// runMenu presents a huh.Select over the root's subcommand names and
+// then invokes the selected command with `--help`. Help is the right
+// default on a discovery menu: most subcommands require positional
+// args + flags, so the user picks from the menu, reads what the
+// command needs, and re-runs with the right invocation.
+func runMenu(root *cobra.Command) error {
+	items := menuItems(root)
+	if len(items) == 0 {
+		return fmt.Errorf("no subcommands registered on root")
+	}
+	opts := make([]huh.Option[string], 0, len(items))
+	for _, it := range items {
+		label := it.name + " — " + it.short
+		opts = append(opts, huh.NewOption(label, it.name))
+	}
+	var chosen string
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().
+			Title("ta — pick a subcommand").
+			Options(opts...).
+			Value(&chosen),
+	))
+	if err := form.Run(); err != nil {
+		return fmt.Errorf("menu: %w", err)
+	}
+	if chosen == "" {
+		return fmt.Errorf("menu: no subcommand selected")
+	}
+	if _, _, err := root.Find([]string{chosen}); err != nil {
+		return fmt.Errorf("menu: resolve %q: %w", chosen, err)
+	}
+	// Re-execute through the root so cobra's usage template fires and
+	// the command's Example / flag docs render via fang's styling.
+	root.SetArgs([]string{chosen, "--help"})
+	return root.Execute()
+}
+
+// menuItem is one row in the bare-`ta` huh menu.
+type menuItem struct {
+	name  string
+	short string
+}
+
+// menuItems enumerates root subcommands eligible for the menu. Hidden
+// and `completion` commands (if any) are skipped. Ordering follows
+// cobra's registration order so the menu's top entry stays stable.
+func menuItems(root *cobra.Command) []menuItem {
+	var items []menuItem
+	for _, sub := range root.Commands() {
+		if sub.Hidden {
+			continue
+		}
+		if sub.Name() == "completion" || sub.Name() == "help" {
+			continue
+		}
+		items = append(items, menuItem{name: sub.Name(), short: sub.Short})
+	}
+	return items
 }
 
 func runServe(ctx context.Context, stderr io.Writer, logStartup bool) error {

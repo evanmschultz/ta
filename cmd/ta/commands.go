@@ -39,6 +39,9 @@ func newGetCmd() *cobra.Command {
 			"are rendered per type: string fields as markdown, scalars as " +
 			"label:value, arrays/tables as fenced JSON. With --json the " +
 			"laslig path is bypassed and JSON is written for agent consumption.",
+		Example: "  ta get ./plans.toml plans.task.task-001\n" +
+			"  ta get ./plans.toml plans.task.task-001 --fields status,body\n" +
+			"  ta get ./plans.toml plans.task.task-001 --json",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -200,6 +203,8 @@ func newListSectionsCmd() *cobra.Command {
 			"not exist yet, the list is empty rather than erroring — matches " +
 			"the MCP behavior callers already depend on. With --json the " +
 			"laslig path is bypassed and JSON is written for agent consumption.",
+		Example: "  ta list-sections ./plans.toml\n" +
+			"  ta list-sections ./plans.toml --json",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -242,6 +247,9 @@ func newCreateCmd() *cobra.Command {
 			"--path-hint disambiguates flat vs nested placement. With --verbose, " +
 			"the newly-created record content is echoed after the success " +
 			"notice per V2-PLAN §13.1.",
+		Example: "  ta create ./proj plans.task.task-001 --data '{\"id\":\"TASK-001\",\"status\":\"todo\"}'\n" +
+			"  ta create ./proj plans.task.task-001 --data-file payload.json\n" +
+			"  cat payload.json | ta create ./proj plans.task.task-001 --data-file -",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -288,6 +296,8 @@ func newUpdateCmd() *cobra.Command {
 			"file exists but the record does not (record-level upsert). With " +
 			"--verbose, the updated record content is echoed after the success " +
 			"notice per V2-PLAN §13.1.",
+		Example: "  ta update ./proj plans.task.task-001 --data '{\"status\":\"done\"}'\n" +
+			"  ta update ./proj plans.task.task-001 --data-file patch.json --verbose",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -329,6 +339,9 @@ func newDeleteCmd() *cobra.Command {
 			"file, or a multi-instance instance dir/file. Whole multi-instance " +
 			"db deletes error as ambiguous; zero the instances first or route " +
 			"through `schema delete --kind db` (V2-PLAN §3.6).",
+		Example: "  ta delete ./proj plans.task.task-001         # drop one record\n" +
+			"  ta delete ./proj plans                        # drop the single-instance file\n" +
+			"  ta delete ./proj plan_db.drop-3               # drop one instance dir",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -362,6 +375,10 @@ func newSchemaCmd() *cobra.Command {
 			"rollback — V2-PLAN §4.6). With --json the laslig path is " +
 			"bypassed and JSON is written for agent consumption (action=get " +
 			"only; mutations always print the success notice).",
+		Example: "  ta schema ./proj                           # render resolved schema\n" +
+			"  ta schema ./proj plans.task --json         # narrow + JSON\n" +
+			"  ta schema ./proj ta_schema                 # print embedded meta-schema\n" +
+			"  ta schema ./proj --action=create --kind=type --name=plans.note --data '{...}'",
 		Args:          cobra.RangeArgs(1, 2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -429,6 +446,9 @@ func newSearchCmd() *cobra.Command {
 			"applies --query regex against string fields (restricted to " +
 			"--field when set). One laslig card per hit — or, with --json, " +
 			"a structured hits array for agent consumption.",
+		Example: "  ta search ./proj --scope=plans.task --match '{\"status\":\"todo\"}'\n" +
+			"  ta search ./proj --scope=plans.task --query='TODO' --field=body\n" +
+			"  ta search ./proj --scope=plans.task --json",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,

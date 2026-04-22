@@ -12,6 +12,7 @@ import (
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/evanmschultz/ta/internal/fsatomic"
 	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/schema"
 	"github.com/evanmschultz/ta/internal/templates"
@@ -19,9 +20,9 @@ import (
 
 // newTemplateCmd is the parent for `ta template *`. Children are the
 // read-only `list` / `show` pair from §12.13 plus the write-side
-// `save` / `delete` pair from §12.15 (`apply` lands in §12.16). Every
-// child honors the same TTY-vs-flag discipline as `ta init` (see
-// V2-PLAN §14.3 / §14.6).
+// `save` / `apply` / `delete` trio from §12.15 / §12.16. Every child
+// honors the same TTY-vs-flag discipline as `ta init` (see V2-PLAN
+// §14.3 / §14.6).
 func newTemplateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template",
@@ -31,8 +32,9 @@ func newTemplateCmd() *cobra.Command {
 			"from this library to bootstrap a new project.\n\n" +
 			"Children: `list` (enumerate), `show <name>` (inspect), " +
 			"`save [name]` (promote `<cwd>/.ta/schema.toml` to a template), " +
+			"`apply <name> [path]` (write a template into a project), " +
 			"`delete <name>` (remove a template).",
-		Example:       "  ta template list\n  ta template show schema\n  ta template save\n  ta template delete old",
+		Example:       "  ta template list\n  ta template show schema\n  ta template save\n  ta template apply schema\n  ta template delete old",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -40,6 +42,7 @@ func newTemplateCmd() *cobra.Command {
 		newTemplateListCmd(),
 		newTemplateShowCmd(),
 		newTemplateSaveCmd(),
+		newTemplateApplyCmd(),
 		newTemplateDeleteCmd(),
 	)
 	return cmd
@@ -240,6 +243,123 @@ func emitTemplateSaveReport(w io.Writer, r templateSaveReport, asJSON bool) erro
 		fmt.Sprintf("source: %s", r.Source),
 	}
 	return render.New(w).Success("ta template save", r.Name, detail)
+}
+
+// ---- apply -----------------------------------------------------------
+
+// templateApplyReport is the --json emit shape for `ta template apply`.
+// Mirrors V2-PLAN §14.3 "apply <name> [path]" contract.
+type templateApplyReport struct {
+	Name    string `json:"name"`
+	Target  string `json:"target"`
+	Written bool   `json:"written"`
+}
+
+func newTemplateApplyCmd() *cobra.Command {
+	var force bool
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "apply <name> [path]",
+		Short: "Copy ~/.ta/<name>.toml into <path>/.ta/schema.toml",
+		Long: "Writes the template bytes verbatim to `<path>/.ta/schema.toml`. " +
+			"Target path defaults to cwd; if supplied, MUST be absolute " +
+			"(matches `ta init`). Creates the `.ta/` directory if missing. " +
+			"If the target already exists, confirms via huh on a TTY or " +
+			"requires `--force` off-TTY. Schema-only — does NOT touch " +
+			"`.mcp.json` / `.codex/config.toml` (use `ta init` for a full " +
+			"bootstrap) per V2-PLAN §14.3.",
+		Example: "  ta template apply schema                      # write to cwd\n  ta template apply schema /abs/path/proj       # write to a specific project\n  ta template apply schema /abs/path --force --json",
+		Args:    cobra.RangeArgs(1, 2),
+		RunE: func(c *cobra.Command, args []string) error {
+			name := args[0]
+			var targetArg string
+			if len(args) == 2 {
+				targetArg = args[1]
+			}
+			return runTemplateApply(c.OutOrStdout(), name, targetArg, force, asJSON)
+		},
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing <path>/.ta/schema.toml without prompting")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered notice")
+	return cmd
+}
+
+func runTemplateApply(out io.Writer, name, targetArg string, force, asJSON bool) error {
+	target, err := resolveApplyPath(targetArg)
+	if err != nil {
+		return err
+	}
+	root, err := templates.Root()
+	if err != nil {
+		return err
+	}
+	data, err := templates.Load(root, name)
+	if err != nil {
+		return err
+	}
+
+	destDir := filepath.Join(target, ".ta")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", destDir, err)
+	}
+	destPath := filepath.Join(destDir, "schema.toml")
+
+	nonInteractive := force || asJSON
+	if _, err := os.Stat(destPath); err == nil {
+		switch {
+		case force:
+			// fall through to overwrite
+		case ttyInteractive(nonInteractive):
+			ok, err := promptConfirm(fmt.Sprintf("Overwrite existing %s?", destPath))
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("apply: %s exists; aborted (pass --force to overwrite without prompt)", destPath)
+			}
+		default:
+			return fmt.Errorf("apply: %s exists; pass --force to overwrite", destPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat %s: %w", destPath, err)
+	}
+
+	if err := fsatomic.Write(destPath, data); err != nil {
+		return fmt.Errorf("write %s: %w", destPath, err)
+	}
+	report := templateApplyReport{Name: name, Target: destPath, Written: true}
+	return emitTemplateApplyReport(out, report, asJSON)
+}
+
+// resolveApplyPath mirrors resolveInitPath's discipline: no arg → cwd;
+// arg → must be absolute. Keeps agent invocations independent of the
+// shell's cwd per V2-PLAN §14.3.
+func resolveApplyPath(arg string) (string, error) {
+	if arg == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve cwd: %w", err)
+		}
+		return cwd, nil
+	}
+	if !filepath.IsAbs(arg) {
+		return "", fmt.Errorf("apply: path must be absolute; got %q", arg)
+	}
+	return filepath.Clean(arg), nil
+}
+
+func emitTemplateApplyReport(w io.Writer, r templateApplyReport, asJSON bool) error {
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	}
+	detail := []string{
+		fmt.Sprintf("target: %s", r.Target),
+	}
+	return render.New(w).Success("ta template apply", r.Name, detail)
 }
 
 // ---- delete ----------------------------------------------------------

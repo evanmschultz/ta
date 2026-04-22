@@ -338,6 +338,106 @@ func TestTemplateSaveNameMissingOffTTYErrors(t *testing.T) {
 	}
 }
 
+// ---- apply ----------------------------------------------------------
+
+func TestTemplateApplyHappyPath(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	target := t.TempDir()
+
+	out, errOut, err := runTemplateCmd(t, "apply", "schema", target, "--force", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	var report struct {
+		Name    string `json:"name"`
+		Target  string `json:"target"`
+		Written bool   `json:"written"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &report); jsonErr != nil {
+		t.Fatalf("stdout not JSON: %v\n%s", jsonErr, out)
+	}
+	if report.Name != "schema" {
+		t.Errorf("name = %q, want schema", report.Name)
+	}
+	if !report.Written {
+		t.Errorf("written = false, want true")
+	}
+	wantTarget := filepath.Join(target, ".ta", "schema.toml")
+	if report.Target != wantTarget {
+		t.Errorf("target = %q, want %q", report.Target, wantTarget)
+	}
+	got, err := os.ReadFile(wantTarget)
+	if err != nil {
+		t.Fatalf("read target schema: %v", err)
+	}
+	if string(got) != cliTaskSchema {
+		t.Errorf("target bytes drift:\n%s", got)
+	}
+}
+
+func TestTemplateApplyMissingNameErrors(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	target := t.TempDir()
+
+	_, _, err := runTemplateCmd(t, "apply", "ghost", target, "--force")
+	if err == nil {
+		t.Fatal("expected error for missing template")
+	}
+}
+
+func TestTemplateApplyRelativePathErrors(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	_, _, err := runTemplateCmd(t, "apply", "schema", "relative/path", "--force")
+	if err == nil {
+		t.Fatal("expected error for relative path arg")
+	}
+	if !strings.Contains(err.Error(), "absolute") {
+		t.Errorf("error missing 'absolute': %v", err)
+	}
+}
+
+func TestTemplateApplyExistingTargetWithoutForceErrors(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	target := t.TempDir()
+	taDir := filepath.Join(target, ".ta")
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
+		t.Fatalf("pre-seed dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte("# existing\n"), 0o644); err != nil {
+		t.Fatalf("pre-seed: %v", err)
+	}
+	_, _, err := runTemplateCmd(t, "apply", "schema", target)
+	if err == nil {
+		t.Fatal("expected error on existing target without --force")
+	}
+	if !strings.Contains(err.Error(), "exists") {
+		t.Errorf("error missing 'exists': %v", err)
+	}
+	// File must be untouched.
+	got, _ := os.ReadFile(filepath.Join(taDir, "schema.toml"))
+	if string(got) != "# existing\n" {
+		t.Errorf("pre-existing schema clobbered: %q", got)
+	}
+}
+
+func TestTemplateApplyDoesNotTouchMCPConfigs(t *testing.T) {
+	// V2-PLAN §14.3: `ta template apply` is schema-only; it MUST NOT
+	// generate `.mcp.json` or `.codex/config.toml`.
+	newTemplateLibraryFixture(t)
+	target := t.TempDir()
+
+	_, _, err := runTemplateCmd(t, "apply", "schema", target, "--force")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, ".mcp.json")); !os.IsNotExist(err) {
+		t.Errorf("apply created .mcp.json: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Errorf("apply created .codex/config.toml: %v", err)
+	}
+}
+
 // ---- delete ---------------------------------------------------------
 
 func TestTemplateDeleteHappyPath(t *testing.T) {

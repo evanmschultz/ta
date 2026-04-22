@@ -30,8 +30,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.13 | Template library + read CLI          | ✅    | ✅    | ✅     | ✅   |
 | 12.14 | `ta init` project bootstrap          | ✅    | ✅    | ✅     | ✅   |
 | 12.14.5 | Style cleanup sweep                | ✅    | ✅    | ✅     | ✅   |
-| 12.15 | `ta template save` + `delete`        | ⏳    | —     | —      | —    |
-| 12.16 | huh root + `ta template apply` + Example retrofit | — | — | — | — |
+| 12.15 | `ta template save` + `delete`        | ✅    | —     | —      | —    |
+| 12.16 | huh root + `ta template apply` + Example retrofit | ⏳ | — | — | — |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 
@@ -971,7 +971,7 @@ Status: BUILD DONE @<PAIR-12.14.5>. QA pair pending.
 
 ### Build — go-builder-agent (Pair C)
 
-Status: BUILD DONE @<PAIR-C-12.15>. QA twins pending.
+Status: BUILD DONE @91d30c8. QA twins pending.
 
 **Added:**
 
@@ -995,4 +995,40 @@ Status: BUILD DONE @<PAIR-C-12.15>. QA twins pending.
 - `go list -deps ./internal/templates | rg "ta/internal/"` still returns only `internal/fsatomic` + `internal/schema` + `internal/templates` (firewall preserved — §12.15 adds CLI surface, not library-layer deps).
 
 **Next:** §12.16 lands `ta template apply`, wires bare `ta` with TTY dispatch to a huh subcommand menu, and retrofits fang `Example` fields on the subcommands that missed them in §12.12 rush.
+
+---
+
+## 12.16 — huh interactive root + `ta template apply` + fang `Example` retrofit
+
+**Scope (from V2-PLAN.md §12.16 + §14.3 / §14.7):** Three coupled items in one commit. (1) Bare `ta` with both stdin and stdout as TTYs launches a huh subcommand menu; otherwise it continues to start the MCP server (byte-identical for existing `.mcp.json` / `claude mcp add` users). (2) New `ta template apply <name> [path]` child that writes `~/.ta/<name>.toml` into `<path>/.ta/schema.toml` verbatim, schema-only — does NOT touch `.mcp.json` / `.codex/config.toml`. (3) Fang `Example` fields added to every top-level command and non-help/non-completion subcommand that was missing one.
+
+### Build — go-builder-agent (Pair C)
+
+Status: BUILD DONE @<PAIR-C-12.16>. QA twins pending.
+
+**Added:**
+
+- `cmd/ta/main.go` — `runRoot` entrypoint. On a TTY (both stdin AND stdout are TTYs), dispatches to `runMenu`; otherwise falls through to the existing `runServe`. The TTY gate reuses the shared `ttyInteractive(false)` helper from `init_cmd.go`. `runMenu` builds a `huh.Select[string]` over `menuItems(root)` and re-runs the chosen subcommand through `root.Execute()` with `--help` appended — rationale is that most subcommands require positional args + flags that a select cannot collect, so "pick then read help" is the correct discovery UX (V2-PLAN §14.3 "huh menu listing every subcommand with its short description" matches the select-label shape). `menuItems` enumerates non-hidden, non-help, non-completion children. Tests lock in the item-list shape without spawning huh (pty-harness needed for live interaction is out of scope; §12.17 E2E gate covers manually).
+- `cmd/ta/template_cmd.go` — `newTemplateApplyCmd` registered under `newTemplateCmd`. `runTemplateApply` resolves the target (cwd default, absolute when supplied — matches `ta init`'s discipline), loads + validates the template via `templates.Load`, mkdir-`-p`s `<path>/.ta/`, honors existing-target flow (`--force` / TTY huh confirm / off-TTY error), writes verbatim via `fsatomic.Write`. JSON report shape: `{"name","target","written"}`. Does NOT touch `.mcp.json` / `.codex/config.toml` — locked by test.
+- `cmd/ta/commands.go` — fang `Example` retrofit on every cobra `Command` that was missing one: `get`, `list-sections`, `create`, `update`, `delete`, `schema`, `search`. Each `Example` carries 2–4 realistic invocations following `ta init` / `ta template save`'s "one canonical happy path + one common flag + one agent-facing non-interactive" pattern (V2-PLAN §14.7).
+- `cmd/ta/main.go` — root `Example` retrofit. Shows the dual-behavior root (MCP server vs TTY menu) plus a non-root example each for `ta init` and `ta get` so `ta --help` can stand alone.
+- `cmd/ta/template_cmd_test.go` — five apply tests: happy path (byte-identical write, JSON report shape, target path assertion), missing template name errors, relative path errors loudly, existing target without `--force` off-TTY errors (pre-existing file bytes survive), MCP-configs-not-touched invariant (spec-critical — `apply` is schema-only per V2-PLAN §14.3).
+- `cmd/ta/main_test.go` — `TestMenuItemsSkipsHelpAndCompletion` locks in the menu filter. `TestEveryCommandHasExample` walks the full command tree and asserts non-empty `Example` on every non-hidden, non-help, non-completion command — the enforcement gate against future §14.7 drift.
+
+**Design calls (no spec drift):**
+
+- **Menu invokes subcommand with `--help`, not its RunE.** V2-PLAN §14.3 says "launches a huh menu listing every subcommand with its short description" but is silent on what happens after the pick. Each non-`template`, non-`init` subcommand requires positional args (`get <path> <section>`, etc.) that a select cannot supply; a huh multi-step form per subcommand would balloon the scope and drift from the "menu" concept. Showing the picked command's help — Example + flag docs rendered through fang — is the correct discovery UX. Matches the V2-PLAN §14.7 "a user can type `ta init --help` and see enough example output to proceed" contract at the menu layer.
+- **TTY detection via `ttyInteractive(false)`.** Bare `ta` has no flag that could force non-interactive behavior, so the helper's "non-interactive" input is always false. Could have inlined the `term.IsTerminal` check, but reusing the shared helper keeps the TTY-vs-flags gate defined in one place.
+- **Menu filter skips `help` and `completion` explicitly.** Cobra auto-registers `help` as a child in some configurations; fang is invoked with `WithoutCompletions()` so `completion` never appears today, but the filter future-proofs the menu if that changes.
+- **Example content uses realistic paths (`./proj`, `./plans.toml`) rather than `<path>`.** Fang renders Examples verbatim; a user who copy-pastes gets a runnable command with one obvious substitution (their project path) rather than a placeholder-hunt.
+
+**Verification:**
+
+- `mage check` green across all 12 packages with `-race`. New tests: 5 apply tests + 2 menu/example tests.
+- `mage dogfood` clean (skip-existing).
+- `go list -deps ./internal/templates | rg "ta/internal/"` still returns only `internal/fsatomic` + `internal/schema` + `internal/templates` (firewall preserved — §12.16 adds only CLI surface).
+- `TestEveryCommandHasExample` walks the full command tree; a future subcommand without an `Example` fails this test before landing.
+
+**Next:** §12.17 dev+assistant E2E gate (manual walkthrough of `ta init` → template save round-trip → CRUD round-trip → MCP registration in Claude Code + Codex → `mage dogfood` end-to-end). QA twins for §12.15 + §12.16 run after this commit lands.
+
 

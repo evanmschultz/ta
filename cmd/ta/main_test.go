@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestRootCmdWiring(t *testing.T) {
@@ -67,5 +69,75 @@ func TestCreateDataFlagsMutuallyExclusive(t *testing.T) {
 func TestVersionFallsBackToDevel(t *testing.T) {
 	if v := version(); v == "" {
 		t.Fatal("version empty")
+	}
+}
+
+// TestMenuItemsSkipsHelpAndCompletion locks in the V2-PLAN §12.16 menu
+// contract: the huh subcommand menu shown for bare `ta` on a TTY must
+// omit cobra's default `help` command and the `completion` command (if
+// any). Hidden commands are also skipped. Each menu row carries the
+// subcommand name and Short description, so every registered non-hidden
+// subcommand must have a non-empty Short.
+func TestMenuItemsSkipsHelpAndCompletion(t *testing.T) {
+	root := newRootCmd()
+	items := menuItems(root)
+	if len(items) == 0 {
+		t.Fatal("no menu items")
+	}
+	for _, it := range items {
+		if it.name == "help" || it.name == "completion" {
+			t.Errorf("menu should skip %q", it.name)
+		}
+		if it.short == "" {
+			t.Errorf("menu item %q has empty short", it.name)
+		}
+	}
+	// The full user-facing subcommand surface must be present.
+	want := map[string]bool{
+		"get":           false,
+		"list-sections": false,
+		"create":        false,
+		"update":        false,
+		"delete":        false,
+		"schema":        false,
+		"search":        false,
+		"template":      false,
+		"init":          false,
+	}
+	for _, it := range items {
+		if _, ok := want[it.name]; ok {
+			want[it.name] = true
+		}
+	}
+	for name, seen := range want {
+		if !seen {
+			t.Errorf("menu missing subcommand %q", name)
+		}
+	}
+}
+
+// TestEveryCommandHasExample enforces V2-PLAN §14.7: every cobra
+// Command in the `ta` tree ships a non-empty Example field so
+// `ta <cmd> --help` shows at least one realistic invocation. Walks
+// the root and every registered subcommand (including the template
+// parent's children). Hidden commands are skipped.
+func TestEveryCommandHasExample(t *testing.T) {
+	root := newRootCmd()
+	walkCommands(t, root, "")
+}
+
+func walkCommands(t *testing.T, cmd *cobra.Command, prefix string) {
+	t.Helper()
+	name := cmd.Name()
+	if prefix != "" {
+		name = prefix + " " + name
+	}
+	if !cmd.Hidden && cmd.Name() != "help" && cmd.Name() != "completion" {
+		if cmd.Example == "" {
+			t.Errorf("command %q is missing an Example field", name)
+		}
+	}
+	for _, sub := range cmd.Commands() {
+		walkCommands(t, sub, name)
 	}
 }
