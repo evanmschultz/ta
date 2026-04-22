@@ -4,6 +4,11 @@
 //
 // Run "mage -l" to list targets. The top-level gate is "mage check" which
 // runs fmtcheck, vet, test, and tidy.
+//
+// Agent-facing JSON output (V2-PLAN §12.12): set MAGEFILE_JSON=1 to
+// route "go test" through -json on Test / Check / Cover. Fmt, Vet,
+// and Tidy emit plain text either way — the JSON switch only affects
+// the test-runner step, which is the surface agents parse.
 package main
 
 import (
@@ -117,17 +122,37 @@ func Dogfood() error {
 	return nil
 }
 
-// Test runs the full test suite with the race detector.
+// Test runs the full test suite with the race detector. Set
+// MAGEFILE_JSON=1 to route "go test" through -json for agent-parseable
+// output (V2-PLAN §12.12).
 func Test() error {
-	return run("go", "test", "-race", "-count=1", "./...")
+	args := []string{"test", "-race", "-count=1"}
+	if jsonMode() {
+		args = append(args, "-json")
+	}
+	args = append(args, "./...")
+	return run("go", args...)
 }
 
-// Cover produces a function-level coverage report.
+// Cover produces a function-level coverage report. Set MAGEFILE_JSON=1
+// to emit the test-runner step as -json (the coverage-tool step
+// remains text — it is a digest, not a parse target).
 func Cover() error {
-	if err := run("go", "test", "-race", "-coverprofile=coverage.out", "./..."); err != nil {
+	testArgs := []string{"test", "-race", "-coverprofile=coverage.out"}
+	if jsonMode() {
+		testArgs = append(testArgs, "-json")
+	}
+	testArgs = append(testArgs, "./...")
+	if err := run("go", testArgs...); err != nil {
 		return err
 	}
 	return run("go", "tool", "cover", "-func=coverage.out")
+}
+
+// jsonMode reports whether MAGEFILE_JSON is set to a truthy value.
+func jsonMode() bool {
+	v := os.Getenv("MAGEFILE_JSON")
+	return v != "" && v != "0" && v != "false"
 }
 
 // Vet runs go vet across the module.

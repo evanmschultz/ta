@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -401,5 +402,198 @@ func TestCreateCmdVerboseEchoesRecord(t *testing.T) {
 	}
 	if !strings.Contains(text, `L1`) {
 		t.Errorf("verbose create should echo record body containing the id:\n%s", text)
+	}
+}
+
+// ---- --json CLI tests (V2-PLAN §12.12) -------------------------------
+
+// TestGetCmdJSONRawBytes proves --json on `get` without --fields emits
+// a JSON object carrying the record address and raw bytes.
+func TestGetCmdJSONRawBytes(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{root, "plans.task.t1", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Section string `json:"section"`
+		Bytes   string `json:"bytes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if payload.Section != "plans.task.t1" {
+		t.Errorf("section = %q, want plans.task.t1", payload.Section)
+	}
+	if !strings.Contains(payload.Bytes, `id = "T1"`) {
+		t.Errorf("bytes missing record body: %q", payload.Bytes)
+	}
+}
+
+// TestGetCmdJSONFields proves --json with --fields emits the
+// {"section": ..., "fields": {...}} shape.
+func TestGetCmdJSONFields(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{root, "plans.task.t1", "--fields", "id,status", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Section string         `json:"section"`
+		Fields  map[string]any `json:"fields"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if payload.Fields["id"] != "T1" || payload.Fields["status"] != "todo" {
+		t.Errorf("unexpected fields: %+v", payload.Fields)
+	}
+}
+
+// TestListSectionsCmdJSON proves --json on list-sections emits a
+// {"sections": [...]} shape.
+func TestListSectionsCmdJSON(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n[plans.task.t2]\nid = \"T2\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newListSectionsCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{dataPath, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	want := []string{"plans.task.t1", "plans.task.t2"}
+	if len(payload.Sections) != len(want) {
+		t.Fatalf("sections = %v, want %v", payload.Sections, want)
+	}
+	for i, s := range want {
+		if payload.Sections[i] != s {
+			t.Errorf("sections[%d] = %q, want %q", i, payload.Sections[i], s)
+		}
+	}
+}
+
+// TestSchemaCmdGetJSON proves --json on schema get emits a
+// {"schema_paths": [...], "dbs": {...}} shape.
+func TestSchemaCmdGetJSON(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		SchemaPaths []string       `json:"schema_paths"`
+		DBs         map[string]any `json:"dbs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.SchemaPaths) != 1 {
+		t.Errorf("schema_paths = %v, want exactly one entry", payload.SchemaPaths)
+	}
+	if _, ok := payload.DBs["plans"]; !ok {
+		t.Errorf("dbs missing plans entry: %+v", payload.DBs)
+	}
+}
+
+// TestSchemaCmdGetJSONMetaSchema proves --json with `ta_schema` scope
+// short-circuits to the embedded meta-schema literal.
+func TestSchemaCmdGetJSONMetaSchema(t *testing.T) {
+	root := t.TempDir()
+	cmd := newSchemaCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{root, "ta_schema", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Scope          string `json:"scope"`
+		MetaSchemaTOML string `json:"meta_schema_toml"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if payload.Scope != "ta_schema" {
+		t.Errorf("scope = %q, want ta_schema", payload.Scope)
+	}
+	if !strings.Contains(payload.MetaSchemaTOML, "[ta_schema]") {
+		t.Errorf("meta-schema literal missing [ta_schema]: %q", payload.MetaSchemaTOML)
+	}
+}
+
+// TestSearchCmdJSON proves --json on search emits a {"hits": [...]}
+// shape with per-hit section/bytes/fields keys.
+func TestSearchCmdJSON(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
+		"[plans.task.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
+	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newSearchCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		root,
+		"--scope", "plans.task",
+		"--match", `{"status":"todo"}`,
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Hits []struct {
+			Section string         `json:"section"`
+			Bytes   string         `json:"bytes"`
+			Fields  map[string]any `json:"fields"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Hits) != 1 {
+		t.Fatalf("hits = %d, want 1: %+v", len(payload.Hits), payload.Hits)
+	}
+	if payload.Hits[0].Section != "plans.task.t1" {
+		t.Errorf("section = %q, want plans.task.t1", payload.Hits[0].Section)
+	}
+	if payload.Hits[0].Fields["status"] != "todo" {
+		t.Errorf("fields.status = %v, want todo", payload.Hits[0].Fields["status"])
 	}
 }

@@ -23,9 +23,12 @@ import (
 // fenced markdown block so glamour highlights them; MD records are
 // passed directly through the markdown renderer. With --fields the
 // field values are dispatched through render.Renderer.Record so string
-// fields pick up markdown rendering per V2-PLAN §13.2.
+// fields pick up markdown rendering per V2-PLAN §13.2. With --json
+// the laslig path is bypassed; structured JSON is written for agent
+// consumption (V2-PLAN §14.3).
 func newGetCmd() *cobra.Command {
 	var fields []string
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "get <path> <section>",
 		Short: "Read one record; optionally extract declared field values",
@@ -34,7 +37,8 @@ func newGetCmd() *cobra.Command {
 			"code fence; markdown passed through glamour). With --fields " +
 			"name[,name...] or repeated --field <name> the named field values " +
 			"are rendered per type: string fields as markdown, scalars as " +
-			"label:value, arrays/tables as fenced JSON.",
+			"label:value, arrays/tables as fenced JSON. With --json the " +
+			"laslig path is bypassed and JSON is written for agent consumption.",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -43,6 +47,9 @@ func newGetCmd() *cobra.Command {
 			res, err := mcpsrv.Get(path, section, fields)
 			if err != nil {
 				return err
+			}
+			if asJSON {
+				return emitGetJSON(c.OutOrStdout(), section, res.Bytes, res.Fields, len(fields) > 0)
 			}
 			r := render.New(c.OutOrStdout())
 			if len(fields) == 0 {
@@ -57,7 +64,26 @@ func newGetCmd() *cobra.Command {
 	}
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated declared field names to extract")
 	cmd.Flags().StringSliceVar(&fields, "field", nil, "declared field name to extract (repeatable)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
 	return cmd
+}
+
+// emitGetJSON writes the --json form of `get`. Two shapes: raw-bytes
+// mode returns {"section": ..., "bytes": ...}; fields mode returns
+// {"section": ..., "fields": {...}}.
+func emitGetJSON(w io.Writer, section string, raw []byte, fields map[string]any, haveFields bool) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if haveFields {
+		return enc.Encode(map[string]any{
+			"section": section,
+			"fields":  fields,
+		})
+	}
+	return enc.Encode(map[string]any{
+		"section": section,
+		"bytes":   string(raw),
+	})
 }
 
 // renderVerboseRecord fetches the named record and renders its bytes
@@ -170,12 +196,14 @@ func lookupDBAndType(reg schema.Registry, section string) (schema.DB, schema.Sec
 }
 
 func newListSectionsCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:   "list-sections <path>",
 		Short: "Enumerate every section in a TOML file, in file order",
 		Long: "Mirrors the MCP tool `list_sections`. When the target file does " +
 			"not exist yet, the list is empty rather than erroring — matches " +
-			"the MCP behavior callers already depend on.",
+			"the MCP behavior callers already depend on. With --json the " +
+			"laslig path is bypassed and JSON is written for agent consumption.",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -189,9 +217,19 @@ func newListSectionsCmd() *cobra.Command {
 			if f != nil {
 				paths = f.Paths()
 			}
+			if asJSON {
+				enc := json.NewEncoder(c.OutOrStdout())
+				enc.SetIndent("", "  ")
+				if paths == nil {
+					paths = []string{}
+				}
+				return enc.Encode(map[string]any{"sections": paths})
+			}
 			return render.New(c.OutOrStdout()).List(path, paths, "(no sections)")
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
+	return cmd
 }
 
 func newCreateCmd() *cobra.Command {
@@ -316,6 +354,7 @@ func newSchemaCmd() *cobra.Command {
 	var dataInline string
 	var dataFile string
 	var verbose bool
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "schema <path> [section]",
 		Short: "Inspect or mutate the resolved schema; mirrors MCP tool `schema`.",
@@ -324,7 +363,9 @@ func newSchemaCmd() *cobra.Command {
 			"reserved value `ta_schema` prints the embedded meta-schema " +
 			"literal. With action=create|update|delete, mutates the project " +
 			"`.ta/schema.toml` (re-validated on every mutation with atomic " +
-			"rollback — V2-PLAN §4.6).",
+			"rollback — V2-PLAN §4.6). With --json the laslig path is " +
+			"bypassed and JSON is written for agent consumption (action=get " +
+			"only; mutations always print the success notice).",
 		Args:          cobra.RangeArgs(1, 2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -335,6 +376,9 @@ func newSchemaCmd() *cobra.Command {
 				scope = args[1]
 			}
 			if action == "" || action == "get" {
+				if asJSON {
+					return runSchemaGetJSON(c.OutOrStdout(), path, scope)
+				}
 				return runSchemaGet(c.OutOrStdout(), path, scope)
 			}
 			raw, err := readJSONDataOptional(dataInline, dataFile, c.InOrStdin(), action == "delete")
@@ -366,25 +410,29 @@ func newSchemaCmd() *cobra.Command {
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON payload (for action create|update)")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON payload from file; use `-` for stdin")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the post-mutation schema after the success notice (no effect on action=get)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output (action=get)")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	return cmd
 }
 
 // newSearchCmd mirrors the MCP tool `search` (V2-PLAN §3.7 / §7). The
 // CLI renders hits as one laslig card per record with the string fields
-// glamour-rendered per §13.1 / §13.2.
+// glamour-rendered per §13.1 / §13.2. With --json the laslig path is
+// bypassed and a structured hit array is written for agent consumption.
 func newSearchCmd() *cobra.Command {
 	var scope string
 	var matchJSON string
 	var query string
 	var field string
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "search <path>",
 		Short: "Structured + regex search across records; mirrors MCP tool `search`.",
 		Long: "Walks declared records under --scope, applies --match exact-match " +
 			"filters on typed scalar fields (JSON object), then optionally " +
 			"applies --query regex against string fields (restricted to " +
-			"--field when set). One laslig card per hit.",
+			"--field when set). One laslig card per hit — or, with --json, " +
+			"a structured hits array for agent consumption.",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -400,6 +448,9 @@ func newSearchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if asJSON {
+				return emitSearchJSON(c.OutOrStdout(), hits)
+			}
 			return renderSearchHits(c.OutOrStdout(), path, hits)
 		},
 	}
@@ -407,7 +458,24 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&matchJSON, "match", "", "JSON object of {field: exact-value}")
 	cmd.Flags().StringVar(&query, "query", "", "Go RE2 regex matched against string fields")
 	cmd.Flags().StringVar(&field, "field", "", "restrict --query to one string field")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
 	return cmd
+}
+
+// emitSearchJSON writes the --json form of `search`. Shape:
+// {"hits": [{"section": "...", "bytes": "...", "fields": {...}}]}.
+func emitSearchJSON(w io.Writer, hits []mcpsrv.SearchHit) error {
+	out := make([]map[string]any, len(hits))
+	for i, h := range hits {
+		out[i] = map[string]any{
+			"section": h.Section,
+			"bytes":   string(h.Bytes),
+			"fields":  h.Fields,
+		}
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(map[string]any{"hits": out})
 }
 
 func renderSearchHits(w io.Writer, path string, hits []mcpsrv.SearchHit) error {
@@ -500,6 +568,110 @@ func runSchemaGet(w io.Writer, path, scope string) error {
 		}
 	}
 	return renderSchemaMarkdown(w, path, scope, resolution.Sources, dbs)
+}
+
+// runSchemaGetJSON mirrors runSchemaGet but writes JSON for agent
+// consumption. Shape mirrors the MCP `schema` tool's get response: a
+// map keyed by db name, each db carrying its types and fields. The
+// `ta_schema` scope short-circuits to the embedded meta-schema literal
+// for parity with the laslig path.
+func runSchemaGetJSON(w io.Writer, path, scope string) error {
+	if scope == schema.MetaSchemaPath {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]any{
+			"scope":            scope,
+			"meta_schema_toml": schema.MetaSchemaTOML,
+		})
+	}
+	resolution, err := mcpsrv.ResolveProject(path)
+	if err != nil {
+		return fmt.Errorf("resolve schema for %s: %w", path, err)
+	}
+	dbs := resolution.Registry.DBs
+	if scope != "" {
+		if t, ok := resolution.Registry.Lookup(scope); ok {
+			dbDecl, _ := resolution.Registry.LookupDB(scope)
+			dbDecl.Types = map[string]schema.SectionType{t.Name: t}
+			dbs = map[string]schema.DB{dbDecl.Name: dbDecl}
+		} else if !strings.Contains(scope, ".") {
+			if dbDecl, ok := resolution.Registry.LookupDB(scope); ok {
+				dbs = map[string]schema.DB{dbDecl.Name: dbDecl}
+			} else {
+				return fmt.Errorf("no schema registered for section %q in %s", scope, path)
+			}
+		} else {
+			return fmt.Errorf("no schema registered for section %q in %s", scope, path)
+		}
+	}
+	payload := map[string]any{
+		"schema_paths": resolution.Sources,
+		"dbs":          schemaDBsToJSON(dbs),
+	}
+	if scope != "" {
+		payload["scope"] = scope
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(payload)
+}
+
+// schemaDBsToJSON converts the registry DB map to a plain JSON-friendly
+// shape. Mirrors internal/mcpsrv/tools.go:toDBsView but lives here to
+// keep the CLI self-sufficient — §13.3 firewall says mcpsrv must not
+// import render, and the symmetric "render must not import mcpsrv
+// internals" applies by analogy.
+func schemaDBsToJSON(dbs map[string]schema.DB) map[string]any {
+	out := make(map[string]any, len(dbs))
+	for name, db := range dbs {
+		out[name] = map[string]any{
+			"name":        db.Name,
+			"description": db.Description,
+			"shape":       string(db.Shape),
+			"path":        db.Path,
+			"format":      string(db.Format),
+			"types":       schemaTypesToJSON(db.Types),
+		}
+	}
+	return out
+}
+
+func schemaTypesToJSON(types map[string]schema.SectionType) map[string]any {
+	out := make(map[string]any, len(types))
+	for name, t := range types {
+		fields := make(map[string]any, len(t.Fields))
+		for fn, f := range t.Fields {
+			fe := map[string]any{
+				"type":     string(f.Type),
+				"required": f.Required,
+			}
+			if f.Description != "" {
+				fe["description"] = f.Description
+			}
+			if len(f.Enum) > 0 {
+				fe["enum"] = f.Enum
+			}
+			if f.Format != "" {
+				fe["format"] = f.Format
+			}
+			if f.Default != nil {
+				fe["default"] = f.Default
+			}
+			fields[fn] = fe
+		}
+		entry := map[string]any{
+			"name":   t.Name,
+			"fields": fields,
+		}
+		if t.Description != "" {
+			entry["description"] = t.Description
+		}
+		if t.Heading != 0 {
+			entry["heading"] = t.Heading
+		}
+		out[name] = entry
+	}
+	return out
 }
 
 // renderMetaSchema prints the embedded meta-schema TOML literal directly —

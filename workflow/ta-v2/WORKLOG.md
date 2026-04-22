@@ -25,8 +25,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.8  | Search                               | ✅    | ✅    | ✅     | ✅   |
 | 12.9  | MCP caching                          | ✅    | ✅    | ✅     | ✅   |
 | 12.10 | Dogfood migration                    | ✅    | ✅    | ✅     | ✅   |
-| 12.11 | Strip global cascade from runtime    | ⏳    | —     | —      | —    |
-| 12.12 | JSON output mode                     | —     | —     | —      | —    |
+| 12.11 | Strip global cascade from runtime    | ✅    | —     | —      | —    |
+| 12.12 | JSON output mode                     | ⏳    | —     | —      | —    |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 
@@ -459,3 +459,63 @@ Dev chose Option A (fix 2.1 + docstring U1, route U2 to §14, accept U3) per the
 ### Outcome
 
 PASS. §12.9 (MCP caching) and §12.10 (Dogfood migration) closed, including the §14 post-v0.1.0 cleanup planning entry and the Option A resolution of the cache new-layer gap. §12.11 (README collapse) and §12.12 (Release — tag v0.1.0) unblocked; per dev directive, both will proceed as a combined build-task — the final drop close.
+
+**Note on step renumbering (2026-04-22):** V2-PLAN §12 was re-ordered in commits `9961e96` / `cfaf9b0` / `304a22e` to land the §14 cascade-drop cleanup INSIDE the v0.1.0 tag rather than after it. §12.11 is now "Strip global cascade from runtime" and §12.12 is "JSON output mode"; README collapse moves to §12.18 and the release to §12.19. Below sections follow the V2-PLAN numbering, not the pre-reorg index column.
+
+---
+
+## 12.11 — Strip global cascade from runtime
+
+**Scope (from V2-PLAN.md §12.11 + §14):** Rewrite `internal/config/Resolve` to read only `<project>/.ta/schema.toml` — no home-layer fallback, no ancestor walk. Collapse the mcpsrv cache to a single-entry (single-project-per-process) design. Make `mcpsrv.Config.ProjectPath` required. Drop the `mage dogfood` HOME-staging workaround. Simplify tests (strip `t.Setenv HOME` staging). Delete the exported `config.CandidatePaths` helper + internal `candidatePaths` + `joinSentinel` sentinel trick.
+
+### Build — go-builder-agent
+
+Status: ✅ BUILD DONE @ `7853e43`. `mage check` green across all 10 packages with `-race` before commit. `mage dogfood` regenerates `workflow/ta-v2/db.toml` byte-identically without the HOME-staging tmpdir (diff -q against pre-change output: SAME).
+
+**Rewritten:**
+
+- `internal/config/config.go` — `Resolve(projectPath)` opens `<projectPath>/.ta/schema.toml` directly; `Resolution.Sources` is always `[schemaPath]` on success. `ErrNoSchema` returned when the file is absent; malformed bytes surface their parse error wrapped. Exported `CandidatePaths` deleted; internal `candidatePaths` deleted; `loadIfExists` folded into `loadSchema`. `slices` import removed.
+- `internal/config/doc.go` — doc-comment rewritten; no more "walks up from the data file's directory."
+- `internal/mcpsrv/cache.go` — `schemaCache.entries map` → single `entry *cacheEntry` + `projectPath string`. A second project path after the first-resolve binding errors with "cache is bound to project X; cannot resolve Y (single-project-per-process)." `entryStale` + `mtimesMoved` collapsed into one `sourceMoved` helper that stats the single file. `joinSentinel` + `resolveFromProjectDirUncached`'s sentinel trick deleted; `resolveFromProjectDirUncached(p)` just calls `config.Resolve(p)`. Mtime-precision caveat doc-comment dropped (the §14 post-release cleanup this worklog predicted became this slice).
+- `internal/mcpsrv/server.go` — `Config.ProjectPath` REQUIRED. `New` errors with `"mcpsrv: Config.ProjectPath is required"` on empty. Pre-warm still runs; tolerant of `config.ErrNoSchema` (fresh project, not yet `ta init`'d) but not of malformed schemas.
+- `internal/mcpsrv/cache_test.go` — rewritten to drop HOME-setenv staging. `TestCacheReloadsOnNewCascadeLayer` DELETED (no more new-layer detection needed). `TestStartupTolerantOfMissingSchema` added to lock in the "fresh project boots OK" invariant. `countingLoader` installed before `seedProject` to avoid the cache-reset clobber.
+- `internal/config/config_test.go` — rewritten around the project-local-only contract. `TestResolveIgnoresHomeLayer` added as a regression lock: a `~/.ta/schema.toml` written mid-test is invisible to `Resolve`. Cascade-merge tests (`TestResolveCascadeMerge`, `TestResolveCloserTypeOverrides`, `TestResolveHomeIsBase`, `TestResolveHomeMergesWithAncestor`, `TestResolveHandlesMissingDataFilePath`) deleted — the semantics they covered no longer exist.
+- `internal/search/search.go` — `resolve(projectPath)` calls `config.Resolve(projectPath)` directly; `filepath.Join(projectPath, ".ta-resolve-sentinel")` removed. `filepath` import dropped.
+- `internal/mcpsrv/testing.go` — new file (regular, not `_test.go`). Moved `ResetDefaultCacheForTest` out of `export_test.go` so external test packages under `cmd/` can use it; Go's `_test.go` visibility is same-package-only.
+- `cmd/ta/main.go` — `runServe` passes `os.Getwd()` as `mcpsrv.Config.ProjectPath`. The bare-`ta`-over-stdio contract stays: MCP clients spawn with cwd = project root. The long-description prose updated to drop the "cascade-merge" claim.
+- `magefile.go` — `Dogfood` simplified. No tmpdir stage, no `HOME` setenv, no schema copy. Runs `mcpsrv.Create` directly on the project root because the runtime now resolves `<project>/.ta/schema.toml` without home-layer interference.
+- `internal/mcpsrv/server_test.go` — `newClient(t)` auto-binds to `lastFixtureRoot` (package-scoped variable written by `newFixture*`); a `newClientWithPath(t, root)` variant supports orphan-root tests. The three orphan tests (`TestSchemaCreateDBType_Field`, `TestSchemaUpdateAndDeleteDB`, `TestSchemaMetaSchemaScope`) switched to `newClientWithPath`. `TestNewRejectsEmptyConfig` gained a fourth case proving `ProjectPath == ""` errors loudly.
+- Other test files that touched `t.Setenv("HOME", ...)`: `internal/mcpsrv/dogfood_test.go`, `internal/search/search_test.go`, `internal/search/dogfood_test.go`, `cmd/ta/commands_test.go` — stripped and/or replaced with `ResetDefaultCacheForTest` cleanup.
+
+**Spec-gap note:** none. The §14 architecture Bible matched the implementation 1:1. One design call was routed through Falsification: `Config.ProjectPath` being required would refuse-to-boot fresh un-initialized projects because pre-warm calls `defaultCache.Resolve` which returns `ErrNoSchema`. Resolved by making pre-warm tolerant of `ErrNoSchema` (but still fail loudly on malformed bytes). The fresh-project boot path is exercised by the new `TestStartupTolerantOfMissingSchema`.
+
+**Next:** QA proof + QA falsification twins (orchestrator-spawned); §12.12 JSON output mode.
+
+---
+
+## 12.12 — JSON output mode
+
+**Scope (from V2-PLAN.md §12.12 + §14.3 + §14.8):** Every CLI read command grows a `--json` flag that bypasses laslig and emits structured JSON for agent consumption. Mage `Test` / `Check` / `Cover` honour `MAGEFILE_JSON=1` to thread `go test -json` through the test-runner step. CLAUDE.md + AGENTS.md land at the project root with the agent-guidance rule: "All `ta <read-command>` invocations from agents MUST pass `--json`; all `mage <target>` invocations from agents MUST set `MAGEFILE_JSON=1`."
+
+### Build — go-builder-agent
+
+Status: ⏳ spawned 2026-04-22 (this turn).
+
+**Added:**
+
+- `cmd/ta/commands.go` — `--json` flag on `newGetCmd`, `newListSectionsCmd`, `newSchemaCmd`, `newSearchCmd`. Helper functions `emitGetJSON`, `emitSearchJSON`, `runSchemaGetJSON`, `schemaDBsToJSON`, `schemaTypesToJSON` are CLI-local (mcpsrv's MCP JSON path stays untouched). Shapes:
+  - `ta get --json <path> <section>` → `{"section": "...", "bytes": "<raw>"}` or `{"section": "...", "fields": {...}}` when `--fields` is set.
+  - `ta list-sections --json <path>` → `{"sections": ["<addr>", ...]}`.
+  - `ta schema --json <path> [scope]` (action=get) → `{"schema_paths": [...], "dbs": {...}}` with the registry tree; `ta_schema` scope short-circuits to `{"scope": "ta_schema", "meta_schema_toml": "..."}`.
+  - `ta search --json <path> [--scope ...] [--match ...] [--query ...] [--field ...]` → `{"hits": [{"section": "...", "bytes": "<raw>", "fields": {...}}]}`.
+- `magefile.go` — `Test` / `Cover` honour `MAGEFILE_JSON=1` (any truthy value except `0` / `false`) by appending `-json` to the `go test` arg slice. `jsonMode()` helper centralizes the check. Doc comments at package scope and on `Test` switched from backtick-quoted to double-quoted `"go test"` — mage's `mage_output_file.go` generator fails to compile docstrings that carry a backtick (bug in the mage code-gen).
+- `cmd/ta/commands_test.go` — five new happy-path tests: `TestGetCmdJSONRawBytes`, `TestGetCmdJSONFields`, `TestListSectionsCmdJSON`, `TestSchemaCmdGetJSON`, `TestSchemaCmdGetJSONMetaSchema`, `TestSearchCmdJSON`. Each parses the command's stdout through `encoding/json` and asserts the documented top-level keys.
+- `CLAUDE.md` + `AGENTS.md` — new at project root. Mirror each other. Short — five bullets. Points agents at `--json` on reads and `MAGEFILE_JSON=1` on mage.
+
+**MCP unchanged.** Per spec: "Keep MCP tool output unchanged — MCP already returns JSON; this is a CLI-only flag." Verified by diff: `internal/mcpsrv/` is untouched by this commit.
+
+**Verification:** `mage check` green across all 10 packages with `-race`. `MAGEFILE_JSON=1 mage test` output begins with `{"Time":...,"Action":"start",...}` lines (confirmed via smoke run). The pre-existing laslig rendering tests (`TestGetCmdRawBytes`, `TestGetCmdFields`, `TestListSectionsCmdOnExistingFile`, `TestSearchCLIRenders`, `TestSchemaCmdRendersResolvedSchema`) still pass — `--json` is purely additive.
+
+**Spec-gap note:** Project root previously had no `CLAUDE.md` / `AGENTS.md` files — the spec said to update them but they did not exist. Created both. Content is a minimal five-bullet primer; the `.ta/schema.toml` already declares an `[agents]` db whose `file = "CLAUDE.md"` so future agent-facing records can live there.
+
+**Next:** commit + QA proof + QA falsification twins (orchestrator-spawned); §12.18 README collapse.
