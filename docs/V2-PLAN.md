@@ -36,7 +36,7 @@ The MVP shipped a working MCP server with `get` / `list_sections` / `schema` / `
 - **2.8 No doc files after implementation.** Single `README.md`. Every other doc collapses. The schema is the API reference.
 - **2.9 Uniform address grammar.** Every record, TOML or MD, single- or multi-instance, is addressed by the same shape: `<db>.<type>.<id-path>` (single-instance) or `<db>.<instance>.<type>.<id-path>` (multi-instance). `<id-path>` is 1+ dot-separated segments. Format does not bleed into address shape. Agents learn one grammar.
 - **2.10 Schema-driven sectioning.** The scanner parses between **id-paths matching declared types**, not between raw syntactic markers. A heading or TOML bracket that doesn't match any declared type is body content of the enclosing declared section. This is what lets a TOML record's body carry a TOML code block without the code block's inner `[brackets]` becoming sibling sections, and lets an MD record's body carry subheadings without every subheading having to be a schema-declared type.
-- **2.11 Body = bytes to next declared boundary.** A declared record's byte range runs from its start (heading line or bracket line) to the start of the next declared record (at any type) or EOF. Non-declared markers between them are content. No overlapping ranges; splice invariant stays simple.
+- **2.11 Body = bytes to next non-descendant boundary.** A declared record's byte range runs from its start (heading line or bracket line) to the start of the next record at the **same or shallower** level (for MD) or the next **non-descendant bracket** (for TOML), or EOF. Descendants are part of the parent's body — an H3 under an H2 is included in the H2's body bytes; `[plans.task.t1.subtask]` is included in `[plans.task.t1]`'s body bytes. If the deeper path is itself an addressable record (because another type is declared at that level, or because TOML bracket paths allow any depth), it has its **own** byte range, narrower and nested inside the parent's. Ranges can overlap in the native hierarchy; the splice invariant holds per address — each address denotes one exact byte range at that depth.
 
 ---
 
@@ -52,17 +52,26 @@ Tool split reflects a deliberate asymmetry:
 
 ### 3.1 `get`
 
-Read one record. Returns the raw bytes of that record's on-disk section (comments, formatting, exact whitespace preserved).
+Read one record. Default = raw bytes of that record's on-disk section (comments, formatting, exact whitespace preserved, including any descendant records as body).
 
 ```
-get(path, section)
+get(path, section, [fields])
   path     — project directory
-  section  — "<db>.<type>.<id-path>" (e.g. "plan_db.build_task.task_001"
-             or "plans.task.t1.subtask" for a TOML record at bracket
-             path [plans.task.t1.subtask])
+  section  — "<db>.<type>.<id-path>" — any depth (e.g.
+             "plan_db.build_task.task_001", or
+             "plans.task.t1.subtask" for a TOML record at bracket
+             path [plans.task.t1.subtask], or
+             "readme.section.install.prereqs" for an H3 under an H2)
+  fields   — optional: array of field names to extract; default = all
+             (returns raw bytes). When provided, returns a structured
+             subset: {fields: {name: value, ...}}. Filtering happens
+             after the backend locates the section; MCP response shape
+             switches from raw bytes to JSON object.
 ```
 
-Behavior: resolve schema cascade from `path` → find the db → dispatch to backend → backend locates the record whose **declared-type id-path** matches → return the record's section bytes. `<id-path>` is 1+ dot-separated segments; depth is format-natural (TOML bracket tail; MD heading slug, typically 1 segment). Errors if no declared record at that id-path exists or the db isn't declared.
+Behavior: resolve schema cascade from `path` → find the db → dispatch to backend → backend locates the record at the requested id-path → return that record's byte range (including any descendants nested inside it). `<id-path>` is 1+ dot-separated segments; depth is format-natural (TOML: any valid bracket path under the type anchor; MD: ancestor-chain of slugs from the type's anchor heading level down to the target heading). Errors if no record at that id-path exists or the db isn't declared.
+
+If `fields` is supplied, the returned object carries only those named fields; unknown field names error. For MD body-only record types (§5.3.3), `fields = ["body"]` is equivalent to the default (whole body). For TOML records with typed fields, the backend parses and extracts the named fields from the located byte range.
 
 ### 3.2 `list_sections`
 
@@ -353,26 +362,34 @@ type Backend interface {
 
 The current `internal/tomlfile/` package moves behind this interface. Named `internal/backend/toml/`.
 
-Under §2.10 the TOML scanner is also schema-driven: after pelletier parses the file, the backend **filters** the raw bracket list down to brackets whose path starts with a declared-type prefix (`<db>.<type>.…`). Brackets that don't match any declared prefix are **not sections** — their bytes belong to the preceding declared record's body range.
+Under §2.10 the TOML backend is schema-driven at the TYPE ANCHOR: after pelletier parses the file, every bracket whose path starts with a declared-type prefix (`<db>.<type>.…`) is addressable. Brackets outside any declared-type prefix are ignored (not addressable, not sections).
 
-This is what lets a TOML record's body carry a fenced TOML code sample or a `[nested.helper]` bookkeeping bracket without either becoming a sibling record:
+Under §2.11 the BYTE RANGE of an addressable bracket runs from its header line to the start of the **next non-descendant bracket** (or EOF). Descendant brackets — those whose path is a strict prefix-extension of this bracket's path — are part of this bracket's body bytes. This is what lets `get` on a parent return the whole subtree, and `get` on a child return just the child's range:
 
 ```toml
 [plans.task.t1]
 title = "parent"
 body = "some body"
 
-[plans.task.t1.notes]   # not declared as a type → content of plans.task.t1
+[plans.task.t1.notes]
 note1 = "..."
 note2 = "..."
 
-[plans.task.t2]         # next declared record → boundary
-title = "next"
+[plans.task.t2]
+title = "next sibling"
 ```
 
-With schema declaring only `[plans.task]` as a type, `plans.task.t1`'s byte range extends from its bracket line to the start of `[plans.task.t2]`; the `[plans.task.t1.notes]` bracket and its key-values are part of `plans.task.t1`'s body bytes. If a caller wants `[plans.task.t1.notes]` to be its own record, the schema must declare `[plans.notes]` (or an analogous type at the right anchor depth) — otherwise it stays content.
+With schema declaring `[plans.task]` as a type:
 
-**Deep TOML id-paths.** A declared type at `[plans.task]` admits records at any deeper depth — `plans.task.t1`, `plans.task.t1.subtask`, `plans.task.a.b.c`. The `<id-path>` in the address is the bracket tail after the `<type>` segment. TOML's parser enforces bracket-path uniqueness natively; the backend inherits that guarantee.
+- `get(section="plans.task.t1")` returns the bytes from `[plans.task.t1]` header to the start of `[plans.task.t2]` — the `[plans.task.t1.notes]` bracket and its key-values are INCLUDED as body (it's a descendant of `plans.task.t1`).
+- `get(section="plans.task.t1.notes")` returns just the bytes of that bracket, nested inside `t1`'s range.
+- `get(section="plans.task.t2")` returns bytes from `[plans.task.t2]` to EOF.
+
+Both `t1` and `t1.notes` are addressable — calling `get` on either returns the bytes at that depth. Ranges nest in the native hierarchy. Splice on any address modifies exactly that address's byte range, leaving everything outside (including sibling subtrees and ancestor surroundings) untouched.
+
+**`update(section="plans.task.t1", …)`** replaces the whole subtree of `t1` including `t1.notes`. **`update(section="plans.task.t1.notes", …)`** replaces just the notes subtree, preserving the parent's `title` / `body` keys and any sibling brackets. TOML's native bracket-path uniqueness (enforced by pelletier) guarantees each address maps to exactly one byte range.
+
+**Non-descendant brackets between declared records.** A bracket like `[unrelated.thing]` sitting between two declared-type brackets belongs to the first declared record's body (it's non-descendant, but the body range extends to the next non-descendant bracket at the SAME OR SHALLOWER anchor depth — see the fenced-code-in-TOML use case). The practical upshot: authors can write bookkeeping brackets inside a record's body without each becoming a phantom sibling.
 
 ### 5.3 MD backend — pure-Go ATX scanner
 
@@ -386,17 +403,21 @@ New package `internal/backend/md/`.
 - Full parity for what we need: section boundaries by ATX heading, fenced-code-block awareness, byte ranges. We do not care about emphasis, links, tables, etc. — those are all inside the body string.
 - Constrained input: since agents write all content through `create` / `update`, the tool controls what ends up on disk. Edge cases (setext, HTML blocks, nested blockquotes containing headings) are tool-emitted never, so the scanner can be strict.
 
-#### 5.3.2 Section model — schema-declared headings are sections
+#### 5.3.2 Section model — schema-declared headings are sections; body includes descendants
 
-Per §2.10 / §2.11, the scanner is schema-driven:
+Per §2.10 / §2.11, the scanner is schema-driven and the body-range rule is hierarchical:
 
-- A heading `# Text` through `###### Text` is a **section** only when its level matches a declared type's `heading` value. Headings at non-declared levels are body content of the enclosing declared section.
+- A heading `# Text` through `###### Text` is an **addressable record** only when its level matches a declared type's `heading` value. Headings at non-declared levels are body content of the enclosing declared record.
 - Each declared type maps exactly one heading level to a type name (`[readme.section] heading = 2` says "every H2 in this db is a `section` record").
-- Section address: `<db>.<type>.<slug>` (single-instance) or `<db>.<instance>.<type>.<slug>` (multi-instance). `<slug>` is `kebab-case(heading-text)` — one segment for MD. Deeper addressable sub-records require declaring another type at a deeper `heading` (e.g. `[readme.subsection] heading = 3`) — otherwise those deeper headings remain content.
-- Section body: bytes from the start of the declared heading line to the start of the **next declared heading (at any declared level)**, or EOF. Non-declared headings between two declared boundaries are content of the first.
-- H1 is treated identically to H2–H6 — if the schema declares a type with `heading = 1`, H1s are records; otherwise they're content.
-- **Slug uniqueness** is per-declared-level within a file: two H2s with slug `install` in the same file is a collision (refused at read + write). An H2 `install` and an H3 `install` do not collide — different levels, different type namespaces (and H3 may not even be declared).
-- **Author discipline for non-declared subheadings.** Agents writing deep subheadings inside a section's body should keep their slugs locally unique for human readability, but the scanner neither enforces nor cares — non-declared headings are opaque content bytes to it.
+- **Addressing**. A declared record is addressed by its ancestor-chain of declared-level slugs starting at the type's anchor heading level:
+  - A bare H2 record with schema `[readme.section] heading = 2` → `readme.section.<h2-slug>`.
+  - If the schema also declares `[readme.subsection] heading = 3`, an H3 under an H2 → `readme.subsection.<h2-slug>.<h3-slug>`. The address is `<type>.<id-path>` where `<id-path>` is the chain of ancestor slugs through declared levels. Scope for uniqueness is per-parent: two H3s under the same H2 cannot share a slug; two H3s under different H2s are fine.
+- **Byte range**. A declared record's byte range runs from its heading line to the start of the next heading at the **same or shallower declared level** (or EOF). Deeper headings — declared or not — are part of this record's body bytes.
+  - An H2's range ends at the next H2 (or H1 if declared, or EOF). Any H3/H4/H5/H6 between them is inside the H2's body.
+  - If H3 is also a declared type, an H3's range ends at the next H3 or H2 (or H1 if declared) — deeper H4-H6 under the H3 are part of the H3's body.
+- **`get` on a parent returns the full subtree.** `get(readme.section.install)` returns the whole H2 block including any nested H3s. `get(readme.section.install.prereqs)` (assuming subsection is declared) returns just the H3 block, nested inside the H2's range. Ranges overlap in the native hierarchy; splice on any address modifies exactly that address's byte range.
+- **Slug uniqueness**: per parent scope, per declared level. Two H2s with slug `install` → collision (refused at read + write). An H2 `install` and an H3 `install` → no collision (different levels). Two H3s `prereqs` under different H2s → no collision.
+- **Non-declared subheadings are opaque content bytes.** Authors can use H3–H6 freely inside a record body without declaring each heading as a schema type. Author discipline (don't write confusing duplicate subheadings) is a human-readability concern, not scanner-enforced.
 
 **Example.** Given schema `[readme.title] heading = 1` and `[readme.section] heading = 2` (no deeper types declared) and the file:
 
@@ -424,11 +445,15 @@ If `mage install` fails, ...
 ...
 ```
 
-- `readme.title.ta` → `"# ta\n\nTiny MCP server for schema-validated TOML and Markdown.\n\n"` (ends at the next declared heading, `## Installation`).
-- `readme.section.installation` → `"## Installation\n\nInstall from source:\n\n    mage install\n\n### Prerequisites\n\nA Go toolchain.\n\n### Troubleshooting\n\nIf `mage install` fails, ...\n\n"`. The two H3s are body content — they belong to `installation` because no H3 type is declared and the next declared boundary is `## MCP client config`.
-- `readme.section.mcp-client-config` → `"## MCP client config\n\n...\n"`.
+- `get(readme.title.ta)` → `"# ta\n\nTiny MCP server for schema-validated TOML and Markdown.\n\n"` (ends at next H1 or shallower; since H2 Installation is a different level, H1 ta's range only contains the prose between `# ta` and `## Installation`).
+- `get(readme.section.installation)` → `"## Installation\n\nInstall from source:\n\n    mage install\n\n### Prerequisites\n\nA Go toolchain.\n\n### Troubleshooting\n\nIf `mage install` fails, ...\n\n"` — both H3s are body content (no H3 type declared). Range ends at `## MCP client config` (next H2).
+- `get(readme.section.mcp-client-config)` → `"## MCP client config\n\n...\n"`.
 
-If the schema later adds `[readme.subsection] heading = 3`, `readme.subsection.prerequisites` becomes its own addressable record, and `readme.section.installation`'s body ends at `### Prerequisites`.
+If the schema later adds `[readme.subsection] heading = 3`:
+
+- `readme.subsection.installation.prerequisites` and `readme.subsection.installation.troubleshooting` become addressable records (scoped under the `installation` H2 parent).
+- `get(readme.section.installation)` STILL returns the whole H2 block including the two H3s — the parent's range doesn't shrink; the H3s now just have their own narrower nested ranges too.
+- `get(readme.subsection.installation.prerequisites)` returns just the H3 block.
 
 #### 5.3.3 MVP field layout — body only
 
@@ -511,11 +536,12 @@ Two multi-instance modes exist because two semantically distinct use cases exist
 | Dir-per-instance               | `<db>.<instance>.<type>.<id-path>`       |
 | File-per-instance              | `<db>.<instance>.<type>.<id-path>`       |
 
-Tools resolve which form applies by looking up the db's declaration in the cascade. `<id-path>` is **1+ dot-separated segments**, uniform across both formats:
+Tools resolve which form applies by looking up the db's declaration in the cascade. `<id-path>` is **1+ dot-separated segments**, uniform across both formats, and may be any depth matching the file's native hierarchy:
 
-- **TOML:** `<id-path>` is the bracket tail after `<type>`. Can be any depth (`t1`, `t1.subtask`, `a.b.c.d`) as long as the bracket exists in the file and no intervening segment is itself a declared type name. Cross-file uniqueness is automatic because the file is selected by `<db>` or `<db>.<instance>`.
-- **MD:** `<id-path>` is typically a single kebab-slug — the heading's slug at the type's declared `heading` level. Deeper addressable records require declaring another type at a deeper heading value (e.g. `[<db>.subsection] heading = 3`) — then sub-records are addressed via that type, not by chaining slugs.
-- **Typo detection.** `<id-path>` that does not match any declared-type record in the resolved file errors loudly with "no record at `<address>`". The schema-driven scanner makes this check unambiguous: a typo cannot silently land as a deeper section because non-declared markers are content, not sections.
+- **TOML:** `<id-path>` is the bracket tail after `<type>`. Any bracket path in the file under the type anchor is addressable at any depth (`t1`, `t1.subtask`, `a.b.c.d`). `get` on a parent path returns the whole subtree (descendants included in the body); `get` on a child path returns just the child's range (nested inside the parent's).
+- **MD:** `<id-path>` is the ancestor-chain of slugs through declared heading levels. A bare H2 with type `section` → `<db>.section.<h2-slug>`. If schema also declares H3 as type `subsection`, an H3 under an H2 → `<db>.subsection.<h2-slug>.<h3-slug>`. Non-declared deeper headings are body content of the enclosing declared record.
+- **Ranges nest.** `get(<db>.<type>.parent)` and `get(<db>.<type2>.parent.child)` both work; the second returns a narrower byte range nested inside the first. Splice on any address modifies exactly that address's byte range.
+- **Typo detection.** An id-path that does not correspond to any record in the resolved file errors loudly with "no record at `<address>`". The schema-driven scanner makes this check unambiguous: a deeper path that doesn't match an actual bracket/heading in the file fails loud, instead of silently promoting to a deeper content slice.
 
 #### 5.5.1 Dir-per-instance (`directory`)
 
@@ -1033,6 +1059,9 @@ Critical invariant tests:
 - **Backend is schema-aware at construction.** `record.Backend` factory takes a list of declared types for the owning db so the scanner knows which markers to treat as boundaries. Interface signatures unchanged from §12.1; what changes is how the backend is instantiated. See §5.1.
 - **`path_hint` safety.** `path_hint` must stay inside the collection root — `..` escape is rejected (implementation note: use `filepath.IsLocal`; Go 1.20+). See §3.4.
 - **MD non-declared subheadings = content.** Authors can use H3–H6 (or any non-declared level) as free-form subheadings inside a record body without having to declare each as a schema type. Slug-uniqueness only applies at declared levels. Per-level author discipline for deeper headings is a human-readability concern, not a scanner-enforced one. See §5.3.2.
+- **Hierarchical body ranges, not flat.** §2.11 refined: a declared record's byte range includes its descendants in the native hierarchy (TOML: descendant brackets; MD: deeper headings). If a deeper path is itself addressable (because another type is declared at that level, or TOML bracket paths allow any depth), it has its own narrower byte range nested inside the parent's. `get`/`update`/`delete` operate on exactly the requested address's range; ranges overlap in the native tree. See §5.2, §5.3.2.
+- **`get` gains optional `fields` parameter.** `get(path, section, [fields])` — default returns raw bytes (current behavior); when `fields` is supplied, returns a structured subset `{fields: {name: value, ...}}`. For MD body-only types, `fields=["body"]` is equivalent to the default. For TOML, the backend parses and extracts the named fields from the located range. Unknown field names error. See §3.1.
+- **MD hierarchical addressing.** `<id-path>` for MD is the ancestor-chain of slugs through declared heading levels (not just the leaf slug). Uniqueness is per-parent per declared level. See §5.3.2, §5.5.
 
 ---
 
