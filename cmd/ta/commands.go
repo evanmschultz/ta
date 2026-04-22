@@ -13,34 +13,47 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/evanmschultz/ta/internal/backend/toml"
-	"github.com/evanmschultz/ta/internal/config"
+	"github.com/evanmschultz/ta/internal/mcpsrv"
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
+// newGetCmd mirrors the MCP tool `get`. Without --fields the CLI
+// writes the raw on-disk bytes to stdout. With --fields (comma or
+// repeated) it renders the named field values through laslig as a
+// JSON object.
 func newGetCmd() *cobra.Command {
-	return &cobra.Command{
+	var fields []string
+	cmd := &cobra.Command{
 		Use:   "get <path> <section>",
-		Short: "Read a TOML section by bracket path, print raw bytes to stdout",
-		Long: "Mirrors the MCP tool `get`. Writes the raw TOML bytes of the " +
-			"section — leading comment block, header line, and body — to stdout " +
-			"exactly as they appear in the file.",
+		Short: "Read one record; optionally extract declared field values",
+		Long: "Mirrors the MCP tool `get`. Default writes the raw bytes of the " +
+			"located record to stdout. With --fields name[,name...] or repeated " +
+			"--field <name> the CLI decodes the record and prints the named " +
+			"field values as JSON.",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
 			path, section := args[0], args[1]
-			f, err := toml.Parse(path)
+			res, err := mcpsrv.Get(path, section, fields)
 			if err != nil {
-				return fmt.Errorf("parse %s: %w", path, err)
+				return err
 			}
-			sec, ok := f.Find(section)
-			if !ok {
-				return fmt.Errorf("section %q not found in %s", section, path)
+			if len(fields) == 0 {
+				_, err := c.OutOrStdout().Write(res.Bytes)
+				return err
 			}
-			_, err = c.OutOrStdout().Write(f.Buf[sec.Range[0]:sec.Range[1]])
-			return err
+			data, err := json.MarshalIndent(res.Fields, "", "  ")
+			if err != nil {
+				return fmt.Errorf("encode fields: %w", err)
+			}
+			p := laslig.New(c.OutOrStdout(), humanPolicy())
+			return p.Markdown(laslig.Markdown{Body: "```json\n" + string(data) + "\n```\n"})
 		},
 	}
+	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated declared field names to extract")
+	cmd.Flags().StringSliceVar(&fields, "field", nil, "declared field name to extract (repeatable)")
+	return cmd
 }
 
 func newListSectionsCmd() *cobra.Command {
@@ -77,75 +90,23 @@ func newListSectionsCmd() *cobra.Command {
 	}
 }
 
-func newSchemaCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "schema <path> [section]",
-		Short: "Show the resolved schema for a TOML file (glamour-rendered markdown)",
-		Long: "Mirrors the MCP tool `schema`. Without a section arg, renders " +
-			"every db in the cascade-merged registry. With a dot-notated " +
-			"section arg (e.g. `plans.task.task_001` or `plans`), renders just " +
-			"the db or type selected by the first one or two segments. The " +
-			"reserved value `ta_schema` prints the embedded meta-schema " +
-			"literal.",
-		Args:          cobra.RangeArgs(1, 2),
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(c *cobra.Command, args []string) error {
-			path := args[0]
-			var section string
-			if len(args) == 2 {
-				section = args[1]
-			}
-			if section == schema.MetaSchemaPath {
-				return renderMetaSchema(c.OutOrStdout())
-			}
-			resolution, err := config.Resolve(path)
-			if err != nil {
-				return fmt.Errorf("resolve schema for %s: %w", path, err)
-			}
-			dbs := resolution.Registry.DBs
-			if section != "" {
-				if t, ok := resolution.Registry.Lookup(section); ok {
-					// Type-scoped: render just the owning db with this one type.
-					db, _ := resolution.Registry.LookupDB(section)
-					db.Types = map[string]schema.SectionType{t.Name: t}
-					dbs = map[string]schema.DB{db.Name: db}
-				} else if !strings.Contains(section, ".") {
-					// Db-scoped fallback is only valid for a bare db name —
-					// a dotted section with no type match is a typo, not an
-					// alias for the whole db (see V2-PLAN §1.1).
-					if db, ok := resolution.Registry.LookupDB(section); ok {
-						dbs = map[string]schema.DB{db.Name: db}
-					} else {
-						return fmt.Errorf("no schema registered for section %q in %s", section, path)
-					}
-				} else {
-					return fmt.Errorf("no schema registered for section %q in %s", section, path)
-				}
-			}
-			return renderSchemaMarkdown(c.OutOrStdout(), path, section, resolution.Sources, dbs)
-		},
-	}
-}
-
-func newUpsertCmd() *cobra.Command {
+func newCreateCmd() *cobra.Command {
 	var dataInline string
 	var dataFile string
+	var pathHint string
 	cmd := &cobra.Command{
-		Use:   "upsert <path> <section>",
-		Short: "Create or update a section, validated against the resolved schema",
-		Long: "Mirrors the MCP tool `upsert`. Provide the section's fields as " +
-			"a JSON object via --data (inline) or --data-file <path> " +
-			"(`-` reads from stdin). Untouched bytes in the target file — " +
-			"including comments, blank lines, and other sections — are " +
-			"preserved byte-for-byte.",
+		Use:   "create <path> <section>",
+		Short: "Create a new record (fails if it exists); mirrors MCP tool `create`.",
+		Long: "Create a new record at the given address. Fails if the record " +
+			"already exists (V2-PLAN §3.4). Creates the backing file and any " +
+			"intermediate directories on first use. For file-per-instance dbs, " +
+			"--path-hint disambiguates flat vs nested placement.",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
 			path, section := args[0], args[1]
-
-			raw, err := readUpsertData(dataInline, dataFile, c.InOrStdin())
+			raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
 			if err != nil {
 				return err
 			}
@@ -153,41 +114,47 @@ func newUpsertCmd() *cobra.Command {
 			if err := json.Unmarshal(raw, &data); err != nil {
 				return fmt.Errorf("parse data JSON: %w", err)
 			}
-
-			resolution, err := config.Resolve(path)
+			targetPath, sources, err := runCreate(path, section, pathHint, data)
 			if err != nil {
-				return fmt.Errorf("resolve schema for %s: %w", path, err)
-			}
-			if err := resolution.Registry.Validate(section, data); err != nil {
 				return err
 			}
+			return noticeMutation(c.OutOrStdout(), "created", section, targetPath, sources)
+		},
+	}
+	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
+	cmd.Flags().StringVar(&pathHint, "path-hint", "", "relative placement hint inside a collection db's root")
+	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
+	return cmd
+}
 
-			f, err := toml.Parse(path)
+func newUpdateCmd() *cobra.Command {
+	var dataInline string
+	var dataFile string
+	cmd := &cobra.Command{
+		Use:   "update <path> <section>",
+		Short: "Update an existing record; mirrors MCP tool `update`.",
+		Long: "Update an existing record. Fails if the backing file does not " +
+			"exist (V2-PLAN §3.5). Creates the record within the file if the " +
+			"file exists but the record does not (record-level upsert).",
+		Args:          cobra.ExactArgs(2),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(c *cobra.Command, args []string) error {
+			path, section := args[0], args[1]
+			raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
 			if err != nil {
-				if !errors.Is(err, toml.ErrNotExist) {
-					return fmt.Errorf("parse %s: %w", path, err)
-				}
-				f = &toml.File{Path: path}
+				return err
 			}
-			emitted, err := toml.EmitSection(section, data)
+			var data map[string]any
+			if err := json.Unmarshal(raw, &data); err != nil {
+				return fmt.Errorf("parse data JSON: %w", err)
+			}
+			targetPath, sources, err := runUpdate(path, section, data)
 			if err != nil {
-				return fmt.Errorf("emit %q: %w", section, err)
+				return err
 			}
-			newBuf, err := f.Splice(section, emitted)
-			if err != nil {
-				return fmt.Errorf("splice %q: %w", section, err)
-			}
-			if err := toml.WriteAtomic(path, newBuf); err != nil {
-				return fmt.Errorf("write %s: %w", path, err)
-			}
-
-			p := laslig.New(c.OutOrStdout(), humanPolicy())
-			return p.Notice(laslig.Notice{
-				Level:  laslig.NoticeSuccessLevel,
-				Title:  fmt.Sprintf("upserted %s", section),
-				Body:   path,
-				Detail: resolution.Sources,
-			})
+			return noticeMutation(c.OutOrStdout(), "updated", section, targetPath, sources)
 		},
 	}
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
@@ -196,7 +163,84 @@ func newUpsertCmd() *cobra.Command {
 	return cmd
 }
 
-func readUpsertData(inline, file string, stdin io.Reader) ([]byte, error) {
+func newDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <path> <section>",
+		Short: "Remove a record, file, or instance directory; mirrors MCP tool `delete`.",
+		Long: "Remove a record (bytes spliced out), a single-instance data " +
+			"file, or a multi-instance instance dir/file. Whole multi-instance " +
+			"db deletes error as ambiguous; zero the instances first or route " +
+			"through `schema delete --kind db` (V2-PLAN §3.6).",
+		Args:          cobra.ExactArgs(2),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(c *cobra.Command, args []string) error {
+			path, section := args[0], args[1]
+			targetPath, sources, err := runDelete(path, section)
+			if err != nil {
+				return err
+			}
+			return noticeMutation(c.OutOrStdout(), "deleted", section, targetPath, sources)
+		},
+	}
+}
+
+func newSchemaCmd() *cobra.Command {
+	var action string
+	var kind string
+	var name string
+	var dataInline string
+	var dataFile string
+	cmd := &cobra.Command{
+		Use:   "schema <path> [section]",
+		Short: "Inspect or mutate the resolved schema; mirrors MCP tool `schema`.",
+		Long: "With action=get (default), renders the resolved schema; an " +
+			"optional section/scope narrows to one db or type. Passing the " +
+			"reserved value `ta_schema` prints the embedded meta-schema " +
+			"literal. With action=create|update|delete, mutates the project " +
+			"`.ta/schema.toml` (re-validated on every mutation with atomic " +
+			"rollback — V2-PLAN §4.6).",
+		Args:          cobra.RangeArgs(1, 2),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(c *cobra.Command, args []string) error {
+			path := args[0]
+			var scope string
+			if len(args) == 2 {
+				scope = args[1]
+			}
+			if action == "" || action == "get" {
+				return runSchemaGet(c.OutOrStdout(), path, scope)
+			}
+			raw, err := readJSONDataOptional(dataInline, dataFile, c.InOrStdin(), action == "delete")
+			if err != nil {
+				return err
+			}
+			var data map[string]any
+			if raw != nil {
+				if err := json.Unmarshal(raw, &data); err != nil {
+					return fmt.Errorf("parse data JSON: %w", err)
+				}
+			}
+			sources, err := runSchemaMutate(path, action, kind, name, data)
+			if err != nil {
+				return err
+			}
+			return noticeMutation(c.OutOrStdout(), "schema "+action, name, "", sources)
+		},
+	}
+	cmd.Flags().StringVar(&action, "action", "get", "one of get | create | update | delete")
+	cmd.Flags().StringVar(&kind, "kind", "", "db | type | field (for action != get)")
+	cmd.Flags().StringVar(&name, "name", "", "dotted schema address (for action != get)")
+	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON payload (for action create|update)")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON payload from file; use `-` for stdin")
+	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
+	return cmd
+}
+
+// ---- helpers (CLI-local mirrors of the MCP handlers) -----------------
+
+func readJSONData(inline, file string, stdin io.Reader) ([]byte, error) {
 	if inline != "" {
 		return []byte(inline), nil
 	}
@@ -208,6 +252,56 @@ func readUpsertData(inline, file string, stdin io.Reader) ([]byte, error) {
 	default:
 		return os.ReadFile(file)
 	}
+}
+
+// readJSONDataOptional is a variant for tools that accept no data (e.g.
+// schema delete). Returns (nil, nil) when optional=true and no flag is
+// set.
+func readJSONDataOptional(inline, file string, stdin io.Reader, optional bool) ([]byte, error) {
+	if inline == "" && file == "" {
+		if optional {
+			return nil, nil
+		}
+		return nil, errors.New("must provide --data <json> or --data-file <path>")
+	}
+	return readJSONData(inline, file, stdin)
+}
+
+func runSchemaGet(w io.Writer, path, scope string) error {
+	if scope == schema.MetaSchemaPath {
+		return renderMetaSchema(w)
+	}
+	resolution, err := mcpsrv.ResolveProject(path)
+	if err != nil {
+		return fmt.Errorf("resolve schema for %s: %w", path, err)
+	}
+	dbs := resolution.Registry.DBs
+	if scope != "" {
+		if t, ok := resolution.Registry.Lookup(scope); ok {
+			dbDecl, _ := resolution.Registry.LookupDB(scope)
+			dbDecl.Types = map[string]schema.SectionType{t.Name: t}
+			dbs = map[string]schema.DB{dbDecl.Name: dbDecl}
+		} else if !strings.Contains(scope, ".") {
+			if dbDecl, ok := resolution.Registry.LookupDB(scope); ok {
+				dbs = map[string]schema.DB{dbDecl.Name: dbDecl}
+			} else {
+				return fmt.Errorf("no schema registered for section %q in %s", scope, path)
+			}
+		} else {
+			return fmt.Errorf("no schema registered for section %q in %s", scope, path)
+		}
+	}
+	return renderSchemaMarkdown(w, path, scope, resolution.Sources, dbs)
+}
+
+// renderMetaSchema prints the embedded meta-schema TOML literal directly —
+// glamour-rendering a raw TOML body would add no value and hurt
+// copy-paste. This is the CLI counterpart to MCP's `schema(scope=
+// "ta_schema")`.
+func renderMetaSchema(w io.Writer) error {
+	p := laslig.New(w, humanPolicy())
+	body := "# ta_schema — embedded meta-schema\n\n```toml\n" + schema.MetaSchemaTOML + "```\n"
+	return p.Markdown(laslig.Markdown{Body: body})
 }
 
 func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, dbs map[string]schema.DB) error {
@@ -230,21 +324,21 @@ func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, d
 	}
 	sort.Strings(dbNames)
 	for _, dbName := range dbNames {
-		db := dbs[dbName]
+		dbDecl := dbs[dbName]
 		fmt.Fprintf(&sb, "## `%s`\n\n", dbName)
 		fmt.Fprintf(&sb, "- **shape**: `%s`\n- **path**: `%s`\n- **format**: `%s`\n\n",
-			db.Shape, db.Path, db.Format)
-		if db.Description != "" {
-			sb.WriteString(db.Description + "\n\n")
+			dbDecl.Shape, dbDecl.Path, dbDecl.Format)
+		if dbDecl.Description != "" {
+			sb.WriteString(dbDecl.Description + "\n\n")
 		}
-		typeNames := make([]string, 0, len(db.Types))
-		for n := range db.Types {
+		typeNames := make([]string, 0, len(dbDecl.Types))
+		for n := range dbDecl.Types {
 			typeNames = append(typeNames, n)
 		}
 		sort.Strings(typeNames)
-		for _, name := range typeNames {
-			t := db.Types[name]
-			fmt.Fprintf(&sb, "### `%s.%s`\n\n", dbName, name)
+		for _, tname := range typeNames {
+			t := dbDecl.Types[tname]
+			fmt.Fprintf(&sb, "### `%s.%s`\n\n", dbName, tname)
 			if t.Heading != 0 {
 				fmt.Fprintf(&sb, "- **heading**: `%d`\n\n", t.Heading)
 			}
@@ -274,17 +368,41 @@ func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, d
 			sb.WriteString("\n")
 		}
 	}
-
 	p := laslig.New(w, humanPolicy())
 	return p.Markdown(laslig.Markdown{Body: sb.String()})
 }
 
-// renderMetaSchema prints the embedded meta-schema TOML literal directly —
-// glamour-rendering a raw TOML body would add no value and hurt
-// copy-paste. This is the CLI counterpart to MCP's `schema(section=
-// "ta_schema")`.
-func renderMetaSchema(w io.Writer) error {
+func noticeMutation(w io.Writer, action, section, filePath string, sources []string) error {
 	p := laslig.New(w, humanPolicy())
-	body := "# ta_schema — embedded meta-schema\n\n```toml\n" + schema.MetaSchemaTOML + "```\n"
-	return p.Markdown(laslig.Markdown{Body: body})
+	body := section
+	if filePath != "" {
+		body = section + "\n" + filePath
+	}
+	return p.Notice(laslig.Notice{
+		Level:  laslig.NoticeSuccessLevel,
+		Title:  action,
+		Body:   body,
+		Detail: sources,
+	})
+}
+
+// runCreate / runUpdate / runDelete / runSchemaMutate are thin
+// wrappers over the shared mcpsrv.* Ops. Keeping them here means the
+// CLI's error surface is pure-Go (no MCP envelope) while the MCP
+// handlers in internal/mcpsrv/tools.go reuse exactly the same paths.
+
+func runCreate(path, section, pathHint string, data map[string]any) (string, []string, error) {
+	return mcpsrv.Create(path, section, pathHint, data)
+}
+
+func runUpdate(path, section string, data map[string]any) (string, []string, error) {
+	return mcpsrv.Update(path, section, data)
+}
+
+func runDelete(path, section string) (string, []string, error) {
+	return mcpsrv.Delete(path, section)
+}
+
+func runSchemaMutate(path, action, kind, name string, data map[string]any) ([]string, error) {
+	return mcpsrv.MutateSchema(path, action, kind, name, data)
 }

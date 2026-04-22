@@ -27,17 +27,17 @@ import (
 const appName = "ta"
 
 const longDescription = "# ta\n\n" +
-	"Tiny MCP server (and matching CLI) that exposes TOML files as " +
-	"schema-validated, agent-accessible structured data. Running `ta` with " +
-	"no subcommand starts the MCP server over **stdio** — point an MCP " +
-	"client (e.g. Claude Code) at the binary.\n\n" +
-	"The same four operations the MCP client sees are also available as " +
-	"terminal subcommands, so a human can read and write TOML the same way " +
-	"an agent would:\n\n" +
-	"- `ta get <path> <section>` — read a section by bracket path\n" +
-	"- `ta list-sections <path>` — enumerate every section in a file\n" +
+	"Tiny MCP server (and matching CLI) that exposes TOML and Markdown " +
+	"files as schema-validated, agent-accessible structured data. " +
+	"Running `ta` with no subcommand starts the MCP server over **stdio** — " +
+	"point an MCP client (e.g. Claude Code) at the binary.\n\n" +
+	"The same tool surface is available as terminal subcommands:\n\n" +
+	"- `ta get <path> <section>` — read a record; optionally --fields name[,name]\n" +
+	"- `ta list-sections <path>` — enumerate sections in a TOML file\n" +
 	"- `ta schema <path> [section]` — show the resolved schema\n" +
-	"- `ta upsert <path> <section> --data <json>` — create or update a section\n\n" +
+	"- `ta create <path> <section> --data <json>` — create a new record\n" +
+	"- `ta update <path> <section> --data <json>` — update an existing record\n" +
+	"- `ta delete <path> <section>` — remove a record, file, or instance dir\n\n" +
 	"Schemas resolve by cascade-merge: `~/.ta/schema.toml` is the base " +
 	"layer, and every `.ta/schema.toml` on the target file's ancestor " +
 	"chain is folded on top — same-named section types override, unique " +
@@ -75,8 +75,10 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(
 		newGetCmd(),
 		newListSectionsCmd(),
+		newCreateCmd(),
+		newUpdateCmd(),
+		newDeleteCmd(),
 		newSchemaCmd(),
-		newUpsertCmd(),
 	)
 	return cmd
 }

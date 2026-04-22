@@ -25,7 +25,7 @@ func TestRootCmdWiring(t *testing.T) {
 
 func TestSubcommandsRegistered(t *testing.T) {
 	root := newRootCmd()
-	want := []string{"get", "list-sections", "schema", "upsert"}
+	want := []string{"get", "list-sections", "schema", "create", "update", "delete"}
 	for _, name := range want {
 		sub, _, err := root.Find([]string{name})
 		if err != nil {
@@ -41,13 +41,26 @@ func TestSubcommandsRegistered(t *testing.T) {
 	}
 }
 
-func TestUpsertDataFlagsMutuallyExclusive(t *testing.T) {
-	cmd := newUpsertCmd()
+// TestUpsertRetired locks in the V2-PLAN §10.1 hard-cut: `upsert` has no
+// alias; any attempt to resolve it as a subcommand must fail.
+func TestUpsertRetired(t *testing.T) {
+	root := newRootCmd()
+	sub, _, _ := root.Find([]string{"upsert"})
+	if sub != nil && sub.Name() == "upsert" {
+		t.Errorf("upsert subcommand should be retired, got %q", sub.Name())
+	}
+}
+
+func TestCreateDataFlagsMutuallyExclusive(t *testing.T) {
+	cmd := newCreateCmd()
 	if cmd.Flags().Lookup("data") == nil {
 		t.Error("--data flag missing")
 	}
 	if cmd.Flags().Lookup("data-file") == nil {
 		t.Error("--data-file flag missing")
+	}
+	if cmd.Flags().Lookup("path-hint") == nil {
+		t.Error("--path-hint flag missing")
 	}
 }
 

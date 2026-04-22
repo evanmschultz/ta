@@ -13,7 +13,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-const taskSchema = `
+// ---- fixtures -------------------------------------------------------
+
+const tomlTaskSchema = `
 [plans]
 file = "plans.toml"
 format = "toml"
@@ -31,14 +33,75 @@ type = "string"
 required = true
 `
 
-// fixture builds a project root with a .ta/schema.toml and returns the path
-// that should be passed as the data-file argument to each tool.
+const mdReadmeSchema = `
+[readme]
+file = "README.md"
+format = "md"
+description = "Dogfood MD db."
+
+[readme.title]
+heading = 1
+description = "H1 title section."
+
+[readme.title.fields.body]
+type = "string"
+description = "Body under the H1."
+
+[readme.section]
+heading = 2
+description = "H2 section."
+
+[readme.section.fields.body]
+type = "string"
+description = "Body under the H2."
+`
+
+const multiInstanceTOMLSchema = `
+[plan_db]
+directory = "workflow"
+format = "toml"
+description = "Multi-instance planning db."
+
+[plan_db.build_task]
+description = "A build task."
+
+[plan_db.build_task.fields.id]
+type = "string"
+required = true
+
+[plan_db.build_task.fields.status]
+type = "string"
+required = true
+`
+
+const collectionMDSchema = `
+[docs]
+collection = "docs"
+format = "md"
+description = "File-per-instance MD pages."
+
+[docs.title]
+heading = 1
+description = "Page title."
+
+[docs.title.fields.body]
+type = "string"
+description = "Body under the H1."
+
+[docs.section]
+heading = 2
+description = "H2 section."
+
+[docs.section.fields.body]
+type = "string"
+description = "Body under the H2."
+`
+
 type fixture struct {
 	projectRoot string
-	dataPath    string
 }
 
-func newFixture(t *testing.T) fixture {
+func newFixtureWithSchema(t *testing.T, schemaBody string) fixture {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -48,10 +111,15 @@ func newFixture(t *testing.T) fixture {
 	if err := os.MkdirAll(taDir, 0o755); err != nil {
 		t.Fatalf("mkdir .ta: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(taskSchema), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(schemaBody), 0o644); err != nil {
 		t.Fatalf("write schema: %v", err)
 	}
-	return fixture{projectRoot: root, dataPath: filepath.Join(root, "tasks.toml")}
+	return fixture{projectRoot: root}
+}
+
+func newFixture(t *testing.T) fixture {
+	t.Helper()
+	return newFixtureWithSchema(t, tomlTaskSchema)
 }
 
 func newClient(t *testing.T) *client.Client {
@@ -102,16 +170,28 @@ func firstText(t *testing.T, res *mcp.CallToolResult) string {
 	return tc.Text
 }
 
-func TestListToolsExposesAllFour(t *testing.T) {
+// ---- tool surface ---------------------------------------------------
+
+func TestListToolsExposesNewDataSurface(t *testing.T) {
 	c := newClient(t)
 	res, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	want := map[string]bool{"get": false, "list_sections": false, "schema": false, "upsert": false}
+	want := map[string]bool{
+		"get":           false,
+		"list_sections": false,
+		"schema":        false,
+		"create":        false,
+		"update":        false,
+		"delete":        false,
+	}
 	for _, tool := range res.Tools {
 		if _, tracked := want[tool.Name]; tracked {
 			want[tool.Name] = true
+		}
+		if tool.Name == "upsert" {
+			t.Errorf("legacy tool %q still registered — V2-PLAN §10.1 hard cut", tool.Name)
 		}
 	}
 	for name, found := range want {
@@ -121,206 +201,869 @@ func TestListToolsExposesAllFour(t *testing.T) {
 	}
 }
 
-func TestUpsertCreatesFileThenGetRoundTrips(t *testing.T) {
+// ---- create / update / delete: TOML single-instance -----------------
+
+func TestCreateSingleInstanceTOMLRoundTrip(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
 
-	res := callTool(t, c, "upsert", map[string]any{
-		"path":    fx.dataPath,
+	res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
 		"section": "plans.task.t1",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	})
 	if res.IsError {
-		t.Fatalf("upsert errored: %s", firstText(t, res))
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	if _, err := os.Stat(dataPath); err != nil {
+		t.Fatalf("expected plans.toml to be created: %v", err)
 	}
 
-	if _, err := os.Stat(fx.dataPath); err != nil {
-		t.Fatalf("expected file to be created: %v", err)
-	}
-
+	// Round-trip via get.
 	getRes := callTool(t, c, "get", map[string]any{
-		"path":    fx.dataPath,
+		"path":    fx.projectRoot,
 		"section": "plans.task.t1",
 	})
 	if getRes.IsError {
 		t.Fatalf("get errored: %s", firstText(t, getRes))
 	}
 	body := firstText(t, getRes)
-	if !strings.Contains(body, "[plans.task.t1]") {
-		t.Errorf("get body missing header: %s", body)
-	}
-	if !strings.Contains(body, `id = "T1"`) {
-		t.Errorf("get body missing id: %s", body)
-	}
-	if !strings.Contains(body, `status = "todo"`) {
-		t.Errorf("get body missing status: %s", body)
+	for _, want := range []string{"[plans.task.t1]", `id = "T1"`, `status = "todo"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("get body missing %q:\n%s", want, body)
+		}
 	}
 }
 
-func TestUpsertUpdatesExistingSectionPreservesOthers(t *testing.T) {
+func TestCreateRejectsExistingRecord(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
+	args := map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"id": "T1", "status": "todo"},
+	}
+	if res := callTool(t, c, "create", args); res.IsError {
+		t.Fatalf("first create errored: %s", firstText(t, res))
+	}
+	// Second create must fail.
+	res := callTool(t, c, "create", args)
+	if !res.IsError {
+		t.Fatalf("expected create on existing record to error")
+	}
+	if !strings.Contains(firstText(t, res), "already exists") {
+		t.Errorf("error should mention 'already exists': %s", firstText(t, res))
+	}
+}
 
-	initial := "# preserved header\n\n[plans.task.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.task.b]\nid = \"B\"\nstatus = \"todo\"\n# preserved footer\n"
-	if err := os.WriteFile(fx.dataPath, []byte(initial), 0o644); err != nil {
+func TestCreateRejectsPathHintEscape(t *testing.T) {
+	fx := newFixtureWithSchema(t, collectionMDSchema)
+	c := newClient(t)
+	res := callTool(t, c, "create", map[string]any{
+		"path":      fx.projectRoot,
+		"section":   "docs.guide.title.overview",
+		"data":      map[string]any{"body": "hi"},
+		"path_hint": "../escape.md",
+	})
+	if !res.IsError {
+		t.Fatalf("expected path_hint escape to error")
+	}
+	if !strings.Contains(firstText(t, res), "path_hint") {
+		t.Errorf("error should mention path_hint: %s", firstText(t, res))
+	}
+}
+
+func TestUpdateFailsOnMissingFile(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"id": "T1", "status": "todo"},
+	})
+	if !res.IsError {
+		t.Fatalf("expected update on missing file to error")
+	}
+	if !strings.Contains(firstText(t, res), "file not found") {
+		t.Errorf("error should mention file not found: %s", firstText(t, res))
+	}
+}
+
+func TestUpdateReplacesExistingRecord(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	initial := "[plans.task.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.task.b]\nid = \"B\"\nstatus = \"todo\"\n"
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte(initial), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-
-	res := callTool(t, c, "upsert", map[string]any{
-		"path":    fx.dataPath,
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
 		"section": "plans.task.a",
 		"data":    map[string]any{"id": "A", "status": "done"},
 	})
 	if res.IsError {
-		t.Fatalf("upsert errored: %s", firstText(t, res))
+		t.Fatalf("update errored: %s", firstText(t, res))
 	}
+	raw, _ := os.ReadFile(dataPath)
+	s := string(raw)
+	if !strings.Contains(s, `status = "done"`) {
+		t.Errorf("update did not land: %s", s)
+	}
+	if !strings.Contains(s, "[plans.task.b]") {
+		t.Errorf("update touched sibling: %s", s)
+	}
+}
 
-	out, err := os.ReadFile(fx.dataPath)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
+func TestUpdateAppendsWhenRecordAbsent(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	initial := "[plans.task.a]\nid = \"A\"\nstatus = \"todo\"\n"
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
 	}
-	s := string(out)
-	for _, must := range []string{"# preserved header", "# preserved footer", "[plans.task.b]", `id = "B"`, `status = "done"`} {
-		if !strings.Contains(s, must) {
-			t.Errorf("missing %q in:\n%s", must, s)
-		}
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.b",
+		"data":    map[string]any{"id": "B", "status": "todo"},
+	})
+	if res.IsError {
+		t.Fatalf("update errored: %s", firstText(t, res))
 	}
-	if strings.Contains(s, `id = "A"`) && strings.Contains(s, `status = "todo"`) {
-		// Check that plans.task.a specifically is now "done" — status=todo may still exist under
-		// plans.task.b; that's fine. But task.a line with status=todo must be gone.
-		aStart := strings.Index(s, "[plans.task.a]")
-		aEnd := strings.Index(s[aStart:], "[plans.task.b]")
-		if aEnd < 0 {
-			t.Fatalf("could not locate [plans.task.b] after [plans.task.a]: %s", s)
-		}
-		aSection := s[aStart : aStart+aEnd]
-		if strings.Contains(aSection, `status = "todo"`) {
-			t.Errorf("plans.task.a still contains old status:\n%s", aSection)
+	raw, _ := os.ReadFile(dataPath)
+	s := string(raw)
+	for _, want := range []string{"[plans.task.a]", "[plans.task.b]", `id = "B"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q:\n%s", want, s)
 		}
 	}
 }
 
-func TestUpsertValidationErrorReturnsStructuredJSON(t *testing.T) {
+func TestDeleteRecordLevel(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	initial := "[plans.task.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.task.b]\nid = \"B\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.a",
+	})
+	if res.IsError {
+		t.Fatalf("delete errored: %s", firstText(t, res))
+	}
+	raw, _ := os.ReadFile(dataPath)
+	if strings.Contains(string(raw), "[plans.task.a]") {
+		t.Errorf("delete did not remove target: %s", raw)
+	}
+	if !strings.Contains(string(raw), "[plans.task.b]") {
+		t.Errorf("delete removed sibling: %s", raw)
+	}
+}
 
-	res := callTool(t, c, "upsert", map[string]any{
-		"path":    fx.dataPath,
-		"section": "plans.task.bad",
-		"data":    map[string]any{"id": "X"}, // missing required status
+func TestDeleteWholeFileSingleInstance(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.task.a]\nid = \"A\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans",
+	})
+	if res.IsError {
+		t.Fatalf("delete errored: %s", firstText(t, res))
+	}
+	if _, err := os.Stat(dataPath); !os.IsNotExist(err) {
+		t.Errorf("expected %s to be removed, stat err=%v", dataPath, err)
+	}
+}
+
+func TestDeleteWholeInstanceDirDirectoryDB(t *testing.T) {
+	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
+	c := newClient(t)
+	// Seed a drop with one record.
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plan_db.drop_1.build_task.task_001",
+		"data":    map[string]any{"id": "TASK-001", "status": "todo"},
+	}); res.IsError {
+		t.Fatalf("seed create: %s", firstText(t, res))
+	}
+	dropDir := filepath.Join(fx.projectRoot, "workflow", "drop_1")
+	if _, err := os.Stat(dropDir); err != nil {
+		t.Fatalf("dropDir stat: %v", err)
+	}
+	// Delete whole instance dir.
+	if res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plan_db.drop_1",
+	}); res.IsError {
+		t.Fatalf("delete instance: %s", firstText(t, res))
+	}
+	if _, err := os.Stat(dropDir); !os.IsNotExist(err) {
+		t.Errorf("expected %s to be removed, err=%v", dropDir, err)
+	}
+}
+
+func TestDeleteWholeInstanceFileCollectionDB(t *testing.T) {
+	fx := newFixtureWithSchema(t, collectionMDSchema)
+	c := newClient(t)
+	// Create a page with a title.
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "docs.guide.title.overview",
+		"data":    map[string]any{"body": "Welcome."},
+	}); res.IsError {
+		t.Fatalf("seed create: %s", firstText(t, res))
+	}
+	pagePath := filepath.Join(fx.projectRoot, "docs", "guide.md")
+	if _, err := os.Stat(pagePath); err != nil {
+		t.Fatalf("page stat: %v", err)
+	}
+	if res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "docs.guide",
+	}); res.IsError {
+		t.Fatalf("delete instance file: %s", firstText(t, res))
+	}
+	if _, err := os.Stat(pagePath); !os.IsNotExist(err) {
+		t.Errorf("expected %s removed, err=%v", pagePath, err)
+	}
+}
+
+func TestDeleteWholeMultiInstanceDBErrors(t *testing.T) {
+	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
+	c := newClient(t)
+	res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plan_db",
 	})
 	if !res.IsError {
-		t.Fatalf("expected IsError=true for missing required field, got:\n%s", firstText(t, res))
+		t.Fatalf("expected multi-instance whole-db delete to error")
 	}
-	body := firstText(t, res)
-	var payload struct {
-		SectionPath string `json:"section_path"`
-		Failures    []struct {
-			Field string `json:"field"`
-			Kind  string `json:"kind"`
-		} `json:"failures"`
-	}
-	if err := json.Unmarshal([]byte(body), &payload); err != nil {
-		t.Fatalf("validation error body is not JSON: %v\n%s", err, body)
-	}
-	if payload.SectionPath != "plans.task.bad" {
-		t.Errorf("section_path = %q, want plans.task.bad", payload.SectionPath)
-	}
-	if len(payload.Failures) == 0 {
-		t.Errorf("failures empty: %s", body)
-	}
-	found := false
-	for _, f := range payload.Failures {
-		if f.Field == "status" && f.Kind == "missing_required" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("missing expected failure {field=status, kind=missing_required}: %s", body)
+	if !strings.Contains(firstText(t, res), "ambiguous") {
+		t.Errorf("error should mention ambiguous: %s", firstText(t, res))
 	}
 }
 
-func TestListSectionsOnMissingFileReturnsEmpty(t *testing.T) {
-	fx := newFixture(t)
-	c := newClient(t)
+// ---- multi-instance + get fields + MD -------------------------------
 
-	res := callTool(t, c, "list_sections", map[string]any{"path": fx.dataPath})
+func TestMultiInstanceTOMLCreateThenGetFields(t *testing.T) {
+	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
+	c := newClient(t)
+	section := "plan_db.drop_1.build_task.task_001"
+	res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+		"data":    map[string]any{"id": "TASK-001", "status": "todo"},
+	})
 	if res.IsError {
-		t.Fatalf("list_sections errored: %s", firstText(t, res))
+		t.Fatalf("create errored: %s", firstText(t, res))
 	}
-	body := firstText(t, res)
+	dataPath := filepath.Join(fx.projectRoot, "workflow", "drop_1", "db.toml")
+	if _, err := os.Stat(dataPath); err != nil {
+		t.Fatalf("expected canonical db.toml to be created: %v", err)
+	}
+
+	// get with fields
+	getRes := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+		"fields":  []any{"id", "status"},
+	})
+	if getRes.IsError {
+		t.Fatalf("get with fields errored: %s", firstText(t, getRes))
+	}
 	var payload struct {
-		Path     string   `json:"path"`
-		Sections []string `json:"sections"`
+		Fields map[string]any `json:"fields"`
 	}
-	if err := json.Unmarshal([]byte(body), &payload); err != nil {
-		t.Fatalf("list_sections body is not JSON: %v\n%s", err, body)
+	if err := json.Unmarshal([]byte(firstText(t, getRes)), &payload); err != nil {
+		t.Fatalf("get fields body is not JSON: %v", err)
 	}
-	if payload.Path != fx.dataPath {
-		t.Errorf("Path = %q, want %q", payload.Path, fx.dataPath)
+	if payload.Fields["id"] != "TASK-001" {
+		t.Errorf("Fields[id] = %v, want TASK-001", payload.Fields["id"])
 	}
-	if len(payload.Sections) != 0 {
-		t.Errorf("Sections = %v, want empty", payload.Sections)
+	if payload.Fields["status"] != "todo" {
+		t.Errorf("Fields[status] = %v, want todo", payload.Fields["status"])
 	}
 }
 
-func TestListSectionsReturnsFileOrder(t *testing.T) {
+func TestGetFieldsUnknownFieldErrors(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
-
-	src := "[plans.task.first]\nid = \"F\"\nstatus = \"todo\"\n\n[plans.task.second]\nid = \"S\"\nstatus = \"todo\"\n"
-	if err := os.WriteFile(fx.dataPath, []byte(src), 0o644); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	res := callTool(t, c, "list_sections", map[string]any{"path": fx.dataPath})
-	if res.IsError {
-		t.Fatalf("list_sections errored: %s", firstText(t, res))
-	}
-	var payload struct {
-		Sections []string `json:"sections"`
-	}
-	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	want := []string{"plans.task.first", "plans.task.second"}
-	if len(payload.Sections) != len(want) {
-		t.Fatalf("Sections = %v, want %v", payload.Sections, want)
-	}
-	for i, s := range want {
-		if payload.Sections[i] != s {
-			t.Errorf("Sections[%d] = %q, want %q", i, payload.Sections[i], s)
-		}
-	}
-}
-
-func TestGetMissingSectionReturnsError(t *testing.T) {
-	fx := newFixture(t)
-	c := newClient(t)
-
-	if err := os.WriteFile(fx.dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
-		t.Fatalf("seed: %v", err)
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"id": "T1", "status": "todo"},
+	}); res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
 	}
 	res := callTool(t, c, "get", map[string]any{
-		"path":    fx.dataPath,
-		"section": "plans.task.nope",
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"fields":  []any{"nope"},
 	})
 	if !res.IsError {
-		t.Fatalf("expected IsError=true, got: %s", firstText(t, res))
+		t.Fatalf("expected unknown field to error")
 	}
-	if !strings.Contains(firstText(t, res), "not found") {
-		t.Errorf("error missing 'not found': %s", firstText(t, res))
+	if !strings.Contains(firstText(t, res), "field") {
+		t.Errorf("error should mention field: %s", firstText(t, res))
 	}
 }
 
-func TestGetRequiresArguments(t *testing.T) {
+func TestMDCreateGetUpdateDeleteRoundTrip(t *testing.T) {
+	fx := newFixtureWithSchema(t, mdReadmeSchema)
+	c := newClient(t)
+
+	// create the H1 title first (parent), then an H2 section under it.
+	titleSection := "readme.title.ta"
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": titleSection,
+		"data":    map[string]any{"body": "Tagline goes here."},
+	}); res.IsError {
+		t.Fatalf("create title errored: %s", firstText(t, res))
+	}
+
+	section := "readme.section.ta.install"
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+		"data":    map[string]any{"body": "Install from source:\n\n    mage install\n"},
+	}); res.IsError {
+		t.Fatalf("create section errored: %s", firstText(t, res))
+	}
+
+	// fields=["body"] returns body without heading line.
+	getRes := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+		"fields":  []any{"body"},
+	})
+	if getRes.IsError {
+		t.Fatalf("get body errored: %s", firstText(t, getRes))
+	}
+	var payload struct {
+		Fields map[string]any `json:"fields"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, getRes)), &payload); err != nil {
+		t.Fatalf("get body JSON: %v", err)
+	}
+	bodyStr, _ := payload.Fields["body"].(string)
+	if !strings.Contains(bodyStr, "mage install") {
+		t.Errorf("body missing 'mage install': %q", bodyStr)
+	}
+	if strings.HasPrefix(bodyStr, "##") {
+		t.Errorf("body should not carry the heading line: %q", bodyStr)
+	}
+
+	// update replaces.
+	if res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+		"data":    map[string]any{"body": "Install via brew.\n"},
+	}); res.IsError {
+		t.Fatalf("update errored: %s", firstText(t, res))
+	}
+
+	// delete removes.
+	if res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+	}); res.IsError {
+		t.Fatalf("delete errored: %s", firstText(t, res))
+	}
+	raw, _ := os.ReadFile(filepath.Join(fx.projectRoot, "README.md"))
+	if strings.Contains(string(raw), "brew") {
+		t.Errorf("delete did not remove section body: %s", raw)
+	}
+}
+
+// ---- schema CRUD ----------------------------------------------------
+
+func TestSchemaActionGetIsBackCompat(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "get",
+	})
+	if res.IsError {
+		t.Fatalf("schema get errored: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), `"plans"`) {
+		t.Errorf("schema get missing 'plans' db: %s", firstText(t, res))
+	}
+}
+
+func TestSchemaCreateDBType_Field(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := t.TempDir()
+	c := newClient(t)
+
+	// Seed minimal schema so Resolve doesn't return ErrNoSchema.
+	// Create the .ta dir; the tool will create schema.toml on first use.
+	if err := os.MkdirAll(filepath.Join(root, ".ta"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".ta", "schema.toml"), []byte(""), 0o644); err != nil {
+		t.Fatalf("seed empty schema: %v", err)
+	}
+
+	// 1. create db.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "create",
+		"kind":   "db",
+		"name":   "notes",
+		"data": map[string]any{
+			"file":        "notes.toml",
+			"format":      "toml",
+			"description": "A notes db.",
+		},
+	}); res.IsError {
+		t.Fatalf("schema create db errored: %s", firstText(t, res))
+	}
+
+	// 2. create type. The meta-schema requires at least one field per
+	// type, so an initial `fields` sub-table ships alongside the
+	// description; otherwise the post-mutation LoadBytes guard
+	// (atomic-rollback per §4.6) would reject the empty-fields state.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "create",
+		"kind":   "type",
+		"name":   "notes.entry",
+		"data": map[string]any{
+			"description": "A note entry.",
+			"fields": map[string]any{
+				"id": map[string]any{
+					"type":     "string",
+					"required": true,
+				},
+			},
+		},
+	}); res.IsError {
+		t.Fatalf("schema create type errored: %s", firstText(t, res))
+	}
+
+	// 3. create field (adds a second field to the existing type).
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "create",
+		"kind":   "field",
+		"name":   "notes.entry.body",
+		"data": map[string]any{
+			"type":        "string",
+			"description": "Body text.",
+		},
+	}); res.IsError {
+		t.Fatalf("schema create field errored: %s", firstText(t, res))
+	}
+
+	// 4. schema get confirms the entries.
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "get",
+	})
+	if res.IsError {
+		t.Fatalf("schema get errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	for _, want := range []string{`"notes"`, `"entry"`, `"body"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("schema body missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestSchemaDeleteFieldAlwaysAllowed(t *testing.T) {
+	fx := newFixtureWithSchema(t, tomlTaskSchema)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "delete",
+		"kind":   "field",
+		"name":   "plans.task.status",
+	})
+	if res.IsError {
+		t.Fatalf("schema delete field errored: %s", firstText(t, res))
+	}
+}
+
+func TestSchemaDeleteTypeRejectsWhenRecordsExist(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	// Seed a record so delete-type fails.
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"id": "T1", "status": "todo"},
+	}); res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "delete",
+		"kind":   "type",
+		"name":   "plans.task",
+	})
+	if !res.IsError {
+		t.Fatalf("expected schema delete type to error when records exist")
+	}
+	if !strings.Contains(firstText(t, res), "records") {
+		t.Errorf("error should mention records: %s", firstText(t, res))
+	}
+}
+
+func TestSchemaDeleteDBRejectsWhenFilesExist(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	// Seed data.
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.task.a]\nid = \"A\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "delete",
+		"kind":   "db",
+		"name":   "plans",
+	})
+	if !res.IsError {
+		t.Fatalf("expected schema delete db to error when data file exists")
+	}
+	if !strings.Contains(firstText(t, res), "data") {
+		t.Errorf("error should mention data: %s", firstText(t, res))
+	}
+}
+
+func TestSchemaMutationAtomicRollback(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
 
-	res := callTool(t, c, "get", map[string]any{"path": fx.dataPath})
+	// Capture original bytes.
+	schemaPath := filepath.Join(fx.projectRoot, ".ta", "schema.toml")
+	before, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+
+	// Try to create a db with no shape selector — must fail meta-schema.
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "create",
+		"kind":   "db",
+		"name":   "broken",
+		"data": map[string]any{
+			"format":      "toml",
+			"description": "Missing shape selector.",
+		},
+	})
 	if !res.IsError {
-		t.Fatalf("expected IsError=true when section missing, got: %s", firstText(t, res))
+		t.Fatalf("expected meta-schema violation error")
+	}
+
+	// Bytes on disk must be unchanged.
+	after, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read schema after: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("rollback failed: bytes changed")
 	}
 }
+
+func TestSchemaUpdateAndDeleteDB(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := t.TempDir()
+	c := newClient(t)
+
+	// Start from empty schema file so MutateSchema creates the db.
+	if err := os.MkdirAll(filepath.Join(root, ".ta"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".ta", "schema.toml"), []byte(""), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// create db with a type+field so the schema is valid end-state.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "create",
+		"kind":   "db",
+		"name":   "logs",
+		"data": map[string]any{
+			"file":        "logs.toml",
+			"format":      "toml",
+			"description": "Logs db.",
+		},
+	}); res.IsError {
+		t.Fatalf("create db: %s", firstText(t, res))
+	}
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "create",
+		"kind":   "type",
+		"name":   "logs.entry",
+		"data": map[string]any{
+			"description": "A log entry.",
+			"fields": map[string]any{
+				"id": map[string]any{"type": "string", "required": true},
+			},
+		},
+	}); res.IsError {
+		t.Fatalf("create type: %s", firstText(t, res))
+	}
+
+	// update db description.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "update",
+		"kind":   "db",
+		"name":   "logs",
+		"data": map[string]any{
+			"file":        "logs.toml",
+			"format":      "toml",
+			"description": "Updated description.",
+		},
+	}); res.IsError {
+		t.Fatalf("update db: %s", firstText(t, res))
+	}
+
+	// update type description.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "update",
+		"kind":   "type",
+		"name":   "logs.entry",
+		"data": map[string]any{
+			"description": "Updated type description.",
+		},
+	}); res.IsError {
+		t.Fatalf("update type: %s", firstText(t, res))
+	}
+
+	// update field.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "update",
+		"kind":   "field",
+		"name":   "logs.entry.id",
+		"data": map[string]any{
+			"type":        "string",
+			"required":    true,
+			"description": "Updated field desc.",
+		},
+	}); res.IsError {
+		t.Fatalf("update field: %s", firstText(t, res))
+	}
+
+	// delete field.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "delete",
+		"kind":   "field",
+		"name":   "logs.entry.id",
+	}); !res.IsError {
+		// Deleting the only field leaves the type with no fields, which
+		// violates the meta-schema. Expect the atomic rollback path.
+		t.Errorf("expected delete last field to error (empty type rejected by meta-schema), got ok")
+	}
+
+	// add a second field so we can delete the first without wrecking the type.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "create",
+		"kind":   "field",
+		"name":   "logs.entry.body",
+		"data": map[string]any{
+			"type": "string",
+		},
+	}); res.IsError {
+		t.Fatalf("create second field: %s", firstText(t, res))
+	}
+
+	// now delete the first field — succeeds.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "delete",
+		"kind":   "field",
+		"name":   "logs.entry.id",
+	}); res.IsError {
+		t.Fatalf("delete field: %s", firstText(t, res))
+	}
+
+	// delete type (no records yet).
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "delete",
+		"kind":   "type",
+		"name":   "logs.entry",
+	}); res.IsError {
+		t.Fatalf("delete type: %s", firstText(t, res))
+	}
+
+	// delete db (no data files).
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":   root,
+		"action": "delete",
+		"kind":   "db",
+		"name":   "logs",
+	}); res.IsError {
+		t.Fatalf("delete db: %s", firstText(t, res))
+	}
+}
+
+func TestResolveProjectReturnsSources(t *testing.T) {
+	fx := newFixture(t)
+	resolution, err := mcpsrv.ResolveProject(fx.projectRoot)
+	if err != nil {
+		t.Fatalf("ResolveProject: %v", err)
+	}
+	if len(resolution.Sources) == 0 {
+		t.Error("Sources should include the project .ta/schema.toml")
+	}
+	if _, ok := resolution.Registry.DBs["plans"]; !ok {
+		t.Error("plans db missing from resolved registry")
+	}
+}
+
+func TestSchemaReservedNameTaSchema(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "create",
+		"kind":   "db",
+		"name":   "ta_schema",
+		"data":   map[string]any{"file": "ta_schema.toml", "format": "toml"},
+	})
+	if !res.IsError {
+		t.Fatalf("expected reserved-name error")
+	}
+	if !strings.Contains(firstText(t, res), "reserved") {
+		t.Errorf("error should mention reserved: %s", firstText(t, res))
+	}
+}
+
+// ---- dogfood round-trip ---------------------------------------------
+
+func TestDogfoodRoundTripCreateGetUpdateDelete(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	section := "plans.task.dogfood"
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+		"data":    map[string]any{"id": "DOG-001", "status": "todo"},
+	}); res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	if res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+	}); res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	if res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+		"data":    map[string]any{"id": "DOG-001", "status": "done"},
+	}); res.IsError {
+		t.Fatalf("update errored: %s", firstText(t, res))
+	}
+	if res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+	}); res.IsError {
+		t.Fatalf("delete errored: %s", firstText(t, res))
+	}
+	// Confirm gone.
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": section,
+	})
+	if !res.IsError {
+		t.Errorf("expected get to fail after delete")
+	}
+}
+
+// ---- schema get (back-compat from §12.2) ----------------------------
+
+func TestSchemaReturnsAllDBsWhenSectionOmitted(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{"path": fx.projectRoot})
+	if res.IsError {
+		t.Fatalf("schema errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		DBs map[string]struct {
+			Format string `json:"format"`
+		} `json:"dbs"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("schema body is not JSON: %v", err)
+	}
+	db, ok := payload.DBs["plans"]
+	if !ok {
+		t.Fatalf("plans db missing")
+	}
+	if db.Format != "toml" {
+		t.Errorf("db.format = %q, want toml", db.Format)
+	}
+}
+
+func TestSchemaMetaSchemaScope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	orphan := t.TempDir()
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":  orphan,
+		"scope": "ta_schema",
+	})
+	if res.IsError {
+		t.Fatalf("meta-schema scope errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		MetaSchemaTOML string `json:"meta_schema_toml"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("meta-schema body is not JSON: %v", err)
+	}
+	if !strings.Contains(payload.MetaSchemaTOML, "[ta_schema]") {
+		t.Errorf("meta-schema literal missing [ta_schema] root")
+	}
+}
+
+// TestSchemaDottedTypoDoesNotFallBackToDB guards V2-PLAN §1.1 "path
+// typos fail loudly" — preserved from §12.2 proof.
+func TestSchemaDottedTypoDoesNotFallBackToDB(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.ghost",
+	})
+	if !res.IsError {
+		t.Fatalf("expected dotted typo to error")
+	}
+	if !strings.Contains(firstText(t, res), "no schema registered") {
+		t.Errorf("error missing 'no schema registered': %s", firstText(t, res))
+	}
+}
+
+// ---- new-config creation ---------------------------------------------
 
 func TestNewRejectsEmptyConfig(t *testing.T) {
 	if _, err := mcpsrv.New(mcpsrv.Config{}); err == nil {
@@ -334,244 +1077,28 @@ func TestNewRejectsEmptyConfig(t *testing.T) {
 	}
 }
 
-// schemaAllDBsPayload is the subset of schemaResult we assert on for a
-// full-registry call (section arg omitted).
-type schemaAllDBsPayload struct {
-	Path        string   `json:"path"`
-	SchemaPaths []string `json:"schema_paths"`
-	DBs         map[string]struct {
-		Name   string `json:"name"`
-		Shape  string `json:"shape"`
-		Path   string `json:"path"`
-		Format string `json:"format"`
-		Types  map[string]struct {
-			Name   string `json:"name"`
-			Fields map[string]struct {
-				Type     string `json:"type"`
-				Required bool   `json:"required"`
-			} `json:"fields"`
-		} `json:"types"`
-	} `json:"dbs"`
-}
+// ---- list_sections preserved ----------------------------------------
 
-func TestSchemaReturnsAllDBsWhenSectionOmitted(t *testing.T) {
+func TestListSectionsStillWorks(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
-
-	res := callTool(t, c, "schema", map[string]any{"path": fx.dataPath})
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	src := "[plans.task.first]\nid = \"F\"\nstatus = \"todo\"\n\n[plans.task.second]\nid = \"S\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(src), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res := callTool(t, c, "list_sections", map[string]any{"path": dataPath})
 	if res.IsError {
-		t.Fatalf("schema errored: %s", firstText(t, res))
-	}
-	var payload schemaAllDBsPayload
-	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
-		t.Fatalf("schema body is not JSON: %v", err)
-	}
-	if payload.Path != fx.dataPath {
-		t.Errorf("path = %q, want %q", payload.Path, fx.dataPath)
-	}
-	if len(payload.SchemaPaths) == 0 {
-		t.Errorf("schema_paths empty")
-	}
-	db, ok := payload.DBs["plans"]
-	if !ok {
-		t.Fatalf("plans db missing from dbs: %s", firstText(t, res))
-	}
-	if db.Format != "toml" {
-		t.Errorf("db.format = %q, want toml", db.Format)
-	}
-	if db.Shape != "file" {
-		t.Errorf("db.shape = %q, want file", db.Shape)
-	}
-	task, ok := db.Types["task"]
-	if !ok {
-		t.Fatalf("plans.task type missing: %s", firstText(t, res))
-	}
-	if _, ok := task.Fields["id"]; !ok {
-		t.Errorf("plans.task.id field missing")
-	}
-	if !task.Fields["status"].Required {
-		t.Errorf("plans.task.status should be required")
-	}
-}
-
-func TestSchemaNarrowsToSingleTypeWhenSectionGiven(t *testing.T) {
-	fx := newFixture(t)
-	c := newClient(t)
-
-	res := callTool(t, c, "schema", map[string]any{
-		"path":    fx.dataPath,
-		"section": "plans.task.task_001",
-	})
-	if res.IsError {
-		t.Fatalf("schema errored: %s", firstText(t, res))
+		t.Fatalf("list_sections errored: %s", firstText(t, res))
 	}
 	var payload struct {
-		Section string `json:"section"`
-		Type    *struct {
-			Name   string `json:"name"`
-			Fields map[string]struct {
-				Type     string `json:"type"`
-				Required bool   `json:"required"`
-			} `json:"fields"`
-		} `json:"type"`
-		DBs map[string]any `json:"dbs"`
+		Sections []string `json:"sections"`
 	}
 	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
-		t.Fatalf("schema body is not JSON: %v", err)
+		t.Fatalf("list_sections body not JSON: %v", err)
 	}
-	if payload.Section != "plans.task.task_001" {
-		t.Errorf("section = %q, want plans.task.task_001", payload.Section)
-	}
-	if payload.Type == nil {
-		t.Fatal("type field nil, want task type")
-	}
-	if payload.Type.Name != "task" {
-		t.Errorf("type.name = %q, want task", payload.Type.Name)
-	}
-	if len(payload.DBs) != 0 {
-		t.Errorf("dbs field should be omitted when section narrows: %v", payload.DBs)
-	}
-}
-
-func TestSchemaNarrowsToDBWhenOnlyDBSegment(t *testing.T) {
-	fx := newFixture(t)
-	c := newClient(t)
-
-	res := callTool(t, c, "schema", map[string]any{
-		"path":    fx.dataPath,
-		"section": "plans",
-	})
-	if res.IsError {
-		t.Fatalf("schema errored: %s", firstText(t, res))
-	}
-	var payload struct {
-		Section string `json:"section"`
-		DB      *struct {
-			Name   string         `json:"name"`
-			Format string         `json:"format"`
-			Types  map[string]any `json:"types"`
-		} `json:"db"`
-	}
-	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
-		t.Fatalf("schema body is not JSON: %v", err)
-	}
-	if payload.Section != "plans" {
-		t.Errorf("section = %q, want plans", payload.Section)
-	}
-	if payload.DB == nil {
-		t.Fatalf("db field nil, want plans db payload")
-	}
-	if payload.DB.Name != "plans" {
-		t.Errorf("db.name = %q, want plans", payload.DB.Name)
-	}
-	if _, ok := payload.DB.Types["task"]; !ok {
-		t.Errorf("db.types missing task")
-	}
-}
-
-func TestSchemaUnknownSectionTypeReturnsError(t *testing.T) {
-	fx := newFixture(t)
-	c := newClient(t)
-
-	res := callTool(t, c, "schema", map[string]any{
-		"path":    fx.dataPath,
-		"section": "nope.x",
-	})
-	if !res.IsError {
-		t.Fatalf("expected IsError=true for unknown section type, got: %s", firstText(t, res))
-	}
-	if !strings.Contains(firstText(t, res), "no schema registered") {
-		t.Errorf("error missing 'no schema registered': %s", firstText(t, res))
-	}
-}
-
-// TestSchemaDottedTypoDoesNotFallBackToDB guards V2-PLAN §1.1 "path typos
-// fail loudly": a dotted query like "plans.ghost" must error when the type
-// is unknown, not silently resolve to the whole plans db via the LookupDB
-// first-segment fallback (regression from §12.2 commit ca0b63e).
-func TestSchemaDottedTypoDoesNotFallBackToDB(t *testing.T) {
-	fx := newFixture(t)
-	c := newClient(t)
-
-	res := callTool(t, c, "schema", map[string]any{
-		"path":    fx.dataPath,
-		"section": "plans.ghost",
-	})
-	if !res.IsError {
-		t.Fatalf("expected IsError=true for dotted typo, got: %s", firstText(t, res))
-	}
-	if !strings.Contains(firstText(t, res), "no schema registered") {
-		t.Errorf("error missing 'no schema registered': %s", firstText(t, res))
-	}
-}
-
-func TestSchemaNoConfigReturnsResolveError(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	orphan := t.TempDir()
-	dataPath := filepath.Join(orphan, "nope.toml")
-
-	c := newClient(t)
-	res := callTool(t, c, "schema", map[string]any{"path": dataPath})
-	if !res.IsError {
-		t.Fatal("expected IsError=true when no schema config resolvable")
-	}
-	if !strings.Contains(firstText(t, res), "resolve schema") {
-		t.Errorf("unexpected error text: %s", firstText(t, res))
-	}
-}
-
-func TestSchemaMetaSchemaScope(t *testing.T) {
-	// ta_schema scope short-circuits resolution — no .ta/schema.toml needed.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	orphan := t.TempDir()
-	dataPath := filepath.Join(orphan, "any.toml")
-
-	c := newClient(t)
-	res := callTool(t, c, "schema", map[string]any{
-		"path":    dataPath,
-		"section": "ta_schema",
-	})
-	if res.IsError {
-		t.Fatalf("meta-schema scope errored: %s", firstText(t, res))
-	}
-	var payload struct {
-		Section        string `json:"section"`
-		MetaSchemaTOML string `json:"meta_schema_toml"`
-	}
-	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
-		t.Fatalf("meta-schema body is not JSON: %v", err)
-	}
-	if payload.Section != "ta_schema" {
-		t.Errorf("section = %q, want ta_schema", payload.Section)
-	}
-	if !strings.Contains(payload.MetaSchemaTOML, "[ta_schema]") {
-		t.Errorf("meta-schema literal missing [ta_schema] root")
-	}
-	for _, want := range []string{"[ta_schema.db]", "[ta_schema.type]", "[ta_schema.field]"} {
-		if !strings.Contains(payload.MetaSchemaTOML, want) {
-			t.Errorf("meta-schema literal missing %q", want)
-		}
-	}
-}
-
-func TestUpsertNoSchemaConfigReturnsError(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	orphan := t.TempDir()
-	dataPath := filepath.Join(orphan, "nope.toml")
-
-	c := newClient(t)
-	res := callTool(t, c, "upsert", map[string]any{
-		"path":    dataPath,
-		"section": "plans.task.x",
-		"data":    map[string]any{"id": "X", "status": "todo"},
-	})
-	if !res.IsError {
-		t.Fatal("expected IsError=true when no schema config resolvable")
-	}
-	if !strings.Contains(firstText(t, res), "resolve schema") {
-		t.Errorf("unexpected error text: %s", firstText(t, res))
+	want := []string{"plans.task.first", "plans.task.second"}
+	if len(payload.Sections) != len(want) {
+		t.Fatalf("got %v, want %v", payload.Sections, want)
 	}
 }

@@ -19,7 +19,9 @@ type Server struct {
 	srv *server.MCPServer
 }
 
-// New constructs an MCP server configured with ta's four tools.
+// New constructs an MCP server configured with ta's data and schema
+// tools: get / list_sections / create / update / delete / schema.
+// Upsert is retired per V2-PLAN §10.1 (hard cut, no alias).
 func New(cfg Config) (*Server, error) {
 	if cfg.Name == "" {
 		return nil, fmt.Errorf("mcpsrv: Config.Name is required")
@@ -42,6 +44,8 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) registerTools() {
 	s.srv.AddTool(getTool(), handleGet)
 	s.srv.AddTool(listSectionsTool(), handleListSections)
+	s.srv.AddTool(createTool(), handleCreate)
+	s.srv.AddTool(updateTool(), handleUpdate)
+	s.srv.AddTool(deleteTool(), handleDelete)
 	s.srv.AddTool(schemaTool(), handleSchema)
-	s.srv.AddTool(upsertTool(), handleUpsert)
 }
