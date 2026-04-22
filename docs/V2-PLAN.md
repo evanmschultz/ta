@@ -1277,4 +1277,4 @@ Called out in the §12.19 release notes:
 
 ### 14.10 Dependency additions
 
-- `github.com/charmbracelet/huh/v2` v2.0.3 — interactive dropdown pickers. Verified API against the v2.0.0 tag in Context7; same surface expected for v2.0.3.
+- `charm.land/huh/v2` v2.0.3 — interactive dropdown pickers. Module self-declares as `charm.land/huh/v2` (not `github.com/charmbracelet/huh/v2` as earlier drafts of this plan suggested); upstream GitHub mirror at `github.com/charmbracelet/huh` hosts the same source. API verified against v2.0.0 tag in Context7; same surface on v2.0.3.
