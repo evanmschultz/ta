@@ -1085,8 +1085,15 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 8. **12.8 Search.** `internal/search/` + `search` tool + CLI subcommand. Regex via `regexp`. Cross-instance union for multi-instance dbs.
 9. **12.9 MCP caching.** In-memory schema cache with `os.Stat`-mtime check per call; atomic swap on schema mutations; startup meta-validation refuses to boot on a malformed cascade.
 10. **12.10 Dogfood migration.** Migrate `docs/PLAN.md` + `docs/V2-PLAN.md` → `workflow/ta-v2/db.toml` via `ta create` calls (each §12.x step becomes one `build_task` record; each QA pass a `qa_task` twin). Verify `search` and `get` against real records.
-11. **12.11 README collapse.** Compose final `README.md` from existing doc content (`docs/ta.md` + consolidated V2 spec). Delete `docs/` and the MVP-era `examples/schema.toml` if superseded.
-12. **12.12 Release.** `mage check` clean; tag `v0.1.0` (pre-stable per §2.6).
+11. **12.11 Strip global cascade from runtime.** `internal/config/Resolve` reads only `<project>/.ta/schema.toml`. No home-layer, no ancestor walk. `mcpsrv.Config.ProjectPath` required. Cache collapses to a single entry. All six `config.Resolve` callers updated (mcpsrv cache / ops / schema_mutate / tools, search, cmd/ta). `mage dogfood` loses its HOME-staging workaround. Tests simplify (drop `t.Setenv HOME` staging). See §14 for the full architecture.
+12. **12.12 JSON output mode.** All CLI read commands (`get`, `list-sections`, `schema get`, `search`, `template list`, `template show`) grow a `--json` flag that emits structured JSON instead of laslig-rendered markdown. Mage targets `Test` / `Check` / `Cover` grow `--json` output (or respect `MAGEFILE_JSON=1`). Default human path unchanged. Agent-facing guidance in CLAUDE.md / AGENTS.md: use `--json` for every `ta` and `mage` invocation.
+13. **12.13 Template library at `~/.ta/`.** New `internal/templates/` package: `List()`, `Load(name)`, `Save(name, bytes)`, `Delete(name)`. Convention: `~/.ta/<name>.toml` is one named template; `~/.ta/schema.toml` is the "default" template. `ta template list` + `ta template show <name>` CLI subcommands (read-only this slice). **Firewall:** `internal/templates/` imports stdlib + `internal/schema/` only — NEVER `internal/config/Resolve`. Runtime consumers never touch `internal/templates/`.
+14. **12.14 Project bootstrap — `ta init`.** New CLI subcommand. Takes optional absolute path arg (defaults to cwd). `mkdir -p` the target. Huh-based template picker from `~/.ta/` (plus "blank" option). Writes `<path>/.ta/schema.toml` from the chosen template. Writes MCP configs per `<path>/.ta/config.toml` opt-in (default both): `<path>/.mcp.json` for Claude Code, `<path>/.codex/config.toml` for Codex. No git-worktree gating — works from any writable directory.
+15. **12.15 Template save — `ta template save`.** Verbatim-copy `<cwd>/.ta/schema.toml` to `~/.ta/<name>.toml`. Huh-prompts for name if not given; huh-confirms overwrite. Enables the "find a better schema in a project, promote it to global template" flow.
+16. **12.16 Huh interactive CLI root.** Bare `ta` with TTY detected → huh menu of subcommands. Bare `ta` without TTY (MCP client over stdio) → MCP server, unchanged from today. Existing `.mcp.json` / `claude mcp add` invocations that spawn bare `ta` keep working. Huh pickers also added inside `ta init` (template + claude/codex opt-in) and `ta template save` (name prompt) where a dropdown helps.
+17. **12.17 E2E dev+assistant gate.** No code. Dev + assistant walk through: fresh `ta init` on a new absolute path, template save round-trip, CRUD round-trip on the seeded project, MCP registration verified in Claude Code + Codex, `mage dogfood` still works end-to-end with the new cascade-free runtime. Gate before §12.18.
+18. **12.18 README collapse.** Compose final `README.md` from existing doc content (`docs/ta.md` + consolidated V2 spec). Delete `docs/` and the MVP-era `examples/schema.toml` if superseded.
+19. **12.19 Release.** `mage check` clean; tag `v0.1.0` (pre-stable per §2.6). Release notes cover all breaking changes from §12.11 + §12.14 + §12.16 (home-layer runtime drop, bare-`ta` TTY dispatch, `Config.ProjectPath` required).
 
 ---
 
@@ -1141,40 +1148,102 @@ MCP calls return structured JSON (raw field values for `get`, record arrays for 
 
 ---
 
-## 14. Post-v0.1.0 cleanup — eliminate the global cascade layer
+## 14. Project bootstrap, template library, and MCP config generation
 
-Runs AFTER §12.12 (v0.1.0 tag). Not part of the §12 drop; tracked separately so this spec can be checked in alongside v0.1.0 as a known follow-up.
+Expands §12.11 – §12.16 of the execution plan. Describes the target architecture for schema resolution, template storage, CLI entry points, MCP-config generation, and agent guidance — all of which land before the v0.1.0 tag.
 
 ### 14.1 Motivation
 
-The current cascade model (§4.4) walks `~/.ta/schema.toml` as the base layer under every project-local `.ta/schema.toml` on the target's ancestor chain. That introduces three coupled problems the §12.9 / §12.10 work surfaced:
+Pre-cleanup the cascade model folds `~/.ta/schema.toml` into every project's runtime schema. §12.9 / §12.10 surfaced three coupled problems:
 
-- **Unbounded cache growth in long-running MCP servers** (§12.9 Falsification Unknown U2). Every unique project path the server sees is cached forever because cache keys include the project path and the home layer folds in per-project.
-- **Staging workarounds in dogfood tooling** (§12.10). `mage dogfood` had to create a tmpdir, redirect `HOME`, and stage the project schema into it because the dev's legacy `~/.ta/schema.toml` carried the pre-v2 `[schema.<type>]` grammar and broke `config.Resolve`. That workaround belongs to the tool, not the project.
-- **Stale-cache gap on new cascade layers** (§12.9 Falsification finding 2.1). When a user creates `~/.ta/schema.toml` mid-session the in-memory cache silently continues to serve the pre-home-layer resolution until restart. The v0.1.0 fix stats the candidate set on every read (see §12.9 Option A resolution); removing the home layer entirely removes the class.
+- **Unbounded cache growth.** Every project path the server sees is cached forever because the home layer folds in per-project.
+- **Staging workarounds in tooling.** `mage dogfood` has to create a tmpdir and redirect `HOME` to sidestep the dev's legacy `~/.ta/schema.toml`.
+- **Stale-cache gaps on new cascade layers.** A `~/.ta/schema.toml` created mid-session is silently ignored by the cache until restart; patched in §12.9 but the class persists structurally.
 
-### 14.2 Target shape
+More fundamentally, the cascade couples every project to per-user home state, which is hostile to MCP's per-project agent model. §14 removes the coupling entirely.
 
-- **No home layer.** Remove the `~/.ta/schema.toml` slot from `internal/config/Resolve`. The cascade starts and ends at the project-local `.ta/schema.toml`.
-- **No ancestor walk.** The resolver takes a project directory argument and reads `<projectDir>/.ta/schema.toml` directly. No walking upward.
-- **MCP starts from project dir.** The MCP server config already carries a `ProjectPath` (§12.9); make it required. The server refuses to boot without it and never consults any other path.
-- **Cache collapses to one entry.** Because there is one project per server, the `schemaCache` map collapses to a single `{resolution, mtimes}` cell. Mtime check is on exactly one file. No unbounded growth, no new-layer race.
+### 14.2 Runtime vs templates separation
 
-### 14.3 Scope of the cleanup
+- **Runtime.** `<project>/.ta/schema.toml` is the ONLY schema file the MCP server or CLI data tools consult. No home layer, no ancestor walk. Resolvable with one `os.ReadFile`.
+- **Templates.** `~/.ta/` becomes a pure template library — a directory of schema files named `~/.ta/<name>.toml` users pick from when bootstrapping a project. The library is NEVER read at runtime. Only `ta init` and `ta template *` touch it.
+- **Firewall.** `internal/templates/` depends on stdlib + `internal/schema/` only. It does not import `internal/config/Resolve`. Runtime consumers never import `internal/templates/`.
 
-1. `internal/config/` — rewrite `Resolve` to skip the home layer and the ancestor walk. Drop the sentinel-path trick (§12.9-era workaround for the walk's current semantics).
-2. `magefile.go seedHomeSchema` (if still present) — delete; no longer a target-system affordance.
-3. `mage dogfood` staging workaround — delete. The dogfood target writes directly to `workflow/ta-v2/db.toml` via `mcpsrv.Create` with no `HOME` redirection.
-4. `internal/mcpsrv/cache.go` — collapse to a single-entry cache; drop the map + per-entry `sync.RWMutex` indirection. Keep mtime-check on every read (now cheap: one `stat`).
-5. `internal/mcpsrv/Config.ProjectPath` — make required; `New` errors without it.
-6. Tests — remove the `t.Setenv("HOME", ...)` dance from every fixture that currently stages a home-level schema.
-7. Docs — update §4.4 cascade language in the consolidated README (post-§12.11) to say "project-local only, no cascade" and cite §14 rationale.
+### 14.3 CLI shape after this drop
 
-### 14.4 Migration for existing users
+- **Bare `ta`** — TTY-dispatched.
+  - With a TTY (human in a terminal): launches a huh menu listing every subcommand with its short description.
+  - Without a TTY (MCP client over stdio): starts the MCP server, unchanged from today. Existing `.mcp.json` / `claude mcp add` invocations that spawn bare `ta` keep working byte-identically.
+- **`ta init [path]`** — bootstrap a project.
+  - Optional absolute path arg (defaults to cwd).
+  - `mkdir -p` the target.
+  - Huh-based template picker; `~/.ta/` scan plus a "blank" option.
+  - Writes `<path>/.ta/schema.toml` from the chosen template (or empty file for "blank").
+  - Writes MCP configs per `<path>/.ta/config.toml` (see §14.5) or huh-prompts for claude/codex opt-in; default both.
+  - No git-worktree gating. Works from any writable directory.
+- **`ta template list | save [name] | show <name> | delete <name>`** — template library management.
+  - `list` prints every `.toml` file under `~/.ta/`.
+  - `save [name]` copies `<cwd>/.ta/schema.toml` to `~/.ta/<name>.toml` verbatim. Huh-prompts for name if omitted; huh-confirms overwrite if the name exists.
+  - `show <name>` renders the template via `render.Renderer.Markdown` (or `--json`).
+  - `delete <name>` removes a template; huh-confirms.
+- **All existing data/schema tools unchanged** on the CLI surface; only their internals update for project-local resolution.
+- **`--json` flag on every read command.** Bypasses laslig; emits structured JSON for agent consumption. Mage targets `Test` / `Check` / `Cover` also grow `--json` (or respect `MAGEFILE_JSON=1`). CLAUDE.md / AGENTS.md instructs agents to use `--json` for every invocation.
 
-- v0.1.0 users carrying a `~/.ta/schema.toml` will see it silently ignored post-cleanup. Document in the release notes.
-- No data migration: schema files stay where they are; the resolver just stops walking.
+### 14.4 Generated MCP configs
 
-### 14.5 Why not in §12
+**Claude Code — `<project>/.mcp.json`** (per current Claude Code docs at `code.claude.com/docs/en/mcp`):
 
-The §12 drop is focused on reaching v0.1.0 with the tool surface intact. Removing the home layer is a semantics change that deserves its own release-note line + its own pre-v1 revisit. Shipping v0.1.0 with the cache-plus-home-layer behavior preserved gives users a concrete "before" to compare against when v0.2.0 removes it.
+```json
+{
+  "mcpServers": {
+    "ta": {
+      "command": "ta",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+`args` is `[]` because bare `ta` without a TTY starts the MCP server — the client spawns it with stdio pipes, no explicit subcommand needed. `env` is available for future per-project environment injection.
+
+**Codex — `<project>/.codex/config.toml`** (per current Codex docs at `developers.openai.com/codex/config-basic`):
+
+```toml
+[mcp_servers.ta]
+command = "ta"
+args = []
+```
+
+Trusted-project-only per Codex semantics — the user must mark the project as trusted for Codex to load this config layer.
+
+### 14.5 Project-level bootstrap config — `<project>/.ta/config.toml` (optional)
+
+```toml
+[bootstrap]
+claude = true                  # generate .mcp.json (default true)
+codex = true                   # generate .codex/config.toml (default true)
+default_template = "schema"    # preferred template for `ta init` on this path; huh picker defaults to it
+```
+
+Read by `ta init` only. Never touched by the MCP server, data tools, or `ta template *`.
+
+### 14.6 Agent guidance — CLAUDE.md / AGENTS.md updates
+
+Land as part of §12.12 and §12.17 closeout:
+
+- All `ta <read-command>` invocations from agents MUST pass `--json`. ANSI-rendered laslig output is for humans only; agents parsing ANSI escape codes is a footgun.
+- All `mage <target>` invocations from agents MUST pass `--json` (or set `MAGEFILE_JSON=1`).
+- Bootstrap for a new project is `ta init <abs-path>` — humans and agents use the same verb. `.ta/config.toml` at the target path governs which MCP-config targets get written.
+- Bare `ta` without a TTY is the MCP server — no explicit subcommand needed when registering in `.mcp.json` / `.codex/config.toml`.
+
+### 14.7 Breaking changes landing in §12.11 – §12.16
+
+Called out in the §12.19 release notes:
+
+- **`~/.ta/schema.toml` is no longer runtime.** Users relying on it as a global base layer must either move the schema into `<project>/.ta/schema.toml` or rename the file (e.g. `~/.ta/default.toml`) to use it as a template via `ta init`.
+- **`mcpsrv.Config.ProjectPath` is now required.** Library callers constructing `mcpsrv.New(Config{})` without a path will see an error; `.mcp.json` users are unaffected because the MCP client provides the project path via the stdio handshake (implementation note — verify at §12.11 build time; fallback is to require it as a CLI arg alongside the bare-server mode).
+- **Existing `claude mcp add` / `.mcp.json` entries with args other than the above shape.** Users who hand-edited their `.mcp.json` can keep it; `ta init` regenerates the canonical form but respects a pre-existing file if one already has the `ta` entry.
+
+### 14.8 Dependency additions
+
+- `github.com/charmbracelet/huh/v2` v2.0.3 — interactive dropdown pickers. Verified API against the v2.0.0 tag in Context7; same surface expected for v2.0.3.
