@@ -14,16 +14,11 @@ import (
 )
 
 // seedProject creates <root>/.ta/schema.toml with the given TOML body
-// under a tmpdir and returns the project root. The caller gets a cold
-// fixture with no cached entries — each test restores the production
-// cache via t.Cleanup.
+// under a tmpdir and returns the project root. Caller is responsible
+// for cache isolation: either via installCountingLoader (which swaps
+// in a fresh cache) or an explicit mcpsrv.ResetDefaultCacheForTest.
 func seedProject(t *testing.T, body string) string {
 	t.Helper()
-	// Push a clean HOME so the project's cascade is the only source;
-	// isolates the test from the dev's ~/.ta/schema.toml.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
 	root := t.TempDir()
 	taDir := filepath.Join(root, ".ta")
 	if err := os.MkdirAll(taDir, 0o755); err != nil {
@@ -75,10 +70,8 @@ func installCountingLoader(t *testing.T) *countingLoader {
 }
 
 // TestCacheServesFromMemoryWhenUnchanged pins the central invariant:
-// back-to-back Resolve calls on an unchanged cascade trigger the
-// underlying loader exactly once. Proves §4.6 "use the cached schema
-// after the mtime check" without timing assertions — the counter
-// shows the real load count.
+// back-to-back Resolve calls on an unchanged schema trigger the
+// underlying loader exactly once.
 func TestCacheServesFromMemoryWhenUnchanged(t *testing.T) {
 	loader := installCountingLoader(t)
 	root := seedProject(t, cacheTestSchema)
@@ -150,11 +143,9 @@ type = "string"
 	}
 }
 
-// TestCacheReloadsOnSourceDeletion covers the "a source file has been
-// deleted since last load" branch of §4.6's mtime check. A cached
-// entry whose source is no longer on disk must re-resolve — either
-// picking up a different cascade (e.g. user deleted the project layer
-// leaving only ~/.ta) or surfacing a clean error.
+// TestCacheReloadsOnSourceDeletion covers the "schema file has been
+// deleted since last load" branch. A cached entry whose source is no
+// longer on disk must re-resolve and surface a clean error.
 func TestCacheReloadsOnSourceDeletion(t *testing.T) {
 	loader := installCountingLoader(t)
 	root := seedProject(t, cacheTestSchema)
@@ -168,9 +159,6 @@ func TestCacheReloadsOnSourceDeletion(t *testing.T) {
 		t.Fatalf("pre-delete load count = %d; want 1", got)
 	}
 
-	// Remove the project-local schema. With HOME pointing at an empty
-	// tmpdir, no cascade remains, so the next resolve should return
-	// config.ErrNoSchema rather than stale-serve.
 	if err := os.Remove(schemaPath); err != nil {
 		t.Fatalf("remove schema: %v", err)
 	}
@@ -203,9 +191,6 @@ func TestCacheInvalidatesAfterSchemaMutation(t *testing.T) {
 		t.Fatalf("pre-mutation load count = %d; want 1", got)
 	}
 
-	// Add a brand-new field to plans.task via the schema tool.
-	// MutateSchema post-write invalidates the entry, and the sources
-	// list it returns comes from a fresh re-resolve.
 	sources, err := mcpsrv.MutateSchema(root, "create", "field", "plans.task.owner", map[string]any{
 		"type":        "string",
 		"description": "owner of the task",
@@ -222,8 +207,6 @@ func TestCacheInvalidatesAfterSchemaMutation(t *testing.T) {
 		t.Fatalf("post-mutation load count = %d; want 2", got)
 	}
 
-	// A subsequent bare Resolve should now hit the cache again (no
-	// further loader bump) and MUST see the new owner field.
 	post, err := mcpsrv.ResolveProject(root)
 	if err != nil {
 		t.Fatalf("post-mutation resolve: %v", err)
@@ -243,17 +226,10 @@ func TestCacheInvalidatesAfterSchemaMutation(t *testing.T) {
 // TestCacheConcurrentReadersAreSafe spawns many goroutines hammering
 // Resolve while a writer periodically re-mutates the schema. Proves
 // the RWMutex + double-checked locking pattern holds under -race.
-// Test body values are deliberately undemanding: goal is racey-access
-// detection, not throughput.
 func TestCacheConcurrentReadersAreSafe(t *testing.T) {
-	// Not t.Parallel() — seedProject calls t.Setenv, which is
-	// incompatible with parallel tests. Concurrency is exercised by
-	// the goroutines below; -race catches races there.
-	root := seedProject(t, cacheTestSchema)
-	// Use the production cache through a fresh reset so we don't
-	// inherit warm entries from other tests in this package.
 	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
 	mcpsrv.ResetDefaultCacheForTest()
+	root := seedProject(t, cacheTestSchema)
 
 	const readers = 16
 	const iters = 50
@@ -272,8 +248,6 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 		}()
 	}
 
-	// One writer that invalidates every few reads. Uses MutateSchema
-	// so the production invalidation path runs under contention.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -292,14 +266,13 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 	wg.Wait()
 }
 
-// TestStartupRefusesMalformedCascade proves the §12.9 startup
-// meta-validation guard: mcpsrv.New with a ProjectPath whose
-// .ta/schema.toml is malformed returns an error instead of silently
-// constructing a server that will fail per-call.
+// TestStartupRefusesMalformedCascade proves the startup meta-validation
+// guard: mcpsrv.New with a ProjectPath whose .ta/schema.toml is
+// malformed returns an error instead of silently constructing a server
+// that will fail per-call.
 func TestStartupRefusesMalformedCascade(t *testing.T) {
 	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
 	mcpsrv.ResetDefaultCacheForTest()
-
 	// Malformed: `format` absent, so the meta-schema loader errors.
 	broken := `
 [plans]
@@ -314,16 +287,16 @@ description = "missing format key"
 		ProjectPath: root,
 	})
 	if err == nil {
-		t.Fatalf("New with malformed cascade: want error, got nil")
+		t.Fatalf("New with malformed schema: want error, got nil")
 	}
 	if !strings.Contains(err.Error(), "startup schema pre-warm") {
 		t.Errorf("error missing startup-pre-warm context; got %v", err)
 	}
 }
 
-// TestStartupPreWarmsValidCascade is the positive companion to
-// TestStartupRefusesMalformedCascade: a valid ProjectPath must load
-// successfully and leave the cache warmed for subsequent calls.
+// TestStartupPreWarmsValidCascade is the positive companion: a valid
+// ProjectPath must load successfully and leave the cache warmed for
+// subsequent calls.
 func TestStartupPreWarmsValidCascade(t *testing.T) {
 	loader := installCountingLoader(t)
 	root := seedProject(t, cacheTestSchema)
@@ -340,10 +313,9 @@ func TestStartupPreWarmsValidCascade(t *testing.T) {
 		t.Fatal("New returned nil server despite nil error")
 	}
 	if got := loader.count.Load(); got != 1 {
-		t.Errorf("pre-warm did not load cascade exactly once; count=%d", got)
+		t.Errorf("pre-warm did not load schema exactly once; count=%d", got)
 	}
 
-	// Subsequent resolve must hit the cache, not the loader.
 	if _, err := mcpsrv.ResolveProject(root); err != nil {
 		t.Fatalf("post-warm resolve: %v", err)
 	}
@@ -352,78 +324,24 @@ func TestStartupPreWarmsValidCascade(t *testing.T) {
 	}
 }
 
-// homeLayerSchema seeds a second db so a mid-session appearance is
-// observable in the resolved Registry — if the cache picks up the new
-// home layer, DBs will include "notes" in addition to "plans".
-const homeLayerSchema = `
-[notes]
-file = "notes.toml"
-format = "toml"
-description = "home-layer db that appears mid-session."
+// TestStartupTolerantOfMissingSchema proves New succeeds on a fresh
+// project (no .ta/schema.toml yet). Individual tool calls will surface
+// ErrNoSchema when they try to read — but startup itself must not
+// refuse to boot on an un-initialized directory.
+func TestStartupTolerantOfMissingSchema(t *testing.T) {
+	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
+	mcpsrv.ResetDefaultCacheForTest()
 
-[notes.entry]
-description = "A note."
-
-[notes.entry.fields.title]
-type = "string"
-required = true
-`
-
-// TestCacheReloadsOnNewCascadeLayer locks in the §12.9 Falsification
-// finding 2.1 fix. Before the fix, the cache's mtime check iterated
-// only the source set captured at first-resolve time — a new cascade
-// layer (e.g. a home-level schema created mid-session) was silently
-// ignored because it wasn't in entry.mtimes. The fix re-probes
-// candidate paths on every read via config.CandidatePaths. This test
-// proves the fix by observing the new home-layer db in the resolved
-// Registry without a server restart.
-func TestCacheReloadsOnNewCascadeLayer(t *testing.T) {
-	loader := installCountingLoader(t)
-	root := seedProject(t, cacheTestSchema)
-
-	// First resolve: only plans is declared, home-layer absent.
-	res, err := mcpsrv.ResolveProject(root)
+	fresh := t.TempDir()
+	srv, err := mcpsrv.New(mcpsrv.Config{
+		Name:        "ta-test",
+		Version:     "0.0.0",
+		ProjectPath: fresh,
+	})
 	if err != nil {
-		t.Fatalf("warm: %v", err)
+		t.Fatalf("New on fresh project: %v", err)
 	}
-	if _, ok := res.Registry.DBs["notes"]; ok {
-		t.Fatalf("precondition: notes db should not exist before home layer written")
+	if srv == nil {
+		t.Fatal("nil server without error")
 	}
-	if got := loader.count.Load(); got != 1 {
-		t.Fatalf("warm load count = %d; want 1", got)
-	}
-
-	// Create ~/.ta/schema.toml with a new db. This is the class of
-	// mid-session change the bare-mtime check missed.
-	home := os.Getenv("HOME")
-	homeTA := filepath.Join(home, ".ta")
-	if err := os.MkdirAll(homeTA, 0o755); err != nil {
-		t.Fatalf("mkdir home .ta: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(homeTA, "schema.toml"), []byte(homeLayerSchema), 0o644); err != nil {
-		t.Fatalf("write home schema: %v", err)
-	}
-
-	// Second resolve: must notice the new candidate, re-resolve, and
-	// surface the home-layer db.
-	res2, err := mcpsrv.ResolveProject(root)
-	if err != nil {
-		t.Fatalf("post-home resolve: %v", err)
-	}
-	if _, ok := res2.Registry.DBs["notes"]; !ok {
-		t.Errorf("cache missed the new home layer; DBs=%v", keysOf(res2.Registry.DBs))
-	}
-	if got := loader.count.Load(); got != 2 {
-		t.Errorf("loader invoked %d times; want 2 (initial + reload on new layer)", got)
-	}
-}
-
-// keysOf is a tiny helper so the assertion above can log the actual
-// DB names without depending on reflect or sort ordering.
-func keysOf[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }

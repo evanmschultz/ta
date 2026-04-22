@@ -38,10 +38,9 @@ const longDescription = "# ta\n\n" +
 	"- `ta create <path> <section> --data <json>` — create a new record\n" +
 	"- `ta update <path> <section> --data <json>` — update an existing record\n" +
 	"- `ta delete <path> <section>` — remove a record, file, or instance dir\n\n" +
-	"Schemas resolve by cascade-merge: `~/.ta/schema.toml` is the base " +
-	"layer, and every `.ta/schema.toml` on the target file's ancestor " +
-	"chain is folded on top — same-named section types override, unique " +
-	"types are additive."
+	"Each project has a self-contained schema at `<project>/.ta/schema.toml`. " +
+	"The runtime reads exactly that one file — no home-layer cascade, no " +
+	"ancestor walk."
 
 func main() {
 	err := fang.Execute(
@@ -85,7 +84,19 @@ func newRootCmd() *cobra.Command {
 }
 
 func runServe(ctx context.Context, stderr io.Writer, logStartup bool) error {
-	srv, err := mcpsrv.New(mcpsrv.Config{Name: appName, Version: version()})
+	// Post-V2-PLAN §12.11 / §14.9, mcpsrv.Config.ProjectPath is
+	// required. Bare `ta` without a TTY is spawned by an MCP client
+	// whose stdio handshake wrapper sets cwd to the project root, so
+	// os.Getwd() is the canonical project path here.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	srv, err := mcpsrv.New(mcpsrv.Config{
+		Name:        appName,
+		Version:     version(),
+		ProjectPath: cwd,
+	})
 	if err != nil {
 		return err
 	}

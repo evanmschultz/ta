@@ -24,11 +24,8 @@ func TestDogfoodProbeAgainstRealProject(t *testing.T) {
 	if root == "" {
 		t.Skip("project root not reachable from this test run")
 	}
-	// The cascade pulls in ~/.ta/schema.toml which may not match the
-	// current meta-schema shape on a developer's machine; when the
-	// home layer is broken (or os.UserHomeDir still reports it despite
-	// a HOME override) we report-and-skip rather than fail the suite.
-	t.Setenv("HOME", t.TempDir())
+	// Post-V2-PLAN §12.11 the runtime reads only <project>/.ta/schema.toml
+	// — no home-layer fallback — so the HOME-override workaround is gone.
 
 	// 1. Scope: whole readme db. Every H2 must surface.
 	hits, err := search.Run(search.Query{

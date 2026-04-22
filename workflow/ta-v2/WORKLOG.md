@@ -25,8 +25,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.8  | Search                               | ✅    | ✅    | ✅     | ✅   |
 | 12.9  | MCP caching                          | ✅    | ✅    | ✅     | ✅   |
 | 12.10 | Dogfood migration                    | ✅    | ✅    | ✅     | ✅   |
-| 12.11 | README collapse                      | —     | —     | —      | —    |
-| 12.12 | Release (tag v0.1.0)                 | —     | —     | —      | —    |
+| 12.11 | Strip global cascade from runtime    | ⏳    | —     | —      | —    |
+| 12.12 | JSON output mode                     | —     | —     | —      | —    |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 

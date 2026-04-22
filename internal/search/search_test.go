@@ -72,8 +72,6 @@ format = "markdown"
 
 func writeSchemaProject(t *testing.T, body string) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	root := t.TempDir()
 	taDir := filepath.Join(root, ".ta")
 	if err := os.MkdirAll(taDir, 0o755); err != nil {

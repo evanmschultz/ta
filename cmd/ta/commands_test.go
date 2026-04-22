@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/evanmschultz/ta/internal/mcpsrv"
 )
 
 const cliTaskSchema = `
@@ -57,8 +59,8 @@ func newSchemaFixture(t *testing.T) string {
 
 func newSchemaFixtureWithBody(t *testing.T, body string) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
+	mcpsrv.ResetDefaultCacheForTest()
 
 	root := t.TempDir()
 	taDir := filepath.Join(root, ".ta")
@@ -109,8 +111,6 @@ func TestSchemaCmdRendersResolvedSchema(t *testing.T) {
 }
 
 func TestSchemaCmdMetaSchemaScope(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	root := t.TempDir()
 	cmd := newSchemaCmd()
 	var out, errOut bytes.Buffer

@@ -9,12 +9,9 @@ import (
 // Test-only; do not call from non-test code.
 func (s *Server) MCPServer() *server.MCPServer { return s.srv }
 
-// ResetDefaultCacheForTest wipes the package-level schema cache so each
-// test case starts with a cold cache. Call from t.Cleanup() after
-// constructing a test fixture that depends on the cache state.
-func ResetDefaultCacheForTest() {
-	defaultCache = newSchemaCache()
-}
+// ResetDefaultCacheForTest is declared in testing.go (regular file) so
+// external test packages under cmd/ can reset the cache between tests.
+// See testing.go for the implementation.
 
 // DefaultCacheLoadCountForTest exposes the package cache's load counter
 // so tests can prove cache-hit vs cache-miss behavior without racy
@@ -36,7 +33,7 @@ func SwapDefaultCacheLoaderForTest(loader func(string) (config.Resolution, error
 
 // DefaultResolveUncachedForTest exposes the production loader so tests
 // can wrap it in counting indirection while still exercising the real
-// sentinel-path dance.
+// project-local resolve path.
 func DefaultResolveUncachedForTest(projectPath string) (config.Resolution, error) {
 	return resolveFromProjectDirUncached(projectPath)
 }

@@ -2,8 +2,10 @@ package mcpsrv
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,19 +13,19 @@ import (
 	"github.com/evanmschultz/ta/internal/config"
 )
 
-// schemaCache is the in-memory schema-cascade cache owned by the MCP
-// server per V2-PLAN §4.6. Cache key is the project directory path; each
-// entry carries the resolved registry and the mtime of every file that
-// contributed to it. On every read the cache stats each source file; if
-// any mtime moved (or a file was deleted), the entry is re-resolved
-// before the caller sees it.
+// schemaCache is the in-memory schema cache owned by the MCP server.
+// Post-V2-PLAN §12.11 the cache is SINGLE-PROJECT: the first Resolve
+// call fixes the project path and subsequent calls must pass the same
+// path. This matches the runtime's "one project per process" design —
+// MCP clients spawn one server per project via the stdio handshake.
 //
-// The cache is safe for concurrent use. Readers take the RLock for the
-// mtime-stable path and upgrade to Lock only when a re-resolve is
-// needed. Writers (Invalidate) take the Lock.
+// On every Resolve the cache stats the single source file and reloads
+// when the mtime moves. The read path takes only the RLock on the
+// happy mtime-stable case; reloads take the Lock briefly.
 type schemaCache struct {
-	mu      sync.RWMutex
-	entries map[string]*cacheEntry
+	mu          sync.RWMutex
+	projectPath string
+	entry       *cacheEntry
 
 	// loadCount tracks how many times the underlying config.Resolve
 	// loader was invoked. Tests read it via loadCountForTest() to
@@ -32,20 +34,20 @@ type schemaCache struct {
 	// concurrently.
 	loadCount atomic.Uint64
 
-	// loader is the underlying cascade loader. Kept as a field so
-	// tests can substitute a counting wrapper without patching a
-	// package-level function and fighting parallel-test isolation.
-	// Production callers use the default resolveFromProjectDirUncached.
+	// loader is the underlying resolver. Kept as a field so tests
+	// can substitute a counting wrapper. Production callers use the
+	// default resolveFromProjectDirUncached.
 	loader func(projectPath string) (config.Resolution, error)
 }
 
-// cacheEntry holds one project's resolved cascade plus the source
-// mtimes captured at resolution time. Sources is the same slice
-// order config.Resolve returned so downstream callers that surface
-// schema_paths in their responses see stable output.
+// cacheEntry holds one project's resolved schema plus the source
+// mtime captured at resolution time. sourceMTime tracks the single
+// project-local .ta/schema.toml; a zero value means "file didn't
+// exist at stat time," which will drive the next resolve to re-run.
 type cacheEntry struct {
-	resolution config.Resolution
-	mtimes     map[string]time.Time
+	resolution  config.Resolution
+	sourceMTime time.Time
+	sourcePath  string
 }
 
 // newSchemaCache constructs an empty cache using the package default
@@ -59,40 +61,36 @@ func newSchemaCache() *schemaCache {
 // loader. Test-only indirection — production code always passes
 // resolveFromProjectDirUncached.
 func newSchemaCacheWithLoader(loader func(string) (config.Resolution, error)) *schemaCache {
-	return &schemaCache{
-		entries: make(map[string]*cacheEntry),
-		loader:  loader,
-	}
+	return &schemaCache{loader: loader}
 }
 
-// Resolve returns the cascade Resolution for projectPath. Behavior:
+// Resolve returns the Resolution for projectPath. Behavior:
 //
-//  1. If no entry exists, load the cascade, stat every source, cache
-//     the (resolution, mtimes) pair, and return it.
-//  2. If an entry exists, stat every source. If any mtime changed or
-//     any source has been removed OR a new cascade-layer candidate has
-//     appeared on disk since the entry was captured, drop the stale
-//     entry and reload. Otherwise serve the cached resolution.
-//
-// The read path takes only the RLock on the happy mtime-stable case;
-// reloads take the Lock briefly. Double-checked locking covers the
-// race where two goroutines miss the cache at the same time — the
-// second acquires the write lock and sees the entry written by the
-// first.
-//
-// Mtime-precision caveat. On filesystems with coarse mtime granularity
-// (e.g. 1-second HFS+ mounts), an external editor writing twice within
-// the same second may leave the cached mtime unchanged and let the
-// cache serve a stale resolution until the next invalidation trigger.
-// In-process mutations via MutateSchema are unaffected because that
-// path calls Invalidate explicitly. Known v0.1.0 limitation; the §14
-// post-release cleanup removes the class entirely by collapsing the
-// cache to a single project-local entry.
+//  1. If no entry exists, load the schema, stat its source, cache the
+//     (resolution, mtime) pair, and return it. This fixes the cache's
+//     project path for the lifetime of the process.
+//  2. If an entry exists and projectPath matches the cached project,
+//     stat the source. If the mtime changed or the source has been
+//     removed, drop the stale entry and reload. Otherwise serve the
+//     cached resolution.
+//  3. If an entry exists and projectPath does NOT match the cached
+//     project, error. The single-project design is structural — a
+//     second project within one process is a caller bug.
 func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
+	abs, err := filepath.Abs(projectPath)
+	if err != nil {
+		return config.Resolution{}, fmt.Errorf("mcpsrv: abs path for %q: %w", projectPath, err)
+	}
+
 	c.mu.RLock()
-	entry, ok := c.entries[projectPath]
+	entry, bound := c.entry, c.projectPath
 	c.mu.RUnlock()
-	if ok && !c.entryStale(projectPath, entry) {
+	if bound != "" && bound != abs {
+		return config.Resolution{}, fmt.Errorf(
+			"mcpsrv: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
+			bound, abs)
+	}
+	if entry != nil && !c.sourceMoved(entry) {
 		return entry.resolution, nil
 	}
 
@@ -101,35 +99,55 @@ func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	// Lock.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if entry, ok := c.entries[projectPath]; ok && !c.entryStale(projectPath, entry) {
-		return entry.resolution, nil
+	if c.projectPath != "" && c.projectPath != abs {
+		return config.Resolution{}, fmt.Errorf(
+			"mcpsrv: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
+			c.projectPath, abs)
+	}
+	if c.entry != nil && !c.sourceMoved(c.entry) {
+		return c.entry.resolution, nil
 	}
 
-	resolution, err := c.loader(projectPath)
+	resolution, err := c.loader(abs)
 	if err != nil {
-		// Do not cache failures; a malformed cascade today might be a
-		// valid cascade tomorrow when the user finishes editing.
-		delete(c.entries, projectPath)
+		// Do not cache failures; a malformed schema today might be a
+		// valid schema tomorrow when the user finishes editing.
+		c.entry = nil
+		// Bind the project path even on failure so a subsequent
+		// successful resolve lands in the same cache slot.
+		c.projectPath = abs
 		return config.Resolution{}, err
 	}
 	c.loadCount.Add(1)
 
-	entry = &cacheEntry{
-		resolution: resolution,
-		mtimes:     snapshotMTimes(resolution.Sources),
+	c.projectPath = abs
+	c.entry = &cacheEntry{
+		resolution:  resolution,
+		sourcePath:  resolutionSource(resolution),
+		sourceMTime: snapshotMTime(resolutionSource(resolution)),
 	}
-	c.entries[projectPath] = entry
 	return resolution, nil
 }
 
 // Invalidate drops the cached entry for projectPath if present. Called
 // by MutateSchema on successful atomic-write so the next read re-resolves
-// and picks up any cascade restructuring (new / removed types, deleted
+// and picks up any structural changes (new / removed types, deleted
 // fields) that a bare mtime comparison might miss when the mutation
 // stamps the new mtime but the old cache entry is structurally stale.
 func (c *schemaCache) Invalidate(projectPath string) {
+	abs, err := filepath.Abs(projectPath)
+	if err != nil {
+		// Best-effort: fall back to wiping the whole cache. An abs
+		// failure here is effectively impossible on unix.
+		c.mu.Lock()
+		c.entry = nil
+		c.mu.Unlock()
+		return
+	}
 	c.mu.Lock()
-	delete(c.entries, projectPath)
+	if c.projectPath == abs {
+		c.entry = nil
+	}
 	c.mu.Unlock()
 }
 
@@ -139,106 +157,58 @@ func (c *schemaCache) loadCountForTest() uint64 {
 	return c.loadCount.Load()
 }
 
-// entryStale reports whether entry should be discarded in favor of a
-// fresh resolve. Three triggers, in ascending cost:
+// sourceMoved reports whether entry should be discarded in favor of a
+// fresh resolve. Triggers:
 //
-//  1. Any captured source has a moved mtime.
-//  2. Any captured source has been deleted (os.Stat fs.ErrNotExist).
-//  3. A new cascade-layer candidate has appeared on disk that was NOT
-//     in the captured source set — e.g. the user created
-//     ~/.ta/schema.toml mid-session after the project resolved
-//     without it. Without this check the cache serves the
-//     pre-home-layer resolution until restart (§12.9 Falsification
-//     finding 2.1).
-//
-// Candidate enumeration goes through config.CandidatePaths, which
-// walks the same ancestor chain Resolve would — so the cache stays
-// consistent with what config.Resolve would return on every read.
-func (c *schemaCache) entryStale(projectPath string, entry *cacheEntry) bool {
-	if c.mtimesMoved(entry) {
-		return true
-	}
-	candidates, err := config.CandidatePaths(joinSentinel(projectPath))
+//  1. The source mtime has changed since the entry was captured.
+//  2. The source has been deleted.
+//  3. A stat error other than fs.ErrNotExist (permissions, I/O) —
+//     safest to re-resolve so the loader surfaces the real error.
+func (c *schemaCache) sourceMoved(entry *cacheEntry) bool {
+	info, err := os.Stat(entry.sourcePath)
 	if err != nil {
-		// Can't enumerate candidates — safest to re-resolve so the
-		// next loader call surfaces the real error rather than
-		// silently serving stale.
+		if errors.Is(err, fs.ErrNotExist) {
+			return true
+		}
 		return true
 	}
-	for _, path := range candidates {
-		if _, ok := entry.mtimes[path]; ok {
-			continue
-		}
-		if _, err := os.Stat(path); err == nil {
-			// A candidate that wasn't in our snapshot now exists on
-			// disk — a new cascade layer appeared since resolve time.
-			return true
-		}
-	}
-	return false
+	return !info.ModTime().Equal(entry.sourceMTime)
 }
 
-// mtimesMoved reports whether any of entry's source files has changed
-// since the entry was cached. A missing source (os.Stat returns
-// fs.ErrNotExist) also counts as "changed" — a previously-resolved
-// cascade file that now does not exist is a reason to re-resolve.
-func (c *schemaCache) mtimesMoved(entry *cacheEntry) bool {
-	for path, cached := range entry.mtimes {
-		info, err := os.Stat(path)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return true
-			}
-			// Any other stat error (permissions, I/O): treat as
-			// changed so the next resolve surfaces the real error
-			// to the caller. Silent false would stale-serve.
-			return true
-		}
-		if !info.ModTime().Equal(cached) {
-			return true
-		}
+// resolutionSource returns the first source path from a Resolution.
+// Post-§12.11 Sources always has exactly one entry on success, so this
+// is unambiguous.
+func resolutionSource(r config.Resolution) string {
+	if len(r.Sources) == 0 {
+		return ""
 	}
-	return false
+	return r.Sources[0]
 }
 
-// snapshotMTimes stats each source and records its ModTime. A source
-// that fails to stat at snapshot time (unlikely — we just loaded it)
-// records a zero time so the first subsequent stat treats it as
-// changed. Trading paranoia for simplicity; the race window here is
-// narrow.
-func snapshotMTimes(sources []string) map[string]time.Time {
-	out := make(map[string]time.Time, len(sources))
-	for _, path := range sources {
-		info, err := os.Stat(path)
-		if err != nil {
-			out[path] = time.Time{}
-			continue
-		}
-		out[path] = info.ModTime()
+// snapshotMTime returns the ModTime for path. A stat failure returns a
+// zero time so the first subsequent stat treats it as "changed" and
+// drives a re-resolve. Trading paranoia for simplicity — the window is
+// narrow (we just loaded this file).
+func snapshotMTime(path string) time.Time {
+	if path == "" {
+		return time.Time{}
 	}
-	return out
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 // defaultCache is the package-level schema cache. All MCP and CLI
 // entry points resolve through it so a single process shares one
-// cascade view; tests that need isolation swap it via
+// schema view; tests that need isolation swap it via
 // setCacheForTest() under export_test.go.
 var defaultCache = newSchemaCache()
 
 // resolveFromProjectDirUncached bypasses the cache and calls
 // config.Resolve directly. Used only by the cache itself as the
-// underlying loader; handlers and ops never call it. The helper
-// exists to preserve the §3 "path is the project directory"
-// contract — config.Resolve walks parent dirs of the file, so we
-// synthesize a sentinel child path to anchor the walk at the project
-// dir (same trick the pre-cache resolveFromProjectDir used).
+// underlying loader; handlers and ops never call it.
 func resolveFromProjectDirUncached(projectPath string) (config.Resolution, error) {
-	return config.Resolve(joinSentinel(projectPath))
-}
-
-// joinSentinel is a tiny helper that mirrors the historic
-// resolveFromProjectDir join so the cache test can construct
-// expected source paths without reaching into config internals.
-func joinSentinel(projectPath string) string {
-	return projectPath + string(os.PathSeparator) + ".ta-resolve-sentinel"
+	return config.Resolve(projectPath)
 }

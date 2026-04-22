@@ -79,8 +79,6 @@ format = "markdown"
 // sound without coupling the unit test to the exact drop lineage.
 func seedDogfoodFixture(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
 	mcpsrv.ResetDefaultCacheForTest()
 

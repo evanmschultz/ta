@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -109,10 +108,10 @@ func Run(q Query) ([]Result, error) {
 }
 
 // resolve is a local mirror of mcpsrv.ResolveProject so this package
-// does not import mcpsrv. The walk-from-sentinel pattern matches
-// mcpsrv's "path is the project directory" contract.
+// does not import mcpsrv. Post-V2-PLAN §12.11 the resolver reads the
+// single project-local .ta/schema.toml directly — no sentinel trick.
 func resolve(projectPath string) (config.Resolution, error) {
-	return config.Resolve(filepath.Join(projectPath, ".ta-resolve-sentinel"))
+	return config.Resolve(projectPath)
 }
 
 // searchPlan carries the parsed Query.Scope + the list of dbs to visit.

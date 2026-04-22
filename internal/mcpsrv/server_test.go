@@ -102,10 +102,19 @@ type fixture struct {
 	projectRoot string
 }
 
+// lastFixtureRoot tracks the most recent newFixture* project root so
+// newClient(t) can auto-bind the server's ProjectPath without every
+// call site being rewritten. Package-scoped because tests in this
+// package never run in parallel (no t.Parallel), so sequential writes
+// are safe; ResetDefaultCacheForTest fires on cleanup so bleed-through
+// between tests cannot happen.
+var lastFixtureRoot string
+
 func newFixtureWithSchema(t *testing.T, schemaBody string) fixture {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
+	t.Cleanup(func() { lastFixtureRoot = "" })
+	mcpsrv.ResetDefaultCacheForTest()
 
 	root := t.TempDir()
 	taDir := filepath.Join(root, ".ta")
@@ -115,6 +124,7 @@ func newFixtureWithSchema(t *testing.T, schemaBody string) fixture {
 	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(schemaBody), 0o644); err != nil {
 		t.Fatalf("write schema: %v", err)
 	}
+	lastFixtureRoot = root
 	return fixture{projectRoot: root}
 }
 
@@ -123,9 +133,27 @@ func newFixture(t *testing.T) fixture {
 	return newFixtureWithSchema(t, tomlTaskSchema)
 }
 
+// newClient binds a fresh server+client pair to whatever fixture was
+// most recently constructed by newFixture*. Orphan-root tests (no
+// fixture) can use newClientWithPath to supply a path directly.
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
-	srv, err := mcpsrv.New(mcpsrv.Config{Name: "ta-test", Version: "0.0.0"})
+	path := lastFixtureRoot
+	if path == "" {
+		path = t.TempDir()
+	}
+	return newClientWithPath(t, path)
+}
+
+func newClientWithPath(t *testing.T, projectPath string) *client.Client {
+	t.Helper()
+	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
+	mcpsrv.ResetDefaultCacheForTest()
+	srv, err := mcpsrv.New(mcpsrv.Config{
+		Name:        "ta-test",
+		Version:     "0.0.0",
+		ProjectPath: projectPath,
+	})
 	if err != nil {
 		t.Fatalf("mcpsrv.New: %v", err)
 	}
@@ -605,19 +633,18 @@ func TestSchemaActionGetIsBackCompat(t *testing.T) {
 }
 
 func TestSchemaCreateDBType_Field(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	root := t.TempDir()
-	c := newClient(t)
 
 	// Seed minimal schema so Resolve doesn't return ErrNoSchema.
-	// Create the .ta dir; the tool will create schema.toml on first use.
+	// Create the .ta dir with an empty schema.toml — the tool will
+	// expand it on first mutation.
 	if err := os.MkdirAll(filepath.Join(root, ".ta"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".ta", "schema.toml"), []byte(""), 0o644); err != nil {
 		t.Fatalf("seed empty schema: %v", err)
 	}
+	c := newClientWithPath(t, root)
 
 	// 1. create db.
 	if res := callTool(t, c, "schema", map[string]any{
@@ -784,10 +811,7 @@ func TestSchemaMutationAtomicRollback(t *testing.T) {
 }
 
 func TestSchemaUpdateAndDeleteDB(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	root := t.TempDir()
-	c := newClient(t)
 
 	// Start from empty schema file so MutateSchema creates the db.
 	if err := os.MkdirAll(filepath.Join(root, ".ta"), 0o755); err != nil {
@@ -796,6 +820,7 @@ func TestSchemaUpdateAndDeleteDB(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".ta", "schema.toml"), []byte(""), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	c := newClientWithPath(t, root)
 
 	// create db with a type+field so the schema is valid end-state.
 	if res := callTool(t, c, "schema", map[string]any{
@@ -1026,10 +1051,10 @@ func TestSchemaReturnsAllDBsWhenSectionOmitted(t *testing.T) {
 }
 
 func TestSchemaMetaSchemaScope(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	// ta_schema scope is a short-circuit that never reads the project
+	// schema file, so an orphan (no .ta/schema.toml) path is fine.
 	orphan := t.TempDir()
-	c := newClient(t)
+	c := newClientWithPath(t, orphan)
 	res := callTool(t, c, "schema", map[string]any{
 		"path":  orphan,
 		"scope": "ta_schema",
@@ -1076,6 +1101,11 @@ func TestNewRejectsEmptyConfig(t *testing.T) {
 	}
 	if _, err := mcpsrv.New(mcpsrv.Config{Version: "1.0"}); err == nil {
 		t.Fatal("expected error on missing Name")
+	}
+	// Post-V2-PLAN §12.11 ProjectPath is required — an otherwise-valid
+	// Config without it must fail loudly at construction.
+	if _, err := mcpsrv.New(mcpsrv.Config{Name: "ta", Version: "1.0"}); err == nil {
+		t.Fatal("expected error on missing ProjectPath")
 	}
 }
 

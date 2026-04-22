@@ -2,26 +2,28 @@ package mcpsrv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/evanmschultz/ta/internal/config"
 )
 
 // Config configures the MCP server's runtime behavior.
+//
+// Post-V2-PLAN §12.11 / §14.9: ProjectPath is REQUIRED. MCP clients
+// supply it via the stdio handshake wrapper at CLI boot time; direct
+// library callers must supply it explicitly.
 type Config struct {
 	Name    string
 	Version string
-	// ProjectPath, when non-empty, triggers startup meta-validation:
-	// New resolves the schema cascade for the given project directory
-	// via the shared cache and returns any resolve-time error before
-	// the server begins serving. This turns a malformed cascade into
-	// a startup failure instead of a per-call ValidationError every
-	// client sees. Leave empty to skip the pre-warm — CLI and test
-	// harnesses that construct the server without a fixed project
-	// directory rely on this zero-value behavior.
-	//
-	// Per V2-PLAN §12.9: "startup meta-validation refuses to boot on
-	// a malformed cascade."
+	// ProjectPath is the absolute project directory. Required. New
+	// pre-warms the schema cache for this project; a malformed
+	// schema aborts construction. A missing schema (ErrNoSchema) is
+	// tolerated so a fresh project — not yet `ta init`'d — can still
+	// start the server and fail per-tool-call with a loud "no
+	// schema" error.
 	ProjectPath string
 }
 
@@ -32,13 +34,15 @@ type Server struct {
 }
 
 // New constructs an MCP server configured with ta's data and schema
-// tools: get / list_sections / create / update / delete / schema.
-// Upsert is retired per V2-PLAN §10.1 (hard cut, no alias).
+// tools: get / list_sections / create / update / delete / schema /
+// search. Upsert is retired per V2-PLAN §10.1 (hard cut, no alias).
 //
-// When cfg.ProjectPath is set, New pre-warms the schema cache for
-// that project and surfaces any cascade-resolve error immediately.
-// A malformed cascade aborts construction so the MCP client sees a
-// clean startup failure rather than per-call errors.
+// cfg.ProjectPath is required. New pre-warms the schema cache and
+// surfaces any malformed-schema error immediately so the MCP client
+// sees a clean startup failure rather than per-call errors. A project
+// that has not yet been initialized (no .ta/schema.toml) is tolerated
+// at startup — individual tool calls will surface ErrNoSchema when
+// they try to read.
 func New(cfg Config) (*Server, error) {
 	if cfg.Name == "" {
 		return nil, fmt.Errorf("mcpsrv: Config.Name is required")
@@ -46,8 +50,11 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Version == "" {
 		return nil, fmt.Errorf("mcpsrv: Config.Version is required")
 	}
-	if cfg.ProjectPath != "" {
-		if _, err := defaultCache.Resolve(cfg.ProjectPath); err != nil {
+	if cfg.ProjectPath == "" {
+		return nil, fmt.Errorf("mcpsrv: Config.ProjectPath is required")
+	}
+	if _, err := defaultCache.Resolve(cfg.ProjectPath); err != nil {
+		if !errors.Is(err, config.ErrNoSchema) {
 			return nil, fmt.Errorf("mcpsrv: startup schema pre-warm for %s: %w", cfg.ProjectPath, err)
 		}
 	}

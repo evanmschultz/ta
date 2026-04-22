@@ -1,7 +1,6 @@
-// Package config resolves the schema file that governs a given data file.
-// It walks up from the data file's directory looking for .ta/schema.toml;
-// if none is found it falls back to ~/.ta/schema.toml. Every schema file
-// encountered is cascade-merged root-to-file per V2-PLAN §4.4.
+// Package config resolves the schema file that governs a project.
+// Reads exactly one file — <projectPath>/.ta/schema.toml — with no
+// ancestor walk and no home-layer fallback (V2-PLAN §12.11 / §14.2).
 //
 // Schema parsing uses github.com/pelletier/go-toml/v2 — this is the only
 // place that parser is used; user data files always flow through package

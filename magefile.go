@@ -90,17 +90,10 @@ func seedHomeSchema(home string) error {
 // exists we assume the migration has run and skip to avoid collision
 // errors on the ErrRecordExists guard.
 //
-// Operational note: the cascade loader (config.Resolve) walks every
-// `.ta/schema.toml` on the project's ancestor chain. When the project
-// lives inside the dev's HOME (e.g. ~/Documents/...), that chain picks
-// up ~/.ta/schema.toml. If the dev still carries a pre-v2
-// [schema.<type>] home schema (removed by §12.2 hard cut), the load
-// errors before the project schema gets a chance to override. To keep
-// this target deterministic we stage the run inside a scratch
-// directory: a tmpdir project carrying only the project-local
-// .ta/schema.toml, run mcpsrv.Create there, then move the resulting
-// db.toml into the real workflow/ta-v2/ tree. The stage is short-lived
-// and cleaned up on every exit (defer os.RemoveAll).
+// Post-V2-PLAN §12.11 the runtime reads only <project>/.ta/schema.toml
+// with no home-layer fallback, so the HOME-staging workaround this
+// target used to carry is gone — we invoke mcpsrv.Create directly on
+// the project root.
 func Dogfood() error {
 	root, err := os.Getwd()
 	if err != nil {
@@ -114,62 +107,11 @@ func Dogfood() error {
 		return fmt.Errorf("stat %s: %w", dbFile, err)
 	}
 
-	// Stage the run in a scratch project whose ancestor chain is
-	// clean (no legacy ~/.ta/schema.toml hanging on it).
-	stage, err := os.MkdirTemp("", "ta-dogfood-stage-*")
-	if err != nil {
-		return fmt.Errorf("mktemp stage: %w", err)
-	}
-	defer os.RemoveAll(stage)
-
-	// HOME to the stage too so candidatePaths' home slot points at a
-	// known-empty location rather than the dev's real home.
-	prev, hadHome := os.LookupEnv("HOME")
-	if err := os.Setenv("HOME", stage); err != nil {
-		return fmt.Errorf("setenv HOME: %w", err)
-	}
-	defer func() {
-		if hadHome {
-			_ = os.Setenv("HOME", prev)
-		} else {
-			_ = os.Unsetenv("HOME")
-		}
-	}()
-
-	// Copy the project's .ta/schema.toml into the stage root so the
-	// cascade resolver has exactly one layer to load.
-	stageTaDir := filepath.Join(stage, ".ta")
-	if err := os.MkdirAll(stageTaDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir stage .ta: %w", err)
-	}
-	projectSchema := filepath.Join(root, ".ta", "schema.toml")
-	schemaBytes, err := os.ReadFile(projectSchema)
-	if err != nil {
-		return fmt.Errorf("read project schema %s: %w", projectSchema, err)
-	}
-	stageSchema := filepath.Join(stageTaDir, "schema.toml")
-	if err := os.WriteFile(stageSchema, schemaBytes, 0o644); err != nil {
-		return fmt.Errorf("write stage schema: %w", err)
-	}
-
 	records := dogfoodRecords()
 	for _, rec := range records {
-		if _, _, err := mcpsrv.Create(stage, rec.Section, "", rec.Data); err != nil {
+		if _, _, err := mcpsrv.Create(root, rec.Section, "", rec.Data); err != nil {
 			return fmt.Errorf("create %s: %w", rec.Section, err)
 		}
-	}
-
-	// Move the staged db.toml into the real project tree.
-	stagedDB := filepath.Join(stage, "workflow", "ta-v2", "db.toml")
-	stagedBytes, err := os.ReadFile(stagedDB)
-	if err != nil {
-		return fmt.Errorf("read staged db.toml: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(dbFile), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dbFile), err)
-	}
-	if err := os.WriteFile(dbFile, stagedBytes, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", dbFile, err)
 	}
 	fmt.Printf("ta: wrote %d records to %s\n", len(records), dbFile)
 	return nil
