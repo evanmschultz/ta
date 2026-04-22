@@ -31,7 +31,7 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.14 | `ta init` project bootstrap          | ✅    | ✅    | ✅     | ✅   |
 | 12.14.5 | Style cleanup sweep                | ✅    | ✅    | ✅     | ✅   |
 | 12.15 | `ta template save` + `delete`        | ✅    | —     | —      | —    |
-| 12.16 | huh root + `ta template apply` + Example retrofit | ⏳ | — | — | — |
+| 12.16 | huh root + `ta template apply` + Example retrofit | ✅ | — | — | — |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 
@@ -1004,7 +1004,7 @@ Status: BUILD DONE @91d30c8. QA twins pending.
 
 ### Build — go-builder-agent (Pair C)
 
-Status: BUILD DONE @<PAIR-C-12.16>. QA twins pending.
+Status: BUILD DONE @3fa4039. QA twins pending.
 
 **Added:**
 
