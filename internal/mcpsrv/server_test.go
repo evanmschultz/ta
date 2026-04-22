@@ -1102,3 +1102,105 @@ func TestListSectionsStillWorks(t *testing.T) {
 		t.Fatalf("got %v, want %v", payload.Sections, want)
 	}
 }
+
+// mdSchemaWithExtraField declares an MD type with TWO fields so we can
+// exercise the extractor guard for non-"body" declared fields under the
+// body-only layout (§5.3.3). The outer schema-declared check passes on
+// subtitle, but the inner extractMDFields must error loudly rather than
+// silently drop the field.
+const mdSchemaWithExtraField = `
+[readme]
+file = "README.md"
+format = "md"
+description = "MD db with a non-body declared field for extractor testing."
+
+[readme.section]
+heading = 2
+description = "H2 section."
+
+[readme.section.fields.body]
+type = "string"
+description = "Body under the H2."
+
+[readme.section.fields.subtitle]
+type = "string"
+description = "Subtitle — declared but not backed by body-only layout."
+`
+
+// TestGetFieldsMDNonBodyErrors locks in the fix for the QA
+// falsification finding 2.1: asking for a declared MD field whose name
+// is not "body" must error loudly, not return an empty fields map. The
+// silent-drop behavior pre-fix would have masked real agent bugs.
+func TestGetFieldsMDNonBodyErrors(t *testing.T) {
+	fx := newFixtureWithSchema(t, mdSchemaWithExtraField)
+	c := newClient(t)
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "readme.section.hello",
+		"data":    map[string]any{"body": "world"},
+	}); res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "readme.section.hello",
+		"fields":  []any{"subtitle"},
+	})
+	if !res.IsError {
+		t.Fatalf("expected error on non-body MD field, got success")
+	}
+	msg := firstText(t, res)
+	if !strings.Contains(msg, "body-only") {
+		t.Errorf("error should mention body-only layout: %s", msg)
+	}
+}
+
+// TestDeleteRecordMissingFileReturnsErrFileNotFound locks in the fix
+// for QA falsification finding 2.3: record-level delete on a db whose
+// backing file does not exist must wrap os.IsNotExist with the
+// ErrFileNotFound sentinel, for parity with update and whole-file
+// delete.
+func TestDeleteRecordMissingFileReturnsErrFileNotFound(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.ghost",
+	})
+	if !res.IsError {
+		t.Fatalf("expected delete on missing file to error")
+	}
+	if !strings.Contains(firstText(t, res), "file not found") {
+		t.Errorf("error should mention file not found: %s", firstText(t, res))
+	}
+}
+
+// TestCreateDirPerInstanceLeavesDirOnSuccess verifies the fix for QA
+// falsification finding 2.2 does not over-correct: on a SUCCESSFUL
+// dir-per-instance create the newly-created instance dir MUST persist
+// on disk (the rollback only fires when WriteAtomic fails after
+// MkdirAll created the dir — the negative path requires filesystem
+// fault injection and is covered by code inspection rather than a
+// unit test).
+func TestCreateDirPerInstanceLeavesDirOnSuccess(t *testing.T) {
+	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
+	c := newClient(t)
+	instanceDir := filepath.Join(fx.projectRoot, "workflow", "drop_new")
+	if _, err := os.Stat(instanceDir); !os.IsNotExist(err) {
+		t.Fatalf("precondition: instance dir should not exist yet, got err=%v", err)
+	}
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plan_db.drop_new.build_task.t1",
+		"data":    map[string]any{"id": "T1", "status": "todo"},
+	}); res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	if info, err := os.Stat(instanceDir); err != nil || !info.IsDir() {
+		t.Errorf("expected instance dir at %s, stat err=%v", instanceDir, err)
+	}
+	dbFile := filepath.Join(instanceDir, "db.toml")
+	if _, err := os.Stat(dbFile); err != nil {
+		t.Errorf("expected canonical db file at %s: %v", dbFile, err)
+	}
+}

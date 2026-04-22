@@ -79,20 +79,24 @@ func extractTOMLFields(fileBuf []byte, relPath string, fields []string) (map[str
 	return out, nil
 }
 
-// extractMDFields supports the body-only layout of §5.3.3. The only
-// declared field is "body"; we return the record's bytes stripped of
-// the heading line.
+// extractMDFields supports the body-only layout of §5.3.3. Under that
+// layout the only readable field is "body" (the record's bytes stripped
+// of the heading line). A declared field with any other name passes
+// the outer schema-declared check but cannot be served by this backend;
+// erroring loudly here keeps the extractor contract honest — callers
+// should not silently receive an empty field entry. When MD frontmatter
+// (§5.3.4) lands post-MVP this branch extends to parse fenced fields.
 func extractMDFields(fileBuf []byte, sec record.Section, fields []string) (map[string]any, error) {
 	out := make(map[string]any, len(fields))
 	raw := fileBuf[sec.Range[0]:sec.Range[1]]
 	body := stripHeadingLine(raw)
 	for _, name := range fields {
-		if name == "body" {
-			out["body"] = string(body)
+		if name != "body" {
+			return nil, fmt.Errorf(
+				"%w: MD body-only layout does not back field %q (only %q is readable)",
+				ErrUnknownField, name, "body")
 		}
-		// Any other declared field is legal by schema but not backed
-		// by emit/read semantics under the body-only layout. Leave it
-		// out of the result; the caller can inspect presence/absence.
+		out["body"] = string(body)
 	}
 	return out, nil
 }

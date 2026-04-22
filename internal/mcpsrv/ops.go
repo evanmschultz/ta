@@ -131,10 +131,26 @@ func Create(path, section, pathHint string, data map[string]any) (string, []stri
 	if err != nil {
 		return "", nil, fmt.Errorf("splice %q: %w", section, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-		return "", nil, fmt.Errorf("mkdir %s: %w", filepath.Dir(filePath), err)
+	// Track whether we just created the instance dir so a WriteAtomic
+	// failure after MkdirAll succeeds does not leave orphan state on
+	// disk. os.Stat is best-effort; if it fails we skip the cleanup but
+	// still surface the write error.
+	dir := filepath.Dir(filePath)
+	dirCreated := false
+	if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+		dirCreated = true
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", nil, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	if err := toml.WriteAtomic(filePath, newBuf); err != nil {
+		if dirCreated {
+			// Roll back the mkdir only when the dir we created is still
+			// empty — never prune a dir that already had siblings.
+			if entries, lstErr := os.ReadDir(dir); lstErr == nil && len(entries) == 0 {
+				_ = os.Remove(dir)
+			}
+		}
 		return "", nil, err
 	}
 	return filePath, resolution.Sources, nil
@@ -212,6 +228,9 @@ func Delete(path, section string) (string, []string, error) {
 	}
 	buf, err := os.ReadFile(filePath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+		}
 		return "", nil, fmt.Errorf("read %s: %w", filePath, err)
 	}
 	backend, err := buildBackend(dbDecl)
