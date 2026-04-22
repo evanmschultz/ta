@@ -23,8 +23,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.6  | Schema tool CRUD                     | ✅    | ✅    | ✅     | ✅   |
 | 12.7  | Laslig CLI rendering                 | ✅    | ✅    | ✅     | ✅   |
 | 12.8  | Search                               | ✅    | ✅    | ✅     | ✅   |
-| 12.9  | MCP caching                          | —     | —     | —      | —    |
-| 12.10 | Dogfood migration                    | —     | —     | —      | —    |
+| 12.9  | MCP caching                          | ✅    | ✅    | ✅     | ✅   |
+| 12.10 | Dogfood migration                    | ✅    | ✅    | ✅     | ✅   |
 | 12.11 | README collapse                      | —     | —     | —      | —    |
 | 12.12 | Release (tag v0.1.0)                 | —     | —     | —      | —    |
 
@@ -414,3 +414,48 @@ Dev chose Option A (fix all three) per the standing "everything should be strict
 ### Outcome
 
 PASS. §12.7 (Laslig CLI rendering) and §12.8 (Search) closed, including the Option A resolution of three fail-loudly findings. §12.9 (MCP caching) and §12.10 (Dogfood migration) unblocked; per dev directive, both will proceed as a combined build-task.
+
+---
+
+## 12.9 + 12.10 — MCP caching + Dogfood migration (combined)
+
+**Scope:** Per dev directive "2 phases at a time," §12.9 + §12.10 ran as one combined build. Final state at `6ad5f93` delivers:
+
+- **§12.9 caching** — new `internal/mcpsrv/cache.go` with `schemaCache{entries map, loadCount atomic.Uint64, loader func}` keyed on project path; mtime-check-per-read via `sync.RWMutex` + double-checked locking; `Invalidate(path)` wired into `MutateSchema` post-WriteAtomic; startup pre-warm via `Config.ProjectPath` that refuses to boot on a malformed cascade (§4.6). Rewires `ops.go`/`schema_mutate.go`/`tools.go` through `defaultCache.Resolve`; non-mutating ops route through the cache, mutating schema ops invalidate after write. `internal/search/search.go` retains its own `config.Resolve` call from §12.8 (advisory; out of §12.9 scope).
+- **§12.10 dogfood migration** — new `mage dogfood` target materializes 26 records (8 done build_tasks + 16 QA twins + 2 in-flight build_tasks for §12.9/§12.10 themselves) into `workflow/ta-v2/db.toml` via `mcpsrv.Create`. Staging-in-tmpdir + `HOME`-redirection neutralizes the dev's legacy `~/.ta/schema.toml` during the migration run. Idempotent re-run via `os.Stat` existence check. `workflow/ta-v2/WORKLOG.md` left in place per §12.11 plan; db.toml and WORKLOG coexist through v0.1.0.
+
+### Build arc
+
+`b424287` → `9961e96` → `6ad5f93`. Three commits:
+
+- `b424287` — **combined build.** 9 files, +1369/-9. New `internal/mcpsrv/{cache,cache_test,dogfood_test}.go` + `workflow/ta-v2/db.toml`. Modified `ops.go` / `schema_mutate.go` / `server.go` / `export_test.go` / `magefile.go`. Coverage: module total 83.7% with the cache + dogfood tests exercising every branch. 7 cache tests (unchanged-hit, mtime-change, source-deletion, mutation-invalidation, concurrent race safety, malformed-cascade startup rejection, valid-cascade pre-warm). 4 dogfood probes (Get round-trip, status-filtered Search, kind-filtered Search, per-record idempotency).
+- `9961e96` — **post-v0.1.0 cleanup item.** V2-PLAN §14 added: "Eliminate the global cascade layer." Motivated by the three coupled problems §12.9/§12.10 surfaced (unbounded cache growth, dogfood staging workaround, stale-cache gap on new cascade layers). Target shape: no home layer, no ancestor walk, MCP starts from project dir, cache collapses to single-entry. Runs AFTER §12.12 — the §12 drop ships with the cascade model preserved so v0.1.0 users have a concrete "before" for the v0.2.0 simplification.
+- `6ad5f93` — **Option A follow-up on Falsification finding 2.1.** Cache mtime check was frozen at first-resolve time; new cascade-layer files appearing mid-session were silently ignored. Fix: `schemaCache.entryStale(path, entry)` re-invokes `config.CandidatePaths(path)` on every read and triggers re-resolve when any candidate path exists on disk but wasn't in the captured source set. Exports `config.CandidatePaths(filePath) ([]string, error)` as a thin wrapper on the existing `candidatePaths` helper so the mcpsrv cache can probe the candidate set cheaply (ancestor walk + home slot, no schema parse). Adds `TestCacheReloadsOnNewCascadeLayer` — seeds project-only schema, creates `~/.ta/schema.toml` mid-session, asserts the home-layer db appears in the next `Resolve` without restart. Adds docstring note on cache.go covering the mtime-precision caveat for external-editor edits on sub-second filesystems (U1).
+
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS** (2026-04-21, fresh-context review of `b424287`). Every §4.6 / §12.9 / §12.10 contract verified with file:line citations. Cache struct shape, read path (RLock / Lock double-checked locking), mutation invalidation ordering, startup pre-warm, race safety under `-race`, non-mutating ops routed through the cache, dogfood target through `mcpsrv.Create`, idempotent re-run via existence check, exactly 26 records with correct parent-child linkage, `dogfood_test.go` probes, WORKLOG.md preserved, scope clean, interface freeze intact, commit hygiene clean — all PASS. One advisory routed: `search.Run` still calls `config.Resolve` directly (pre-existing from §12.8, confirmed via empty `git show b424287 -- internal/search/search.go`); not a §12.9 regression; flagged for future slice (resolved structurally via §14 post-v0.1.0 cleanup).
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: FAIL with one advisory-class counterexample + three deferred Unknowns** (2026-04-21, fresh-context adversarial review of `b424287`). 26 attacks attempted; 1 CONFIRMED, 3 DEFERRED, 22 REFUTED.
+
+- **2.1 MODERATE — Cache silently ignores new cascade-layer files.** `internal/mcpsrv/cache.go:136-153` `mtimesMoved` iterated only captured `entry.mtimes` keys; never re-evaluated `candidatePaths`. A new `~/.ta/schema.toml` appearing mid-session was silently missed. Same class as prior drop wins (§12.2 `Lookup→LookupDB`, §12.5+§12.6 / §12.7+§12.8 MD non-body silent drops).
+- **U1 LOW — mtime precision on sub-second filesystems** (NFS/HFS+ 1s-granularity). Two writes within one second can leave mtime unchanged. Mitigated by `MutateSchema`'s explicit `Invalidate` for in-process mutations; remains latent for external-editor edits. Routed as docstring-only caveat.
+- **U2 LOW — unbounded multi-project cache growth.** Long-running MCP servers touching many projects cache every path forever. No TTL / eviction / size bound. Routed to V2-PLAN §14 post-v0.1.0 cleanup: eliminate the global cascade so the cache collapses to a single entry by design.
+- **U3 LOW — dogfood staging tmpdir on SIGKILL.** `mage dogfood` stages in `os.TempDir()`; SIGKILL would leak the tmpdir. Accepted — macOS auto-GCs `/var/folders/...` periodically.
+
+Dev chose Option A (fix 2.1 + docstring U1, route U2 to §14, accept U3) per the standing "everything should be strict" preference and the architectural path §14 opens.
+
+### Option A Resolution (2026-04-21)
+
+- `9961e96` — `docs(plan): add post-v0.1.0 cleanup item to drop global cascade`. V2-PLAN §14 documents the full cleanup target (no home layer, no ancestor walk, required `ProjectPath`, single-entry cache). Resolves U2 structurally rather than by patching.
+- `6ad5f93` — `fix(mcpsrv): close cache new-layer gap and document mtime caveat`. Three files: `internal/config/config.go` (new exported `CandidatePaths`), `internal/mcpsrv/cache.go` (new `entryStale` method that adds candidate-set probing over the existing `mtimesMoved` check; docstring on the mtime-precision caveat), `internal/mcpsrv/cache_test.go` (new `TestCacheReloadsOnNewCascadeLayer`). `candidatePaths` is cheap — ancestor walk + home slot + one `os.Stat` per non-captured candidate; adds O(layers) work to the fast read path (typically 1-3 stats).
+
+**Verification:** `mage check` green at `6ad5f93` across all 10 packages with `-race`. `TestCacheReloadsOnNewCascadeLayer` proves the exact reproduction from the Falsification report fails pre-fix and passes post-fix.
+
+**QA re-runs waived.** Fix pattern matches §12.2 / §12.4 / §12.6 Option A: mechanical change with direct negative-test lock-in.
+
+### Outcome
+
+PASS. §12.9 (MCP caching) and §12.10 (Dogfood migration) closed, including the §14 post-v0.1.0 cleanup planning entry and the Option A resolution of the cache new-layer gap. §12.11 (README collapse) and §12.12 (Release — tag v0.1.0) unblocked; per dev directive, both will proceed as a combined build-task — the final drop close.
