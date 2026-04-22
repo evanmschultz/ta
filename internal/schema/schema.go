@@ -1,6 +1,9 @@
 package schema
 
-import "maps"
+import (
+	"maps"
+	"strings"
+)
 
 // Type is the declared type of a schema field, matching TOML's native types.
 // The string form is the wire representation in the schema config and in the
@@ -170,33 +173,18 @@ func (r Registry) Override(other Registry) Registry {
 }
 
 func firstSegment(path string) string {
-	for i := 0; i < len(path); i++ {
-		if path[i] == '.' {
-			return path[:i]
-		}
-	}
-	return path
+	before, _, _ := strings.Cut(path, ".")
+	return before
 }
 
 // splitFirstTwo returns the first and second dot-separated segments of
 // path plus the remainder. All three are empty strings when the
 // corresponding segment is not present.
 func splitFirstTwo(path string) (first, second, rest string) {
-	for i := 0; i < len(path); i++ {
-		if path[i] == '.' {
-			first = path[:i]
-			remainder := path[i+1:]
-			for j := 0; j < len(remainder); j++ {
-				if remainder[j] == '.' {
-					second = remainder[:j]
-					rest = remainder[j+1:]
-					return
-				}
-			}
-			second = remainder
-			return
-		}
+	first, after, ok := strings.Cut(path, ".")
+	if !ok {
+		return first, "", ""
 	}
-	first = path
-	return
+	second, rest, _ = strings.Cut(after, ".")
+	return first, second, rest
 }

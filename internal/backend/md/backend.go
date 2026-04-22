@@ -188,7 +188,7 @@ func (b *Backend) Emit(section string, rec record.Record) ([]byte, error) {
 	heading := unslugifyForHeading(slug)
 
 	var buf bytes.Buffer
-	for i := 0; i < level; i++ {
+	for range level {
 		buf.WriteByte('#')
 	}
 	buf.WriteByte(' ')
@@ -311,11 +311,11 @@ func (b *Backend) relativeAddress(section string) (string, bool) {
 // address shape is "<type-name>.<chain...>"; the first segment is the
 // type name.
 func (b *Backend) levelForRelative(rel string) int {
-	dot := strings.IndexByte(rel, '.')
-	if dot < 0 {
+	typeName, _, ok := strings.Cut(rel, ".")
+	if !ok {
 		return 0
 	}
-	return b.levelByType[rel[:dot]]
+	return b.levelByType[typeName]
 }
 
 // parentAddress derives the declared-parent relative address of rel

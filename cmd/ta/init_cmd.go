@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"charm.land/huh/v2"
@@ -250,15 +251,10 @@ func pickTemplate(names []string, def string) (string, error) {
 	opts = append(opts, huh.NewOption(blankTemplateChoice, blankTemplateChoice))
 
 	var choice string
-	if def != "" {
+	if def != "" && slices.Contains(names, def) {
 		// Pre-select the default by seeding the bound variable; huh
 		// uses the initial value to highlight the matching option.
-		for _, n := range names {
-			if n == def {
-				choice = def
-				break
-			}
-		}
+		choice = def
 	}
 	sel := huh.NewSelect[string]().
 		Title("Pick a schema template").
@@ -549,7 +545,7 @@ func mergeCodexMCP(path string) ([]byte, bool, error) {
 // through go-toml would reformat the user's file.
 func containsTable(doc, header string) bool {
 	want := "[" + header + "]"
-	for _, line := range strings.Split(doc, "\n") {
+	for line := range strings.SplitSeq(doc, "\n") {
 		trim := strings.TrimSpace(line)
 		if trim == want {
 			return true

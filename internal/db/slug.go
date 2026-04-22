@@ -16,7 +16,7 @@ func kebabCase(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	prevHyphen := true // start state: suppress leading hyphens
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		switch {
 		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':

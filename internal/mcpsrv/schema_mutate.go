@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,9 +146,7 @@ func applyDBMutation(projectPath, action, name string, data map[string]any, root
 		for _, metaKey := range []string{"file", "directory", "collection", "format", "description"} {
 			delete(existingMap, metaKey)
 		}
-		for k, v := range data {
-			existingMap[k] = v
-		}
+		maps.Copy(existingMap, data)
 		root[name] = existingMap
 		return nil
 	case "delete":
@@ -201,9 +200,7 @@ func applyTypeMutation(projectPath, action, name string, data map[string]any, ro
 		for _, metaKey := range []string{"description", "heading"} {
 			delete(existing, metaKey)
 		}
-		for k, v := range data {
-			existing[k] = v
-		}
+		maps.Copy(existing, data)
 		ensureFieldsTable(existing)
 		dbMap[typeName] = existing
 		return nil
@@ -387,25 +384,18 @@ func ensureFieldsTable(typeMap map[string]any) map[string]any {
 // not deep-copy because schema payloads are write-once here.
 func cloneMap(m map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 	return out
 }
 
 // splitTwo returns "<first>.<second>" decomposition.
 func splitTwo(s string) (string, string, string) {
-	idx := strings.IndexByte(s, '.')
-	if idx < 0 {
+	first, after, ok := strings.Cut(s, ".")
+	if !ok {
 		return s, "", ""
 	}
-	first := s[:idx]
-	rest := s[idx+1:]
-	idx2 := strings.IndexByte(rest, '.')
-	if idx2 < 0 {
-		return first, rest, ""
-	}
-	return first, rest[:idx2], rest[idx2+1:]
+	second, rest, _ := strings.Cut(after, ".")
+	return first, second, rest
 }
 
 // splitThree returns "<first>.<second>.<third>" decomposition,

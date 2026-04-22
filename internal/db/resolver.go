@@ -137,7 +137,7 @@ func (r *Resolver) scanCollection(db schema.DB) ([]Instance, error) {
 			return nil
 		}
 		// Skip dotfiles / dotdirs at any depth.
-		for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		for seg := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
 			if strings.HasPrefix(seg, ".") {
 				if d.IsDir() {
 					return fs.SkipDir

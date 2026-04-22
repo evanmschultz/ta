@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
 	"sort"
@@ -197,8 +198,8 @@ func parseScope(reg schema.Registry, scope string) (searchPlan, error) {
 // the common "<db>.<type>.reference-*" form from §5.5.3 degrades to a
 // plain prefix match on "reference-".
 func trimGlob(s string) string {
-	if strings.HasSuffix(s, "-*") {
-		return strings.TrimSuffix(s, "-*") + "-"
+	if trimmed, ok := strings.CutSuffix(s, "-*"); ok {
+		return trimmed + "-"
 	}
 	return strings.TrimSuffix(s, "*")
 }
@@ -467,7 +468,7 @@ func decodeFields(dbDecl schema.DB, typeSt schema.SectionType, tomlRoot map[stri
 // filter).
 func walkTOMLPath(root map[string]any, backendAddr string) (map[string]any, error) {
 	cursor := root
-	for _, seg := range strings.Split(backendAddr, ".") {
+	for seg := range strings.SplitSeq(backendAddr, ".") {
 		next, ok := cursor[seg]
 		if !ok {
 			return map[string]any{}, nil
@@ -480,9 +481,7 @@ func walkTOMLPath(root map[string]any, backendAddr string) (map[string]any, erro
 	}
 	// Shallow clone so callers cannot mutate our decoded tree.
 	out := make(map[string]any, len(cursor))
-	for k, v := range cursor {
-		out[k] = v
-	}
+	maps.Copy(out, cursor)
 	return out, nil
 }
 
@@ -490,11 +489,10 @@ func walkTOMLPath(root map[string]any, backendAddr string) (map[string]any, erro
 // most one directly-following blank line removed. Mirrors the MVP body-
 // only layout in internal/mcpsrv/fields.go.
 func stripHeadingLine(raw []byte) []byte {
-	nl := bytes.IndexByte(raw, '\n')
-	if nl < 0 {
+	_, rest, ok := bytes.Cut(raw, []byte{'\n'})
+	if !ok {
 		return nil
 	}
-	rest := raw[nl+1:]
 	if len(rest) > 0 && rest[0] == '\n' {
 		rest = rest[1:]
 	}

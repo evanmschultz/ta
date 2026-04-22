@@ -26,7 +26,10 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.9  | MCP caching                          | ✅    | ✅    | ✅     | ✅   |
 | 12.10 | Dogfood migration                    | ✅    | ✅    | ✅     | ✅   |
 | 12.11 | Strip global cascade from runtime    | ✅    | —     | —      | —    |
-| 12.12 | JSON output mode                     | ⏳    | —     | —      | —    |
+| 12.12 | JSON output mode                     | ✅    | —     | —      | —    |
+| 12.13 | Template library + read CLI          | ✅    | —     | —      | —    |
+| 12.14 | `ta init` project bootstrap          | ✅    | —     | —      | —    |
+| 12.14.5 | Style cleanup sweep                | ✅    | —     | —      | —    |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 
@@ -588,3 +591,49 @@ Status: BUILD DONE @<PAIR-B-12.14>. QA twins pending.
 - Golden-file tests lock in byte-stable `.mcp.json` and `.codex/config.toml` so any downstream regression is loud.
 
 **Next:** §12.14.5 stdlib-modernization sweep (orchestrator-direct pass per V2-PLAN), then Pair C (§12.15 template save / §12.16 huh root menu). QA twins for §12.13 + §12.14 run after this commit lands.
+
+---
+
+## 12.14.5 — Style cleanup sweep
+
+**Scope (from V2-PLAN.md §12.14.5):** Mechanical stdlib-modernization pass plus an unused-identifier sweep across every Go file in the repo. Orchestrator-direct pass (no builder spawn). Gates Pair C (§12.15/§12.16); runs between Pair B (§12.14) and Pair C.
+
+### Build — orchestrator direct
+
+Status: BUILD DONE @<PAIR-12.14.5>. QA pair pending.
+
+**Modernizations applied:**
+
+- `strings.CutSuffix` — replaced `HasSuffix + TrimSuffix` pair in `internal/search/search.go:trimGlob`.
+- `strings.SplitSeq` / `bytes.SplitSeq` — replaced `for _, x := range strings.Split(...)` in `internal/search/search.go:walkTOMLPath`, `internal/db/resolver.go` (skipDotSegments walker), `cmd/ta/init_cmd.go:containsTable`.
+- `strings.Cut` / `bytes.Cut` — replaced manual `IndexByte + slice split` in `internal/search/search.go:stripHeadingLine`, `internal/mcpsrv/fields.go:stripHeadingLine`, `internal/mcpsrv/schema_mutate.go:splitTwo`, `cmd/ta/commands.go:dbFormatFor`, `internal/backend/md/backend.go:levelForRelative`, `internal/schema/schema.go:firstSegment` + `splitFirstTwo`.
+- `maps.Copy` — replaced explicit `for k,v := range src { dst[k] = v }` loops in `internal/search/search.go:walkTOMLPath`, `internal/mcpsrv/schema_mutate.go` (two sites: db-update meta-preserve, type-update meta-preserve, plus `cloneMap`).
+- `for i := range N` — replaced C-style `for i := 0; i < N; i++` in `internal/db/slug.go:Slug`, `internal/backend/md/backend.go:Emit` (heading-prefix builder), `internal/mcpsrv/cache_test.go:TestCacheConcurrentReadersAreSafe` (three loops).
+- `sync.WaitGroup.Go` — replaced manual `wg.Add(1); go func(){ defer wg.Done(); ... }()` in `internal/mcpsrv/cache_test.go:TestCacheConcurrentReadersAreSafe` (two goroutine launches).
+- `slices.Contains` — replaced explicit scan loop in `cmd/ta/init_cmd.go:pickTemplate` default-prefix block (surfaced by gopls mid-sweep; added to scope).
+
+**Unused-identifier deletions:**
+
+- `cmd/ta/commands_test.go:cliMDSchema` — orphaned TOML fixture for an MD-JSON test that was never written; flagged by gopls as unused. Deleted rather than backfilling the test — if future coverage wants an MD-JSON shape it will redefine the fixture close to the test consuming it.
+
+**Import deltas:**
+
+- Added `maps` import to `internal/search/search.go` and `internal/mcpsrv/schema_mutate.go`.
+- Added `strings` import to `internal/schema/schema.go` (previously `maps`-only).
+- Added `slices` import to `cmd/ta/init_cmd.go`.
+
+**Verification:**
+
+- `mage check` green across all 12 packages with `-race`. Net diff: 11 files changed, +46 / -106 lines.
+- `mage dogfood` clean (skip-existing — idempotent).
+- `go list -deps ./internal/templates | rg "ta/internal/"` still returns exactly `internal/fsatomic` + `internal/schema` + `internal/templates` (Pair B firewall intact).
+
+**Design notes:**
+
+- **Kept `strings.TrimSuffix(s, "*")` (unpaired) in `search.go:trimGlob`.** The tail-line trim runs unconditionally regardless of match; `strings.CutSuffix` would force a boolean-ignored return and add no clarity. CutSuffix only replaces the HasSuffix+TrimSuffix duet.
+- **Kept byte-walk loops in `scanner.go` / `parse.go`.** Those use non-unit increments (`<= n`, conditional `i++` inside the body) that `for range N` cannot express. Leaving them idiomatic for the scanner pattern.
+- **Kept `for _, metaKey := range []string{...}` delete loops** in `schema_mutate.go` above each `maps.Copy` — these iterate a fixed-key allowlist, not a map copy; unrelated to the `maps.Copy` modernization.
+
+**Standing QA concern activated.** Per V2-PLAN §12.14.5, every QA spawn prompt from this step forward (starting with the Pair A+B+§12.14.5 parallel burst) includes the line: *"Also scan the files you touch for new stdlib-modernization opportunities (CutSuffix, SplitSeq, maps.Copy, bytes.Cut, range-over-int, WaitGroup.Go, strings.Cut) and unused identifiers (const/var/func); flag them in your report for the next orchestrator cleanup sweep."*
+
+**Next:** parallel QA burst covering commits `7853e43` (§12.11) → `<PAIR-12.14.5-SHA>` (§12.14.5). Both `go-qa-proof-agent` and `go-qa-falsification-agent` spawned at once, each reviewing the full four-phase commit range plus scanning for new style hits.

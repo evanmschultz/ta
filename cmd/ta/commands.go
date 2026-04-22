@@ -126,11 +126,7 @@ func dbFormatFor(path, section string) (schema.Format, error) {
 	if err != nil {
 		return "", err
 	}
-	firstDot := strings.IndexByte(section, '.')
-	dbName := section
-	if firstDot >= 0 {
-		dbName = section[:firstDot]
-	}
+	dbName, _, _ := strings.Cut(section, ".")
 	dbDecl, ok := resolution.Registry.DBs[dbName]
 	if !ok {
 		return "", fmt.Errorf("db %q not declared", dbName)

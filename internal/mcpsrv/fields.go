@@ -109,11 +109,10 @@ func extractMDFields(fileBuf []byte, sec record.Section, fields []string) (map[s
 // newline the whole buffer is considered the heading and the return
 // is empty. This mirrors the Emit format: "## Heading\n\n<body>\n".
 func stripHeadingLine(raw []byte) []byte {
-	nl := bytes.IndexByte(raw, '\n')
-	if nl < 0 {
+	_, rest, ok := bytes.Cut(raw, []byte{'\n'})
+	if !ok {
 		return nil
 	}
-	rest := raw[nl+1:]
 	// Skip at most one blank-line separator.
 	if len(rest) > 0 && rest[0] == '\n' {
 		rest = rest[1:]

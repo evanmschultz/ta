@@ -29,29 +29,6 @@ type = "string"
 required = true
 `
 
-const cliMDSchema = `
-[readme]
-file = "README.md"
-format = "md"
-description = "Dogfood MD db."
-
-[readme.title]
-heading = 1
-description = "H1 title."
-
-[readme.title.fields.body]
-type = "string"
-description = "Body."
-
-[readme.section]
-heading = 2
-description = "H2 section."
-
-[readme.section.fields.body]
-type = "string"
-description = "Body."
-`
-
 // newSchemaFixture stands up a project root with a .ta/schema.toml and
 // returns the project root path callers should pass to each subcommand.
 func newSchemaFixture(t *testing.T) string {

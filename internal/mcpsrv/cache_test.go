@@ -235,23 +235,19 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 	const iters = 50
 	var wg sync.WaitGroup
 
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iters; j++ {
+	for range readers {
+		wg.Go(func() {
+			for range iters {
 				if _, err := mcpsrv.ResolveProject(root); err != nil {
 					t.Errorf("reader resolve: %v", err)
 					return
 				}
 			}
-		}()
+		})
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for j := 0; j < iters/5; j++ {
+	wg.Go(func() {
+		for j := range iters / 5 {
 			fieldName := "tag" + strings.Repeat("x", j+1)
 			_, err := mcpsrv.MutateSchema(root, "create", "field", "plans.task."+fieldName, map[string]any{
 				"type": "string",
@@ -261,7 +257,7 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
 	wg.Wait()
 }
