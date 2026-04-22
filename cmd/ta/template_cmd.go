@@ -190,7 +190,15 @@ func runTemplateSave(out io.Writer, name string, force, asJSON bool) error {
 		return fmt.Errorf("save: validate %s: %w", sourcePath, err)
 	}
 
-	nonInteractive := force || asJSON || name != ""
+	// nonInteractive gates both the empty-name prompt and the
+	// overwrite-confirm. A supplied positional name does NOT belong in
+	// this gate: it resolves the empty-name branch (we skip the
+	// prompt) but a TTY user still expects to see the confirm when the
+	// template already exists. Conflating the two caused the QA
+	// falsification §12.16 MEDIUM-2 finding where
+	// `ta template save foo` (TTY, target exists, no --force) skipped
+	// the confirm and fell to the off-TTY error path.
+	nonInteractive := force || asJSON
 	if name == "" {
 		if !ttyInteractive(nonInteractive) {
 			return errors.New("save: no template name supplied; pass it as a positional arg or run on a TTY for the prompt")

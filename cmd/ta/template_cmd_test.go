@@ -338,6 +338,35 @@ func TestTemplateSaveNameMissingOffTTYErrors(t *testing.T) {
 	}
 }
 
+// TestTemplateSaveOverwriteWithoutJSONStillErrorsOffTTY regression-locks
+// the QA falsification §12.16 MEDIUM-2 fix: `save <name>` (name
+// positional, no --force, no --json) off-TTY with an existing target
+// must fall through to the "exists" diagnostic, same as the --json
+// path. Pre-fix, the positional name was wrongly folded into
+// `nonInteractive`, which didn't change off-TTY behaviour (already
+// non-TTY) but did silently skip the huh confirm on a TTY. Post-fix,
+// `nonInteractive = force || asJSON` — off-TTY falls through via
+// ttyInteractive's stdio-TTY check which returns false in `go test`.
+// The TTY-path improvement (confirm now fires on a real terminal) is
+// covered by the V2-PLAN §12.17 manual E2E gate.
+func TestTemplateSaveOverwriteWithoutJSONStillErrorsOffTTY(t *testing.T) {
+	libRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(libRoot, "foo.toml"), []byte(cliTaskSchema), 0o644); err != nil {
+		t.Fatalf("seed pre-existing: %v", err)
+	}
+	restore := templates.SetRootForTest(libRoot)
+	t.Cleanup(restore)
+	seedCwdSchema(t, cliTaskSchema)
+
+	_, _, err := runTemplateCmd(t, "save", "foo")
+	if err == nil {
+		t.Fatal("expected error on overwrite without --force off-TTY")
+	}
+	if !strings.Contains(err.Error(), "exists") {
+		t.Errorf("expected 'exists' diagnostic, got: %v", err)
+	}
+}
+
 // ---- apply ----------------------------------------------------------
 
 func TestTemplateApplyHappyPath(t *testing.T) {
