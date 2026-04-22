@@ -553,3 +553,38 @@ Status: BUILD DONE @<PAIR-B-12.13>. QA twins pending.
 **Spec-gap note:** V2-PLAN package layout aspirationally locates atomic writes in `internal/fsatomic/`, but the existing `internal/backend/toml.WriteAtomic` helper stayed as-is — migrating all its consumers (`mcpsrv/ops.go`, `mcpsrv/schema_mutate.go`, etc.) would balloon this slice and is orthogonal to template-library work. Created `fsatomic` as a new minimal package with a single consumer (`templates`); consumer migration is a future cleanup.
 
 **Next:** §12.14 (`ta init`) stacks on this foundation; QA twins run after §12.14 lands per Pair B cadence.
+
+---
+
+## 12.14 — `ta init` project bootstrap
+
+**Scope (from V2-PLAN.md §12.14 + §14.3 – §14.5 + §14.7):** New `ta init [path]` CLI subcommand. Takes an optional absolute path (defaults to cwd). `mkdir -p`s the target, runs a huh template picker on a TTY or honors `--template` / `--blank` non-interactively, writes `<path>/.ta/schema.toml` verbatim from the chosen template, and generates the two MCP client configs per V2-PLAN §14.4: `<path>/.mcp.json` (Claude Code) and `<path>/.codex/config.toml` (Codex). `<path>/.ta/config.toml` (V2-PLAN §14.5) layers in between CLI flags and defaults. CLI flags: `--template`, `--blank`, `--no-claude`, `--no-codex`, `--force`, `--json`.
+
+### Build — go-builder-agent
+
+Status: BUILD DONE @<PAIR-B-12.14>. QA twins pending.
+
+**Added:**
+
+- `cmd/ta/init_cmd.go` — the full bootstrap flow. `newInitCmd` parses flags; `resolveInitPath` requires absolute paths per V2-PLAN §14.3; `runInit` orchestrates (mkdir → read `config.toml` → chooseSchema → writeSchema → maybeWriteClaudeMCP → maybeWriteCodexMCP → emitInitReport). Huh pickers: `pickTemplate` (single-select over library + `<blank>`) and `promptMCPToggles` (multi-select over Claude/Codex), plus `confirmOverwrite` for existing-schema flow. TTY detection via `github.com/charmbracelet/x/term`. Non-interactive paths (any flag set or stdin/stdout not a TTY) skip huh entirely and honor bootstrap-config + flag precedence. Claude-side `.mcp.json` is manipulated through `encoding/json` round-trip; Codex-side `.codex/config.toml` uses a line-walk `containsTable` check + string-level append so a pre-existing hand-edited config does not round-trip-reformat.
+- `cmd/ta/init_cmd_test.go` — 14 tests covering: happy path (template + JSON + no MCP), template + both MCP configs (byte-stable golden bytes for both files), `--blank` header, existing schema without `--force` errors and leaves file untouched, existing schema with `--force` overwrites, `<path>/.ta/config.toml` with `claude = false` suppresses `.mcp.json`, relative-path arg errors, missing-template errors, non-interactive-without-flag errors, missing-target directory creation, MCP merge preserves pre-existing `ta` entry in `.mcp.json`, MCP merge adds `ta` alongside pre-existing `other` in `.mcp.json`, Codex merge preserves pre-existing `[mcp_servers.ta]` block, Codex merge appends `ta` block alongside pre-existing `other` block.
+- Dependency additions: `charm.land/huh/v2 v2.0.3` (interactive picker) and `github.com/charmbracelet/x/term v0.2.2` promoted from indirect to direct (TTY detection). `go mod tidy` pulled in the expected huh transitive deps (bubbles, bubbletea, catppuccin theme package, etc.).
+
+**Updated:**
+
+- `cmd/ta/main.go` — `newRootCmd` registers `newInitCmd()` alongside the existing subcommand family.
+
+**Design calls (no spec drift):**
+
+- **Codex AST vs string-level merge.** V2-PLAN §14.4 emits an exact TOML shape and §14 prompts call out that go-toml round-trip may reorder/reformat. Chose the string-level `containsTable` + append approach: read the file, walk lines for the exact `[mcp_servers.ta]` header, leave untouched on hit, append the canonical block verbatim on miss. Pre-existing `[mcp_servers.*]` tables survive byte-identically. Cost: the appended block always lands at EOF with a blank-line separator; format of pre-existing blocks is preserved 1:1. Acceptable per spec note that go-toml round-trip was the fallback; the string-level merge is strictly better for round-trip preservation.
+- **Non-interactive-without-template errors.** V2-PLAN §14.3 does not say what to do when a caller runs `ta init` off-TTY with no `--template` / `--blank` / bootstrap-default. Choosing "error loudly" rather than silently defaulting to blank — matches the "everything should be strict" preference the dev has stated across prior Falsification rounds and prevents agent invocations that drop a near-empty schema by accident.
+- **`templates.SetRootForTest`.** Tests inject the library root via the template-package hook introduced in §12.13; `ta init` production code calls `templates.Root()`. Preserves §12.11's "no `t.Setenv HOME`" discipline.
+
+**Verification:**
+
+- `mage check` green across all 12 packages with `-race`.
+- `mage dogfood` clean (skip-existing).
+- `go list -deps ./internal/templates | rg "ta/internal/"` still returns only `internal/fsatomic` + `internal/schema` + `internal/templates` (firewall preserved).
+- Golden-file tests lock in byte-stable `.mcp.json` and `.codex/config.toml` so any downstream regression is loud.
+
+**Next:** §12.14.5 stdlib-modernization sweep (orchestrator-direct pass per V2-PLAN), then Pair C (§12.15 template save / §12.16 huh root menu). QA twins for §12.13 + §12.14 run after this commit lands.

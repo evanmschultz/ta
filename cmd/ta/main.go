@@ -80,6 +80,7 @@ func newRootCmd() *cobra.Command {
 		newSchemaCmd(),
 		newSearchCmd(),
 		newTemplateCmd(),
+		newInitCmd(),
 	)
 	return cmd
 }
