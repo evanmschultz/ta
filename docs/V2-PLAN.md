@@ -1180,9 +1180,10 @@ More fundamentally, the cascade couples every project to per-user home state, wh
   - Writes `<path>/.ta/schema.toml` from the chosen template (or empty file for "blank").
   - Writes MCP configs per `<path>/.ta/config.toml` (see §14.5) or huh-prompts for claude/codex opt-in; default both.
   - No git-worktree gating. Works from any writable directory.
-- **`ta template list | save [name] | show <name> | delete <name>`** — template library management.
+- **`ta template list | save [name] | apply <name> [path] | show <name> | delete <name>`** — template library management.
   - `list` prints every `.toml` file under `~/.ta/`.
-  - `save [name]` copies `<cwd>/.ta/schema.toml` to `~/.ta/<name>.toml` verbatim. Huh-prompts for name if omitted; huh-confirms overwrite if the name exists.
+  - `save [name]` copies `<cwd>/.ta/schema.toml` to `~/.ta/<name>.toml` verbatim (project → global). Huh-prompts for name if omitted; huh-confirms overwrite if the name exists.
+  - `apply <name> [path]` copies `~/.ta/<name>.toml` into `<path>/.ta/schema.toml` (global → project). Target path defaults to cwd; must be absolute when supplied. Huh-confirms overwrite if `<path>/.ta/schema.toml` already exists. Schema-only — does NOT touch `.mcp.json` / `.codex/config.toml`; use `ta init` for a full bootstrap.
   - `show <name>` renders the template via `render.Renderer.Markdown` (or `--json`).
   - `delete <name>` removes a template; huh-confirms.
 - **All existing data/schema tools unchanged** on the CLI surface; only their internals update for project-local resolution.
@@ -1227,7 +1228,25 @@ default_template = "schema"    # preferred template for `ta init` on this path; 
 
 Read by `ta init` only. Never touched by the MCP server, data tools, or `ta template *`.
 
-### 14.6 Agent guidance — CLAUDE.md / AGENTS.md updates
+### 14.6 Schema validation discipline — break loudly, no fsnotify
+
+Validation runs on every schema read and every schema write. No filesystem-watcher layer: stat-mtime-per-call (§12.9) + the loader's own pass are the sole gates, and they are sufficient by construction.
+
+- **Read path.** Every tool call that touches `<project>/.ta/schema.toml` goes through `mcpsrv.ResolveProject` → cache → `config.Resolve` → `schema.LoadBytes`. If the bytes fail to parse or fail the meta-schema check (§4.7), the tool call errors loudly with the line/column pointer from the loader. No stale-serve. Post-§12.11 the cache holds one entry for the single project-local file, so the mtime check is one `os.Stat` per call.
+- **Write path.** `MutateSchema` (and the data-tool surface that ends up writing records, for its pre-write schema lookup) is atomic: pre-write `LoadBytes` re-validation gate, no-write on failure, pre-mutation bytes preserved. A mutation that would produce a malformed schema never touches disk (§12.6 Option A already lands this; §14 preserves it).
+- **Pre-existing invalid schema.** If a user hand-edits `<project>/.ta/schema.toml` into an invalid state and then attempts `ta create` / `ta update` / `ta schema create` / any tool call, the initial read-and-validate fails BEFORE the mutation logic runs. The user sees the existing file's problem first. Mutations cannot silently layer on top of broken bytes.
+- **No fsnotify.** External edits (editor saves, `git checkout` switching schema files between branches) break loudly on the NEXT tool call via mtime-triggered re-resolve + re-validate. Adding a filesystem watcher would duplicate that gate at the cost of cross-platform surface area (kqueue/inotify/FSEvents differences, watcher-leak guards on SIGKILL). Stat-per-call is simpler and sufficient.
+
+### 14.7 Help menus — fang-rendered examples on every command
+
+Every cobra `Command` ships an `Example` field carrying 1–3 realistic invocations. Fang styles the help output (bold headings, coloured usage lines, optional pager for long help). The goal: a user can type `ta init --help` or `ta help init` and see enough example output to proceed without reading external docs.
+
+- **`-h` and `--help` work on every command and subcommand** — cobra default, fang preserves.
+- **`ta help [command]` and `ta h [command]`** — both work via `rootCmd.SetHelpCommand(&cobra.Command{Use: "help", Aliases: []string{"h"}, ...})`.
+- **`ta <command> h` (positional `h` after a subcommand) is NOT wired.** It would conflict with commands that accept positional args — `ta get h` would try to fetch section `h` rather than print help. Users get help via `-h` / `--help` or `ta help <command>`. Documented in the §12.19 release notes.
+- **Example field content.** Every subcommand lists the canonical happy-path invocation, one variant showing the most common flag (e.g. `--fields` on `get`, `--json` on read commands), and for commands that huh-prompt when args are missing, one variant showing the fully-non-interactive form.
+
+### 14.8 Agent guidance — CLAUDE.md / AGENTS.md updates
 
 Land as part of §12.12 and §12.17 closeout:
 
@@ -1236,7 +1255,7 @@ Land as part of §12.12 and §12.17 closeout:
 - Bootstrap for a new project is `ta init <abs-path>` — humans and agents use the same verb. `.ta/config.toml` at the target path governs which MCP-config targets get written.
 - Bare `ta` without a TTY is the MCP server — no explicit subcommand needed when registering in `.mcp.json` / `.codex/config.toml`.
 
-### 14.7 Breaking changes landing in §12.11 – §12.16
+### 14.9 Breaking changes landing in §12.11 – §12.16
 
 Called out in the §12.19 release notes:
 
@@ -1244,6 +1263,6 @@ Called out in the §12.19 release notes:
 - **`mcpsrv.Config.ProjectPath` is now required.** Library callers constructing `mcpsrv.New(Config{})` without a path will see an error; `.mcp.json` users are unaffected because the MCP client provides the project path via the stdio handshake (implementation note — verify at §12.11 build time; fallback is to require it as a CLI arg alongside the bare-server mode).
 - **Existing `claude mcp add` / `.mcp.json` entries with args other than the above shape.** Users who hand-edited their `.mcp.json` can keep it; `ta init` regenerates the canonical form but respects a pre-existing file if one already has the `ta` entry.
 
-### 14.8 Dependency additions
+### 14.10 Dependency additions
 
 - `github.com/charmbracelet/huh/v2` v2.0.3 — interactive dropdown pickers. Verified API against the v2.0.0 tag in Context7; same surface expected for v2.0.3.
