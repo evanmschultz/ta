@@ -25,11 +25,11 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.8  | Search                               | ✅    | ✅    | ✅     | ✅   |
 | 12.9  | MCP caching                          | ✅    | ✅    | ✅     | ✅   |
 | 12.10 | Dogfood migration                    | ✅    | ✅    | ✅     | ✅   |
-| 12.11 | Strip global cascade from runtime    | ✅    | —     | —      | —    |
-| 12.12 | JSON output mode                     | ✅    | —     | —      | —    |
-| 12.13 | Template library + read CLI          | ✅    | —     | —      | —    |
-| 12.14 | `ta init` project bootstrap          | ✅    | —     | —      | —    |
-| 12.14.5 | Style cleanup sweep                | ✅    | —     | —      | —    |
+| 12.11 | Strip global cascade from runtime    | ✅    | ✅    | ✅     | —    |
+| 12.12 | JSON output mode                     | ✅    | ✅    | ✅     | —    |
+| 12.13 | Template library + read CLI          | ✅    | ✅    | ✅     | —    |
+| 12.14 | `ta init` project bootstrap          | ✅    | ✅    | ✅     | —    |
+| 12.14.5 | Style cleanup sweep                | ✅    | ✅    | ✅     | —    |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 
@@ -494,6 +494,53 @@ Status: ✅ BUILD DONE @ `7853e43`. `mage check` green across all 10 packages wi
 
 **Next:** QA proof + QA falsification twins (orchestrator-spawned); §12.12 JSON output mode.
 
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS** (2026-04-22, fresh-context review of `7853e43` against V2-PLAN §12.11 / §14.2 / §14.9).
+
+- **Home-layer fully gone.** `internal/config/config.go:42-54` `Resolve` takes only `projectPath`, joins `<abs>/.ta/schema.toml`, and calls `loadSchema`. Zero `os.UserHomeDir` / ancestor walk / sentinel. Confirmed via `rg -n "UserHomeDir" internal/config/ internal/mcpsrv/` → empty.
+- **Deleted helpers absent.** `rg -n "entryStale|joinSentinel|CandidatePaths|candidatePaths" --type=go` returns empty across the tree. `config.Resolve` is the sole public entry.
+- **Cache collapsed to single entry.** `internal/mcpsrv/cache.go:25-41` uses `projectPath string` + `entry *cacheEntry` (not a map). Second-project-path binding errors with `"mcpsrv: cache is bound to project %q; cannot resolve %q (single-project-per-process)"` at lines 88-92 (RLock fast-path) + 102-106 (Lock slow-path double-check).
+- **`Config.ProjectPath` required.** `internal/mcpsrv/server.go:53-55` errors `"mcpsrv: Config.ProjectPath is required"` when empty. `TestNewRejectsEmptyConfig` at `server_test.go:1095` covers the case (4 sub-cases including `ProjectPath == ""`).
+- **Startup tolerant of missing schema.** `server.go:56-60` pre-warms via `defaultCache.Resolve` but tolerates `config.ErrNoSchema` (fresh un-init'd projects) while failing loudly on malformed bytes. `TestStartupTolerantOfMissingSchema` at `cache_test.go:327` locks in the invariant.
+- **Cascade tests gone.** `internal/config/config_test.go` has no `TestResolveCascadeMerge` / `TestResolveCloserTypeOverrides` / `TestResolveHomeIsBase` / `TestResolveHomeMergesWithAncestor`. `TestResolveIgnoresHomeLayer` at line 87 writes a schema to `$HOME/.ta/schema.toml`, points `Resolve` at an orphan root, asserts `ErrNoSchema` — this is the regression lock, and is the sole remaining legitimate `t.Setenv("HOME", ...)` in the project.
+- **`mage dogfood` simplified.** `magefile.go` `Dogfood` target (per worklog narrative) runs `mcpsrv.Create` directly on the project root, no tmpdir / HOME setenv / schema copy. Confirmed clean at HEAD.
+- **`search.Run` no longer sentinels.** `rg -n "\.ta-resolve-sentinel" --type=go` returns empty; `filepath` import absent from `internal/search/search.go` (per worklog build notes).
+- **`cmd/ta/main.go` runServe passes cwd.** Long-description drop of "cascade-merge" claim per worklog; `mcpsrv.Config.ProjectPath` = `os.Getwd()`.
+- **`ResetDefaultCacheForTest` relocated.** Now at `internal/mcpsrv/testing.go:12` (regular file, not `_test.go`) so external packages under `cmd/` can call it; Go's `_test.go` same-package visibility is satisfied.
+- **`mage check` green at HEAD.** All 12 packages ok with `-race`. No go.mod / go.sum churn surface in this commit beyond the config/cache rewrite.
+
+**Coverage gaps (non-blocking):**
+
+- **Second-project-path error branch untested.** The guard at `cache.go:88-106` returns a distinctive error when a caller asks the cache to resolve a different project than it bound on first resolve. No test exercises either the fast-path or slow-path branch. The worklog's §12.11 build notes claim the design is structural ("single-project-per-process") but there is no negative test proving the refusal. Suggest a one-line test in `cache_test.go` calling `defaultCache.Resolve(projectA)` then `defaultCache.Resolve(projectB)` and asserting the second errors with "single-project-per-process". Routes to a cleanup follow-up; not a §12.11 blocker because the error path is trivial and falls out of the struct shape.
+- **`config.Resolve` absolute-path failure.** Lines 43-45 wrap `filepath.Abs` errors — unreachable on POSIX in practice, but untested. Acceptable because triggering it requires an exotic filesystem condition.
+
+**Modernization hits flagged:** None fresh in the `0ad3379` touch set. `internal/mcpsrv/cache.go:167-176` `sourceMoved` returns `true` in both branches of the `if errors.Is(err, fs.ErrNotExist)` check — the `else` branch collapses to the same `return true`, so the inner `if` could be flattened to `if err != nil { return true }`. Stylistic only, not a modernization idiom from the §12.14.5 list.
+
+**Unused identifiers flagged:** None. `rg -n "^func [A-Z]|^const [A-Z]|^var [A-Z]"` cross-checked against call sites; every exported top-level ID is reachable (including `ResetDefaultCacheForTest`, which the `cmd/ta` tests import).
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS-WITH-FOLLOWUPS** (2026-04-22, fresh-context adversarial review of `7853e43`). 11 attacks attempted; 0 CONFIRMED blockers, 2 advisory gaps routed.
+
+- **REFUTED: home-layer survival via `UserHomeDir` back-channel.** `rg -n "UserHomeDir" internal/config/ internal/mcpsrv/ internal/search/` → empty. `internal/config/config.go:42-74` walks `<abs>/.ta/schema.toml` only. `TestResolveIgnoresHomeLayer` in `config_test.go:87` is the regression lock.
+- **REFUTED: sentinel / `joinSentinel` / `candidatePaths` / `entryStale` leftovers.** `rg -n "joinSentinel|candidatePaths|CandidatePaths|entryStale|resolve-sentinel" --type=go` empty across the module. §14 cleanup spotless.
+- **REFUTED: `mcpsrv.Config.ProjectPath` empty bypass.** `server.go:53-55` errors verbatim `"mcpsrv: Config.ProjectPath is required"`. `TestNewRejectsEmptyConfig` carries a `ProjectPath: ""` case.
+- **REFUTED: `Config.ProjectPath` required vs fresh-project conflict.** `server.go:56-60` pre-warm tolerates `config.ErrNoSchema` but rejects malformed bytes. `TestStartupTolerantOfMissingSchema` and `TestStartupRefusesMalformedCascade` lock in the binary split.
+- **REFUTED: pre-warm interferes with later cache binding.** `defaultCache.Resolve(cfg.ProjectPath)` in `New` seeds `projectPath` on both success and failure paths (cache.go:111-118). Subsequent same-path calls reuse the slot; a cross-project call errors by design.
+- **REFUTED: `runServe` cwd assumption breakage.** `cmd/ta/main.go:runServe` passes `os.Getwd()`. If an MCP client spawns `ta` with a cwd that is not the project root, pre-warm tolerates `ErrNoSchema` and the server starts; every tool call then fails loudly with `ErrNoSchema`. Matches V2-PLAN §14.9 contract — mis-configuration detected per-tool-call, not silently masked.
+- **REFUTED: symlinked project path double-resolve.** Both `config.Resolve` and `schemaCache.Resolve` use `filepath.Abs` (not `EvalSymlinks`). `/tmp/link` vs `/tmp/real` → treated as different projects. Conservative lexical comparison is the correct choice.
+- **REFUTED: cache reload on mtime-stamp regression.** `sourceMoved` at cache.go:167-176 compares `info.ModTime().Equal(entry.sourceMTime)` — any non-equal time (older OR newer) triggers reload.
+- **REFUTED: cache entry poisoning on loader error.** cache.go:111-120: on loader failure, `c.entry = nil` AND `c.projectPath = abs`. Subsequent successful resolves reuse the same slot.
+- **REFUTED: `mage dogfood` HOME-staging leftover.** `Dogfood` at `magefile.go:102-123` is a plain `mcpsrv.Create` loop against project root. No tmpdir / HOME setenv / schema copy.
+- **REFUTED: `mage install` contamination.** `Install` at `magefile.go:47-61` is dev-only with explicit "Orchestrator and subagents MUST NOT invoke it" docstring. No build or QA path in this phase invokes it.
+- **ADVISORY 2.1 (LOW) — single-project-per-process error untested.** Re-confirms Proof's coverage gap. `cache.go:88-92` and `cache.go:102-106` return a distinctive `"cache is bound to project"` error on a cross-project call. No test exercises either branch. Trivial structural error path; routed as a one-line cleanup for a future slice.
+- **ADVISORY 2.2 (LOW) — loader-error path binds the slot without a successful resolve.** cache.go:111-120 sets `c.projectPath = abs` even when the loader fails. A subsequent call against a DIFFERENT project path hits the "bound to project" guard even though the process may never have successfully resolved any schema. Intentional per single-project-per-process invariant but surprising; deserves a docstring note.
+
+**Modernization hits flagged:** None fresh on §12.11 touch set. Proof's `sourceMoved` collapse note is stylistic only, not a §12.14.5 idiom.
+
+**Unused identifiers flagged:** None new in this phase's touch set.
+
 ---
 
 ## 12.12 — JSON output mode
@@ -522,6 +569,56 @@ Status: ⏳ spawned 2026-04-22 (this turn).
 **Spec-gap note:** Project root previously had no `CLAUDE.md` / `AGENTS.md` files — the spec said to update them but they did not exist. Created both. Content is a minimal five-bullet primer; the `.ta/schema.toml` already declares an `[agents]` db whose `file = "CLAUDE.md"` so future agent-facing records can live there.
 
 **Next:** commit + QA proof + QA falsification twins (orchestrator-spawned); §12.18 README collapse.
+
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS** (2026-04-22, fresh-context review of `8802c5c` against V2-PLAN §12.12 / §14.3 / §14.8).
+
+- **`--json` flag wired on all four read commands.** `cmd/ta/commands.go:67` (`get`), line 227 (`list-sections`), line 409 (`schema`), line 457 (`search`). Each flag registered via `BoolVar` with consistent help text `"emit JSON instead of laslig-rendered output"`.
+- **JSON shapes match spec.**
+  - `get` raw-bytes: `emitGetJSON` at `commands.go:74-87` returns `{"section": "...", "bytes": "<raw>"}` when `--fields` unset.
+  - `get` fields: same function returns `{"section": "...", "fields": {...}}` when `--fields` set.
+  - `list-sections`: `commands.go:216-223` emits `{"sections": [...]}` (pre-canonicalizes nil to `[]` so JSON decode always sees an array).
+  - `schema` action=get: `runSchemaGetJSON` at `commands.go:574-613` emits `{"schema_paths": [...], "dbs": {...}}` with the registry tree; `scope` is added when non-empty; `ta_schema` scope short-circuits to `{"scope": "ta_schema", "meta_schema_toml": "..."}`.
+  - `search`: `emitSearchJSON` at `commands.go:463-475` emits `{"hits": [{"section", "bytes", "fields"}, ...]}`.
+- **JSON tests.** `TestGetCmdJSONRawBytes`, `TestGetCmdJSONFields`, `TestListSectionsCmdJSON`, `TestSchemaCmdGetJSON`, `TestSchemaCmdGetJSONMetaSchema`, `TestSearchCmdJSON` at `commands_test.go:389` / `420` / `448` / `482` / `509` / `536`. Each parses stdout through `encoding/json` and asserts the documented keys. Top-level shape verified.
+- **`MAGEFILE_JSON=1` honored.** `magefile.go:128-135` `Test` appends `-json` when `jsonMode()` is truthy; `magefile.go:140-150` `Cover` does the same on the test step (tool-cover digest stays text, documented). `jsonMode()` at line 153-156 treats `""`, `"0"`, `"false"` as off; any other value is on. `Check` at line 201-208 calls `Test` directly so `MAGEFILE_JSON=1 mage check` threads through.
+- **MCP surface untouched.** `git show 8802c5c --stat` confirms zero files under `internal/mcpsrv/` in the diff. Preserves the spec contract that `--json` is CLI-only; MCP already returns JSON.
+- **CLAUDE.md + AGENTS.md at project root.** Both files present, byte-identical content, five bullets including `ta <read-command>` MUST pass `--json` and `mage <target>` MUST set `MAGEFILE_JSON=1`. Content maps 1:1 to V2-PLAN §14.8 four-bullet agent guidance (plus one extra bullet documenting which commands accept `--json`).
+- **Backward-compat.** Laslig rendering tests pre-dating `8802c5c` still pass (worklog smoke-verified via `mage check` green at HEAD). `--json` is purely additive.
+- **Additive flag correctness.** `--json` + `--fields` combo exercised by `TestGetCmdJSONFields`; `--json` on schema get with no scope covered by `TestSchemaCmdGetJSON`; `--json` on schema get with `ta_schema` scope covered by `TestSchemaCmdGetJSONMetaSchema`. No cross-flag interaction landmines exposed.
+
+**Coverage gaps (non-blocking):**
+
+- **`ta search --json` hit-array empty case untested.** `TestSearchCmdJSON` asserts the structure on a positive match. A run producing zero hits emits `{"hits": null}` because `make([]map[string]any, 0)` on `len(hits)==0` becomes `[]` only if `len(hits)` is known > 0 at allocation — actually `make([]map[string]any, 0)` yields a non-nil slice encoded as `[]`. Looking at `emitSearchJSON`: `out := make([]map[string]any, len(hits))` → when `len(hits)==0` this is `[]map[string]any{}` (non-nil zero-length). JSON encoding yields `"hits":[]`. OK, covered by construction. Non-issue; recording the trace.
+- **`ta list-sections --json` on a parse-error file untested.** The non-JSON branch wraps the error; the JSON branch uses the same path (the JSON switch happens after the `toml.Parse` check at commands.go:208-215). An error still propagates to the caller without JSON envelope. Spec-consistent — errors are delivered as process exit codes + stderr, not as JSON objects — but the test matrix could lock that in with a negative test.
+- **`MAGEFILE_JSON` edge-cases.** `jsonMode()` treats `"0"` and `"false"` as false but not `"no"`, `"off"`, `"False"`. No test drives the parser. Low risk — the envar is docs-only for agents and agents pass `1` per CLAUDE.md.
+
+**Modernization hits flagged:** None in the §12.12 diff. `cmd/ta/commands.go:679` `body := "# ta_schema — embedded meta-schema\n\n```toml\n" + schema.MetaSchemaTOML + "```\n"` string concatenation is fine as-is.
+
+**Unused identifiers flagged:** None. All new helpers (`emitGetJSON`, `emitSearchJSON`, `runSchemaGetJSON`, `schemaDBsToJSON`, `schemaTypesToJSON`, `jsonMode`) have call sites in the same commit.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS-WITH-FOLLOWUPS** (2026-04-22, fresh-context adversarial review of `8802c5c`). 9 attacks attempted; 0 CONFIRMED blockers, 2 advisory gaps routed.
+
+- **REFUTED: `--json` silently toggles off on mutating commands.** `newCreateCmd` / `newUpdateCmd` / `newDeleteCmd` do NOT register a `--json` flag — matches spec "mutating commands return a concise laslig success notice on both surfaces." `rg -n "\"json\"" cmd/ta/commands.go` shows flag registration only on `newGetCmd:67`, `newListSectionsCmd:227`, `newSchemaCmd:409`, `newSearchCmd:457`. Aligns with CLAUDE.md / AGENTS.md 2nd bullet.
+- **REFUTED: `ta get --json --fields` shape ambiguity.** `emitGetJSON` at `commands.go:74-87` branches on the `haveFields` flag passed from the caller (commands.go:52: `len(fields) > 0`). `TestGetCmdJSONFields` at `commands_test.go:420` locks in `{"section", "fields"}` shape; `TestGetCmdJSONRawBytes` at 389 locks in `{"section", "bytes"}`. No collapse into one shape.
+- **REFUTED: `ta list-sections --json` on empty file returns `null`.** `commands.go:218-222` pre-canonicalizes `paths = []string{}` when nil so `encoding/json` emits `[]` not `null`. Subtle but correct.
+- **REFUTED: `ta list-sections --json` on parse-error non-existent file double-emits.** `commands.go:208-215`: `toml.Parse` returns `ErrNotExist` → silently treated as empty (paths nil), then emitted as `[]`. Non-`ErrNotExist` parse errors propagate loudly — no JSON envelope on error, error path exits via cobra's stderr route. Spec-consistent; errors are process-level, not JSON-wrapped.
+- **REFUTED: MCP surface regression.** `git show 8802c5c --stat` confirms zero files under `internal/mcpsrv/`. MCP tool output identical pre/post.
+- **REFUTED: `MAGEFILE_JSON` truthy/falsy edge cases.** `jsonMode()` at `magefile.go:153-156` treats `""`, `"0"`, `"false"` as off. Any other value (`"1"`, `"true"`, `"yes"`, `"no"`, `"False"`) is on. `MAGEFILE_JSON=no` → JSON mode ON, which is counter-intuitive but harmless (agents pass `1` per CLAUDE.md). Non-blocking naming quirk.
+- **REFUTED: `mage check` does not thread `MAGEFILE_JSON`.** `Check` at `magefile.go:201-208` calls `Test` directly, and `Test` reads `jsonMode()` at invocation time. So `MAGEFILE_JSON=1 mage check` threads through. Fmt, FmtCheck, Vet, and Tidy stay text-mode per spec (lines 159-198 have no `jsonMode()` call) — matches "only the test-runner step" contract.
+- **REFUTED: agent-facing docs drift.** `CLAUDE.md` and `AGENTS.md` are byte-identical across their 5 bullets. Both declare the `--json` + `MAGEFILE_JSON=1` rules; bare `ta` without a TTY is the MCP server. No drift.
+- **REFUTED: `--json` on `ta schema` action=create|update|delete silently emits JSON.** `newSchemaCmd` at `commands.go:374-400` only routes through `runSchemaGetJSON` when `action == "" || action == "get"`. Mutating actions ignore `asJSON` and emit the laslig success notice — matches CLAUDE.md bullet 2.
+- **ADVISORY 2.1 (LOW) — `MAGEFILE_JSON` on `mage cover` tool-step stays text, undocumented in CLAUDE.md.** `Cover` at `magefile.go:140-150` only threads `-json` through the `go test` step; the subsequent `go tool cover -func=coverage.out` is always text. The docstring at line 139 notes this but CLAUDE.md does not. Not a bug — agents that run `mage cover` need to know the cover-tool step is text. Routed as a CLAUDE.md doc-nit, not a blocker.
+- **ADVISORY 2.2 (LOW) — `ta search --json` hits-array typing.** `emitSearchJSON` at `commands.go:463-475` uses `make([]map[string]any, len(hits))` which yields `[]` even on zero hits. Good, but no negative-case test locks this in (Proof's gap). LOW; routed for cleanup.
+- **REFUTED: `ta schema --json ta_schema` leaks multiple keys.** `runSchemaGetJSON` at `commands.go:574-582` short-circuits with exactly `{"scope": "ta_schema", "meta_schema_toml": "..."}` — no `schema_paths` / `dbs` bleed. `TestSchemaCmdGetJSONMetaSchema` at `commands_test.go:509` locks the shape.
+- **REFUTED: raw-`go`-invocation slip.** `rg -n "^\s*go (build|test|vet|run) " magefile.go .github/` returns mage-shelled calls only (via `run("go", ...)`), all inside mage targets. No agent-facing doc or script bypasses mage.
+
+**Modernization hits flagged:** None in the §12.12 diff. `emitGetJSON` / `emitSearchJSON` / `runSchemaGetJSON` / `schemaDBsToJSON` / `schemaTypesToJSON` all use idiomatic 1.26 patterns already.
+
+**Unused identifiers flagged:** None new. Pre-existing `_ = dbDecl` at `commands.go:152` inside `buildRenderFields` — the helper returns `(dbDecl, typeSt, err)` but only `typeSt` is used at that site (and at `commands.go:487`). Both callers ignore `dbDecl`. Suggest dropping the first return from `lookupDBAndType` or inlining. LOW standing-QA-concern item; not §12.12-introduced.
 
 ---
 
@@ -557,6 +654,60 @@ Status: BUILD DONE @<PAIR-B-12.13>. QA twins pending.
 
 **Next:** §12.14 (`ta init`) stacks on this foundation; QA twins run after §12.14 lands per Pair B cadence.
 
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS** (2026-04-22, fresh-context review of `dcaeb27` against V2-PLAN §12.13 / §14.2 / §14.6 / §14.7).
+
+- **Firewall verified live.** Ran `go list -deps ./internal/templates | rg "ta/internal/"` → returns exactly `internal/fsatomic`, `internal/schema`, `internal/templates` (self). No `internal/config`, no `internal/mcpsrv/*`. Spec contract from §14.2 honored 1:1.
+- **`internal/fsatomic/fsatomic.go`.** New package, `Write(path, data)` helper. Same-dir tempfile + `os.Rename` atomic swap. Error prefix `"fsatomic: ..."` consistent. `internal/backend/toml.WriteAtomic` preserved unchanged per worklog's scope note.
+- **`internal/templates/templates.go`.** `Root()`, `List(root)`, `Load(root, name)`, `Save(root, name, data)`, `Delete(root, name)` all match the §14.2 / §14.6 contract. `SetRootForTest(dir)` returns a restore closure — lets tests inject a `t.TempDir()` without `t.Setenv("HOME", ...)` (preserves §12.11 discipline).
+- **Save validates BEFORE write.** `templates.go:120-134`: `schema.LoadBytes(data)` runs first; only on success does `fsatomic.Write` fire. A malformed payload cannot clobber a pre-existing valid template.
+- **Load validates on read.** `templates.go:100-113`: `os.ReadFile` then `schema.LoadBytes`; parse errors wrap with the absolute file path per §14.6.
+- **List missing-root contract.** `templates.go:69-94`: missing root returns `(nil, nil)` (not error), so `ta template list` is quiet on fresh installs. Hidden files (`.`-prefixed) and non-`.toml` files filtered out.
+- **CLI subcommands.** `cmd/ta/template_cmd.go` registers `newTemplateCmd` with `newTemplateListCmd` + `newTemplateShowCmd`. Both have `Example` fields per §14.7 ("ta template list\n  ta template list --json" and "ta template show schema\n  ta template show dogfood --json").
+- **`list --json` shape.** `template_cmd.go:51-58`: emits `{"templates": [...]}`. Nil-to-empty canonicalization ensures JSON decode sees an array.
+- **`show --json` shape.** `template_cmd.go:86-93`: emits `{"template": "<name>", "bytes": "<raw>"}` — matches spec.
+- **Show human path goes through glamour.** `renderTemplateBody` at `template_cmd.go:103-110` wraps bytes in `"# <name>\n\n```toml\n...\n```\n"` and routes through `render.Renderer.Markdown`.
+- **`mcp.New` / `defaultCache` not linked from templates.** The firewall test confirms this structurally. Corollary: `ta template show` does NOT pre-warm the project schema cache.
+- **Tests.** `internal/templates/templates_test.go` hosts ten templates-package tests (list empty / sort / filter / load happy / load malformed / load missing / save validates before write / save creates root / save empty name / delete happy / delete missing / Root-default / SetRootForTest). `cmd/ta/template_cmd_test.go` hosts seven CLI tests (list default + JSON + empty, show default + JSON + missing errors). `internal/fsatomic/fsatomic_test.go` hosts five happy/edge tests (happy, empty path errors, overwrite, missing dir errors, temp-file-leak guard).
+- **Save/Apply/Delete CLI wiring deferred.** Spec correctly notes `save`/`apply`/`delete` land in §12.15/§12.16. Not a §12.13 gap.
+- **`mage check` green at HEAD** (12 packages `-race`).
+
+**Coverage gaps (non-blocking):**
+
+- **`fsatomic.Write` failure rollback not tested.** If `os.Rename` fails after the tempfile is fsync'd, the tempfile stays on disk as orphan state. The worklog claims a "temp-file-leak guard on success" test exists but not one for the rename-failure path (which requires fault injection). Suggest routing to a future cleanup; low severity because `os.Rename` same-dir failure is rare.
+- **`templates.Save` overwrite preserving existing content on validate-fail.** The worklog claims the test proves a "pre-existing valid file survives a malformed save attempt." Verified by reading the test file — the assertion set looks complete. No gap here; flagging only as a contract I cross-checked.
+- **`ta template show <malformed>`.** `Load` wraps the parse error with file path — covered by `TestLoadMalformedSurfacesParseError`. The CLI `show` path inherits this, but there's no explicit CLI negative test that a malformed template in the library produces a readable error. Minor — the wrapping happens in the library layer so the CLI path gets it transitively.
+
+**Modernization hits flagged:** None in the `dcaeb27` touch set. `templates.go:86` already uses `strings.CutSuffix` (landed idiomatic from day one). `template_cmd.go:103-109` concatenates with `+=` then `fmt.Sprintf` — could be written as a single `fmt.Sprintf` but that's style, not a §12.14.5 pattern.
+
+**Unused identifiers flagged:** None. Every `internal/templates` export is consumed — `Root`, `List`, `Load`, `Save`, `Delete` via the CLI or `ta init`; `SetRootForTest` only from tests (documented test-only indirection).
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS-WITH-FOLLOWUPS** (2026-04-22, fresh-context adversarial review of `dcaeb27`). 10 attacks attempted; 0 CONFIRMED blockers, 1 advisory hardening note routed.
+
+- **REFUTED: firewall bypass via transitive import.** `go list -deps ./internal/templates | rg "evanmschultz/ta/internal"` returns exactly `internal/fsatomic`, `internal/schema`, `internal/templates`. Attempted to reason about adding a test-util that imports `internal/config` → would break the firewall because `internal/templates` and `internal/templates_test` share the same `go list -deps` output. Firewall is enforced by Go's package-graph, not convention. REFUTED.
+- **REFUTED: `templates.Save` can clobber a valid file with malformed bytes.** `templates.go:120-134`: `schema.LoadBytes(data)` runs BEFORE `os.MkdirAll` + `fsatomic.Write`. A malformed payload never touches disk. `fsatomic.Write` at line 131 itself uses same-dir temp + rename — even mid-write process death can't truncate the target. Save-fail-preservation is guaranteed by construction.
+- **REFUTED: `templates.Save` race vs concurrent reader.** Two goroutines calling `Save` with conflicting bytes — both validate, both write their own temp, both rename. Last rename wins, no truncation. Readers (`Load`) open a fresh fd each call, so a reader either sees the OLD contents or the NEW contents, never a mixed view. Good atomic-swap invariant.
+- **REFUTED: validation-gate skip on empty bytes.** `Save(root, name, []byte{})` → `schema.LoadBytes([]byte{})` runs; depending on `schema.LoadBytes` it may accept empty as zero-dbs or reject. Either way the validation gate IS invoked. Not a bypass surface.
+- **REFUTED: `List` returns unsorted on macOS.** `templates.go:77-93` calls `sort.Strings(out)` before return. Directory iteration order is platform-dependent but the explicit sort erases the nondeterminism.
+- **REFUTED: hidden file + valid-`.toml`-extension trick.** `.foo.toml` → `HasPrefix(".")` filter (templates.go:83) excludes. `foo..toml` → `CutSuffix(".toml", "")` returns base `foo.`, so name "foo." — matches filesystem literal. Not a name-smuggling vector.
+- **REFUTED: `Root()` TOCTOU with `SetRootForTest`.** `SetRootForTest` is documented as test-only. The `rootFn` package var is a plain function pointer — non-atomic write. Parallel tests mutating it would race under `-race`; the `t.Cleanup(restore)` pattern in `init_cmd_test.go:23` serializes access within one test. Accepted — tests that want to run in parallel must synchronize externally; documented via the "tests only" caveat.
+- **REFUTED: `ta template show --json` on a malformed template leaks bytes.** `Load` at `templates.go:100-113` runs `schema.LoadBytes` validation before returning bytes. A malformed template errors loudly at Load time; the CLI `show` path never sees the bytes. Fail-loudly contract intact.
+- **REFUTED: `fsatomic.Write` leaks tempfile on write error.** `fsatomic.go:32-48`: every error branch after `CreateTemp` either renames OR removes the tempfile. Walk:
+  - `tmp.Write` fails: `tmp.Close()` + `os.Remove(tmpPath)` + return error.
+  - `tmp.Sync` fails: same cleanup path.
+  - `tmp.Close` fails: `os.Remove(tmpPath)` + return error.
+  - `os.Rename` fails: `os.Remove(tmpPath)` + return error.
+  No leak surface absent disk faults that also break `os.Remove` — in which case the caller has bigger problems.
+- **REFUTED: `go list -deps` false-positive via embed or vendor.** No `//go:embed` in `internal/templates/`; no vendor dir; module is pure external deps. The firewall claim is structural.
+- **ADVISORY 2.1 (LOW) — `fsatomic.Write` directory-mode-writability race.** If `dir` is created by the caller with `0o755` and the process drops privileges mid-write, `os.CreateTemp` fails. `os.Remove(tmpPath)` fails too. Tempfile would leak. Edge case; privileges don't get dropped mid-`ta template save` in practice. Flagged for docstring clarification, not a bug.
+
+**Modernization hits flagged:** None new in the `dcaeb27` touch set. `templates.go:86` already uses `strings.CutSuffix`. `fsatomic.go` is already idiomatic.
+
+**Unused identifiers flagged:** None. `rootFn` is intentionally package-scoped for test injection. `SetRootForTest` returns a `restore` closure that each test binds. Clean.
+
 ---
 
 ## 12.14 — `ta init` project bootstrap
@@ -591,6 +742,77 @@ Status: BUILD DONE @<PAIR-B-12.14>. QA twins pending.
 - Golden-file tests lock in byte-stable `.mcp.json` and `.codex/config.toml` so any downstream regression is loud.
 
 **Next:** §12.14.5 stdlib-modernization sweep (orchestrator-direct pass per V2-PLAN), then Pair C (§12.15 template save / §12.16 huh root menu). QA twins for §12.13 + §12.14 run after this commit lands.
+
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS-WITH-FOLLOWUPS** (2026-04-22, fresh-context review of `aa2808b` against V2-PLAN §12.14 / §14.3 – §14.5 / §14.7).
+
+- **`ta init` registered.** `cmd/ta/main.go` adds `newInitCmd()` to `newRootCmd` (per worklog; confirmed via `rg -n "newInitCmd" cmd/ta/main.go`).
+- **Absolute path required.** `resolveInitPath` at `init_cmd.go:114-127`: with no arg, defaults to cwd; with an arg, requires `filepath.IsAbs` or errors `"init: path must be absolute; got %q"`. `TestInitCmdRelativePathErrors` at `init_cmd_test.go:225` locks the invariant.
+- **Target auto-created.** `runInit` at `init_cmd.go:134` does `os.MkdirAll(target, 0o755)`. `TestInitCmdCreatesMissingTarget` at line 255 covers.
+- **`--template` non-interactive writes byte-identical template bytes.** `chooseSchema` at `init_cmd.go:187-234` short-circuits on `--template`, calls `loadTemplate` which reads through `templates.Load` (which validates via `schema.LoadBytes`). `writeSchema` at line 275-300 then calls `fsatomic.Write(schemaPath, data)` with the raw template bytes — no re-serialization. Template bytes land verbatim. Locked in by `TestInitCmdTemplateJSONNoMCP` which asserts `[plans.task]` substring presence.
+- **`.mcp.json` golden.** `TestInitCmdTemplateWritesBothMCPConfigs` at line 86 asserts byte-exact equality:
+  ```
+  {
+    "mcpServers": {
+      "ta": {
+        "args": [],
+        "command": "ta",
+        "env": {}
+      }
+    }
+  }
+  ```
+  (keys alphabetized by `json.MarshalIndent`; matches V2-PLAN §14.4 shape modulo key order, which is semantically irrelevant for JSON consumers).
+- **`.codex/config.toml` golden.** Same test asserts byte-exact `"[mcp_servers.ta]\ncommand = \"ta\"\nargs = []\n"` matches V2-PLAN §14.4 verbatim.
+- **`--blank`.** `chooseSchema` at `init_cmd.go:188-190`: returns `blankSchemaBody = "# ta schema — ready for declarations\n"`. `TestInitCmdBlankWritesHeader` covers.
+- **`--force` vs existing schema.** `writeSchema` at lines 279-295 errors if the schema exists, unless `--force` (overwrite) or interactive `huh.Confirm` returns true. `TestInitCmdExistingSchemaWithoutForceErrors` + `TestInitCmdExistingSchemaWithForceOverwrites` cover both branches and assert the "without force" path leaves the file byte-identical.
+- **`.ta/config.toml` opt-ins work.** `readBootstrapConfig` at `init_cmd.go:356-370` reads `<target>/.ta/config.toml` (optional — absent → zero-value). `effectiveMCPToggles` at line 379-394 merges CLI flags > bootstrap config > defaults (`true`/`true`). `TestInitCmdBootstrapConfigSuppressesClaude` at line 201 writes `claude = false, codex = true` into bootstrap config and asserts `.mcp.json` is suppressed while `.codex/config.toml` is written.
+- **Pre-existing `ta` entry in `.mcp.json` preserved byte-identically.** `mergeClaudeMCP` at `init_cmd.go:430-480`: when `mcpServers.ta` exists, returns `(nil, false, nil)` — no write. `TestInitCmdPreservesExistingTaEntryInMCPJSON` at line 269 asserts the pre-existing file string matches exactly.
+- **Pre-existing non-`ta` entries in `.mcp.json` survive.** `mergeClaudeMCP` adds `ta` via `servers["ta"] = canonical` without touching `other`. `TestInitCmdMergesTaEntryIntoExistingMCPJSON` at line 297 asserts `other` survives and `ta` is added.
+- **Pre-existing `[mcp_servers.ta]` block in `.codex/config.toml` preserved byte-identically.** `mergeCodexMCP` at `init_cmd.go:517-541` + `containsTable` at line 546-555: when the block is detected, returns `(nil, false, nil)` — no write. `TestInitCmdPreservesExistingCodexTaBlock` at line 333 asserts the pre-existing file string matches exactly, including a pre-existing sibling `[mcp_servers.other]` block.
+- **Pre-existing non-`ta` blocks survive merge via string-level append.** `mergeCodexMCP` appends `canonicalCodexBlock` verbatim after existing content — avoids go-toml round-trip reformat. `TestInitCmdMergesTaBlockIntoExistingCodexConfig` at line 354 asserts both blocks present.
+- **Non-interactive without template errors.** `chooseSchema` at `init_cmd.go:202-211`: when not on TTY and no `--template` / `--blank` / bootstrap default, errors `"init: no template selected; pass --template <name>, --blank, or run on a TTY for the picker"`. `TestInitCmdNonInteractiveWithoutTemplateErrors` covers.
+- **Missing template errors.** `loadTemplate` → `templates.Load` returns a wrapped file error. `TestInitCmdMissingTemplateErrors` at line 236 covers.
+- **huh dependencies.** `charm.land/huh/v2 v2.0.3` and `github.com/charmbracelet/x/term v0.2.2` promoted to direct in `go.mod`.
+- **TTY detection.** `interactive()` at `init_cmd.go:399-404` uses `term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())` and short-circuits on `f.nonInterRq` (set when any `--template` / `--blank` flag was passed). Tests use `cmd.SetIn(bytes.NewReader(nil))` to force non-TTY stdin.
+- **`mage check` green at HEAD** (12 packages `-race`).
+- **Firewall preserved.** `go list -deps ./internal/templates | rg "ta/internal/"` still returns exactly `internal/fsatomic` + `internal/schema` + `internal/templates` at HEAD (confirmed live).
+
+**Coverage gaps (non-blocking, routed as follow-ups):**
+
+- **Codex merge byte-identity for preserved sibling block asserted only via `strings.Contains`.** `TestInitCmdMergesTaBlockIntoExistingCodexConfig` at line 371 checks `strings.Contains(s, "[mcp_servers.other]")` — not byte-identical. The implementation preserves original bytes verbatim (read → `if containsTable ... else append`); a regression that reformatted the preserved block would not be caught. Suggest asserting `strings.HasPrefix(s, existing)` so the original region is locked in byte-wise while leaving the appended block free to drift. Low severity — the `Preserves` test (strict equality) covers the case where `[mcp_servers.ta]` is pre-present.
+- **`maybeWriteClaudeMCP` fsatomic rollback on write failure.** Post-merge JSON is written via `fsatomic.Write(path, merged)` at `init_cmd.go:421-423`. A rename-failure path isn't fault-injected; the helper's rollback semantics inherit from `fsatomic.Write`. Routes to the fsatomic follow-up noted in §12.13 review.
+- **`chooseSchema` bootstrap `default_template` off-TTY path partially tested.** `TestInitCmdBootstrapConfigSuppressesClaude` exercises the `claude = false` MCP path but not the `default_template = "schema"` off-TTY short-circuit. The logic at `init_cmd.go:202-210` reads the default, calls `loadTemplate`, and proceeds. No negative test that exercises "bootstrap default is set but points at a missing template." Suggest adding one.
+- **huh picker paths.** `pickTemplate`, `promptMCPToggles`, `confirmOverwrite` are TTY-only and untested. Acceptable — `huh` itself is a third-party library and testing interactive forms requires a pty harness.
+- **`readBootstrapConfig` malformed TOML.** Lines 365-368 wrap `toml.Unmarshal` errors but no test exercises a malformed `.ta/config.toml`. Low severity.
+
+**Modernization hits flagged:** `init_cmd.go:536-539` uses two sequential `strings.HasSuffix`/`+=` patterns to ensure blank-line separation before the appended codex block. Could collapse into one `body = strings.TrimRight(body, "\n") + "\n\n"` statement, but the current form is readable. Non-mechanical; ignore.
+
+**Unused identifiers flagged:** None. Every symbol in `init_cmd.go` (constants `blankSchemaBody`, `blankTemplateChoice`, `claudeMCPFileName`, `codexMCPDir`, `codexMCPFile`, `canonicalCodexBlock`, functions `newInitCmd`, `resolveInitPath`, `runInit`, `chooseSchema`, `loadTemplate`, `pickTemplate`, `writeSchema`, `confirmOverwrite`, `promptMCPToggles`, `readBootstrapConfig`, `bootCfgHasMCPKeys`, `effectiveMCPToggles`, `interactive`, `maybeWriteClaudeMCP`, `mergeClaudeMCP`, `maybeWriteCodexMCP`, `mergeCodexMCP`, `containsTable`, `emitInitReport`, `writeLabel`) has a call site within the file or via `cmd/ta/main.go`'s `newRootCmd`.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS-WITH-FOLLOWUPS** (2026-04-22, fresh-context adversarial review of `aa2808b`). 14 attacks attempted; 2 CONFIRMED follow-ups (MEDIUM + LOW), 1 advisory note.
+
+- **CONFIRMED 2.1 (MEDIUM) — `containsTable` misses valid-TOML whitespace variations.** `init_cmd.go:546-555` compares `strings.TrimSpace(line) == "[mcp_servers.ta]"` exactly. Per TOML v1.0.0 spec, `[ mcp_servers.ta ]`, `[mcp_servers . ta]`, and `[mcp_servers."ta"]` are all valid, equivalent declarations of the same table. A hand-edited `.codex/config.toml` containing any of these variants would NOT be detected as pre-existing, so `mergeCodexMCP` would append a duplicate canonical `[mcp_servers.ta]` block — producing a TOML-invalid file (duplicate table definition). **Reproduction:** seed `<target>/.codex/config.toml` with body `"[ mcp_servers.ta ]\ncommand = \"custom-ta\"\n"`, run `ta init <target> --template schema --no-claude --force`, read the resulting file → two `[mcp_servers.ta]`-equivalent tables, TOML parse error on the next Codex boot. The spec-stated goal ("preserves pre-existing TOML byte-identically") is violated for the intra-bracket-whitespace case. Fix: parse via go-toml's lexer just enough to enumerate table headers, or add a lenient normalizer (`strings.ReplaceAll(trim, " ", "")` check as secondary pass). Tests in `init_cmd_test.go` only exercise the canonical `[mcp_servers.ta]` form.
+- **CONFIRMED 2.2 (LOW) — `--json` on a TTY still fires the huh picker.** `init_cmd.go:94` sets `f.nonInterRq = f.template != "" || f.blank`. `--json` alone (no `--template` / `--blank`) with stdin/stdout both TTYs → `interactive` returns `true` → `pickTemplate` fires a huh form, blocks on user input, THEN emits JSON. Agents invoking `ta init --json` expect non-interactive behavior (CLAUDE.md: "All `ta <read-command>` invocations from agents MUST pass `--json`"). Even though `ta init` is a mutating command not a read command, an agent's intent in passing `--json` is "I am not a human." **Reproduction:** from a TTY, run `ta init /tmp/x --json` — huh picker appears. Fix: `f.nonInterRq = f.template != "" || f.blank || f.asJSON`. Severity LOW because no existing agent runbook in this drop calls `ta init` with `--json`; it's a latent footgun for V2-PLAN §14.8 agent-facing workflows that may land in §12.15+.
+- **REFUTED: relative-path silently resolves.** `init_cmd.go:114-127` `resolveInitPath` errors with `"init: path must be absolute; got %q"` on relative arg. `TestInitCmdRelativePathErrors` locks it in.
+- **REFUTED: `mergeClaudeMCP` on existing `ta` entry clobbers.** `init_cmd.go:468-470`: `if _, exists := servers["ta"]; exists { return nil, false, nil }`. Returns `changed=false`, callee `maybeWriteClaudeMCP` skips the write. `TestInitCmdPreservesExistingTaEntryInMCPJSON` at `init_cmd_test.go:269` locks it in (exact bytes unchanged).
+- **REFUTED: `mergeClaudeMCP` on non-map `mcpServers` value.** Lines 464-467: type-assertion `serversAny.(map[string]any)` with `!ok` returns a loud error `"mcpServers must be a JSON object"`. Matches fail-loudly preference.
+- **REFUTED: `mergeClaudeMCP` on empty-bytes `.mcp.json`.** `json.Unmarshal([]byte{}, &doc)` errors with `"unexpected end of JSON input"`, propagates as `"parse %s"`. Loud.
+- **REFUTED: `writeSchema` atomic-rollback on existing file.** `init_cmd.go:278-298`: if existing, force check → interactive confirm (TTY) → error off-TTY. `fsatomic.Write` at line 296 is the only write path. Tempfile + rename isolates in-flight writes from readers.
+- **REFUTED: `ta init --template missing` silent success.** `loadTemplate` at `init_cmd.go:236-242` routes through `templates.Load` which errors with `"templates: read %s"` on `os.IsNotExist`. Propagates loudly. `TestInitCmdMissingTemplateErrors` locks it in.
+- **REFUTED: `ta init` on a symlinked `<path>` arg.** `resolveInitPath` does `filepath.Clean`, not `EvalSymlinks`. `os.MkdirAll` follows symlinks on POSIX. Target dir may be the link's target; schema lands there. Not a footgun — standard POSIX symlink semantics.
+- **REFUTED: `effectiveMCPToggles` precedence bug.** `init_cmd.go:379-394`: CLI flags override bootstrap-config override defaults (true/true). Order honored correctly. `TestInitCmdBootstrapConfigSuppressesClaude` proves `claude = false` wins.
+- **REFUTED: `bootstrapConfig` TOML unmarshal of junk fields.** `readBootstrapConfig` silently ignores unknown fields (go-toml default). Acceptable — a forward-compat surface rather than strict.
+- **REFUTED: huh TTY detection uses wrong fd.** `init_cmd.go:399-404` `interactive` checks `term.IsTerminal(os.Stdin.Fd())` AND `term.IsTerminal(os.Stdout.Fd())`. Mixing real-TTY + non-TTY-stdout (e.g. tee-to-file) correctly drops to non-interactive mode. Good.
+- **REFUTED: init_cmd_test uses `SetIn(bytes.NewReader(nil))` to force non-interactive but `interactive` reads `os.Stdin`.** `runInitCmd` helper at `init_cmd_test.go:37` sets cobra-level stdin; `interactive` checks `os.Stdin.Fd()` directly. Because `go test` stdin is NOT a TTY, `term.IsTerminal(os.Stdin.Fd())` returns false. Tests avoid huh by OS-level stdin-not-TTY, not by the helper's cobra override. Subtle but not a bug — just a note that the helper's `SetIn` is currently load-bearing-by-coincidence.
+- **REFUTED: `canonicalCodexBlock` TOML mis-escape.** Line 509: `"[mcp_servers.ta]\ncommand = \"ta\"\nargs = []\n"`. Parses cleanly: `[mcp_servers.ta]` table with `command = "ta"` and `args = []` array. No escape issues.
+
+**Modernization hits flagged:** None fresh in `aa2808b`. The `strings.HasSuffix(body, "\n")` + `strings.HasSuffix(body, "\n\n")` pair at `init_cmd.go:530-538` could be collapsed to `body = strings.TrimRight(body, "\n") + "\n\n"`, as Proof noted; not a §12.14.5 stdlib idiom — style-only.
+
+**Unused identifiers flagged:** None in `aa2808b` touch set. Pre-existing `lookupDBAndType`'s ignored `dbDecl` return (see §12.12) persists but is not §12.14-introduced.
 
 ---
 
@@ -637,3 +859,73 @@ Status: BUILD DONE @<PAIR-12.14.5>. QA pair pending.
 **Standing QA concern activated.** Per V2-PLAN §12.14.5, every QA spawn prompt from this step forward (starting with the Pair A+B+§12.14.5 parallel burst) includes the line: *"Also scan the files you touch for new stdlib-modernization opportunities (CutSuffix, SplitSeq, maps.Copy, bytes.Cut, range-over-int, WaitGroup.Go, strings.Cut) and unused identifiers (const/var/func); flag them in your report for the next orchestrator cleanup sweep."*
 
 **Next:** parallel QA burst covering commits `7853e43` (§12.11) → `<PAIR-12.14.5-SHA>` (§12.14.5). Both `go-qa-proof-agent` and `go-qa-falsification-agent` spawned at once, each reviewing the full four-phase commit range plus scanning for new style hits.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS** (2026-04-22, fresh-context adversarial review of `0ad3379`). 13 attacks attempted; 0 CONFIRMED counterexamples.
+
+- **REFUTED: `strings.CutSuffix` in `search.go:trimGlob` drifts from pre-modernization behaviour.** OLD: `HasSuffix(s, "-*")` → `TrimSuffix(s, "-*") + "-"`. NEW: `CutSuffix(s, "-*")` → `trimmed + "-"`. Input `"foo-*"` → old: `"foo-"`, new: `"foo-"`. Input `"foo"` (no `-*` suffix) → old: falls through to `TrimSuffix(s, "*")`; new: falls through to same `TrimSuffix(s, "*")`. Identical. REFUTED.
+- **REFUTED: `strings.SplitSeq("", ".")` returns empty vs single-empty-string drift.** `strings.Split("", ".")` yields `[""]` — one empty element. `strings.SplitSeq("", ".")` iterates once with `""`. Same semantics. `search.go:walkTOMLPath` with empty `backendAddr` → one iteration with `seg=""`, `cursor[""]` probably misses, returns empty map. `init_cmd.go:containsTable` with empty `doc` → one iteration with `""`, TrimSpace `""`, not equal to `"[header]"`. Returns false. Identical to OLD. REFUTED.
+- **REFUTED: `maps.Copy` shallow-copy semantics differ from manual loop.** Both are shallow copies (destination gets same pointer values as source for any nested pointers/slices/maps). Identical for the use case. REFUTED.
+- **REFUTED: `strings.Cut` edge cases drift.** Verified `firstSegment`, `splitFirstTwo`, `splitTwo`, `dbFormatFor`, `levelForRelative`, `stripHeadingLine` (both bytes and strings variants). Each OLD vs NEW case walked through mentally: empty input, no-delim input, single-delim input, multi-delim input. All preserved. See detailed trace for `splitFirstTwo` in phase analysis. REFUTED.
+- **REFUTED: `for range N` with N=0 iterates.** Go spec: `for range N` (integer) is equivalent to `for i := 0; i < N; i++`. N=0 → zero iterations. Matches OLD. REFUTED for `slug.go:kebabCase`, `md/backend.go:Emit` (level=0 case), `cache_test.go:TestCacheConcurrentReadersAreSafe`.
+- **REFUTED: `sync.WaitGroup.Go` not available at go 1.25.** `go.mod` declares `go 1.26.2`; `WaitGroup.Go` is present since 1.25. Verified `go.mod` line 3. REFUTED.
+- **REFUTED: `slices.Contains` on nil slice panics.** `slices.Contains(nil, "x")` returns false, same as the OLD scan loop. `init_cmd.go:pickTemplate` passes `names` which is `[]string` (may be nil if `templates.List` missing-root short-circuits to `nil, nil`). Both OLD and NEW treat nil as "not found" → `choice` stays empty → huh form runs. Identical. REFUTED.
+- **REFUTED: `strings.Cut` on `firstSegment("")`.** OLD outer loop didn't enter, returned empty. NEW `strings.Cut("", ".")` returns `("", "", false)`. Both yield `""`. REFUTED.
+- **REFUTED: `splitFirstTwo(".")`.** OLD: i=0, first="", remainder="", inner loop no-op, second="", rest="" → `("", "", "")`. NEW: `Cut(".", ".")` = `("", "", true)`; `Cut("", ".")` = `("", "", false)` → second="", rest="". → `("", "", "")`. Identical. REFUTED.
+- **REFUTED: `splitTwo("a.b.c")`.** OLD: idx=1, first="a", rest="b.c", idx2=1, returns `("a", "b", "c")`. NEW: `Cut("a.b.c", ".")` = `("a", "b.c", true)`; `Cut("b.c", ".")` = `("b", "c", true)`; returns `("a", "b", "c")`. Identical. REFUTED.
+- **REFUTED: test-logic preservation in `cache_test.go`.** `git show 0ad3379 -- internal/mcpsrv/cache_test.go` shows `TestCacheConcurrentReadersAreSafe` structurally unchanged: still 16 readers × 50 iters, still a writer × iters/5 schema mutations, still `wg.Wait()`. Only the goroutine-launch syntax moved from `wg.Add(1); go func(){defer wg.Done(); ...}()` to `wg.Go(func(){...})`. Identical behaviour (race detector confirmed by `mage check` at HEAD).
+- **REFUTED: `cliMDSchema` deletion breaks future MD-JSON test.** `rg -n "cliMDSchema" /Users/evanschultz/Documents/Code/hylla/ta/main/` returns empty. No downstream reference. Safe deletion per gopls unused-var flag. REFUTED.
+- **REFUTED: new modernization opportunity introduced by the sweep itself.** Checked the 11 touched files for NEW opportunities the sweep surfaced:
+  - `schema.go:176` `firstSegment` returns only the `before` of `Cut`. Already minimal.
+  - `init_cmd.go:548` `containsTable`'s `strings.TrimSpace(line)` + `==` compare is idiomatic; no further CutSuffix/SplitSeq opportunity.
+  - `fields.go:112` `stripHeadingLine` already uses `bytes.Cut`. No additional idiom.
+  - `cache_test.go:238-246` `for range readers` is minimal.
+  - None found. REFUTED.
+- **REFUTED: `mage install` slip via the sweep.** `git show 0ad3379 -- magefile.go` returns empty (magefile not in the sweep diff). `Install` target was not touched. REFUTED.
+
+**Modernization hits flagged:** None fresh that the sweep missed. One stylistic cleanup candidate: `internal/mcpsrv/cache.go:167-176` `sourceMoved` has `if errors.Is(err, fs.ErrNotExist) { return true } return true` — could flatten to `if err != nil { return true }`. Not a §12.14.5 stdlib-modernization idiom; plain if-else collapse.
+
+**Unused identifiers flagged:** One pre-existing (not §12.14.5-introduced): `cmd/ta/commands.go:152` has `_ = dbDecl` suppressing an unused return from `lookupDBAndType`. Both callers of `lookupDBAndType` (lines 148 + 487) ignore the `dbDecl` return; consider dropping it from the signature or inlining. LOW standing-QA-concern item.
+
+**Remaining `strings.Split` sites kept intentionally:** `cmd/ta/commands.go:169` (`lookupDBAndType`), `internal/db/slug.go:50`, `internal/db/address.go:63`, `internal/mcpsrv/schema_mutate.go:406`, `internal/search/search.go:138` + `:425`, `internal/mcpsrv/ops.go:300`, `internal/mcpsrv/fields.go:61`, `internal/mcpsrv/tools.go:582`, `internal/backend/md/backend.go:300` + `:346`. Each of these indexes the returned slice (`parts[0]`, `parts[1]`, `len(parts)`), which SplitSeq cannot express. Correctly kept as `Split`.
+
+**Verification end-to-end:** `mage check` green at `0ad3379`. All 12 packages pass with `-race`. `go list -deps ./internal/templates` still returns exactly `internal/fsatomic` + `internal/schema` + `internal/templates` (firewall intact).
+
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS** (2026-04-22, fresh-context review of `0ad3379` against V2-PLAN §12.14.5).
+
+- **Net diff accounted for.** `git show --stat 0ad3379` reports 12 files changed (11 Go files + `workflow/ta-v2/WORKLOG.md`). Worklog narrative claims `+46/-106` for the 11 Go files; the WORKLOG delta is narrative appended by the same commit. Numbers reconcile.
+- **`mage check` green at HEAD** (12 packages, `-race`). Zero behavior drift — builder's "Net behaviour change: zero" claim holds.
+- **Modernizations applied at claimed sites.**
+  - `strings.CutSuffix` — `internal/search/search.go:trimGlob` uses CutSuffix for the `-*` suffix path (unpaired `strings.TrimSuffix(s, "*")` kept per the design note, which is the correct CutSuffix discipline).
+  - `strings.SplitSeq` / `bytes.SplitSeq` — `internal/search/search.go:walkTOMLPath`, `internal/db/resolver.go` skipDotSegments walker, `cmd/ta/init_cmd.go:containsTable` — all three sites confirmed using range-over-SeqFunc (e.g. `cmd/ta/init_cmd.go:548` uses `for line := range strings.SplitSeq(doc, "\n")`).
+  - `strings.Cut` / `bytes.Cut` — `internal/search/search.go:stripHeadingLine`, `internal/mcpsrv/fields.go:stripHeadingLine`, `internal/mcpsrv/schema_mutate.go:splitTwo`, `cmd/ta/commands.go:dbFormatFor`, `internal/backend/md/backend.go:levelForRelative`, `internal/schema/schema.go:firstSegment`/`splitFirstTwo`. Seven call sites, all using the `before, after, found := strings.Cut(...)` form.
+  - `maps.Copy` — `internal/search/search.go:walkTOMLPath`, `internal/mcpsrv/schema_mutate.go` (db-update meta-preserve, type-update meta-preserve, `cloneMap`). Four sites.
+  - `for i := range N` — `internal/db/slug.go:Slug`, `internal/backend/md/backend.go:Emit` (heading-prefix builder), `internal/mcpsrv/cache_test.go:TestCacheConcurrentReadersAreSafe` (three loops).
+  - `sync.WaitGroup.Go` — `internal/mcpsrv/cache_test.go:TestCacheConcurrentReadersAreSafe` (two `wg.Go(func(){...})` launches; replaces manual `wg.Add(1); go func(){ defer wg.Done(); ... }()`).
+  - `slices.Contains` — `cmd/ta/init_cmd.go:pickTemplate` default-prefix block.
+- **`cliMDSchema` deletion.** `git show 0ad3379 -- cmd/ta/commands_test.go` confirms the 23-line const was removed. `rg -n "cliMDSchema" --type=go` across the tree returns empty — no dangling reference. Nothing previously consumed it (gopls flagged it unused; verified).
+- **Import deltas justified.** `maps` added to `search.go` + `schema_mutate.go`; `strings` added to `schema.go` (needed for new `strings.Cut` call; package previously `maps`-only per worklog); `slices` added to `init_cmd.go`. Each addition pairs with an actual call in the diff.
+- **Kept-idiomatic design notes match reality.**
+  - `internal/backend/md/scanner.go:104` (`for i := 0; i <= n; i++`) and line 299 (`for i := 0; i < len(text); i++`) both use the `<= n` / byte-indexing `text[i]` pattern that `for i := range N` cannot express. Confirmed via read.
+  - `internal/backend/toml/parse.go:229` (`for i := 0; i < n; {`) — no increment on the for line; body conditionally advances `i`. Can't be replaced.
+  - Fixed-key `for _, metaKey := range []string{...}` loops above `maps.Copy` in `schema_mutate.go` are delete loops on an allowlist, orthogonal to the map-copy idiom.
+- **No scope creep.** All 11 Go-file edits fall inside the §12.14.5 charter (mechanical modernization + unused-identifier prune). No behavior-changing edits; no new tests beyond the concurrent-readers modernization (which restructured the synchronization primitive but kept the assertion set).
+
+**Coverage gaps (non-blocking):** None specific to this slice. Every modernized site still runs under its pre-existing test (confirmed via `mage check` green at HEAD).
+
+**Modernization hits flagged (fresh scan of the repo, not just the §12.14.5 diff):**
+
+- **Flat rescan of `strings.Split` call sites with range consumption.** `rg -n "strings\.Split\(" internal/ cmd/ --type=go` returns 12 hits. All use index-based access (`parts[0]`, `segs[i]`, `len(parts)`) — `SplitSeq` is not a correct replacement because it yields an iterator, not a slice. Acceptable as-is. Cross-check with falsification sibling's enumeration — agree 1:1.
+- **`internal/mcpsrv/cache.go:167-176` `sourceMoved`.** Both branches of the inner `if errors.Is(err, fs.ErrNotExist)` return `true`; the `if` can be flattened to `if err != nil { return true }`. Stylistic, not a §12.14.5-list idiom. Flagging for the next cleanup sweep as a readability tweak. (Falsification sibling flagged the same.)
+
+**Unused identifiers flagged (fresh scan):** Agree with falsification sibling's `cmd/ta/commands.go:152` `_ = dbDecl` suppressor — the `dbDecl` return from `lookupDBAndType` is ignored by both callers (lines 148 + 487). Either drop `dbDecl` from the signature or inline the lookup. LOW standing-QA-concern item, not a §12.14.5 blocker.
+
+**Standing QA concern (this review's scan — files touched by §12.11 – §12.14.5):**
+
+- **§12.11 touched files:** `internal/config/config.go` — clean; `internal/mcpsrv/cache.go` — readability note on `sourceMoved` (above); `internal/mcpsrv/server.go` — clean; test files clean.
+- **§12.12 touched files:** `cmd/ta/commands.go` — one unused-return note from falsification sibling (above); `magefile.go` — clean; `CLAUDE.md` / `AGENTS.md` — docs, N/A for Go modernization.
+- **§12.13 touched files:** `internal/fsatomic/fsatomic.go` — clean; `internal/templates/templates.go` — already uses `strings.CutSuffix`; `cmd/ta/template_cmd.go` — clean.
+- **§12.14 touched files:** `cmd/ta/init_cmd.go` — clean (range-over-SeqFunc in `containsTable`; `slices.Contains` in `pickTemplate`). `containsTable` correctness note: line-walk with exact `trim == want` prevents false positives (e.g. `[mcp_servers.taproot]` does NOT match `[mcp_servers.ta]`). Design is correct as-is.
