@@ -294,6 +294,54 @@ func TestListSectionsCmdOnMissingFile(t *testing.T) {
 
 // ---- schema mutation CLI --------------------------------------------
 
+// ---- search CLI -----------------------------------------------------
+
+func TestSearchCLIRenders(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
+		"[plans.task.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
+	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newSearchCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		root,
+		"--scope", "plans.task",
+		"--match", `{"status":"todo"}`,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+	}
+	s := out.String()
+	if !strings.Contains(s, "plans.task.t1") {
+		t.Errorf("stdout missing hit t1: %q", s)
+	}
+	if strings.Contains(s, "plans.task.t2") {
+		t.Errorf("stdout should not carry t2: %q", s)
+	}
+}
+
+func TestSearchCLINoHitsEmptyNotice(t *testing.T) {
+	root := newSchemaFixture(t)
+	// No plans.toml seeded; search over empty project should emit the
+	// "no hits" notice, not an error.
+	cmd := newSearchCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{root, "--scope", "plans.task"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+	}
+	if !strings.Contains(out.String(), "no hits") {
+		t.Errorf("stdout should carry 'no hits': %q", out.String())
+	}
+}
+
 func TestSchemaCmdDeleteField(t *testing.T) {
 	root := newSchemaFixture(t)
 	cmd := newSchemaCmd()

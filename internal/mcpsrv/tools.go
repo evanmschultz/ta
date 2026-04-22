@@ -91,6 +91,33 @@ func deleteTool() mcp.Tool {
 	)
 }
 
+func searchTool() mcp.Tool {
+	return mcp.NewTool(
+		"search",
+		mcp.WithDescription(
+			"Structured + regex search across records. Scope narrows traversal to one db, one type, one instance, or one id-prefix. Match applies exact-match filters on typed fields (AND-combined). Query is a Go RE2 regex matched against string fields; Field optionally restricts the regex to one named string field. Returns full record sections in source order.",
+		),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
+		mcp.WithString(
+			"scope",
+			mcp.Description("Optional: '<db>' | '<db>.<type>' | '<db>.<instance>' | '<db>.<type>.<id-prefix>' | '<db>.<instance>.<type>(.<id-prefix>)?'. Default = whole project."),
+		),
+		mcp.WithObject(
+			"match",
+			mcp.Description("Optional: {field: exact-value} pairs AND-combined over typed scalar fields."),
+			mcp.AdditionalProperties(map[string]any{}),
+		),
+		mcp.WithString(
+			"query",
+			mcp.Description("Optional: Go RE2 regex matched against string fields."),
+		),
+		mcp.WithString(
+			"field",
+			mcp.Description("Optional: restrict `query` to one named string field. Default = every declared string field on the record type."),
+		),
+	)
+}
+
 func schemaTool() mcp.Tool {
 	return mcp.NewTool(
 		"schema",
@@ -276,6 +303,58 @@ func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		SchemaPaths: sources,
 		TargetPath:  targetPath,
 	})
+}
+
+// searchHit is one entry in the search result payload. Bytes is the
+// record's raw on-disk section (base64 would obscure markdown bodies
+// in terminals — we keep it as a string); Fields is the decoded field
+// map. Section is the full dotted address.
+type searchHit struct {
+	Section string         `json:"section"`
+	Bytes   string         `json:"bytes"`
+	Fields  map[string]any `json:"fields"`
+}
+
+// searchResult is the JSON payload returned by handleSearch.
+type searchResult struct {
+	Path  string      `json:"path"`
+	Scope string      `json:"scope,omitempty"`
+	Hits  []searchHit `json:"hits"`
+}
+
+func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = ctx
+	path, err := req.RequireString("path")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	}
+	scope := req.GetString("scope", "")
+	queryStr := req.GetString("query", "")
+	field := req.GetString("field", "")
+	args := req.GetArguments()
+
+	var match map[string]any
+	if raw, ok := args["match"]; ok && raw != nil {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			return mcp.NewToolResultError("argument 'match' must be an object"), nil
+		}
+		match = m
+	}
+
+	hits, err := Search(path, scope, match, queryStr, field)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	jsonHits := make([]searchHit, len(hits))
+	for i, h := range hits {
+		jsonHits[i] = searchHit{
+			Section: h.Section,
+			Bytes:   string(h.Bytes),
+			Fields:  h.Fields,
+		}
+	}
+	return mcp.NewToolResultJSON(searchResult{Path: path, Scope: scope, Hits: jsonHits})
 }
 
 // spliceOut returns buf with the bytes in rng removed. Atomic-write

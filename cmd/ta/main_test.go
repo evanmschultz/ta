@@ -25,7 +25,7 @@ func TestRootCmdWiring(t *testing.T) {
 
 func TestSubcommandsRegistered(t *testing.T) {
 	root := newRootCmd()
-	want := []string{"get", "list-sections", "schema", "create", "update", "delete"}
+	want := []string{"get", "list-sections", "schema", "create", "update", "delete", "search"}
 	for _, name := range want {
 		sub, _, err := root.Find([]string{name})
 		if err != nil {

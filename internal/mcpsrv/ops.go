@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/evanmschultz/ta/internal/backend/toml"
@@ -12,6 +13,7 @@ import (
 	"github.com/evanmschultz/ta/internal/db"
 	"github.com/evanmschultz/ta/internal/record"
 	"github.com/evanmschultz/ta/internal/schema"
+	"github.com/evanmschultz/ta/internal/search"
 )
 
 // Ops is the Go-level (non-MCP-shaped) API the data tools use. Both
@@ -250,6 +252,42 @@ func Delete(path, section string) (string, []string, error) {
 		return "", nil, err
 	}
 	return filePath, resolution.Sources, nil
+}
+
+// SearchHit mirrors search.Result at the mcpsrv boundary so callers
+// (MCP handler, CLI subcommand) can depend on mcpsrv alone.
+type SearchHit struct {
+	Section string
+	Bytes   []byte
+	Fields  map[string]any
+}
+
+// Search executes a ta `search` query. scope, match, queryRegex, and
+// field are optional. queryRegex is compiled with regexp.Compile — pass
+// "" to skip the regex pass. Mirrors V2-PLAN §3.7.
+func Search(path, scope string, match map[string]any, queryRegex, field string) ([]SearchHit, error) {
+	q := search.Query{
+		Path:  path,
+		Scope: scope,
+		Match: match,
+		Field: field,
+	}
+	if queryRegex != "" {
+		re, err := regexp.Compile(queryRegex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regex %q: %w", queryRegex, err)
+		}
+		q.Query = re
+	}
+	results, err := search.Run(q)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SearchHit, len(results))
+	for i, r := range results {
+		out[i] = SearchHit{Section: r.Section, Bytes: r.Bytes, Fields: r.Fields}
+	}
+	return out, nil
 }
 
 // deleteAtLevel handles the coarser-than-record delete forms per §3.6.

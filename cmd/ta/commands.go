@@ -14,22 +14,27 @@ import (
 
 	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
 // newGetCmd mirrors the MCP tool `get`. Without --fields the CLI
-// writes the raw on-disk bytes to stdout. With --fields (comma or
-// repeated) it renders the named field values through laslig as a
-// JSON object.
+// renders the raw on-disk bytes: TOML records go through a ```toml
+// fenced markdown block so glamour highlights them; MD records are
+// passed directly through the markdown renderer. With --fields the
+// field values are dispatched through render.Renderer.Record so string
+// fields pick up markdown rendering per V2-PLAN §13.2.
 func newGetCmd() *cobra.Command {
 	var fields []string
 	cmd := &cobra.Command{
 		Use:   "get <path> <section>",
 		Short: "Read one record; optionally extract declared field values",
-		Long: "Mirrors the MCP tool `get`. Default writes the raw bytes of the " +
-			"located record to stdout. With --fields name[,name...] or repeated " +
-			"--field <name> the CLI decodes the record and prints the named " +
-			"field values as JSON.",
+		Long: "Mirrors the MCP tool `get`. Without --fields the raw record " +
+			"bytes are rendered through laslig (TOML wrapped in a ```toml " +
+			"code fence; markdown passed through glamour). With --fields " +
+			"name[,name...] or repeated --field <name> the named field values " +
+			"are rendered per type: string fields as markdown, scalars as " +
+			"label:value, arrays/tables as fenced JSON.",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -39,21 +44,116 @@ func newGetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			r := render.New(c.OutOrStdout())
 			if len(fields) == 0 {
-				_, err := c.OutOrStdout().Write(res.Bytes)
+				return renderRawRecord(r, path, section, res.Bytes)
+			}
+			rf, err := buildRenderFields(path, section, res.Fields, fields)
+			if err != nil {
 				return err
 			}
-			data, err := json.MarshalIndent(res.Fields, "", "  ")
-			if err != nil {
-				return fmt.Errorf("encode fields: %w", err)
-			}
-			p := laslig.New(c.OutOrStdout(), humanPolicy())
-			return p.Markdown(laslig.Markdown{Body: "```json\n" + string(data) + "\n```\n"})
+			return r.Record(section, rf)
 		},
 	}
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated declared field names to extract")
 	cmd.Flags().StringSliceVar(&fields, "field", nil, "declared field name to extract (repeatable)")
 	return cmd
+}
+
+// renderRawRecord routes an unparsed record through glamour. TOML bytes
+// are wrapped in a ```toml fence so code highlighting survives; MD bytes
+// are passed through unchanged because they're already markdown.
+func renderRawRecord(r *render.Renderer, path, section string, raw []byte) error {
+	format, err := dbFormatFor(path, section)
+	if err != nil {
+		// Fall back to raw pass-through rather than failing the whole
+		// render — we already have the bytes, no reason to hide them.
+		return r.Markdown(string(raw))
+	}
+	body := string(raw)
+	if format == schema.FormatTOML {
+		if !strings.HasSuffix(body, "\n") {
+			body += "\n"
+		}
+		body = "```toml\n" + body + "```\n"
+	}
+	return r.Markdown(body)
+}
+
+// dbFormatFor looks up the db format for the address's first segment.
+// Used to pick a render branch (TOML fenced vs MD pass-through).
+func dbFormatFor(path, section string) (schema.Format, error) {
+	resolution, err := mcpsrv.ResolveProject(path)
+	if err != nil {
+		return "", err
+	}
+	firstDot := strings.IndexByte(section, '.')
+	dbName := section
+	if firstDot >= 0 {
+		dbName = section[:firstDot]
+	}
+	dbDecl, ok := resolution.Registry.DBs[dbName]
+	if !ok {
+		return "", fmt.Errorf("db %q not declared", dbName)
+	}
+	return dbDecl.Format, nil
+}
+
+// buildRenderFields pairs the MCP-decoded field values with their
+// schema types so the renderer can dispatch string vs scalar vs
+// structured rendering.
+func buildRenderFields(path, section string, values map[string]any, names []string) ([]render.RenderField, error) {
+	resolution, err := mcpsrv.ResolveProject(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve schema: %w", err)
+	}
+	// Resolve type for the address. We need <db>.<type> — for multi-
+	// instance addresses strip the <instance> segment; mirrors
+	// mcpsrv.validationPath.
+	dbDecl, typeSt, err := lookupDBAndType(resolution.Registry, section)
+	if err != nil {
+		return nil, err
+	}
+	_ = dbDecl
+	out := make([]render.RenderField, 0, len(names))
+	for _, name := range names {
+		f, ok := typeSt.Fields[name]
+		if !ok {
+			return nil, fmt.Errorf("field %q not declared on %q", name, typeSt.Name)
+		}
+		out = append(out, render.RenderField{
+			Name:  name,
+			Type:  f.Type,
+			Value: values[name],
+		})
+	}
+	return out, nil
+}
+
+func lookupDBAndType(reg schema.Registry, section string) (schema.DB, schema.SectionType, error) {
+	parts := strings.Split(section, ".")
+	if len(parts) < 2 {
+		return schema.DB{}, schema.SectionType{}, fmt.Errorf("address %q: too few segments", section)
+	}
+	dbDecl, ok := reg.DBs[parts[0]]
+	if !ok {
+		return schema.DB{}, schema.SectionType{}, fmt.Errorf("db %q not declared", parts[0])
+	}
+	var typeName string
+	switch dbDecl.Shape {
+	case schema.ShapeFile:
+		typeName = parts[1]
+	default:
+		if len(parts) < 3 {
+			return schema.DB{}, schema.SectionType{}, fmt.Errorf("address %q: multi-instance needs <db>.<instance>.<type>...", section)
+		}
+		typeName = parts[2]
+	}
+	t, ok := dbDecl.Types[typeName]
+	if !ok {
+		return dbDecl, schema.SectionType{}, fmt.Errorf("type %q not declared on db %q", typeName, dbDecl.Name)
+	}
+	return dbDecl, t, nil
 }
 
 func newListSectionsCmd() *cobra.Command {
@@ -76,16 +176,7 @@ func newListSectionsCmd() *cobra.Command {
 			if f != nil {
 				paths = f.Paths()
 			}
-			items := make([]laslig.ListItem, len(paths))
-			for i, sp := range paths {
-				items[i] = laslig.ListItem{Title: sp}
-			}
-			p := laslig.New(c.OutOrStdout(), humanPolicy())
-			return p.List(laslig.List{
-				Title: path,
-				Items: items,
-				Empty: "(no sections)",
-			})
+			return render.New(c.OutOrStdout()).List(path, paths, "(no sections)")
 		},
 	}
 }
@@ -238,6 +329,82 @@ func newSchemaCmd() *cobra.Command {
 	return cmd
 }
 
+// newSearchCmd mirrors the MCP tool `search` (V2-PLAN §3.7 / §7). The
+// CLI renders hits as one laslig card per record with the string fields
+// glamour-rendered per §13.1 / §13.2.
+func newSearchCmd() *cobra.Command {
+	var scope string
+	var matchJSON string
+	var query string
+	var field string
+	cmd := &cobra.Command{
+		Use:   "search <path>",
+		Short: "Structured + regex search across records; mirrors MCP tool `search`.",
+		Long: "Walks declared records under --scope, applies --match exact-match " +
+			"filters on typed scalar fields (JSON object), then optionally " +
+			"applies --query regex against string fields (restricted to " +
+			"--field when set). One laslig card per hit.",
+		Args:          cobra.ExactArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(c *cobra.Command, args []string) error {
+			path := args[0]
+			var match map[string]any
+			if matchJSON != "" {
+				if err := json.Unmarshal([]byte(matchJSON), &match); err != nil {
+					return fmt.Errorf("parse --match JSON: %w", err)
+				}
+			}
+			hits, err := mcpsrv.Search(path, scope, match, query, field)
+			if err != nil {
+				return err
+			}
+			return renderSearchHits(c.OutOrStdout(), path, hits)
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "<db> | <db>.<type> | <db>.<instance> | <db>.<type>.<id-prefix>")
+	cmd.Flags().StringVar(&matchJSON, "match", "", "JSON object of {field: exact-value}")
+	cmd.Flags().StringVar(&query, "query", "", "Go RE2 regex matched against string fields")
+	cmd.Flags().StringVar(&field, "field", "", "restrict --query to one string field")
+	return cmd
+}
+
+func renderSearchHits(w io.Writer, path string, hits []mcpsrv.SearchHit) error {
+	r := render.New(w)
+	if len(hits) == 0 {
+		return r.Notice(laslig.NoticeInfoLevel, "search", "no hits", nil)
+	}
+	resolution, err := mcpsrv.ResolveProject(path)
+	if err != nil {
+		return fmt.Errorf("resolve schema: %w", err)
+	}
+	for _, hit := range hits {
+		_, typeSt, err := lookupDBAndType(resolution.Registry, hit.Section)
+		if err != nil {
+			// Best-effort: render without typed fields.
+			if err := r.Record(hit.Section, nil); err != nil {
+				return err
+			}
+			continue
+		}
+		fields := make([]render.RenderField, 0, len(hit.Fields))
+		for name, f := range typeSt.Fields {
+			if v, ok := hit.Fields[name]; ok {
+				fields = append(fields, render.RenderField{
+					Name:  name,
+					Type:  f.Type,
+					Value: v,
+				})
+			}
+		}
+		render.SortFieldsByName(fields)
+		if err := r.Record(hit.Section, fields); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ---- helpers (CLI-local mirrors of the MCP handlers) -----------------
 
 func readJSONData(inline, file string, stdin io.Reader) ([]byte, error) {
@@ -299,9 +466,8 @@ func runSchemaGet(w io.Writer, path, scope string) error {
 // copy-paste. This is the CLI counterpart to MCP's `schema(scope=
 // "ta_schema")`.
 func renderMetaSchema(w io.Writer) error {
-	p := laslig.New(w, humanPolicy())
 	body := "# ta_schema — embedded meta-schema\n\n```toml\n" + schema.MetaSchemaTOML + "```\n"
-	return p.Markdown(laslig.Markdown{Body: body})
+	return render.New(w).Markdown(body)
 }
 
 func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, dbs map[string]schema.DB) error {
@@ -368,22 +534,15 @@ func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, d
 			sb.WriteString("\n")
 		}
 	}
-	p := laslig.New(w, humanPolicy())
-	return p.Markdown(laslig.Markdown{Body: sb.String()})
+	return render.New(w).Markdown(sb.String())
 }
 
 func noticeMutation(w io.Writer, action, section, filePath string, sources []string) error {
-	p := laslig.New(w, humanPolicy())
 	body := section
 	if filePath != "" {
 		body = section + "\n" + filePath
 	}
-	return p.Notice(laslig.Notice{
-		Level:  laslig.NoticeSuccessLevel,
-		Title:  action,
-		Body:   body,
-		Detail: sources,
-	})
+	return render.New(w).Success(action, body, sources)
 }
 
 // runCreate / runUpdate / runDelete / runSchemaMutate are thin

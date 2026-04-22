@@ -12,7 +12,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
@@ -22,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/render"
 )
 
 const appName = "ta"
@@ -79,6 +79,7 @@ func newRootCmd() *cobra.Command {
 		newUpdateCmd(),
 		newDeleteCmd(),
 		newSchemaCmd(),
+		newSearchCmd(),
 	)
 	return cmd
 }
@@ -95,29 +96,16 @@ func runServe(ctx context.Context, stderr io.Writer, logStartup bool) error {
 }
 
 func renderStartupNotice(w io.Writer) {
-	p := laslig.New(w, humanPolicy())
-	_ = p.Notice(laslig.Notice{
-		Level: laslig.NoticeInfoLevel,
-		Title: fmt.Sprintf("%s %s ready", appName, version()),
-		Body:  "serving MCP over stdio",
-	})
+	_ = render.New(w).Notice(
+		laslig.NoticeInfoLevel,
+		appName+" "+version()+" ready",
+		"serving MCP over stdio",
+		nil,
+	)
 }
 
 func renderErrorHandler(w io.Writer, _ fang.Styles, err error) {
-	p := laslig.New(w, humanPolicy())
-	_ = p.Notice(laslig.Notice{
-		Level: laslig.NoticeErrorLevel,
-		Title: appName,
-		Body:  err.Error(),
-	})
-}
-
-func humanPolicy() laslig.Policy {
-	return laslig.Policy{
-		Format:       laslig.FormatAuto,
-		Style:        laslig.StyleAuto,
-		GlamourStyle: laslig.DefaultGlamourStyle(),
-	}
+	_ = render.New(w).Error(appName, err)
 }
 
 func version() string {

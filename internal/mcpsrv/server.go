@@ -48,4 +48,5 @@ func (s *Server) registerTools() {
 	s.srv.AddTool(updateTool(), handleUpdate)
 	s.srv.AddTool(deleteTool(), handleDelete)
 	s.srv.AddTool(schemaTool(), handleSchema)
+	s.srv.AddTool(searchTool(), handleSearch)
 }

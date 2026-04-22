@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -185,6 +186,7 @@ func TestListToolsExposesNewDataSurface(t *testing.T) {
 		"create":        false,
 		"update":        false,
 		"delete":        false,
+		"search":        false,
 	}
 	for _, tool := range res.Tools {
 		if _, tracked := want[tool.Name]; tracked {
@@ -1152,6 +1154,119 @@ func TestGetFieldsMDNonBodyErrors(t *testing.T) {
 	msg := firstText(t, res)
 	if !strings.Contains(msg, "body-only") {
 		t.Errorf("error should mention body-only layout: %s", msg)
+	}
+}
+
+// ---- search ---------------------------------------------------------
+
+func TestSearchReturnsHits(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	// Seed two records.
+	for _, args := range []map[string]any{
+		{"path": fx.projectRoot, "section": "plans.task.t1",
+			"data": map[string]any{"id": "T1", "status": "todo"}},
+		{"path": fx.projectRoot, "section": "plans.task.t2",
+			"data": map[string]any{"id": "T2", "status": "doing"}},
+	} {
+		if res := callTool(t, c, "create", args); res.IsError {
+			t.Fatalf("seed: %s", firstText(t, res))
+		}
+	}
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plans.task",
+		"match": map[string]any{"status": "todo"},
+	})
+	if res.IsError {
+		t.Fatalf("search errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Hits []struct {
+			Section string         `json:"section"`
+			Bytes   string         `json:"bytes"`
+			Fields  map[string]any `json:"fields"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("search body not JSON: %v", err)
+	}
+	if len(payload.Hits) != 1 {
+		t.Fatalf("got %d hits, want 1: %+v", len(payload.Hits), payload.Hits)
+	}
+	if payload.Hits[0].Section != "plans.task.t1" {
+		t.Errorf("section = %q, want plans.task.t1", payload.Hits[0].Section)
+	}
+	if !strings.Contains(payload.Hits[0].Bytes, "[plans.task.t1]") {
+		t.Errorf("bytes missing header: %q", payload.Hits[0].Bytes)
+	}
+}
+
+func TestSearchUnknownFieldErrors(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"id": "T1", "status": "todo"},
+	}); res.IsError {
+		t.Fatalf("seed: %s", firstText(t, res))
+	}
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plans.task",
+		"match": map[string]any{"nope": "x"},
+	})
+	if !res.IsError {
+		t.Fatalf("expected unknown match field to error")
+	}
+	if !strings.Contains(firstText(t, res), "unknown field") {
+		t.Errorf("error should mention unknown field: %s", firstText(t, res))
+	}
+}
+
+func TestSearchCrossInstanceUnion(t *testing.T) {
+	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
+	c := newClient(t)
+	for _, args := range []map[string]any{
+		{"path": fx.projectRoot, "section": "plan_db.drop_1.build_task.task_001",
+			"data": map[string]any{"id": "TASK-001", "status": "todo"}},
+		{"path": fx.projectRoot, "section": "plan_db.drop_2.build_task.task_002",
+			"data": map[string]any{"id": "TASK-002", "status": "todo"}},
+	} {
+		if res := callTool(t, c, "create", args); res.IsError {
+			t.Fatalf("seed: %s", firstText(t, res))
+		}
+	}
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plan_db",
+	})
+	if res.IsError {
+		t.Fatalf("search errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Hits []struct {
+			Section string `json:"section"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("search body not JSON: %v", err)
+	}
+	if len(payload.Hits) != 2 {
+		t.Fatalf("got %d hits, want 2 (one per instance): %+v",
+			len(payload.Hits), payload.Hits)
+	}
+	sections := []string{payload.Hits[0].Section, payload.Hits[1].Section}
+	sort.Strings(sections)
+	want := []string{
+		"plan_db.drop_1.build_task.task_001",
+		"plan_db.drop_2.build_task.task_002",
+	}
+	for i, s := range sections {
+		if s != want[i] {
+			t.Errorf("section[%d]=%q, want %q", i, s, want[i])
+		}
 	}
 }
 
