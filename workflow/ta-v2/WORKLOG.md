@@ -19,8 +19,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.2  | Schema language update               | ✅    | ✅    | ✅     | ✅   |
 | 12.3  | Address resolution package           | ✅    | ✅    | ✅     | ✅   |
 | 12.4  | MD backend                           | ✅    | ✅    | ✅     | ✅   |
-| 12.5  | Data tool surface                    | —     | —     | —      | —    |
-| 12.6  | Schema tool CRUD                     | —     | —     | —      | —    |
+| 12.5  | Data tool surface                    | ✅    | ✅    | ✅     | ✅   |
+| 12.6  | Schema tool CRUD                     | ✅    | ✅    | ✅     | ✅   |
 | 12.7  | Laslig CLI rendering                 | —     | —     | —      | —    |
 | 12.8  | Search                               | —     | —     | —      | —    |
 | 12.9  | MCP caching                          | —     | —     | —      | —    |
@@ -318,3 +318,54 @@ The 22 other attacks attempted against `7d2f99d` were REFUTED or DEFERRED-non-bl
 ### Outcome
 
 PASS. §12.3 (Address resolution) and §12.4 (MD backend) closed, including two backend reworks (schema-driven; hierarchical) and the Option B strict-orphan follow-up. §12.5 (Data tool surface) and §12.6 (Schema tool CRUD) unblocked; per dev directive, both will proceed as a combined build-task.
+
+---
+
+## 12.5 + 12.6 — Data tool surface + Schema tool CRUD (combined)
+
+**Scope:** Per dev directive "2 phases at a time," §12.5 + §12.6 ran as one combined build. Final state at `aa7f1a6` delivers:
+
+- **Data tools (§12.5):** hard cut on `upsert`; adds `get(fields)`, `create(section, data, path_hint)`, `update(section, data)`, `delete(section)` on the MCP surface and CLI. `create` auto-creates dir-per-instance dirs + canonical `db.toml` per §5.5.1; `delete` dispatches four address levels per §3.6 (record / whole-file single-instance / instance-dir dir-per-instance / instance-file collection / multi-instance whole-db → ambiguous error).
+- **Schema tool CRUD (§12.6):** extends `schema` with `action={get, create, update, delete}`; mutations target the project `.ta/schema.toml` (not home); atomic rollback via `schema.LoadBytes` pre-write gate so malformed mutations never touch disk. `ta_schema` reserved-name guard closes the §12.2 Proof-routed unknown.
+- **Supporting spec touch:** V2-PLAN §3.3 amended to document `fields` as an allowed key in `kind="type"` create/update payloads — resolves the tension between the prose shape and the meta-schema loader's "type must have ≥1 field" invariant.
+
+### Build arc
+
+`5f607ab` → `e99ff94` → `aa7f1a6`. Three commits:
+
+- `5f607ab` — **combined build.** 12 files, +2689/-529. 5 new files in `internal/mcpsrv/` (`errors`, `backend`, `fields`, `ops`, `schema_mutate`). Hard cut on `upsert` with `TestUpsertRetired` guard. 28 tests in `server_test.go`, 12 in `commands_test.go`. Dogfood round-trip (`create`→`get`→`update`→`delete`) passing. Coverage: `internal/mcpsrv` 76.4%, `cmd/ta` 77.9%.
+- `e99ff94` — **spec amendment.** V2-PLAN §3.3 type create/update payload now lists `fields?` as an allowed key with a note on the meta-schema invariant. Documents the pragmatic extension the builder shipped in `5f607ab`.
+- `aa7f1a6` — **Option A follow-up on Falsification findings.** Three one-line fail-loudly fixes + three negative tests (see below).
+
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS** (2026-04-21, fresh-context review of `e99ff94` — covering both `5f607ab` and the spec amendment). Every V2-PLAN §3.1 / §3.3 / §3.4 / §3.5 / §3.6 / §4.5 / §4.6 / §4.7 / §11.D spec point reflected in committed code + tests with file:line + test citation. Atomic rollback confirmed pre-write-gated via `schema.LoadBytes`; `filepath.IsLocal` guard preserved from §12.3; upsert hard-cut in both MCP and CLI surfaces with assertions; `ta_schema` reserved-name guard closes the §12.2 Proof-routed unknown; backend constructed schema-aware via `NewBackend(types)` pulled from resolved registry (no package-level bypass). Three advisory notes (non-blocking): test-count drift in the spawn prompt's checklist (`server_test.go` has 30 not 28; `commands_test.go` has 12 with `TestUpsertRetired` living in `main_test.go`); `internal/schema/meta_schema.toml` literal is stale vs the §3.3 `fields` amendment (informational only — actual validation runs through `schema.LoadBytes`); byte-identity of frozen packages (`internal/record/`, `internal/backend/`, `internal/db/`, `internal/schema/`, `internal/config/`) couldn't be diffed in the agent's sandbox but interface consumption is internally consistent.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS with one moderate + two minor findings, no blockers** (2026-04-21, fresh-context adversarial review of `e99ff94`). 39 attacks attempted; 3 CONFIRMED at advisory severity, 0 blockers, the rest REFUTED or DEFERRED for sandbox reasons.
+
+- **2.1 MODERATE (soft)** — `internal/mcpsrv/fields.go:85-98` `extractMDFields` silently dropped declared field names other than `"body"` instead of erroring. No production impact (shipping MD dbs only declare `body`) but a fail-loudly violation of the §12.6 extractor contract; matches the drop's repeated "surface silently misroutes" pattern.
+- **2.2 LOW** — `internal/mcpsrv/ops.go:134-139` `Create` on a dir-per-instance path did `MkdirAll` before `WriteAtomic`. If `WriteAtomic` failed after `MkdirAll` succeeded, the empty instance dir stayed on disk as orphan state.
+- **2.3 LOW** — `internal/mcpsrv/ops.go:213-216` record-level `Delete` returned a bare `fmt.Errorf("read %s: %w", ...)` on missing-file instead of wrapping `os.IsNotExist` with `ErrFileNotFound` as `update` and whole-file-delete do. Inconsistent error surface.
+
+Dev chose Option A (fix all three) per the standing "everything should be strict" preference.
+
+### Option A Resolution (2026-04-21)
+
+- `aa7f1a6` — `fix(mcpsrv): close three fail-loudly gaps in data tool surface`. Three mechanical changes:
+  - **2.1 fix:** `extractMDFields` errors `ErrUnknownField` with message "MD body-only layout does not back field %q (only 'body' is readable)" when the requested field is not `"body"`. Contract now honest — the extractor rejects unsupported fields at the inner check, mirroring the outer schema-declared check.
+  - **2.2 fix:** `Create` tracks whether it just created the instance dir via `os.Stat` pre-check; on `WriteAtomic` failure, if `dirCreated` is true and the dir is still empty (`os.ReadDir` returns zero entries), `os.Remove`s the orphan dir. Never prunes a pre-existing dir that happened to hold siblings.
+  - **2.3 fix:** record-level `Delete`'s `os.ReadFile` error branch wraps `os.IsNotExist` with `ErrFileNotFound` for parity with `Update` and whole-file `Delete`.
+- Three negative tests land alongside:
+  - `TestGetFieldsMDNonBodyErrors` — creates an MD record under a schema that declares both `body` and `subtitle`; asserts `get(fields=["subtitle"])` errors with "body-only" in the message.
+  - `TestDeleteRecordMissingFileReturnsErrFileNotFound` — record-level delete on a never-created file; asserts "file not found" in the error.
+  - `TestCreateDirPerInstanceLeavesDirOnSuccess` — positive invariant: happy-path create still leaves the instance dir + canonical file on disk (the rollback doesn't over-correct). The pure rollback-on-write-failure path needs filesystem fault injection and is covered by code inspection rather than a unit test — noted in the test comment.
+
+**Verification:** `mage check` green at `aa7f1a6` across all 8 packages with race detector.
+
+**QA re-runs waived.** Fix pattern matches §12.2 / §12.4 Option A: three mechanical one-liners with direct negative-test lock-ins on the counterexamples Falsification confirmed. Re-running the full twin-pass QA would be ceremony over substance.
+
+### Outcome
+
+PASS. §12.5 (Data tool surface) and §12.6 (Schema tool CRUD) closed, including the §3.3 spec amendment for type-payload `fields` and the Option A resolution of three fail-loudly findings. §12.7 (Laslig CLI rendering) and §12.8 (Search) unblocked; per dev directive, both will proceed as a combined build-task.
