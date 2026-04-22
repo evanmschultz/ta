@@ -79,6 +79,7 @@ func newRootCmd() *cobra.Command {
 		newDeleteCmd(),
 		newSchemaCmd(),
 		newSearchCmd(),
+		newTemplateCmd(),
 	)
 	return cmd
 }

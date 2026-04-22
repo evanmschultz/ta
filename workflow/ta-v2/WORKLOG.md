@@ -519,3 +519,37 @@ Status: ⏳ spawned 2026-04-22 (this turn).
 **Spec-gap note:** Project root previously had no `CLAUDE.md` / `AGENTS.md` files — the spec said to update them but they did not exist. Created both. Content is a minimal five-bullet primer; the `.ta/schema.toml` already declares an `[agents]` db whose `file = "CLAUDE.md"` so future agent-facing records can live there.
 
 **Next:** commit + QA proof + QA falsification twins (orchestrator-spawned); §12.18 README collapse.
+
+---
+
+## 12.13 — Template library + read-only CLI
+
+**Scope (from V2-PLAN.md §12.13 + §14.2):** New `internal/templates/` package exposing `Root` / `List` / `Load` / `Save` / `Delete` over the `~/.ta/` library. Firewall: stdlib + `internal/schema/` + `internal/fsatomic/` only — no `internal/config/Resolve`, no `internal/mcpsrv/*`. New `ta template list` and `ta template show <name>` read-only CLI subcommands (each with `--json`). Save/Apply/Delete CLI wiring deferred to §12.15/§12.16.
+
+### Build — go-builder-agent
+
+Status: BUILD DONE @<PAIR-B-12.13>. QA twins pending.
+
+**Added:**
+
+- `internal/fsatomic/fsatomic.go` — new package carrying `Write(path, data)` for atomic same-dir temp + rename writes. Extracted from `internal/backend/toml.WriteAtomic` so lang-agnostic consumers (`templates`, future `init` helpers) can write atomically without importing a backend. Error prefixes are `"fsatomic: ..."`; the backend's `tomlfile:`-prefixed helper stays in place unchanged to avoid rippling the test-surface into this slice (V2-PLAN §6 package layout aspirational; consumer migration is out-of-scope here).
+- `internal/fsatomic/fsatomic_test.go` — five happy/edge tests: happy path, empty path errors, overwrite, missing dir errors, temp-file-leak guard on success.
+- `internal/templates/templates.go` — `Root`/`List`/`Load`/`Save`/`Delete`. Validation policy per V2-PLAN §14.6: `Load` validates on read (wraps parse errors with the absolute file path); `Save` validates BEFORE the atomic write (a malformed payload cannot clobber a pre-existing valid template). Root is resolved through a package-level `rootFn` var so `SetRootForTest(dir)` lets tests inject a `t.TempDir()` without `t.Setenv("HOME", ...)` — matches the post-§12.11 project-local-only discipline.
+- `internal/templates/templates_test.go` — ten tests covering: missing root returns `nil`, empty dir, sort + `.toml`/hidden/dir filtering, load happy path, malformed load surfaces parse error with file path, load missing errors, save validates before write (proves pre-existing valid file survives a malformed save attempt), save creates root, save empty name errors, delete happy path, delete missing errors. Plus `TestRootDefaultsToHomeDotTa` and `TestSetRootForTest`.
+- `cmd/ta/template_cmd.go` — `newTemplateCmd` parent plus `newTemplateListCmd` and `newTemplateShowCmd` children. Both children ship `Example` fields per V2-PLAN §14.7. `list` renders through `render.Renderer.List` (JSON shape `{"templates": [...]}`). `show` renders template bytes through `render.Renderer.Markdown` inside a ` ```toml ` fence (JSON shape `{"template": "<name>", "bytes": "<raw>"}`).
+- `cmd/ta/template_cmd_test.go` — seven tests: list default + JSON + empty, show default + JSON + missing errors. Uses `templates.SetRootForTest` (registered via `t.Cleanup`) to inject a test library.
+
+**Updated:**
+
+- `cmd/ta/main.go` — `newRootCmd` registers `newTemplateCmd()` alongside the existing subcommand family. No other surface changes.
+
+**Firewall verification:** `go list -deps ./internal/templates | rg "ta/internal/"` returns exactly `internal/fsatomic`, `internal/schema`, and `internal/templates` itself. No `internal/config`, no `internal/mcpsrv/*`.
+
+**Verification:**
+
+- `mage check` green across all 12 packages with `-race` (two new packages: `internal/fsatomic`, `internal/templates`; one updated: `cmd/ta`).
+- `mage dogfood` clean (skips; `workflow/ta-v2/db.toml` already materialized from §12.10).
+
+**Spec-gap note:** V2-PLAN package layout aspirationally locates atomic writes in `internal/fsatomic/`, but the existing `internal/backend/toml.WriteAtomic` helper stayed as-is — migrating all its consumers (`mcpsrv/ops.go`, `mcpsrv/schema_mutate.go`, etc.) would balloon this slice and is orthogonal to template-library work. Created `fsatomic` as a new minimal package with a single consumer (`templates`); consumer migration is a future cleanup.
+
+**Next:** §12.14 (`ta init`) stacks on this foundation; QA twins run after §12.14 lands per Pair B cadence.
