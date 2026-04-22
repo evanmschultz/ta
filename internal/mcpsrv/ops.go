@@ -20,18 +20,20 @@ import (
 // the MCP handlers and the CLI commands route through these so the
 // two surfaces stay in lockstep.
 
-// resolveFromProjectDir wraps config.Resolve to honour V2-PLAN §3's
-// "path is the project directory" contract. config.Resolve's walk
-// starts at filepath.Dir(path), so a bare project dir would miss
-// <path>/.ta/schema.toml. We synthesize a sentinel child path so the
-// walk starts AT the project dir.
+// resolveFromProjectDir routes every schema lookup through the
+// package-level defaultCache. The cache stats the cascade sources on
+// every call and re-resolves when any mtime has moved (V2-PLAN §4.6).
+// The "path is the project directory" contract from §3 is preserved
+// inside the cache's underlying loader (resolveFromProjectDirUncached).
 func resolveFromProjectDir(projectPath string) (config.Resolution, error) {
-	return config.Resolve(filepath.Join(projectPath, ".ta-resolve-sentinel"))
+	return defaultCache.Resolve(projectPath)
 }
 
 // ResolveProject is the exported V2 project-directory resolver. CLI
 // and MCP entry points share this so "path is the project directory"
-// holds uniformly across the tool surface.
+// holds uniformly across the tool surface. Goes through the cache so
+// long-running MCP sessions don't re-stat the whole cascade on every
+// call.
 func ResolveProject(projectPath string) (config.Resolution, error) {
 	return resolveFromProjectDir(projectPath)
 }

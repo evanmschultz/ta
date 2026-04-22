@@ -66,7 +66,15 @@ func MutateSchema(projectPath, action, kind, name string, data map[string]any) (
 	if err := toml.WriteAtomic(schemaPath, newBuf); err != nil {
 		return nil, err
 	}
-	// 7. Resolve and return sources for the response.
+	// 7. Invalidate the cache entry for this project so the next read
+	// re-resolves the cascade. Catches structural changes (new/removed
+	// types, deleted fields) that a bare mtime comparison could miss
+	// if the post-write mtime happens to match the pre-write mtime
+	// (rare but cheap to guard against). Per V2-PLAN §4.6's "on
+	// success, invalidate → re-resolve cascade" rule.
+	defaultCache.Invalidate(projectPath)
+	// 8. Resolve and return sources for the response. This re-populates
+	// the cache with the post-mutation view.
 	resolution, err := resolveFromProjectDir(projectPath)
 	if err != nil {
 		// Unusual: we just wrote a valid schema and cascading re-resolve
