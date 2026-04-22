@@ -30,8 +30,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.13 | Template library + read CLI          | ✅    | ✅    | ✅     | ✅   |
 | 12.14 | `ta init` project bootstrap          | ✅    | ✅    | ✅     | ✅   |
 | 12.14.5 | Style cleanup sweep                | ✅    | ✅    | ✅     | ✅   |
-| 12.15 | `ta template save` + `delete`        | ✅    | —     | —      | —    |
-| 12.16 | huh root + `ta template apply` + Example retrofit | ✅ | — | — | — |
+| 12.15 | `ta template save` + `delete`        | ✅    | ✅    | ✅     | —    |
+| 12.16 | huh root + `ta template apply` + Example retrofit | ✅ | ✅ | ✅ | — |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 
@@ -996,6 +996,88 @@ Status: BUILD DONE @91d30c8. QA twins pending.
 
 **Next:** §12.16 lands `ta template apply`, wires bare `ta` with TTY dispatch to a huh subcommand menu, and retrofits fang `Example` fields on the subcommands that missed them in §12.12 rush.
 
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS-WITH-FOLLOWUPS** (2026-04-22, fresh-context review of `91d30c8` against V2-PLAN §12.15 + §14.3 + §14.6).
+
+**Claims verified:**
+
+- **`ta template save [name]` — positional optional, huh-prompt on TTY, loud off-TTY.** `template_cmd.go:154` declares `Args: cobra.MaximumNArgs(1)`. In `runTemplateSave`, line 194 checks `if name == ""`; if non-interactive (`ttyInteractive(nonInteractive)` false), returns the loud error at line 196 ("save: no template name supplied; pass it as a positional arg or run on a TTY for the prompt"). On TTY, line 198 calls `promptTemplateName` (huh input form). Evidence: `TestTemplateSaveNameMissingOffTTYErrors` (line 326-339) asserts the off-TTY path.
+- **`--force` skips huh-confirm on overwrite.** `template_cmd.go:211-224` switch: `case force` falls through; otherwise `case ttyInteractive(nonInteractive)` prompts; `default` errors. Evidence: `TestTemplateSaveOverwriteWithForceSucceeds` (line 301-324) seeds a sentinel, runs with `--force`, asserts bytes replaced. `TestTemplateSaveOverwriteWithoutForceErrors` (line 282-299) asserts the off-TTY-no-force error.
+- **`--json` emits `{"name", "source", "written": true}`.** `templateSaveReport` struct at `template_cmd.go:133-137` matches the contract with all three fields tagged. `emitTemplateSaveReport` encodes via `json.Encoder` with indent. Evidence: `TestTemplateSaveHappyPath` (line 197-235) unmarshals stdout into struct, checks each field.
+- **Pre-validates `<cwd>/.ta/schema.toml` via `schema.LoadBytes` BEFORE `templates.Save`.** `template_cmd.go:189` calls `schema.LoadBytes(data)` before line 229's `templates.Save(root, name, data)`. `templates.Save` re-validates internally (`templates.go:124`) — the pre-validation exists to produce a source-path-pointing error rather than a destination-path error (documented in `template_cmd.go:149-152` Long help). Evidence: `TestTemplateSaveMalformedSourceErrors` (line 237-256) feeds malformed TOML, asserts error message contains the source path (`.ta/schema.toml`) and target file was NOT created.
+- **Missing source errors loudly with the source path in the message.** `template_cmd.go:181-185`: `os.IsNotExist` branch returns `"save: %s does not exist; run \`ta init\` first"`. Evidence: `TestTemplateSaveMissingSourceErrors` (line 258-280) checks error contains `"does not exist"`.
+- **Save tests present.** `TestTemplateSaveHappyPath`, `TestTemplateSaveMalformedSourceErrors`, `TestTemplateSaveMissingSourceErrors`, `TestTemplateSaveOverwriteWithoutForceErrors`, `TestTemplateSaveOverwriteWithForceSucceeds`, `TestTemplateSaveNameMissingOffTTYErrors` — six tests covering every spec bullet.
+- **`ta template delete <name>` — name required positional.** `template_cmd.go:382` declares `Args: cobra.ExactArgs(1)`.
+- **Delete huh-confirm on TTY, off-TTY without `--force` errors.** `runTemplateDelete` switch at `template_cmd.go:411-424`: `force` falls through; TTY interactive path runs `promptConfirm`; off-TTY + no-force hits `default` at line 422, returns `"delete: template %q requires --force off a TTY"`. Evidence: `TestTemplateDeleteOffTTYWithoutForceErrors` (line 483-492) asserts error contains `--force`.
+- **Delete `--json` emits `{"name", "deleted": true}`.** `templateDeleteReport` struct at `template_cmd.go:368-371`. Evidence: `TestTemplateDeleteHappyPath` (line 443-470) asserts both fields plus sibling-survives check.
+- **Missing template errors loudly.** Pre-check at `template_cmd.go:402-408`: `os.Stat` miss returns `"delete: template %q not found at %s"`. Evidence: `TestTemplateDeleteMissingErrors` (line 472-481) asserts error contains `"not found"`.
+- **Delete tests present.** Three tests: happy path, missing, off-TTY-no-force. All required bullets covered.
+- **Shared `ttyInteractive` helper extracted.** `init_cmd.go:416-421` defines the helper; callers are `init_cmd.go:405`, `template_cmd.go:195, :214, :314, :414`, and `main.go:105`. Single source of truth for the TTY-vs-flags gate. `init_cmd.go:404-406` `interactive` now a one-liner wrapper.
+- **Build gates green at HEAD (`212dbd8`).** `mage check` all 12 packages ok with `-race`; `mage vet` clean (empty output); `mage dogfood` skip-existing. Firewall `go list -deps ./internal/templates | rg "ta/internal/"` returns exactly `internal/fsatomic`, `internal/schema`, `internal/templates` — no new deps.
+
+**Coverage gaps (non-blocking):**
+
+- **Save huh-prompt on TTY path is not unit-tested.** `promptTemplateName` at `template_cmd.go:445-460` runs a `huh.Form`; no test harness drives the form. Acceptable — init_cmd's huh path is also untested at the unit layer; V2-PLAN §12.17 E2E gate covers manual walkthrough. The off-TTY branch of the same code path IS covered, which is the agent-facing surface.
+- **Save overwrite-with-TTY-confirm-accepted / -declined paths not unit-tested.** Same huh-form harness limitation. The `--force` and off-TTY paths ARE tested, which cover the agent surface and the "break loudly" branch.
+- **Delete TTY confirm-accepted / -declined paths not unit-tested.** Same limitation. The `--force` success, off-TTY error, and missing-template error ARE tested.
+
+**Modernization hits flagged (touched files: `template_cmd.go`, `template_cmd_test.go`, `init_cmd.go`):**
+
+- None fresh. `template_cmd.go` uses stdlib idiomatically — `strings.HasSuffix(body, "\n")` at line 122 in `renderTemplateBody` is a single-branch test with no Trim follow-up, so `CutSuffix` would not simplify. No `strings.Split` with index access, no c-style integer loops, no `bytes.Cut`-candidate byte handling.
+
+**Unused identifiers flagged (touched files):**
+
+- None introduced by §12.15. All new helpers (`runTemplateSave`, `runTemplateDelete`, `emitTemplateSaveReport`, `emitTemplateDeleteReport`, `promptTemplateName`, `promptConfirm`, `ttyInteractive`) are called. Struct fields (`templateSaveReport`, `templateDeleteReport`) are all JSON-emitted.
+
+**Standing QA concern (re-check):**
+
+- **Pre-existing `_ = dbDecl` at `cmd/ta/commands.go:155` still outstanding.** Confirmed not fixed sideways in Pair C. `lookupDBAndType` at line 171 still returns `schema.DB` that both callers (line 151 in `buildRenderFields`, line 507 in `renderSearchHits`) discard. Standing LOW-priority item per §12.14.5 falsification report; not a §12.15 regression.
+
+**Unknowns:** None load-bearing for §12.15.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS-WITH-FOLLOWUPS** (2026-04-22). Two counterexamples: one MEDIUM UX bug scoped to §12.15 save; one HIGH path-traversal footgun in the `internal/templates` package that §12.15 and §12.16 both sit on top of. Neither is a remote attack surface — both are authenticated-local-user findings on a CLI that already has full user-level filesystem authority — so the orchestrator may elect to advance with both captured in the V2-PLAN backlog. Mitigation sketch included per finding.
+
+**Attacks attempted:**
+
+- Attack 1 — `nonInteractive` flag leakage from the `name` positional arg in `runTemplateSave` (`template_cmd.go:193`).
+- Attack 2 — Path-traversal / unsanitized `name` on `templates.Save` / `Load` / `Delete` (`internal/templates/templates.go:120, :100, :140`).
+- Attack 3 — Pre-validation divergence between `runTemplateSave`'s `schema.LoadBytes` and `templates.Save`'s internal `schema.LoadBytes`.
+- Attack 4 — `ta template delete "."` / `".."` / empty name reaching `os.Remove`.
+- Attack 5 — Save pre-validation vs. write atomicity: can a malformed source leave a half-written template?
+- Attack 6 — Extracted `ttyInteractive` helper byte-identity for `ta init` (affects §12.15 + §12.16).
+- Attack 7 — `runTemplateSave` reading `.ta/schema.toml` from an unexpected cwd (chdir race between test harness Cleanup calls).
+- Attack 8 — §12.14.5 modernization regressions + dead identifiers in the new §12.15 code.
+- Attack 9 — JSON report shape drift vs. V2-PLAN §14.3.
+
+**Counterexamples found:**
+
+- **CONFIRMED (MEDIUM) — `ta template save <name>` on a TTY where the template already exists skips the huh confirm and emits the off-TTY `--force` error.** In `runTemplateSave` (`cmd/ta/template_cmd.go:193`), `nonInteractive := force || asJSON || name != ""`. When a TTY user runs `ta template save existing-name` (no `--force`, no `--json`), `name != ""` drives `nonInteractive=true`. The existence-check switch at line 210 then evaluates `case ttyInteractive(nonInteractive):` which returns false (because `nonInteractive` is true), so control falls through to the `default:` branch at line 222, emitting `"save: template %q exists; pass --force to overwrite"` *without* running `promptConfirm`. The spec at V2-PLAN §14.3 and the Long help at `template_cmd.go:147` say "If `~/.ta/<name>.toml` already exists, confirms via huh on a TTY or requires `--force` off-TTY" — a TTY user supplying the name positionally is a documented happy path and is being misclassified as non-interactive. Apply's analogous switch at line 310 uses `force || asJSON` only (no positional-arg poisoning) and is correct. Reproduction: TTY user runs `ta template save foo` where `~/.ta/foo.toml` exists. Test coverage gap: `TestTemplateSaveOverwriteWithoutForceErrors` (line 282) is run off-TTY, so it expects the `--force` error and will not catch this regression. Fix sketch: split the "resolve empty-name via prompt" gate from the "confirm overwrite" gate. The overwrite gate should use `force || asJSON` only (parallel to `runTemplateApply`), while the empty-name gate continues to use the wider `nonInteractive` set.
+- **CONFIRMED (HIGH) — `ta template save` / `apply` / `delete <name>` accept names containing `..`, `/`, and `\`, allowing writes / reads / deletes outside `~/.ta/`.** `internal/templates/templates.go` `Save` (line 120), `Load` (line 100), and `Delete` (line 140) only reject `name == ""` — every other string is passed straight into `filepath.Join(root, name+".toml")`. `filepath.Join` applies `filepath.Clean`, which resolves `..` segments, so `ta template save "../escape" --force --json` writes `<parent-of-~/.ta>/escape.toml`, i.e. `~/escape.toml`. `ta template delete "../other-tool/config" --force` calls `os.Remove("~/other-tool/config.toml")` — deletes an arbitrary `.toml` file under the user's home. `ta template apply "../../etc/passwd" /abs/target --force` walks `templates.Load("~/.ta", "../../etc/passwd")` → `filepath.Join("~/.ta", "../../etc/passwd.toml")` → `/etc/passwd.toml`. If that file does not exist, the read errors cleanly; if it does, `schema.LoadBytes` will reject non-schema bytes — but the filesystem presence / absence is still leaked via the error path, and a malicious template-name could point at any `.toml` file on the system the user can read. Reproduction: (1) seed `~/.ta/schema.toml` via `ta init`; (2) run `ta template save "../escape" --force --json`; (3) observe `~/escape.toml` appearing. This is authenticated-user scope on a local-only CLI — the CLI can already write / delete wherever the user has permission — but V2-PLAN §14.2 names `~/.ta/` a "pure template store" and the read/write API should enforce that the name stays inside `root`. Fix sketch: add a `validateName(name string) error` in `internal/templates/templates.go` that rejects any of: `""`, names with `/`, names with `\`, names with `..` segments, names starting with `.`, or names whose `filepath.Clean` form differs from the input. Call from `Save`, `Load`, `Delete`. Tests: each rejection case, plus confirmation that the CLI surface bubbles the refusal with the name in the diagnostic.
+- **REFUTED — Pre-validation / `templates.Save` divergence.** Both paths call `schema.LoadBytes(data)` with the same bytes. No divergence is possible; the only observable difference is the wrapping error message (`"save: validate %s: %w"` at line 190 points at the source path, `"templates: validate %q: %w"` at line 125 points at the destination name). Both gates reject the same payloads, so a malformed source cannot slip past one and be caught by the other.
+- **REFUTED — `ta template delete "."` / `".."` / empty name.** `""` is rejected at `templates.go:141`. `"."` and `".."` are accepted but produce harmless-looking paths: `filepath.Join("~/.ta", ".."+".toml")` → `~/.ta/...toml` (a valid filename in `~/.ta/`, not a traversal); `filepath.Join("~/.ta", "."+".toml")` → `~/.ta/..toml`. Neither escapes the library on its own — only the explicit `../` prefix does (covered by the HIGH finding above).
+- **REFUTED — Save pre-validation vs. write atomicity.** `runTemplateSave` runs `schema.LoadBytes` at line 189 before reaching `templates.Save` at line 229. `templates.Save` itself validates before calling `fsatomic.Write` (line 124 → line 131). A malformed source cannot reach `fsatomic.Write`. A malformed intermediate (e.g. bytes mutated between validations) is not possible — same `data` variable passed through.
+- **REFUTED — Extracted `ttyInteractive` helper byte-identity.** Pre-extraction: `interactive(in, out, f)` ran `!f.nonInterRq && term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())`. Post-extraction (`init_cmd.go:416-421`): `ttyInteractive(f.nonInterRq)` runs the same short-circuit. `init_cmd_test.go` tests still pass under `mage check`. The `_ io.Reader, _ io.Writer` parameters on `interactive` are intentionally unused — matches the pre-extraction signature (the helper never read those, it only looked at process-level descriptors).
+- **REFUTED — `runTemplateSave` cwd race.** The test harness `seedCwdSchema` uses `t.Cleanup` to restore cwd, but nothing in `runTemplateSave` reads cwd more than once (line 174). Tests run serially inside one package under `go test`; no goroutine is reading cwd concurrently.
+- **REFUTED — §12.14.5 modernization regressions / dead identifiers.** Ran `mage vet` clean on `./cmd/ta/` and `./internal/templates/`. No new `strings.IndexByte`-splits, HasSuffix+TrimSuffix pairs, C-style for loops, or manual map copies. All new identifiers (`templateSaveReport`, `templateDeleteReport`, `runTemplateSave`, `runTemplateDelete`, `emitTemplateSaveReport`, `emitTemplateDeleteReport`, `promptTemplateName`, `promptConfirm`) have call sites.
+- **REFUTED — JSON report shape drift.** `templateSaveReport` = `{name, source, written}`, `templateDeleteReport` = `{name, deleted}`. Matches V2-PLAN §14.3. Tests `TestTemplateSaveHappyPath` / `TestTemplateDeleteHappyPath` lock the shapes via `json.Unmarshal` into identical anonymous structs.
+
+**Accepted trade-offs:**
+
+- Pre-validation in `runTemplateSave` is documented-redundant (worklog design-calls bullet); trade-off accepted to produce source-path-targeted errors.
+- Ctrl+C on the save/delete huh prompts bubbles through `renderErrorHandler` — minor UX noise, not a correctness break.
+
+**Modernization / unused-identifier hits flagged:** None in §12.15.
+
+**Standing concern forwarded to orchestrator:**
+
+- MEDIUM TTY-gate bug is UX-scope (user can re-run with `--force`), but it is a spec mismatch — worth fixing in a small §12.15.1 hot-patch before §12.17 E2E gate.
+- HIGH path-traversal finding is authenticated-user local scope — not a security vulnerability per se, but a breach of the V2-PLAN §14.2 "pure template store" contract. Should land a `templates.validateName` helper before v0.1.0 tag.
+
+**Hylla Feedback:** N/A — this project has no Hylla index; all navigation used `Read` / `rg` / LSP / `git show`.
+
 ---
 
 ## 12.16 — huh interactive root + `ta template apply` + fang `Example` retrofit
@@ -1030,5 +1112,94 @@ Status: BUILD DONE @3fa4039. QA twins pending.
 - `TestEveryCommandHasExample` walks the full command tree; a future subcommand without an `Example` fails this test before landing.
 
 **Next:** §12.17 dev+assistant E2E gate (manual walkthrough of `ta init` → template save round-trip → CRUD round-trip → MCP registration in Claude Code + Codex → `mage dogfood` end-to-end). QA twins for §12.15 + §12.16 run after this commit lands.
+
+### QA Proof — go-qa-proof-agent
+
+**Verdict: PASS-WITH-FOLLOWUPS** (2026-04-22, fresh-context review of `3fa4039` against V2-PLAN §12.16 + §14.3 + §14.7).
+
+**Claims verified:**
+
+- **`ta template apply <name> [path]` — name required, path optional, absolute if supplied.** `template_cmd.go:272` declares `Args: cobra.RangeArgs(1, 2)`. `resolveApplyPath` at line 339-351 returns cwd when `arg == ""`, rejects relative paths with `"apply: path must be absolute; got %q"`. Evidence: `TestTemplateApplyRelativePathErrors` (line 388-397) asserts the error contains `"absolute"`.
+- **Schema-only — does NOT touch `.mcp.json` / `.codex/config.toml`.** `runTemplateApply` writes only `<target>/.ta/schema.toml` via `fsatomic.Write` at line 329. Ripgrep of `template_cmd.go` for `.mcp.json` / `.codex` returns one docstring hit only (line 269), zero write-path references. Evidence: `TestTemplateApplyDoesNotTouchMCPConfigs` (line 423-439) runs apply on a fresh dir, then asserts `os.IsNotExist` for both `.mcp.json` and `.codex/config.toml`. Spec-critical invariant locked in.
+- **Huh-confirm on overwrite (TTY), `--force` skips, off-TTY without `--force` errors.** Switch at `template_cmd.go:311-324`: `force` falls through; `ttyInteractive(nonInteractive)` runs `promptConfirm`; `default` errors with `"apply: %s exists; pass --force to overwrite"`. Evidence: `TestTemplateApplyExistingTargetWithoutForceErrors` (line 399-421) seeds existing file, runs without `--force`, asserts error contains `"exists"` AND pre-existing bytes survive untouched.
+- **`--json` emits `{"name", "target", "written": true}`.** `templateApplyReport` struct at `template_cmd.go:252-256` with matching json tags. Evidence: `TestTemplateApplyHappyPath` (line 343-376) unmarshals and checks all three fields; `target` asserted to equal `filepath.Join(target, ".ta", "schema.toml")`; target bytes asserted equal to the source schema.
+- **Missing template errors loudly.** `template_cmd.go:298` calls `templates.Load(root, name)`, which returns `"templates: read %s: %w"` on `os.ReadFile` ENOENT. Evidence: `TestTemplateApplyMissingNameErrors` (line 378-386) runs `apply ghost ...` and asserts error.
+- **Apply tests present.** `TestTemplateApplyHappyPath`, `TestTemplateApplyMissingNameErrors`, `TestTemplateApplyRelativePathErrors`, `TestTemplateApplyExistingTargetWithoutForceErrors`, `TestTemplateApplyDoesNotTouchMCPConfigs` — five tests covering every spec bullet.
+- **Bare `ta` huh interactive root — TTY dispatch contract.** `main.go:104-109` `runRoot`: `if ttyInteractive(false)` returns `runMenu(cmd)`, otherwise `runServe(...)`. `ttyInteractive` at `init_cmd.go:416-421` checks BOTH `term.IsTerminal(os.Stdin.Fd())` AND `term.IsTerminal(os.Stdout.Fd())` — if either fails, serve path runs. Matches spec: "If BOTH stdin AND stdout are TTYs → menu; otherwise → runServe".
+- **`menuItems` skips hidden / `help` / `completion`.** `main.go:157-169`: skips `sub.Hidden`, `sub.Name() == "completion"`, `sub.Name() == "help"`. Evidence: `TestMenuItemsSkipsHelpAndCompletion` (main_test.go:81-117) builds the root, calls `menuItems`, asserts no item is `help` or `completion`, every item has non-empty `Short`, and all nine user-facing subcommands are present.
+- **`runServe` path byte-identical.** `main.go:171-192` `runServe` calls `mcpsrv.New` with `ProjectPath: cwd` then `srv.Run(ctx)` — same shape as pre-§12.16. No Config additions. Existing `.mcp.json` / `claude mcp add` invocations that spawn bare `ta` via stdio pipes (not TTYs) continue to take this path.
+- **Fang `Example` retrofit on every non-hidden/non-help/non-completion command.** Grep across `cmd/ta/*.go` shows `Example:` at 14 sites: root (`main.go:68`), `template` parent (`template_cmd.go:37`), `template list` (57), `template show` (91), `template save` (153), `template apply` (271), `template delete` (381), `get` (commands.go:42), `list-sections` (206), `create` (250), `update` (299), `delete` (342), `schema` (378), `search` (449), `init` (init_cmd.go:87). Every user-facing command accounted for.
+- **`TestEveryCommandHasExample` walks the full tree and enforces the contract.** `main_test.go:124-143`: recursive `walkCommands` skips hidden, help, completion; otherwise asserts `cmd.Example != ""`. Future subcommand without Example fails this test.
+- **Build gates green at HEAD (`212dbd8`).** `mage check` all 12 packages ok with `-race`; `mage vet` clean; `mage dogfood` skip-existing. Firewall `go list -deps ./internal/templates | rg "ta/internal/"` unchanged — §12.16 adds CLI surface only, no library-layer deps.
+
+**Coverage gaps (non-blocking):**
+
+- **`runMenu` itself not exercised by tests.** `menuItems` filter is tested; the huh.Select form is not. Same limitation as §12.15 — no pty harness. V2-PLAN §12.17 E2E gate (manual) covers; the menu's filter contract is the agent-observable invariant and that IS tested.
+- **TTY branch of `runRoot` not tested.** Test process has non-TTY stdin/stdout so `runRoot` always takes the `runServe` path in tests. `runServe` itself has no dedicated unit test either — it is covered indirectly via `mcpsrv` package tests. Acceptable; matches pre-§12.16 coverage posture.
+- **Apply overwrite-with-TTY-confirm-accepted / -declined paths not unit-tested** (same huh-form harness limitation as §12.15).
+
+**Modernization hits flagged (touched files: `main.go`, `main_test.go`, `template_cmd.go`, `template_cmd_test.go`, `commands.go`):**
+
+- None fresh. `main.go:121-125` builds `opts` via `append` in a range loop — stdlib idiom, no cleaner form. `main_test.go:130-142` `walkCommands` is recursive; Go's lack of `TreeWalk` iterator makes recursion the idiom. `commands.go` diff is pure Example-field additions, no code restructuring.
+
+**Unused identifiers flagged (touched files):**
+
+- None introduced by §12.16. `menuItem` struct, `menuItems`, `runMenu`, `runRoot`, `runServe`, `runTemplateApply`, `resolveApplyPath`, `emitTemplateApplyReport` all called. `templateApplyReport` fields all JSON-emitted.
+
+**Standing QA concern (re-check):**
+
+- **`cmd/ta/commands.go:155 _ = dbDecl` still outstanding.** §12.16 retrofit to `commands.go` was Example-additions only; `buildRenderFields` / `lookupDBAndType` not touched. Confirmed not fixed sideways. Standing LOW-priority item.
+
+**Unknowns:** None load-bearing for §12.16.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS** (2026-04-22). No §12.16-specific counterexample. The HIGH path-traversal finding on `internal/templates` is shared with §12.15 and is recorded there (inherited because `apply` sits on `templates.Load`, which accepts any unsanitized name). The §12.16 commit (`3fa4039`) introduces no new attack surface beyond that inherited base, and the docs-only `212dbd8` backfill is byte-accurate.
+
+**Attacks attempted:**
+
+- Attack 1 — Cobra `Execute` re-entry safety in `runMenu` (`cmd/ta/main.go:116-146`).
+- Attack 2 — MCP stdio-spawn byte-equivalence of the non-TTY `runRoot` path (`cmd/ta/main.go:104-109`).
+- Attack 3 — Menu filter completeness under future subcommand additions (`main_test.go:81-117`).
+- Attack 4 — `TestEveryCommandHasExample` walks the full tree including template children (`main_test.go:124-143`).
+- Attack 5 — Schema-only guarantee on `ta template apply` (spec-critical per V2-PLAN §14.3).
+- Attack 6 — `runTemplateApply` TTY / flag gate interactions vs. save's flag-leakage bug.
+- Attack 7 — `resolveApplyPath` relative-path rejection.
+- Attack 8 — `runTemplateApply` atomic-write ordering (pre-existing target survives a failed validate).
+- Attack 9 — `menuItem.short` empty values from new subcommands.
+- Attack 10 — `runMenu` Ctrl+C / form-failure surfaces through fang's error handler.
+- Attack 11 — Nested `root.Execute()` with `--help` interfering with `SilenceUsage` / `SilenceErrors`.
+- Attack 12 — `212dbd8` worklog SHA backfill accuracy.
+- Attack 13 — Fang `Example` retrofit byte-identity with V2-PLAN §14.7 contract (two-to-four realistic invocations).
+- Attack 14 — §12.14.5 modernization regressions + dead identifiers on touched files.
+
+**Counterexamples found:**
+
+- **REFUTED — Cobra `Execute` re-entry in `runMenu`.** The nested `root.Execute()` at line 145 runs with `args = [chosen, "--help"]`. Cobra's help-flag handling short-circuits in the flag-parsing phase: the chosen subcommand's RunE is never invoked; cobra's help-printer writes the usage template and returns nil. There is no recursion hazard (the outer Execute's RunE is already returning; the nested Execute does not re-enter `runMenu`). `SilenceUsage` / `SilenceErrors` are irrelevant for the help branch because help output is unconditional and goes through cobra's UsageFunc, which renders regardless of silence flags. Verified via `mage check` passing with the new menu-filter test.
+- **REFUTED — MCP stdio-spawn byte-equivalence.** Under MCP stdio spawn (e.g. `.mcp.json` with bare `ta`, or `claude mcp add ta ta`), neither stdin nor stdout is a TTY (both are pipes), so `ttyInteractive(false)` at line 105 returns false and control flows directly into the pre-existing `runServe`. No stderr output is added by `runRoot` before the branch. `logStartup` flag is still honored identically (line 188). Pre-§12.16 path: `RunE` → `runServe`. Post-§12.16 path: `RunE` → `runRoot` → `runServe`. One extra function frame, one TTY-syscall pair — sub-millisecond timing delta, well under any reasonable MCP boot-timeout.
+- **REFUTED — Menu filter completeness.** `menuItems` skips `Hidden`, `help`, and `completion` names. `TestMenuItemsSkipsHelpAndCompletion` uses a `want` map locking in the full user-facing set (`get`, `list-sections`, `create`, `update`, `delete`, `schema`, `search`, `template`, `init`). A future subcommand silently dropped from `newRootCmd` would fail this test.
+- **REFUTED — `TestEveryCommandHasExample` walk depth.** `walkCommands` recurses over `cmd.Commands()`, reaching `ta template list` / `show` / `save` / `apply` / `delete` as leaves. Each of those has a non-empty `Example` in `template_cmd.go`. The test asserts non-empty on every reached command; a future subcommand without `Example` fails.
+- **REFUTED — Schema-only guarantee on `apply`.** `runTemplateApply` performs exactly one `fsatomic.Write` (line 329) at `<target>/.ta/schema.toml`. No other write calls on the path. `TestTemplateApplyDoesNotTouchMCPConfigs` (template_cmd_test.go:423-439) verifies post-apply that `.mcp.json` and `.codex/config.toml` do not exist. Re-read the entire function: zero references to `claudeMCPFileName` / `codexMCPDir` / `mergeClaudeMCP` / `mergeCodexMCP`. Spec contract honored.
+- **REFUTED — `runTemplateApply` TTY / flag gate.** Unlike save's buggy `nonInteractive := force || asJSON || name != ""`, apply uses `nonInteractive := force || asJSON` (line 309). The `name` positional is required (`cobra.RangeArgs(1, 2)` at line 272) but does not leak into the interactivity gate. TTY user running `ta template apply foo` where `<cwd>/.ta/schema.toml` exists gets the huh confirm (line 314-321) as spec'd.
+- **REFUTED — `resolveApplyPath` relative-path rejection.** `TestTemplateApplyRelativePathErrors` (line 388) verifies `"relative/path"` errors with `"absolute"` in the message. `filepath.IsAbs` guard at line 347 matches `resolveInitPath`'s discipline.
+- **REFUTED — `runTemplateApply` atomic-write ordering.** `templates.Load` validates the template bytes at `templates.go:109` before `runTemplateApply` calls `fsatomic.Write`. A malformed template cannot reach the destination file. `fsatomic.Write` is a rename-based atomic write: the pre-existing destination survives if the tmpfile creation or rename fails. `TestTemplateApplyExistingTargetWithoutForceErrors` (line 399) verifies that a pre-existing target is untouched on the `--force`-missing error path.
+- **REFUTED — `menuItem.short` empty values.** `TestMenuItemsSkipsHelpAndCompletion` asserts non-empty `Short` on every item. Every current subcommand in `newRootCmd` has a non-empty `Short` field set at construction. A future omission fails the test.
+- **REFUTED — `runMenu` Ctrl+C surface.** `form.Run()` returning a Bubble Tea error is wrapped `"menu: %w"` and bubbles to `renderErrorHandler`. Output: a visible "menu: ..." error notice. Noisy but not incorrect; Ctrl+C on a huh form is rare in normal use.
+- **REFUTED — Nested `Execute()` with `--help` and silence flags.** The nested call uses the same root with its already-configured `SilenceUsage: true, SilenceErrors: true`. Cobra's help branch does not check those flags — it writes the usage template unconditionally. No double-error, no duplicate-usage, no text spewing. Verified: running `mage check` with the new tests produces a clean transcript (no stray help output from the menu test).
+- **REFUTED — `212dbd8` worklog backfill accuracy.** Commit diff is 2 lines: step-index row 12.16 (⏳ → ✅ in Build column) and `@<PAIR-C-12.16>` placeholder → `3fa4039`. Both replacements are verbatim and accurate: §12.15 build status was already `@91d30c8` and matches `git log --oneline`; §12.16 build was at HEAD when §12.16 was committed and `git show 3fa4039` confirms that SHA is the §12.16 feat commit.
+- **REFUTED — Fang `Example` content shape.** Every added `Example` carries 2-4 invocations matching the V2-PLAN §14.7 pattern: `get` (3 lines: address / --fields / --json), `list-sections` (2 lines), `create` (3 lines: --data / --data-file / stdin), `update` (2 lines), `delete` (3 lines: record / file / instance), `schema` (4 lines: get / --json / ta_schema / create), `search` (3 lines). Matches "canonical happy path + common flag + agent-facing non-interactive" claim.
+- **REFUTED — §12.14.5 modernization regressions / dead identifiers.** `mage vet` clean on `./cmd/ta/`. Touched files (`main.go`, `main_test.go`, `template_cmd.go`, `template_cmd_test.go`, `commands.go`) have no new `strings.IndexByte`-splits, C-style for loops, manual map copies, or HasSuffix+TrimSuffix pairs. All new identifiers (`menuItem`, `menuItems`, `runMenu`, `runRoot`, `runTemplateApply`, `resolveApplyPath`, `emitTemplateApplyReport`, `templateApplyReport`) have call sites.
+
+**Accepted trade-offs:**
+
+- `runMenu` and the TTY branch of `runRoot` are not exercised by unit tests (pty harness out of scope). V2-PLAN §12.17 E2E gate (manual) covers. The menu filter contract is tested via `menuItems`; the dispatch gate itself is not.
+- Ctrl+C on the menu form produces a visible "menu: ..." error notice through fang — minor UX friction, documented as accepted trade-off.
+- Apply's overwrite-with-TTY-confirm-accepted / -declined paths are not unit-tested (same huh harness limitation). Logic path is inspection-verified identical to `ta init`'s `confirmOverwrite` discipline.
+
+**Modernization / unused-identifier hits flagged:** None in §12.16.
+
+**Standing concern forwarded to orchestrator:** §12.14.5 `_ = dbDecl` at `commands.go:155` is still present after the §12.16 Example retrofit (commits `0ad3379` and `3fa4039` did not touch `buildRenderFields` / `renderSearchHits`). Continues to carry as a LOW-priority standing item for the next sweep. Not a §12.16 regression.
+
+**Hylla Feedback:** N/A — this project has no Hylla index; all navigation used `Read` / `rg` / LSP / `git show` / `mage`.
 
 
