@@ -4,16 +4,20 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/evanmschultz/ta/internal/record"
 )
 
 // TestDogfoodProbeReadme is a diagnostic test that verifies the MD
-// backend can enumerate sections in the project's real README.md. It
-// is opportunistic — if the file is not found (e.g. running from an
+// backend can enumerate declared sections in the project's real
+// README.md against the dogfood schema (H1 "title" + H2 "section").
+// It is opportunistic — if the file is not found (e.g. running from an
 // isolated module cache), the test is skipped rather than failing.
 //
 // The probe confirms that the scanner handles real-world content
 // (fenced code, tables, lists, nested emphasis) without false-positive
-// heading detection.
+// heading detection AND that the schema-driven filter returns the
+// expected declared-level slugs.
 func TestDogfoodProbeReadme(t *testing.T) {
 	root, ok := findProjectRoot()
 	if !ok {
@@ -25,75 +29,62 @@ func TestDogfoodProbeReadme(t *testing.T) {
 		t.Skipf("no README.md at %s: %v", path, err)
 	}
 
-	hs, err := scanATX(data)
+	// Use the real dogfood declared types (per .ta/schema.toml): H1
+	// readme.title, H2 readme.section.
+	types := []record.DeclaredType{
+		{Name: "title", Heading: 1},
+		{Name: "section", Heading: 2},
+	}
+	b, err := NewBackend(types)
 	if err != nil {
-		t.Fatalf("scanATX(README.md): %v", err)
-	}
-	if len(hs) == 0 {
-		t.Fatalf("expected at least one heading in README.md; got 0")
+		t.Fatalf("NewBackend: %v", err)
 	}
 
-	// Log each heading so the probe output is visible via `go test -v`.
-	for _, h := range hs {
-		t.Logf("H%d slug=%q text=%q lines=%d:%d", h.Level, h.Slug, h.Text, h.LineStart, h.LineEnd)
+	addrs, err := b.List(data, "")
+	if err != nil {
+		t.Fatalf("List(README.md): %v", err)
+	}
+	if len(addrs) == 0 {
+		t.Fatalf("expected at least one declared section in README.md; got 0")
 	}
 
-	// Assert the expected dogfood shape: one H1 "ta" plus at least
-	// one H2 (the README always has Install / License at minimum).
-	if hs[0].Level != 1 {
-		t.Errorf("first heading should be H1, got H%d", hs[0].Level)
+	// Log each address so the probe output is visible via `go test -v`.
+	for _, a := range addrs {
+		t.Logf("address: %s", a)
 	}
-	if hs[0].Slug != "ta" {
-		t.Errorf("first heading slug = %q, want %q", hs[0].Slug, "ta")
+
+	// Assert the expected dogfood shape: one title "ta" plus at least
+	// one section.
+	if addrs[0] != "title.ta" {
+		t.Errorf("first declared address = %q, want title.ta", addrs[0])
 	}
-	h2Count := 0
-	for _, h := range hs {
-		if h.Level == 2 {
-			h2Count++
+	sectionCount := 0
+	for _, a := range addrs {
+		if len(a) > len("section.") && a[:len("section.")] == "section." {
+			sectionCount++
 		}
 	}
-	if h2Count == 0 {
-		t.Error("expected at least one H2 heading in README.md")
+	if sectionCount == 0 {
+		t.Error("expected at least one section.* address in README.md")
 	}
-
-	// Exercise Backend.List at level 1 and level 2.
-	b1, _ := NewBackend(1)
-	titles, err := b1.List(data, "readme.title")
-	if err != nil {
-		t.Errorf("List(level=1): %v", err)
-	}
-	if len(titles) == 0 {
-		t.Error("no H1 titles surfaced via List")
-	}
-	t.Logf("readme.title addresses: %v", titles)
-
-	b2, _ := NewBackend(2)
-	sections, err := b2.List(data, "readme.section")
-	if err != nil {
-		t.Errorf("List(level=2): %v", err)
-	}
-	if len(sections) == 0 {
-		t.Error("no H2 sections surfaced via List")
-	}
-	t.Logf("readme.section addresses: %v", sections)
 
 	// Expected H2 slugs present in the current README (at the time
 	// this probe was written). Each expected slug must appear; any
 	// additional slugs beyond this set are fine (README grows).
-	wantH2 := []string{
-		"readme.section.install",
-		"readme.section.mcp-client-config",
-		"readme.section.schemas",
-		"readme.section.building-from-source",
-		"readme.section.license",
+	wantSections := []string{
+		"section.install",
+		"section.mcp-client-config",
+		"section.schemas",
+		"section.building-from-source",
+		"section.license",
 	}
-	have := make(map[string]bool, len(sections))
-	for _, s := range sections {
-		have[s] = true
+	have := make(map[string]bool, len(addrs))
+	for _, a := range addrs {
+		have[a] = true
 	}
-	for _, want := range wantH2 {
+	for _, want := range wantSections {
 		if !have[want] {
-			t.Errorf("expected H2 slug %q missing from List output %v", want, sections)
+			t.Errorf("expected declared address %q missing from List output %v", want, addrs)
 		}
 	}
 }

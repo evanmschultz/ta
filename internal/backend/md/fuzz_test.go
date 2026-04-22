@@ -11,19 +11,17 @@ import (
 )
 
 // FuzzSpliceInvariant exercises the byte-identity invariant required
-// by V2-PLAN §5.1 / §12.4: splicing a section with bytes identical to
-// the section's own existing content must yield a buffer equal to the
-// input (modulo trailing-newline normalisation in Emit).
-//
-// The invariant is:
-//
-//	out, _ := b.Splice(buf, section, Emit(section, {body: Find(buf, section).body}))
-//	bytes.Equal(buf, out) || out is buf with trailing '\n' added
+// by V2-PLAN §5.1 / §5.3.2 / §12.4: splicing a declared section with
+// bytes identical to the section's own existing content must yield a
+// buffer whose bytes outside the declared range are byte-identical to
+// the input.
 //
 // Seeds: project-root README.md and CLAUDE.md (when present) plus a
 // suite of synthetic edge cases (empty body, body without trailing
-// newline, body with fenced code containing '##', consecutive
-// headings). The fuzzer explores perturbations around the seeds.
+// newline, body with fenced code containing `##`, consecutive
+// headings). One seed exercises the §5.3.2 worked example — H3
+// subheadings inside an H2 body that must survive the splice as
+// absorbed content.
 func FuzzSpliceInvariant(f *testing.F) {
 	// Synthetic seeds first.
 	synth := []string{
@@ -49,6 +47,22 @@ func FuzzSpliceInvariant(f *testing.F) {
 		"## Only",
 		// Trailing whitespace.
 		"# ta\n\n## X\n\nbody\n\n\n",
+		// §5.3.2 worked example — H3 inside H2's body that must
+		// survive splice-of-H2-body per the schema-driven rule. When
+		// the caller replaces "## Installation" with an equivalent
+		// body (including the H3s absorbed intact), the bytes outside
+		// the H2's [header, next-declared-start) range must match the
+		// input.
+		"# ta\n\n" +
+			"## Installation\n\n" +
+			"Install from source:\n\n" +
+			"    mage install\n\n" +
+			"### Prerequisites\n\n" +
+			"A Go toolchain.\n\n" +
+			"### Troubleshooting\n\n" +
+			"If mage install fails, ...\n\n" +
+			"## MCP config\n\n" +
+			"cfg\n",
 	}
 	for _, s := range synth {
 		f.Add([]byte(s), 2, "## X")
@@ -61,7 +75,7 @@ func FuzzSpliceInvariant(f *testing.F) {
 			if err == nil && len(data) > 0 {
 				// Seed pairs the buffer with a random H2 target slug
 				// derived from the second heading in the file, if any.
-				hs, _ := scanATX(data)
+				hs, _ := scanATX(data, map[int]struct{}{1: {}, 2: {}})
 				for _, h := range hs {
 					if h.Level == 2 {
 						f.Add(data, 2, "## "+h.Text)
@@ -76,19 +90,38 @@ func FuzzSpliceInvariant(f *testing.F) {
 		if level < 1 || level > 6 {
 			t.Skip()
 		}
-		b, err := NewBackend(level)
+		// Build a Backend that declares H1 "title" and H<level>
+		// "section" (or just H<level> when level == 1). This mirrors
+		// the §5.3.2 model: at least one level declared, others are
+		// content. If level == 1 the sole declared type is title.
+		var types []record.DeclaredType
+		if level == 1 {
+			types = []record.DeclaredType{{Name: "title", Heading: 1}}
+		} else {
+			types = []record.DeclaredType{
+				{Name: "title", Heading: 1},
+				{Name: "section", Heading: level},
+			}
+		}
+		b, err := NewBackend(types)
 		if err != nil {
 			t.Skip()
 		}
 
+		declaredLevels := map[int]struct{}{}
+		for _, tp := range types {
+			declaredLevels[tp.Heading] = struct{}{}
+		}
+
 		// Derive a target slug from targetHeading if it looks like
-		// "## X"; else pick the first matching-level heading in buf.
+		// "## X"; else pick the first matching-level declared heading
+		// in buf.
 		var slug string
 		if strings.HasPrefix(targetHeading, strings.Repeat("#", level)+" ") {
 			slug = slugFromHeading(strings.TrimSpace(strings.TrimLeft(targetHeading, "#")))
 		}
 
-		hs, err := scanATX(buf)
+		hs, err := scanATX(buf, declaredLevels)
 		if err != nil {
 			// Collision or other scan-level error; invariant is
 			// undefined on un-scannable input.
@@ -106,9 +139,15 @@ func FuzzSpliceInvariant(f *testing.F) {
 			t.Skip()
 		}
 
-		// Build a section path; the prefix doesn't matter for Find's
-		// slug match, only the last dotted segment does.
-		section := "x.y." + slug
+		// Build a section path. For level == 1 we target title; for
+		// others section. The address type-name must match a declared
+		// type so Emit can resolve the level.
+		var section string
+		if level == 1 {
+			section = "x.title." + slug
+		} else {
+			section = "x.section." + slug
+		}
 
 		sec, ok, err := b.Find(buf, section)
 		if err != nil {
@@ -140,10 +179,7 @@ func FuzzSpliceInvariant(f *testing.F) {
 		}
 
 		// Invariant: the emitted-and-spliced buffer should match the
-		// original, possibly modulo trailing-newline normalisation in
-		// Emit. We check byte-equality in the region outside the
-		// spliced section directly (strictly byte-identical), and
-		// tolerate body-equivalence inside it.
+		// original on bytes outside the spliced section.
 		if !bytes.Equal(buf[:sec.Range[0]], out[:sec.Range[0]]) {
 			t.Fatalf("pre-range bytes diverged:\n  got: %q\n  want: %q",
 				out[:sec.Range[0]], buf[:sec.Range[0]])
@@ -154,9 +190,9 @@ func FuzzSpliceInvariant(f *testing.F) {
 				out[len(out)-len(post):], post)
 		}
 
-		// The emitted replacement must itself parse as a valid heading
-		// matching the requested level + slug.
-		eh, err := scanATX(emitted)
+		// The emitted replacement must itself parse as a valid
+		// declared heading matching the requested level + slug.
+		eh, err := scanATX(emitted, declaredLevels)
 		if err != nil {
 			t.Fatalf("emitted bytes unscannable: %v\n--- emitted ---\n%s", err, emitted)
 		}

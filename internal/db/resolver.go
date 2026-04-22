@@ -329,6 +329,16 @@ func (r *Resolver) resolveWriteCollection(db schema.DB, addr Address, pathHint s
 		relPath = addr.Instance + ext
 	} else {
 		relPath = filepath.Clean(filepath.FromSlash(pathHint))
+		// Safety (V2-PLAN §11.D): path_hint must stay inside the
+		// collection root. filepath.IsLocal rejects absolute paths,
+		// any '..' segment, empty, and Windows reserved names lexically
+		// — exactly the guarantees we need so the eventual
+		// filepath.Join(base, relPath) cannot escape base.
+		if !filepath.IsLocal(relPath) {
+			return schema.DB{}, Instance{}, "", fmt.Errorf(
+				"%w: path_hint %q escapes collection root",
+				ErrPathHintMismatch, pathHint)
+		}
 		// Sanity: hint must produce the given slug.
 		hintSlug := slugFromCollectionPath(relPath, string(db.Format))
 		if hintSlug != addr.Instance {

@@ -352,6 +352,56 @@ func TestResolveWriteSingleInstanceRejectsHint(t *testing.T) {
 	}
 }
 
+// TestResolveWriteDirPerInstanceRejectsHint covers the dir-per-instance
+// case explicitly: the canonical filename is fixed, so a path_hint is
+// meaningless and must error. The constraint is documented on
+// ResolveWrite but only lightly exercised before — see V2-PLAN §5.5.1
+// "canonical filename required; no per-db filename configuration".
+func TestResolveWriteDirPerInstanceRejectsHint(t *testing.T) {
+	root := t.TempDir()
+	r := NewResolver(root, testRegistry())
+
+	_, _, _, err := r.ResolveWrite("plan_db.drop_9.build_task.task_001", "custom.toml")
+	if err == nil {
+		t.Fatal("expected error: hint on dir-per-instance db")
+	}
+	if !errors.Is(err, ErrBadAddress) {
+		t.Errorf("expected ErrBadAddress, got %v", err)
+	}
+}
+
+// TestResolveWriteHintRejectsParentEscape covers V2-PLAN §11.D: a
+// path_hint that escapes the collection root via '..' segments, absolute
+// paths, or cleaned-away '..' elements must be rejected. filepath.IsLocal
+// (Go 1.20+) is the lexical check.
+func TestResolveWriteHintRejectsParentEscape(t *testing.T) {
+	root := t.TempDir()
+	r := NewResolver(root, testRegistry())
+
+	// Each hint here maps to a slug of "x-md" or similar but must fail
+	// earlier on the IsLocal guard regardless of slug match.
+	cases := []struct {
+		name, hint string
+	}{
+		{"parent", "../x.md"},
+		{"double-parent", "../../etc/passwd"},
+		{"rooted-parent-via-clean", "a/../../b.md"},
+		{"dot-slash-parent", "./../b.md"},
+		{"absolute", "/etc/passwd"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, err := r.ResolveWrite("docs.reference-api.section.endpoints", tc.hint)
+			if err == nil {
+				t.Fatalf("hint %q: expected error, got nil", tc.hint)
+			}
+			if !errors.Is(err, ErrPathHintMismatch) {
+				t.Errorf("hint %q: expected ErrPathHintMismatch, got %v", tc.hint, err)
+			}
+		})
+	}
+}
+
 func TestResolveWriteDirPerInstanceAutoCreatePath(t *testing.T) {
 	root := t.TempDir()
 	r := NewResolver(root, testRegistry())

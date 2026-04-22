@@ -39,9 +39,20 @@ func (a Address) Canonical() string {
 // ParseAddress splits section into an Address shaped to the resolved
 // db's schema shape. Returns ErrUnknownDB for an unrecognised first
 // segment, ErrUnknownType when the type segment is not declared on the
-// db, and ErrBadAddress when the segment count does not match the db's
-// shape (per §5.5 "tools resolve which form applies by looking up the
-// db's declaration").
+// db, and ErrBadAddress when the segment count is below the minimum for
+// the db's shape or an intermediate segment is empty (§5.5 "tools
+// resolve which form applies by looking up the db's declaration").
+//
+// The grammar is uniform across formats (§2.9, §11.D):
+//
+//   - single-instance: "<db>.<type>.<id-path>" with len(parts) >= 3.
+//   - multi-instance : "<db>.<instance>.<type>.<id-path>" with
+//     len(parts) >= 4.
+//
+// <id-path> is one or more dot-separated segments, joined with '.' into
+// addr.ID so deep TOML bracket paths (e.g. "plans.task.t1.subtask") and
+// single-segment MD slugs (e.g. "installation") both round-trip through
+// the same rule.
 //
 // The returned schema.DB is the resolved db declaration; callers that
 // need the type descriptor can look it up on db.Types[addr.Type].
@@ -50,8 +61,11 @@ func (r *Resolver) ParseAddress(section string) (Address, schema.DB, error) {
 		return Address{}, schema.DB{}, fmt.Errorf("%w: empty", ErrBadAddress)
 	}
 	parts := strings.Split(section, ".")
-	if parts[0] == "" {
-		return Address{}, schema.DB{}, fmt.Errorf("%w: %q", ErrBadAddress, section)
+	for _, p := range parts {
+		if p == "" {
+			return Address{}, schema.DB{}, fmt.Errorf(
+				"%w: %q has empty segment", ErrBadAddress, section)
+		}
 	}
 
 	db, ok := r.registry.DBs[parts[0]]
@@ -64,36 +78,23 @@ func (r *Resolver) ParseAddress(section string) (Address, schema.DB, error) {
 
 	switch db.Shape {
 	case schema.ShapeFile:
-		// <db>.<type>.<id>
+		// <db>.<type>.<id-path>, 3+ segments; tail joined with '.'.
 		if len(parts) < 3 {
 			return Address{}, schema.DB{}, fmt.Errorf(
-				"%w: single-instance db %q needs <db>.<type>.<id>, got %q",
-				ErrBadAddress, db.Name, section)
-		}
-		// Reject 4+ segments as "shape mismatch" — single-instance dbs have
-		// no instance component, so an extra segment is a typo we must not
-		// swallow (§1.1).
-		if len(parts) > 3 {
-			// But a dotted ID is plausible in general — only reject when
-			// the second segment looks like an instance attempt. Since the
-			// resolver cannot know user intent, we take the strict reading
-			// per the task spec: too-many segments is a loud error.
-			return Address{}, schema.DB{}, fmt.Errorf(
-				"%w: single-instance db %q does not accept instance segment, got %q",
+				"%w: single-instance db %q needs <db>.<type>.<id-path>, got %q",
 				ErrBadAddress, db.Name, section)
 		}
 		addr.Type = parts[1]
-		addr.ID = parts[2]
+		addr.ID = strings.Join(parts[2:], ".")
 	case schema.ShapeDirectory, schema.ShapeCollection:
-		// <db>.<instance>.<type>.<id>
+		// <db>.<instance>.<type>.<id-path>, 4+ segments; tail joined with '.'.
 		if len(parts) < 4 {
 			return Address{}, schema.DB{}, fmt.Errorf(
-				"%w: multi-instance db %q needs <db>.<instance>.<type>.<id>, got %q",
+				"%w: multi-instance db %q needs <db>.<instance>.<type>.<id-path>, got %q",
 				ErrBadAddress, db.Name, section)
 		}
 		addr.Instance = parts[1]
 		addr.Type = parts[2]
-		// Join any remaining segments so dotted IDs round-trip.
 		addr.ID = strings.Join(parts[3:], ".")
 	default:
 		return Address{}, schema.DB{}, fmt.Errorf("%w: %q on db %q",

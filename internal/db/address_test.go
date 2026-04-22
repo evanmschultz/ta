@@ -2,7 +2,6 @@ package db
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/evanmschultz/ta/internal/schema"
@@ -102,16 +101,45 @@ func TestParseAddressTooFewSegments(t *testing.T) {
 	}
 }
 
-func TestParseAddressTooManySegmentsSingleInstance(t *testing.T) {
+// TestParseAddressUniformDottedIDsAccepted locks in the V2-PLAN §2.9 /
+// §11.D uniform grammar: <id-path> is 1+ dot-separated segments, joined
+// with '.' into addr.ID. Single-instance accepts any 3+; multi-instance
+// accepts any 4+. No "too many segments" reject on single-instance.
+func TestParseAddressUniformDottedIDsAccepted(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 
-	// Single-instance with 4 segments must fail loudly.
-	_, _, err := r.ParseAddress("readme.drop_1.section.installation")
-	if err == nil {
-		t.Fatal("expected error for 4-segment address on single-instance db")
+	cases := []struct {
+		section  string
+		wantInst string
+		wantType string
+		wantID   string
+	}{
+		// Single-instance with dotted IDs.
+		{"readme.section.install", "", "section", "install"},
+		{"readme.section.install.sub", "", "section", "install.sub"},
+		{"readme.section.a.b.c.d", "", "section", "a.b.c.d"},
+		// Multi-instance with dotted IDs.
+		{"plan_db.drop_1.build_task.task_001", "drop_1", "build_task", "task_001"},
+		{"plan_db.drop_1.build_task.t1.subtask", "drop_1", "build_task", "t1.subtask"},
+		{"plan_db.drop_1.build_task.a.b.c", "drop_1", "build_task", "a.b.c"},
+		// File-per-instance with dotted IDs.
+		{"docs.reference-api.section.endpoints", "reference-api", "section", "endpoints"},
+		{"docs.reference-api.section.endpoints.sub", "reference-api", "section", "endpoints.sub"},
 	}
-	if !strings.Contains(err.Error(), "readme") {
-		t.Errorf("error should mention db name: %v", err)
+	for _, tc := range cases {
+		addr, _, err := r.ParseAddress(tc.section)
+		if err != nil {
+			t.Errorf("ParseAddress(%q): unexpected error %v", tc.section, err)
+			continue
+		}
+		if addr.Instance != tc.wantInst || addr.Type != tc.wantType || addr.ID != tc.wantID {
+			t.Errorf("ParseAddress(%q) = %+v, want Instance=%q Type=%q ID=%q",
+				tc.section, addr, tc.wantInst, tc.wantType, tc.wantID)
+		}
+		// Round-trip through Canonical.
+		if got := addr.Canonical(); got != tc.section {
+			t.Errorf("Canonical(%+v) = %q, want %q", addr, got, tc.section)
+		}
 	}
 }
 
@@ -122,6 +150,29 @@ func TestParseAddressWrongShapeMultiInstance(t *testing.T) {
 	_, _, err := r.ParseAddress("plan_db.build_task.task_001")
 	if err == nil {
 		t.Fatal("expected error for 3-segment address on multi-instance db")
+	}
+}
+
+// TestParseAddressRejectsEmptySegments guards the "no leading/trailing
+// or interior empty segment" rule that came in with the uniform grammar:
+// strings.Split(".foo.bar", ".") returns ["", "foo", "bar"] and we must
+// not silently accept that as the db "". Same for "a..b" and "a.b.".
+func TestParseAddressRejectsEmptySegments(t *testing.T) {
+	r := NewResolver("/proj", testRegistry())
+
+	cases := []string{
+		".readme.section.install",  // leading dot
+		"readme.section.install.",  // trailing dot
+		"readme..section.install",  // double dot
+		"plan_db.drop_1..task_001", // double dot mid-address
+		"plan_db..build_task.task_001",
+	}
+	for _, s := range cases {
+		if _, _, err := r.ParseAddress(s); err == nil {
+			t.Errorf("ParseAddress(%q): expected error, got nil", s)
+		} else if !errors.Is(err, ErrBadAddress) {
+			t.Errorf("ParseAddress(%q): expected ErrBadAddress, got %v", s, err)
+		}
 	}
 }
 

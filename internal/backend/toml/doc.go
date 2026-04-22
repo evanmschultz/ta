@@ -6,7 +6,13 @@
 // canonical emission for user data files).
 //
 // This package is the only place in ta that touches user TOML data. It
-// sits behind the record.Backend interface in internal/record.
+// sits behind the record.Backend interface in internal/record. Per
+// V2-PLAN §2.10 / §5.2 the Backend is schema-driven: NewBackend takes
+// a slice of record.DeclaredType whose Name fields are treated as
+// bracket-path prefixes. Brackets that don't match any declared prefix
+// are body content of the enclosing declared record, not sibling
+// records. Body range runs from a declared record's header to the
+// start of the next declared record (or EOF), per V2-PLAN §2.11.
 //
 // The github.com/odvcencio/gotreesitter dependency is retained in go.mod
 // as a candidate replacement; its TOML grammar currently fails on TOML

@@ -12,9 +12,11 @@ import (
 // heading form is ever added).
 //
 // ByteRange is the [start, end) byte offsets in the source buffer of
-// this heading's entire section span — from the beginning of the
-// heading's line to the start of the next heading of ANY depth, or
-// EOF. This is the "flat" model from V2-PLAN §5.3.2.
+// this declared heading's entire section span — from the beginning of
+// the heading's line to the start of the next DECLARED heading (at
+// any declared level), or EOF for the last declared heading.
+// Non-declared headings between two declared ones are absorbed into
+// the first's body per V2-PLAN §2.10 / §2.11 / §5.3.2.
 type Heading struct {
 	Level     int
 	Text      string
@@ -24,17 +26,27 @@ type Heading struct {
 	ByteRange [2]int
 }
 
-// scanATX walks buf and returns every recognised ATX heading in source
-// order. It tracks fenced-code-block state so `#` lines inside fences
-// are treated as content.
+// scanATX walks buf and returns every DECLARED ATX heading in source
+// order. A heading is declared when its level matches one of the keys
+// in declaredLevels. Non-declared headings are tracked for fence-state
+// purposes but not returned — they are body content of the enclosing
+// declared section (V2-PLAN §5.3.2).
 //
-// Collision detection: if two headings at the same level produce the
-// same slug in one file, scanATX returns ErrSlugCollision (wrapped
-// with both line numbers). Collisions across different levels are
-// allowed — each schema type binds to a specific level, so same slug
-// at different levels cannot alias a single address.
-func scanATX(buf []byte) ([]Heading, error) {
+// Fence-state tracking is unchanged: `#` lines inside ```` ``` ```` or
+// `~~~` fences are never treated as headings, declared or otherwise.
+//
+// Slug-collision detection is per declared level: two declared
+// headings at the same level with the same slug returns ErrSlugCollision
+// (with both line numbers). Collisions across different declared levels
+// are allowed — each declared type binds to exactly one level per
+// V2-PLAN §4.7 meta-schema rule. Collisions inside non-declared levels
+// are ignored — those slugs never compose a record address.
+//
+// When declaredLevels is empty the result is always empty (no boundary
+// anywhere; everything is content).
+func scanATX(buf []byte, declaredLevels map[int]struct{}) ([]Heading, error) {
 	var out []Heading
+
 	// Fence-state: when inFence is true, char is the fence char and
 	// runLen is the opener length. A closing fence must match char and
 	// have runLen' >= runLen.
@@ -69,18 +81,23 @@ func scanATX(buf []byte) ([]Heading, error) {
 			} else if !inFence {
 				// Try to match an ATX heading at col 0.
 				if lvl, text, ok := readATXHeading(buf, lineStart); ok {
-					slug := slugFromHeading(text)
-					if slug != "" {
-						h := Heading{
-							Level:     lvl,
-							Text:      text,
-							Slug:      slug,
-							LineStart: line,
-							LineEnd:   line,
+					// Only DECLARED headings become records; non-declared
+					// headings are skipped here so they fall through as
+					// body content (V2-PLAN §5.3.2 / §5.3.5).
+					if _, declared := declaredLevels[lvl]; declared {
+						slug := slugFromHeading(text)
+						if slug != "" {
+							h := Heading{
+								Level:     lvl,
+								Text:      text,
+								Slug:      slug,
+								LineStart: line,
+								LineEnd:   line,
+							}
+							// ByteRange.Start = lineStart; end is patched later.
+							h.ByteRange[0] = lineStart
+							out = append(out, h)
 						}
-						// ByteRange.Start = lineStart; end is patched later.
-						h.ByteRange[0] = lineStart
-						out = append(out, h)
 					}
 				}
 			}
@@ -93,8 +110,10 @@ func scanATX(buf []byte) ([]Heading, error) {
 		}
 	}
 
-	// Patch ByteRange.End for each heading: start of next heading of
-	// ANY level, or EOF for the last.
+	// Patch ByteRange.End for each declared heading: start of the next
+	// declared heading (at ANY declared level), or EOF for the last.
+	// Non-declared headings between declared ones were never pushed to
+	// out, so indexing works directly.
 	for idx := range out {
 		if idx+1 < len(out) {
 			out[idx].ByteRange[1] = out[idx+1].ByteRange[0]
@@ -103,7 +122,9 @@ func scanATX(buf []byte) ([]Heading, error) {
 		}
 	}
 
-	// Collision check: by (level, slug).
+	// Collision check per declared level. A schema type binds to a
+	// single level (§4.7 meta-schema), so same slug across levels is
+	// not an ambiguity.
 	type key struct {
 		level int
 		slug  string
