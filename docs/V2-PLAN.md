@@ -1138,3 +1138,43 @@ MCP calls return structured JSON (raw field values for `get`, record arrays for 
 ### 13.4 Package layout
 
 `internal/render/` sits alongside the backends; `cmd/ta/commands.go` wires each CLI subcommand through it. `internal/render/` depends only on laslig + the record types from `internal/record/`. `internal/mcpsrv/` does **not** import `internal/render/` — that's the firewall keeping MCP output structured.
+
+---
+
+## 14. Post-v0.1.0 cleanup — eliminate the global cascade layer
+
+Runs AFTER §12.12 (v0.1.0 tag). Not part of the §12 drop; tracked separately so this spec can be checked in alongside v0.1.0 as a known follow-up.
+
+### 14.1 Motivation
+
+The current cascade model (§4.4) walks `~/.ta/schema.toml` as the base layer under every project-local `.ta/schema.toml` on the target's ancestor chain. That introduces three coupled problems the §12.9 / §12.10 work surfaced:
+
+- **Unbounded cache growth in long-running MCP servers** (§12.9 Falsification Unknown U2). Every unique project path the server sees is cached forever because cache keys include the project path and the home layer folds in per-project.
+- **Staging workarounds in dogfood tooling** (§12.10). `mage dogfood` had to create a tmpdir, redirect `HOME`, and stage the project schema into it because the dev's legacy `~/.ta/schema.toml` carried the pre-v2 `[schema.<type>]` grammar and broke `config.Resolve`. That workaround belongs to the tool, not the project.
+- **Stale-cache gap on new cascade layers** (§12.9 Falsification finding 2.1). When a user creates `~/.ta/schema.toml` mid-session the in-memory cache silently continues to serve the pre-home-layer resolution until restart. The v0.1.0 fix stats the candidate set on every read (see §12.9 Option A resolution); removing the home layer entirely removes the class.
+
+### 14.2 Target shape
+
+- **No home layer.** Remove the `~/.ta/schema.toml` slot from `internal/config/Resolve`. The cascade starts and ends at the project-local `.ta/schema.toml`.
+- **No ancestor walk.** The resolver takes a project directory argument and reads `<projectDir>/.ta/schema.toml` directly. No walking upward.
+- **MCP starts from project dir.** The MCP server config already carries a `ProjectPath` (§12.9); make it required. The server refuses to boot without it and never consults any other path.
+- **Cache collapses to one entry.** Because there is one project per server, the `schemaCache` map collapses to a single `{resolution, mtimes}` cell. Mtime check is on exactly one file. No unbounded growth, no new-layer race.
+
+### 14.3 Scope of the cleanup
+
+1. `internal/config/` — rewrite `Resolve` to skip the home layer and the ancestor walk. Drop the sentinel-path trick (§12.9-era workaround for the walk's current semantics).
+2. `magefile.go seedHomeSchema` (if still present) — delete; no longer a target-system affordance.
+3. `mage dogfood` staging workaround — delete. The dogfood target writes directly to `workflow/ta-v2/db.toml` via `mcpsrv.Create` with no `HOME` redirection.
+4. `internal/mcpsrv/cache.go` — collapse to a single-entry cache; drop the map + per-entry `sync.RWMutex` indirection. Keep mtime-check on every read (now cheap: one `stat`).
+5. `internal/mcpsrv/Config.ProjectPath` — make required; `New` errors without it.
+6. Tests — remove the `t.Setenv("HOME", ...)` dance from every fixture that currently stages a home-level schema.
+7. Docs — update §4.4 cascade language in the consolidated README (post-§12.11) to say "project-local only, no cascade" and cite §14 rationale.
+
+### 14.4 Migration for existing users
+
+- v0.1.0 users carrying a `~/.ta/schema.toml` will see it silently ignored post-cleanup. Document in the release notes.
+- No data migration: schema files stay where they are; the resolver just stops walking.
+
+### 14.5 Why not in §12
+
+The §12 drop is focused on reaching v0.1.0 with the tool surface intact. Removing the home layer is a semantics change that deserves its own release-note line + its own pre-v1 revisit. Shipping v0.1.0 with the cache-plus-home-layer behavior preserved gives users a concrete "before" to compare against when v0.2.0 removes it.
