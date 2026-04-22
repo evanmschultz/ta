@@ -455,6 +455,12 @@ If the schema later adds `[readme.subsection] heading = 3`:
 - `get(readme.section.installation)` STILL returns the whole H2 block including the two H3s — the parent's range doesn't shrink; the H3s now just have their own narrower nested ranges too.
 - `get(readme.subsection.installation.prerequisites)` returns just the H3 block.
 
+**Orphan records — existing-only, strict on write.** An "orphan" is a declared-level heading whose declared ancestor chain in the buffer is incomplete — e.g. an H3 sitting directly under an H1 when the schema declares `[<db>.title] heading = 1`, `[<db>.section] heading = 2`, AND `[<db>.subsection] heading = 3`, but the document has no H2 between the H1 and the H3. Orphans arise from hand-edited legacy files or mid-write transient states; schema-authored output rarely produces them.
+
+- **Read.** The scanner emits an orphan with a chain composed from the declared ancestor slugs that ARE present in the buffer, skipping the empty slot for the missing level. An H3 `prereqs` under H1 `ta` (no H2) resolves to `<db>.subsection.ta.prereqs`. `get` / `update` / `delete` on an existing orphan address succeed via exact-address match — these paths do not consult ancestor lookup.
+- **Write.** `create` (and `Splice` of a NEW record) at an orphan address fails with `ErrParentMissing`. The resolver looks for a heading at the next-shallower declared level (regardless of whether that slug is present in the orphan chain) and refuses to insert when it's absent. To add a second orphan sibling, the caller must first materialize the missing declared ancestor (e.g. `create` the H2 at `<db>.section.ta`), then retry the subsection `create`.
+- **Rationale.** Tool-authored output stays schema-consistent. Legacy hand-edited orphans remain readable so this pre-v0.1.0 policy does not break existing files; extensions to those files route through the declared hierarchy. "Fail loudly on write" aligns with §1.1 and §2.10 — the write path is the surface where typo or missing-ancestor intent can still be caught and corrected.
+
 #### 5.3.3 MVP field layout — body only
 
 MD record types have **one field**: `body`. The heading text serves as the record id (via slug). There is no `title` field because the heading text already is the address.
