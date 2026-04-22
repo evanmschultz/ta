@@ -5,10 +5,18 @@ import (
 	"testing"
 )
 
-// allLevels is a "declare every ATX level" set so that tests that care
-// only about heading recognition (not schema-driven filtering) behave
-// the way pre-refactor tests expected.
-var allLevels = map[int]struct{}{1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}}
+// allLevels is a "declare every ATX level" map so tests that care only
+// about heading recognition (not schema-driven filtering) see every
+// heading level as declared. Type names are synthetic ("h1".."h6") and
+// only participate when a test asserts full-address values.
+var allLevels = map[int]string{
+	1: "h1",
+	2: "h2",
+	3: "h3",
+	4: "h4",
+	5: "h5",
+	6: "h6",
+}
 
 // stripHeadings returns just the text and level for equality comparisons
 // where byte offsets aren't the focus.
@@ -140,20 +148,34 @@ func TestScanATXSetextIgnored(t *testing.T) {
 	}
 }
 
+// TestScanATXByteRangeCoversToNextHeading verifies the §2.11
+// hierarchical rule: a heading's range ends at the next heading at the
+// SAME OR SHALLOWER declared level, or EOF. Deeper headings are body
+// bytes of this heading (and themselves addressable with narrower
+// nested ranges).
 func TestScanATXByteRangeCoversToNextHeading(t *testing.T) {
-	src := []byte("# a\nbody-of-a\n## b\nbody-of-b\n")
-	got, _ := scanATX(src, allLevels)
-	if len(got) != 2 {
-		t.Fatalf("got %d headings", len(got))
+	src := []byte("# a\nbody-of-a\n## b\nbody-of-b\n# next\nbody-of-next\n")
+	got, err := scanATX(src, allLevels)
+	if err != nil {
+		t.Fatalf("scanATX: %v", err)
 	}
-	// First heading's byte range should span through the start of "## b".
-	end := got[0].ByteRange[1]
-	if string(src[got[0].ByteRange[0]:end]) != "# a\nbody-of-a\n" {
-		t.Errorf("first range = %q", src[got[0].ByteRange[0]:end])
+	if len(got) != 3 {
+		t.Fatalf("got %d headings, want 3", len(got))
 	}
-	// Second heading spans to EOF.
-	if got[1].ByteRange[1] != len(src) {
-		t.Errorf("second end = %d, want %d", got[1].ByteRange[1], len(src))
+	// First H1 "a" range ends at the next H1 "next" (deeper H2 b is
+	// inside the range).
+	firstSpan := string(src[got[0].ByteRange[0]:got[0].ByteRange[1]])
+	if firstSpan != "# a\nbody-of-a\n## b\nbody-of-b\n" {
+		t.Errorf("first H1 range = %q", firstSpan)
+	}
+	// H2 "b" range ends at the next same-or-shallower = next H1 "next".
+	secondSpan := string(src[got[1].ByteRange[0]:got[1].ByteRange[1]])
+	if secondSpan != "## b\nbody-of-b\n" {
+		t.Errorf("H2 range = %q", secondSpan)
+	}
+	// Final H1 "next" spans to EOF.
+	if got[2].ByteRange[1] != len(src) {
+		t.Errorf("final H1 end = %d, want %d", got[2].ByteRange[1], len(src))
 	}
 }
 
@@ -162,7 +184,7 @@ func TestScanATXByteRangeCoversToNextHeading(t *testing.T) {
 // absorbed into the H2's body and they do not appear in scanATX output.
 func TestScanATXNonDeclaredLevelIsContent(t *testing.T) {
 	src := []byte("# ta\n\n## Installation\n\n### Prerequisites\n\nA Go toolchain.\n\n### Troubleshooting\n\nsomething\n\n## MCP config\n\nc\n")
-	declared := map[int]struct{}{1: {}, 2: {}}
+	declared := map[int]string{1: "title", 2: "section"}
 	got, err := scanATX(src, declared)
 	if err != nil {
 		t.Fatalf("scanATX: %v", err)
@@ -193,7 +215,7 @@ func TestScanATXNonDeclaredLevelIsContent(t *testing.T) {
 // levels, scanATX must return no headings regardless of the buffer.
 func TestScanATXEmptyDeclaredLevelsYieldsNoHeadings(t *testing.T) {
 	src := []byte("# A\n## B\n### C\n")
-	got, err := scanATX(src, map[int]struct{}{})
+	got, err := scanATX(src, map[int]string{})
 	if err != nil {
 		t.Fatalf("scanATX: %v", err)
 	}

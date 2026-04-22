@@ -38,4 +38,13 @@ var (
 	// V2-PLAN §4.7 forbids this — each heading level binds to exactly
 	// one type per db.
 	ErrDuplicateHeading = errors.New("md: two declared types share one heading level")
+
+	// ErrParentMissing is returned by Splice when the target address
+	// names a declared-ancestor that does not exist in the buffer and
+	// therefore cannot host the new nested record. Under V2-PLAN §5.3.2
+	// (2026-04-21 hierarchical refinement) a child record's insertion
+	// point is the end of its declared parent's body range; without a
+	// parent there is no well-defined insertion point and the caller
+	// must create the parent first.
+	ErrParentMissing = errors.New("md: declared ancestor missing")
 )

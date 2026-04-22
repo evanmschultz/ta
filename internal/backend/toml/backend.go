@@ -53,21 +53,21 @@ func NewBackend(types []record.DeclaredType) Backend {
 var _ record.Backend = Backend{}
 
 // isDeclared reports whether bracket path p matches any declared-type
-// prefix on this backend at the right anchor depth. Per V2-PLAN §5.2:
+// prefix on this backend. Per V2-PLAN §2.11 / §5.2 (2026-04-21 refinement):
 //
 //   - A bracket whose path equals Name exactly is a declared record.
-//   - A bracket whose path is Name + "." + <exactly-one-segment> is a
-//     declared record.
-//   - A bracket whose path has MORE than one segment past Name (e.g.
-//     Name="plans.task", bracket "plans.task.t1.notes") is NOT a
-//     declared record — it is body content of the enclosing declared
-//     record. This is what lets a TOML record's body carry a nested
-//     "[plans.task.t1.notes]" bookkeeping bracket without promoting it
-//     to a sibling record.
+//   - A bracket whose path is Name + "." + <one-or-more-segments> is a
+//     declared record at any depth. Example: declared type
+//     "plans.task", brackets "plans.task.t1", "plans.task.t1.notes",
+//     and "plans.task.t1.notes.footnote" are all declared records;
+//     they differ only in depth.
 //
-// If a caller wants deeper brackets to be records, the schema must
-// declare another type at the deeper anchor (e.g. `[plans.notes]`)
-// per the §5.2 worked example.
+// Deeper brackets that are declared records still nest inside their
+// ancestors' body byte ranges — see declaredRange for the non-descendant
+// stop rule that produces the hierarchical view. A bracket whose path
+// does NOT start with any declared Name (e.g. "bookkeeping.thing" when
+// only "plans.task" is declared) is NOT a declared record; it is body
+// content of the enclosing declared ancestor.
 func (b Backend) isDeclared(p string) bool {
 	for _, t := range b.types {
 		if t.Name == "" {
@@ -77,10 +77,7 @@ func (b Backend) isDeclared(p string) bool {
 			return true
 		}
 		if strings.HasPrefix(p, t.Name+".") {
-			tail := p[len(t.Name)+1:]
-			if tail != "" && !strings.ContainsRune(tail, '.') {
-				return true
-			}
+			return true
 		}
 	}
 	return false
@@ -103,23 +100,38 @@ func (b Backend) declaredSections(buf []byte) (*File, []Section, error) {
 	return f, out, nil
 }
 
-// declaredRange computes the body byte range of a declared record under
-// the schema-driven rule (§2.11): from the record's header line (after
-// any leading comment block that belongs to it) to the start of the
-// next declared bracket, or EOF for the last declared record. Non-
-// declared brackets between the two are absorbed into the body.
+// declaredRange computes the byte range of a declared record under the
+// schema-driven hierarchical rule (V2-PLAN §2.11 / §5.2, 2026-04-21
+// refinement): from the record's header line to the start of the next
+// NON-DESCENDANT declared bracket, or EOF if the record has no
+// non-descendant successor.
+//
+// "Descendant of X" means the bracket path starts with X + ".". A
+// descendant is part of this record's body bytes AND (because it is
+// itself a declared record) has its own narrower range nested inside.
+// This produces the hierarchical view described in §5.2: get on the
+// parent returns the whole subtree; get on a child returns just that
+// child's bytes.
+//
+// Non-declared brackets (paths that do not match any declared type at
+// any depth) are already filtered out of the declared slice by
+// declaredSections; they survive inside the body because the byte
+// range extends across them.
 //
 // For Splice the returned range's start is the HeaderRange.Start of the
-// declared section; its end is leadStart of the next declared section
-// (so that the next declared record's leading comment block survives
+// declared section; its end is the leadStart of the next non-descendant
+// declared section (so that section's leading comment block survives
 // the splice intact).
 func declaredRange(buf []byte, declared []Section, idx int) [2]int {
 	start := declared[idx].HeaderRange[0]
-	var end int
-	if idx+1 < len(declared) {
-		end = declared[idx+1].HeadRange[0]
-	} else {
-		end = len(buf)
+	parent := declared[idx].Path
+	prefix := parent + "."
+	end := len(buf)
+	for j := idx + 1; j < len(declared); j++ {
+		if !strings.HasPrefix(declared[j].Path, prefix) {
+			end = declared[j].HeadRange[0]
+			break
+		}
 	}
 	return [2]int{start, end}
 }

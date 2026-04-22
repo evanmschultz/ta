@@ -3,6 +3,7 @@ package md
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/evanmschultz/ta/internal/record"
@@ -14,17 +15,25 @@ import (
 // NewBackend takes a slice of record.DeclaredType whose Heading fields
 // identify which ATX heading levels count as record boundaries.
 // Headings at non-declared levels are body content of the enclosing
-// declared section — they do NOT split sections. Addresses compose as
-// "<scope>.<type-name>.<slug>" where the type name is the Name of the
-// DeclaredType whose Heading matches the heading level.
+// declared section — they do NOT split sections.
+//
+// Addresses compose hierarchically (2026-04-21 refinement): a record
+// at declared level N is addressed as "<type-name>.<chain>" where
+// <chain> is the ordered slugs of declared-level headings from the
+// shallowest declared level down to this heading (inclusive). A bare
+// H2 section under schema {H1 title, H2 section} resolves to
+// "section.<h1-slug>.<h2-slug>"; if no H1 type were declared, the chain
+// would start at H2 → "section.<h2-slug>". See scanATX doc for the full
+// stack-machine rules including orphan-heading handling.
 //
 // A Backend is safe for concurrent use; it holds immutable schema
 // information and is constructed fresh on every cascade reload. The
 // zero value is NOT usable — always construct via NewBackend.
 type Backend struct {
 	types          []record.DeclaredType
-	declaredLevels map[int]struct{}
 	typeByLevel    map[int]string
+	levelByType    map[string]int
+	declaredSorted []int
 }
 
 // Compile-time assertion that *Backend satisfies record.Backend.
@@ -43,22 +52,28 @@ func NewBackend(types []record.DeclaredType) (*Backend, error) {
 	clone := make([]record.DeclaredType, len(types))
 	copy(clone, types)
 
-	levels := make(map[int]struct{}, len(clone))
 	typeByLevel := make(map[int]string, len(clone))
+	levelByType := make(map[string]int, len(clone))
 	for _, t := range clone {
 		if t.Heading < 1 || t.Heading > 6 {
 			return nil, fmt.Errorf("%w: type %q has heading=%d", ErrBadLevel, t.Name, t.Heading)
 		}
-		if _, dup := levels[t.Heading]; dup {
+		if _, dup := typeByLevel[t.Heading]; dup {
 			return nil, fmt.Errorf("%w: two types at heading=%d", ErrDuplicateHeading, t.Heading)
 		}
-		levels[t.Heading] = struct{}{}
 		typeByLevel[t.Heading] = t.Name
+		levelByType[t.Name] = t.Heading
 	}
+	declaredSorted := make([]int, 0, len(typeByLevel))
+	for lvl := range typeByLevel {
+		declaredSorted = append(declaredSorted, lvl)
+	}
+	sort.Ints(declaredSorted)
 	return &Backend{
 		types:          clone,
-		declaredLevels: levels,
 		typeByLevel:    typeByLevel,
+		levelByType:    levelByType,
+		declaredSorted: declaredSorted,
 	}, nil
 }
 
@@ -74,68 +89,64 @@ func (b *Backend) Types() []record.DeclaredType {
 // List returns declared-section addresses under scope, in source
 // order. Behavior:
 //
-//   - scope == "": returns "<type-name>.<slug>" for every declared
-//     heading in buf. The caller (resolver) prepends "<db>" or
-//     "<db>.<instance>" as the db shape requires.
-//   - scope non-empty: treated as a filter prefix applied to the
-//     "<type-name>.<slug>" address per declared heading. A heading's
-//     address matches when it equals scope or starts with scope+".";
-//     this mirrors the prefix semantics the higher layer uses for db /
-//     type / id-prefix scopes.
+//   - scope == "": returns the full hierarchical address
+//     "<type-name>.<chain>" for every declared heading in buf. The
+//     caller (resolver) prepends "<db>" or "<db>.<instance>" as the db
+//     shape requires.
+//   - scope non-empty: treated as a segment-aligned prefix filter
+//     applied to each full address. A heading matches when its address
+//     equals scope or starts with scope+".". Descendants of a matching
+//     scope are included — e.g. scope "section.install" returns
+//     "section.install" PLUS "section.install.<subslug>" at the same
+//     declared type.
 //
-// Non-declared headings are never returned — they are body content of
-// the enclosing declared section (V2-PLAN §5.3.2). A Backend with no
-// declared types always returns an empty slice.
+// Scope targets one type at a time — records under a different declared
+// type live in a different "<type-name>.…" namespace. To enumerate
+// subsection records under "section.install", scope
+// "subsection.install" (the declared type name of the deeper level).
+// See V2-PLAN §11.D pre-answered ambiguity #4.
+//
+// Non-declared headings are never returned (body content of the
+// enclosing declared section). A Backend with no declared types always
+// returns an empty slice.
 func (b *Backend) List(buf []byte, scope string) ([]string, error) {
-	hs, err := scanATX(buf, b.declaredLevels)
+	hs, err := scanATX(buf, b.typeByLevel)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, len(hs))
 	prefix := scope + "."
 	for _, h := range hs {
-		typeName, ok := b.typeByLevel[h.Level]
-		if !ok || typeName == "" {
-			// Should not happen: scanATX filters by declared levels
-			// already. Defensive skip.
-			continue
-		}
-		addr := typeName + "." + h.Slug
-		if scope == "" || addr == scope || strings.HasPrefix(addr, prefix) {
-			out = append(out, addr)
+		if scope == "" || h.Address == scope || strings.HasPrefix(h.Address, prefix) {
+			out = append(out, h.Address)
 		}
 	}
 	return out, nil
 }
 
-// Find locates one declared section by full address. The last
-// dot-separated segment of section is treated as the heading slug; the
-// segment immediately before it (when present) is matched against a
-// declared type name to constrain the search to that type's heading
-// level. If no declared type name matches the address tail, Find
-// searches across all declared levels and returns the first match.
+// Find locates one declared section by full address. The section
+// argument may carry leading "<db>" or "<db>.<instance>" qualifiers —
+// Find strips any leading segments until it finds the declared
+// type-name that anchors the rest of the address, then matches the
+// full chain suffix against scanned addresses.
 //
 // Returns (section, true, nil) on hit; (zero, false, nil) when no
 // declared heading matches; (zero, false, err) on parse errors such as
-// slug collisions.
+// address collisions.
 func (b *Backend) Find(buf []byte, section string) (record.Section, bool, error) {
 	if section == "" {
 		return record.Section{}, false, fmt.Errorf("%w", ErrEmptySection)
 	}
-	slug := lastSegment(section)
-	if slug == "" {
-		return record.Section{}, false, fmt.Errorf("%w: %q", ErrMalformedSection, section)
+	rel, ok := b.relativeAddress(section)
+	if !ok {
+		return record.Section{}, false, nil
 	}
-	targetLevel := b.levelForAddress(section)
-	hs, err := scanATX(buf, b.declaredLevels)
+	hs, err := scanATX(buf, b.typeByLevel)
 	if err != nil {
 		return record.Section{}, false, err
 	}
 	for _, h := range hs {
-		if targetLevel != 0 && h.Level != targetLevel {
-			continue
-		}
-		if h.Slug == slug {
+		if h.Address == rel {
 			return record.Section{
 				Path:  section,
 				Range: h.ByteRange,
@@ -152,7 +163,7 @@ func (b *Backend) Find(buf []byte, section string) (record.Section, bool, error)
 //
 // The body-only field layout (V2-PLAN §5.3.3):
 //
-//   - Heading text is unslugified from the last segment of section
+//   - Heading text is unslugified from the LAST segment of section
 //     (e.g. "installation" → "Installation"). Lossy by design.
 //   - Body is rec["body"] as a string; missing or empty body renders
 //     the heading alone.
@@ -162,11 +173,15 @@ func (b *Backend) Emit(section string, rec record.Record) ([]byte, error) {
 	if section == "" {
 		return nil, fmt.Errorf("%w", ErrEmptySection)
 	}
-	slug := lastSegment(section)
+	rel, ok := b.relativeAddress(section)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrNotDeclaredType, section)
+	}
+	slug := lastSegment(rel)
 	if slug == "" {
 		return nil, fmt.Errorf("%w: %q", ErrMalformedSection, section)
 	}
-	level := b.levelForAddress(section)
+	level := b.levelForRelative(rel)
 	if level == 0 {
 		return nil, fmt.Errorf("%w: %q", ErrNotDeclaredType, section)
 	}
@@ -191,18 +206,27 @@ func (b *Backend) Emit(section string, rec record.Record) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Splice replaces (or appends) a declared section's byte range in buf
+// Splice replaces (or inserts) a declared section's byte range in buf
 // with emitted, preserving every byte outside the touched range
-// verbatim. When the section does not yet exist, emitted is appended
-// at EOF with a blank-line separator if needed (matching the TOML
-// backend's append semantics).
+// verbatim.
 //
-// Byte-identity invariant: every byte of buf outside the replaced
-// range is copied through unchanged. This matches V2-PLAN §5.1 and is
-// exercised by FuzzSpliceInvariant. Non-declared headings that happen
-// to live inside the touched declared section's body are replaced
-// along with the rest of the body — they are body content, not
-// sibling records (V2-PLAN §5.3.2).
+// Cases (V2-PLAN §5.3.2 / §11.D #3, 2026-04-21 refinement):
+//
+//   - Section exists: byte-range replacement at the located range.
+//     Deeper declared headings that were nested inside the replaced
+//     range are removed along with the rest of the body; callers that
+//     wish to preserve children must include them in emitted.
+//   - Section does not exist, address has no declared ancestor (chain
+//     length 1): emitted is appended at EOF with a blank-line separator
+//     if needed.
+//   - Section does not exist, declared parent EXISTS in buf: emitted is
+//     inserted at the end of the parent's body range (just before the
+//     next same-or-shallower declared heading, or EOF). This mirrors
+//     the TOML "insert nested child between parent and parent's end"
+//     rule.
+//   - Section does not exist, declared parent also absent: returns
+//     ErrParentMissing. The caller must create the parent first;
+//     silent auto-creation would hide typos.
 func (b *Backend) Splice(buf []byte, section string, emitted []byte) ([]byte, error) {
 	if section == "" {
 		return nil, fmt.Errorf("%w", ErrEmptySection)
@@ -211,7 +235,12 @@ func (b *Backend) Splice(buf []byte, section string, emitted []byte) ([]byte, er
 		return nil, fmt.Errorf("md: splice: empty replacement")
 	}
 
-	sec, ok, err := b.Find(buf, section)
+	rel, ok := b.relativeAddress(section)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrNotDeclaredType, section)
+	}
+
+	hs, err := scanATX(buf, b.typeByLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -221,15 +250,146 @@ func (b *Backend) Splice(buf []byte, section string, emitted []byte) ([]byte, er
 		rep = append(append([]byte{}, rep...), '\n')
 	}
 
-	if !ok {
-		return b.appendSection(buf, rep), nil
+	// Replace-existing.
+	for _, h := range hs {
+		if h.Address == rel {
+			out := make([]byte, 0, len(buf)+len(rep))
+			out = append(out, buf[:h.ByteRange[0]]...)
+			out = append(out, rep...)
+			out = append(out, buf[h.ByteRange[1]:]...)
+			return out, nil
+		}
 	}
 
-	out := make([]byte, 0, len(buf)+len(rep))
-	out = append(out, buf[:sec.Range[0]]...)
+	// Missing: locate parent for insertion or report ErrParentMissing.
+	parentAddr, hasParent := b.parentAddress(rel)
+	if !hasParent {
+		// Top-of-chain record with no declared ancestor — append at EOF.
+		return b.appendSection(buf, rep), nil
+	}
+	for _, h := range hs {
+		if h.Address == parentAddr {
+			// Insert at the end of parent's body range.
+			return b.insertAt(buf, h.ByteRange[1], rep), nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %q missing while splicing %q", ErrParentMissing, parentAddr, section)
+}
+
+// relativeAddress strips any leading "<db>" or "<db>.<instance>"
+// qualifiers from section and returns the "<type-name>.<chain>"
+// relative address the scanner and addresses produce. Returns ok=false
+// when section contains no segment that matches a declared type name.
+//
+// Addresses are segment-aligned: a declared type name "section" only
+// matches when the preceding character (if any) is '.'. This prevents
+// false matches against arbitrary substrings.
+func (b *Backend) relativeAddress(section string) (string, bool) {
+	// Scan segment boundaries left-to-right. The first segment whose
+	// token equals a declared type name anchors the relative address.
+	// Ties (e.g. a db name equal to a type name) are resolved by
+	// leftmost-first — the db qualifier is always before the type in
+	// well-formed addresses.
+	segs := strings.Split(section, ".")
+	for i, seg := range segs {
+		if _, ok := b.levelByType[seg]; ok {
+			return strings.Join(segs[i:], "."), true
+		}
+	}
+	return "", false
+}
+
+// levelForRelative returns the declared level of the type prefix of a
+// RELATIVE address (as returned by relativeAddress). The relative
+// address shape is "<type-name>.<chain...>"; the first segment is the
+// type name.
+func (b *Backend) levelForRelative(rel string) int {
+	dot := strings.IndexByte(rel, '.')
+	if dot < 0 {
+		return 0
+	}
+	return b.levelByType[rel[:dot]]
+}
+
+// parentAddress derives the declared-parent relative address of rel
+// (V2-PLAN §5.3.2 hierarchical addressing). For "<type>.<chain>" where
+// chain has length K>1, the parent is "<parent-type>.<chain[:K-1]>"
+// and the parent-type is the declared type whose heading is the
+// deepest declared level <  self-level that has a slug in the chain.
+//
+// Returns ok=false for top-of-chain addresses (chain length 1 — no
+// declared ancestor).
+//
+// Orphan-chain case: if the scanner produced a record with a chain
+// that skips a declared level (H3 under H1 with H2 declared but
+// absent), the parent address likewise skips — parent is the
+// next-shallower slug that IS present.
+func (b *Backend) parentAddress(rel string) (string, bool) {
+	segs := strings.Split(rel, ".")
+	if len(segs) < 2 {
+		return "", false
+	}
+	selfType := segs[0]
+	chain := segs[1:]
+	if len(chain) < 2 {
+		// Chain of length 1 — record has no declared ancestor.
+		return "", false
+	}
+	// Self's declared level.
+	selfLevel := b.levelByType[selfType]
+	if selfLevel == 0 {
+		return "", false
+	}
+	// Parent-type = declared type at the deepest level strictly shallower
+	// than selfLevel. Parent chain = chain[:len(chain)-1].
+	var parentLevel int
+	for _, dl := range b.declaredSorted {
+		if dl < selfLevel {
+			parentLevel = dl
+		}
+	}
+	if parentLevel == 0 {
+		return "", false
+	}
+	parentType := b.typeByLevel[parentLevel]
+	parentChain := chain[:len(chain)-1]
+	return parentType + "." + strings.Join(parentChain, "."), true
+}
+
+// insertAt returns a new buffer with rep inserted at byte offset pos.
+// Ensures a blank-line separator precedes rep when the preceding bytes
+// do not already provide one AND a blank-line separator follows rep
+// when the byte at pos is additional non-empty content, so the
+// inserted heading starts on its own line and does not butt against a
+// subsequent heading line.
+func (b *Backend) insertAt(buf []byte, pos int, rep []byte) []byte {
+	var preSep []byte
+	if pos > 0 {
+		switch {
+		case buf[pos-1] != '\n':
+			preSep = []byte("\n\n")
+		case pos < 2 || buf[pos-2] != '\n':
+			preSep = []byte("\n")
+		}
+	}
+	var postSep []byte
+	if pos < len(buf) {
+		// rep is normalized to end in '\n'. If the byte at pos is
+		// non-blank-line content (e.g. the start of the next declared
+		// heading), insert an extra '\n' so the boundary has a blank
+		// line between them.
+		endsDouble := bytes.HasSuffix(rep, []byte("\n\n"))
+		if !endsDouble {
+			postSep = []byte("\n")
+		}
+	}
+	out := make([]byte, 0, len(buf)+len(preSep)+len(rep)+len(postSep))
+	out = append(out, buf[:pos]...)
+	out = append(out, preSep...)
 	out = append(out, rep...)
-	out = append(out, buf[sec.Range[1]:]...)
-	return out, nil
+	out = append(out, postSep...)
+	out = append(out, buf[pos:]...)
+	return out
 }
 
 func (b *Backend) appendSection(buf, rep []byte) []byte {
@@ -250,46 +410,8 @@ func (b *Backend) appendSection(buf, rep []byte) []byte {
 	return out
 }
 
-// levelForAddress returns the declared heading level whose type-name
-// suffix-matches the address (shape `...<type-name>.<slug>`). Returns
-// 0 when no declared type matches — callers distinguish "unknown type"
-// from "invalid address" via this zero return.
-//
-// Example: types = [{Name: "section", Heading: 2}], address =
-// "readme.section.installation" → matches "section" → level 2.
-//
-// When types share the same prefix at different levels (e.g. Name
-// "a.b" at H1 and "b" at H2 with address "x.a.b.slug"), the longest
-// matching type-name wins so that more-specific declarations take
-// precedence.
-func (b *Backend) levelForAddress(section string) int {
-	// Strip the last segment (slug) to get the address prefix whose
-	// suffix must contain the type name.
-	idx := strings.LastIndexByte(section, '.')
-	if idx < 0 {
-		return 0
-	}
-	prefix := section[:idx]
-	bestLen := -1
-	bestLevel := 0
-	for _, t := range b.types {
-		if t.Name == "" {
-			continue
-		}
-		if prefix == t.Name || strings.HasSuffix(prefix, "."+t.Name) {
-			if len(t.Name) > bestLen {
-				bestLen = len(t.Name)
-				bestLevel = t.Heading
-			}
-		}
-	}
-	return bestLevel
-}
-
 // lastSegment returns the substring after the last '.'. Empty when
-// path does not contain '.'. (For slug extraction, we WANT the last
-// segment — addresses are <db>.<type>.<slug> or
-// <db>.<instance>.<type>.<slug>.)
+// path does not contain '.'.
 func lastSegment(path string) string {
 	idx := strings.LastIndexByte(path, '.')
 	if idx < 0 {

@@ -2,25 +2,36 @@ package md
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
 // Heading is one ATX heading discovered by scanATX.
 //
 // LineStart / LineEnd are 1-indexed inclusive line numbers for the
-// heading's own line (LineEnd == LineStart unless a future multi-line
-// heading form is ever added).
+// heading's own line.
 //
-// ByteRange is the [start, end) byte offsets in the source buffer of
-// this declared heading's entire section span — from the beginning of
-// the heading's line to the start of the next DECLARED heading (at
-// any declared level), or EOF for the last declared heading.
-// Non-declared headings between two declared ones are absorbed into
-// the first's body per V2-PLAN §2.10 / §2.11 / §5.3.2.
+// Slug is the kebab-slug derived from the heading text; Chain is the
+// ordered slugs of this heading's declared ancestors (shallowest first)
+// PLUS this heading's own slug last. Under V2-PLAN §2.11 / §5.3.2
+// (2026-04-21 refinement) the record address for this heading is
+// "<type-name>.<chain-joined-with-dots>" where type-name is looked up
+// from the owning Backend by this heading's Level. Address carries the
+// pre-joined result so callers that already know the type do not have
+// to re-compose it.
+//
+// ByteRange is the [start, end) byte offsets of this declared heading's
+// section span — from the beginning of the heading's line to the start
+// of the next heading at the SAME OR SHALLOWER declared level, or EOF
+// for the last such heading. Deeper declared headings under this one
+// are BOTH body bytes of this record AND addressable records in their
+// own right with narrower nested ranges.
 type Heading struct {
 	Level     int
 	Text      string
 	Slug      string
+	Chain     []string
+	Address   string
 	LineStart int
 	LineEnd   int
 	ByteRange [2]int
@@ -28,28 +39,60 @@ type Heading struct {
 
 // scanATX walks buf and returns every DECLARED ATX heading in source
 // order. A heading is declared when its level matches one of the keys
-// in declaredLevels. Non-declared headings are tracked for fence-state
-// purposes but not returned — they are body content of the enclosing
-// declared section (V2-PLAN §5.3.2).
+// in typeByLevel. Non-declared headings are fence-aware skipped and do
+// not contribute to addresses — they are body content of the enclosing
+// declared ancestor per V2-PLAN §5.3.2.
+//
+// Addressing (V2-PLAN §5.3.2 / §5.5, 2026-04-21 hierarchical refinement):
+//
+//   - A scan-time stack maps each declared level to its current slug.
+//   - When a heading at declared level N is encountered, stack slots at
+//     levels > N are cleared; stack[N] becomes this heading's slug.
+//   - The Chain for this heading = slugs currently in the stack at
+//     declared levels <= N, in shallowest-to-deepest order, inclusive
+//     of the just-set self slot. Empty slots (declared ancestor level
+//     with no heading yet seen — the "orphan H3 under H1 with missing
+//     H2" case) are skipped; chain keeps only slugs actually present.
+//   - Address = typeByLevel[N] + "." + strings.Join(Chain, ".").
+//
+// Byte ranges (V2-PLAN §2.11 hierarchical refinement): a declared
+// heading's range runs from its heading line to the start of the next
+// heading at the SAME OR SHALLOWER declared level, or EOF. Deeper
+// declared headings between the two are part of this heading's body
+// bytes AND have their own narrower nested ranges.
 //
 // Fence-state tracking is unchanged: `#` lines inside ```` ``` ```` or
 // `~~~` fences are never treated as headings, declared or otherwise.
 //
-// Slug-collision detection is per declared level: two declared
-// headings at the same level with the same slug returns ErrSlugCollision
-// (with both line numbers). Collisions across different declared levels
-// are allowed — each declared type binds to exactly one level per
-// V2-PLAN §4.7 meta-schema rule. Collisions inside non-declared levels
-// are ignored — those slugs never compose a record address.
+// Slug-collision detection is per FULL ADDRESS: two declared headings
+// that produce the same chain-resolved address return ErrSlugCollision.
+// Two H3 "prereqs" under the same H2 collide; two H3 "prereqs" under
+// different H2 parents do not (different parent slugs → different
+// addresses). Collisions inside non-declared levels are ignored — those
+// slugs never compose a record address.
 //
-// When declaredLevels is empty the result is always empty (no boundary
+// When typeByLevel is empty the result is always empty (no boundary
 // anywhere; everything is content).
-func scanATX(buf []byte, declaredLevels map[int]struct{}) ([]Heading, error) {
+func scanATX(buf []byte, typeByLevel map[int]string) ([]Heading, error) {
 	var out []Heading
+	if len(typeByLevel) == 0 {
+		return out, nil
+	}
 
-	// Fence-state: when inFence is true, char is the fence char and
-	// runLen is the opener length. A closing fence must match char and
-	// have runLen' >= runLen.
+	// declaredSorted is the sorted list of declared levels so we can
+	// iterate "shallower than N" in order when building a chain.
+	declaredSorted := make([]int, 0, len(typeByLevel))
+	for lvl := range typeByLevel {
+		declaredSorted = append(declaredSorted, lvl)
+	}
+	sort.Ints(declaredSorted)
+
+	// stack maps declared level -> current slug (empty string when no
+	// heading at that level has been seen since the most recent
+	// shallower ancestor).
+	stack := make(map[int]string, len(typeByLevel))
+
+	// Fence-state.
 	inFence := false
 	fenceChar := byte(0)
 	fenceLen := 0
@@ -59,13 +102,10 @@ func scanATX(buf []byte, declaredLevels map[int]struct{}) ([]Heading, error) {
 	n := len(buf)
 
 	for i := 0; i <= n; i++ {
-		// At a line start when i == 0 or buf[i-1] == '\n'.
 		if i == 0 || (i > 0 && buf[i-1] == '\n') {
 			lineStart = i
-			// Try to match fence opener/closer first.
 			if fc, flen, ok := readFenceLine(buf, lineStart); ok {
 				if inFence {
-					// Close only if char matches and length is >=.
 					if fc == fenceChar && flen >= fenceLen {
 						inFence = false
 						fenceChar = 0
@@ -76,25 +116,43 @@ func scanATX(buf []byte, declaredLevels map[int]struct{}) ([]Heading, error) {
 					fenceChar = fc
 					fenceLen = flen
 				}
-				// Advance scanner to end of line via the outer loop;
-				// continue iterating normally.
 			} else if !inFence {
-				// Try to match an ATX heading at col 0.
 				if lvl, text, ok := readATXHeading(buf, lineStart); ok {
-					// Only DECLARED headings become records; non-declared
-					// headings are skipped here so they fall through as
-					// body content (V2-PLAN §5.3.2 / §5.3.5).
-					if _, declared := declaredLevels[lvl]; declared {
+					typeName, declared := typeByLevel[lvl]
+					if declared && typeName != "" {
 						slug := slugFromHeading(text)
 						if slug != "" {
+							// Update stack: clear deeper declared levels,
+							// set self.
+							for _, dl := range declaredSorted {
+								if dl > lvl {
+									delete(stack, dl)
+								}
+							}
+							stack[lvl] = slug
+
+							// Chain = slugs at declared levels <= lvl,
+							// in shallowest-first order, skipping empty
+							// slots (missing-ancestor orphan rule).
+							chain := make([]string, 0, len(declaredSorted))
+							for _, dl := range declaredSorted {
+								if dl > lvl {
+									break
+								}
+								if s, ok := stack[dl]; ok && s != "" {
+									chain = append(chain, s)
+								}
+							}
+							addr := typeName + "." + strings.Join(chain, ".")
 							h := Heading{
 								Level:     lvl,
 								Text:      text,
 								Slug:      slug,
+								Chain:     chain,
+								Address:   addr,
 								LineStart: line,
 								LineEnd:   line,
 							}
-							// ByteRange.Start = lineStart; end is patched later.
 							h.ByteRange[0] = lineStart
 							out = append(out, h)
 						}
@@ -110,33 +168,28 @@ func scanATX(buf []byte, declaredLevels map[int]struct{}) ([]Heading, error) {
 		}
 	}
 
-	// Patch ByteRange.End for each declared heading: start of the next
-	// declared heading (at ANY declared level), or EOF for the last.
-	// Non-declared headings between declared ones were never pushed to
-	// out, so indexing works directly.
+	// Patch ByteRange.End: end at next heading whose Level <= self.Level.
+	// If none found, EOF.
 	for idx := range out {
-		if idx+1 < len(out) {
-			out[idx].ByteRange[1] = out[idx+1].ByteRange[0]
-		} else {
-			out[idx].ByteRange[1] = n
+		self := out[idx]
+		end := n
+		for j := idx + 1; j < len(out); j++ {
+			if out[j].Level <= self.Level {
+				end = out[j].ByteRange[0]
+				break
+			}
 		}
+		out[idx].ByteRange[1] = end
 	}
 
-	// Collision check per declared level. A schema type binds to a
-	// single level (§4.7 meta-schema), so same slug across levels is
-	// not an ambiguity.
-	type key struct {
-		level int
-		slug  string
-	}
-	seen := map[key]int{} // key -> first-seen line
+	// Collision check on full address.
+	seen := make(map[string]int, len(out))
 	for _, h := range out {
-		k := key{h.Level, h.Slug}
-		if first, dup := seen[k]; dup {
-			return nil, fmt.Errorf("%w: level=H%d slug=%q at lines %d and %d",
-				ErrSlugCollision, h.Level, h.Slug, first, h.LineStart)
+		if first, dup := seen[h.Address]; dup {
+			return nil, fmt.Errorf("%w: address=%q at lines %d and %d",
+				ErrSlugCollision, h.Address, first, h.LineStart)
 		}
-		seen[k] = h.LineStart
+		seen[h.Address] = h.LineStart
 	}
 
 	return out, nil
@@ -210,12 +263,6 @@ func readFenceLine(buf []byte, lineStart int) (byte, int, bool) {
 	if runLen < 3 {
 		return 0, 0, false
 	}
-	// Everything after the fence run and until EOL is the info
-	// string; it's allowed to be anything (we don't care). We just
-	// need the rest of the line to not contain another fence-char run
-	// that would confuse us. CommonMark says a closing fence must not
-	// have any info string, but in practice content lines like
-	// "```go" should be recognised as openers/closers both.
 	return c, runLen, true
 }
 
@@ -224,19 +271,15 @@ func readFenceLine(buf []byte, lineStart int) (byte, int, bool) {
 // trailing hashes are optional decoration and not part of the heading
 // text.
 func stripTrailingHashes(s string) string {
-	// Trim trailing whitespace temporarily to locate the hash run.
 	trimmed := strings.TrimRight(s, " \t")
 	end := len(trimmed)
-	// Count trailing hashes.
 	j := end
 	for j > 0 && trimmed[j-1] == '#' {
 		j--
 	}
 	if j == end {
-		return s // no trailing hashes
+		return s
 	}
-	// Trailing-hash run is valid only if preceded by whitespace or at
-	// start-of-line (the whole trimmed string is hashes).
 	if j > 0 && trimmed[j-1] != ' ' && trimmed[j-1] != '\t' {
 		return s
 	}

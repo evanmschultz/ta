@@ -69,14 +69,15 @@ func TestDogfoodProbeReadme(t *testing.T) {
 	}
 
 	// Expected H2 slugs present in the current README (at the time
-	// this probe was written). Each expected slug must appear; any
-	// additional slugs beyond this set are fine (README grows).
+	// this probe was written). Under the §2.11 hierarchical addressing
+	// refinement each H2 address carries its H1 parent slug "ta", so
+	// the expected form is "section.ta.<h2-slug>".
 	wantSections := []string{
-		"section.install",
-		"section.mcp-client-config",
-		"section.schemas",
-		"section.building-from-source",
-		"section.license",
+		"section.ta.install",
+		"section.ta.mcp-client-config",
+		"section.ta.schemas",
+		"section.ta.building-from-source",
+		"section.ta.license",
 	}
 	have := make(map[string]bool, len(addrs))
 	for _, a := range addrs {

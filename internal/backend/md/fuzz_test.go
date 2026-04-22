@@ -68,6 +68,16 @@ func FuzzSpliceInvariant(f *testing.F) {
 		f.Add([]byte(s), 2, "## X")
 	}
 
+	// Nested-H2/H3 splice preservation seed — a declared H3 under a
+	// declared H2 must survive as its own range while the parent's
+	// range continues through it.
+	synth = append(synth,
+		"## Install\n\nintro\n\n### Prereqs\n\ntoolchain\n\n### Setup\n\nsteps\n\n## Config\n\nc\n",
+	)
+	for _, s := range synth[len(synth)-1:] {
+		f.Add([]byte(s), 3, "### Prereqs")
+	}
+
 	// Add real dogfood seeds if present in the project root.
 	if root, ok := findProjectRoot(); ok {
 		for _, name := range []string{"README.md", "CLAUDE.md"} {
@@ -75,7 +85,7 @@ func FuzzSpliceInvariant(f *testing.F) {
 			if err == nil && len(data) > 0 {
 				// Seed pairs the buffer with a random H2 target slug
 				// derived from the second heading in the file, if any.
-				hs, _ := scanATX(data, map[int]struct{}{1: {}, 2: {}})
+				hs, _ := scanATX(data, map[int]string{1: "title", 2: "section"})
 				for _, h := range hs {
 					if h.Level == 2 {
 						f.Add(data, 2, "## "+h.Text)
@@ -108,9 +118,9 @@ func FuzzSpliceInvariant(f *testing.F) {
 			t.Skip()
 		}
 
-		declaredLevels := map[int]struct{}{}
+		typeByLevel := map[int]string{}
 		for _, tp := range types {
-			declaredLevels[tp.Heading] = struct{}{}
+			typeByLevel[tp.Heading] = tp.Name
 		}
 
 		// Derive a target slug from targetHeading if it looks like
@@ -121,7 +131,7 @@ func FuzzSpliceInvariant(f *testing.F) {
 			slug = slugFromHeading(strings.TrimSpace(strings.TrimLeft(targetHeading, "#")))
 		}
 
-		hs, err := scanATX(buf, declaredLevels)
+		hs, err := scanATX(buf, typeByLevel)
 		if err != nil {
 			// Collision or other scan-level error; invariant is
 			// undefined on un-scannable input.
@@ -139,14 +149,19 @@ func FuzzSpliceInvariant(f *testing.F) {
 			t.Skip()
 		}
 
-		// Build a section path. For level == 1 we target title; for
-		// others section. The address type-name must match a declared
-		// type so Emit can resolve the level.
+		// Build a full hierarchical section path by finding a declared
+		// heading whose slug matches and reusing its Address. This is
+		// necessary because under the §2.11 hierarchical refinement the
+		// address carries every declared ancestor's slug.
 		var section string
-		if level == 1 {
-			section = "x.title." + slug
-		} else {
-			section = "x.section." + slug
+		for _, h := range hs {
+			if h.Level == level && h.Slug == slug {
+				section = "x." + h.Address
+				break
+			}
+		}
+		if section == "" {
+			t.Skip()
 		}
 
 		sec, ok, err := b.Find(buf, section)
@@ -192,7 +207,7 @@ func FuzzSpliceInvariant(f *testing.F) {
 
 		// The emitted replacement must itself parse as a valid
 		// declared heading matching the requested level + slug.
-		eh, err := scanATX(emitted, declaredLevels)
+		eh, err := scanATX(emitted, typeByLevel)
 		if err != nil {
 			t.Fatalf("emitted bytes unscannable: %v\n--- emitted ---\n%s", err, emitted)
 		}

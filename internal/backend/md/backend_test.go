@@ -89,9 +89,12 @@ func TestNewBackendAcceptsEmptyTypes(t *testing.T) {
 	}
 }
 
-// TestListEmitsRelativeAddresses verifies List returns
-// "<type-name>.<slug>" relative addresses. The caller (resolver) glues
+// TestListEmitsRelativeAddresses verifies List returns hierarchical
+// "<type-name>.<chain>" relative addresses. The caller (resolver) glues
 // the "<db>" / "<db>.<instance>" prefix on as the db shape requires.
+// With both H1 "title" and H2 "section" declared, each H2's chain
+// includes the H1 ancestor slug — hence "section.ta.installation" and
+// not "section.installation".
 func TestListEmitsRelativeAddresses(t *testing.T) {
 	b := newReadme(t)
 	src := []byte("# ta\n\n## Installation\n\nbody\n\n## MCP client config\n\nc\n")
@@ -99,22 +102,24 @@ func TestListEmitsRelativeAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	want := []string{"title.ta", "section.installation", "section.mcp-client-config"}
+	want := []string{"title.ta", "section.ta.installation", "section.ta.mcp-client-config"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
-// TestListWithScopePrefix filters addresses against a prefix. The
-// higher layer uses this for "<db>.<type>" / id-prefix scopes.
+// TestListWithScopePrefix filters addresses against a segment-aligned
+// prefix. Under the hierarchical refinement, scope "section" (without
+// a chain) does not match any concrete address — addresses carry the
+// H1 ancestor slug. Scope "section.ta" returns every H2 under H1 ta.
 func TestListWithScopePrefix(t *testing.T) {
 	b := newReadme(t)
 	src := []byte("# ta\n\n## Installation\n\nx\n\n## MCP client config\n\ny\n")
-	got, err := b.List(src, "section")
+	got, err := b.List(src, "section.ta")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	want := []string{"section.installation", "section.mcp-client-config"}
+	want := []string{"section.ta.installation", "section.ta.mcp-client-config"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v\nwant %v", got, want)
 	}
@@ -151,19 +156,20 @@ If mage install fails, ...
 	b := newReadme(t)
 
 	// List surfaces only H1 title + the two H2s. Neither H3 is a
-	// section boundary.
+	// section boundary. H2 addresses include the H1 ancestor slug per
+	// the hierarchical refinement.
 	addrs, err := b.List(src, "")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	want := []string{"title.ta", "section.installation", "section.mcp-client-config"}
+	want := []string{"title.ta", "section.ta.installation", "section.ta.mcp-client-config"}
 	if !reflect.DeepEqual(addrs, want) {
 		t.Errorf("List got %v, want %v", addrs, want)
 	}
 
 	// Find on the H2 "Installation" returns a byte range that
 	// absorbs both H3s.
-	sec, ok, err := b.Find(src, "section.installation")
+	sec, ok, err := b.Find(src, "section.ta.installation")
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
@@ -184,10 +190,12 @@ If mage install fails, ...
 	}
 }
 
-// TestCrossLevelSameSlugNoCollision covers V2-PLAN §5.3.2:
-// slug-uniqueness is per declared level. H1 "ta" and H2 "ta" are
-// different addresses at different declared types and MUST NOT
-// collide. Non-declared levels don't participate at all.
+// TestCrossLevelSameSlugNoCollision covers V2-PLAN §5.3.2 (2026-04-21
+// hierarchical refinement): H1 "ta" and H2 "ta" are different declared
+// types at different levels. Under the hierarchical addressing rule
+// the H2's address includes its H1 ancestor's slug in the chain, so
+// the two addresses differ (title.ta vs section.ta.ta) and there is
+// no collision.
 func TestCrossLevelSameSlugNoCollision(t *testing.T) {
 	src := []byte("# ta\n\n## ta\n\nbody\n")
 	b := newReadme(t)
@@ -195,7 +203,7 @@ func TestCrossLevelSameSlugNoCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	want := []string{"title.ta", "section.ta"}
+	want := []string{"title.ta", "section.ta.ta"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -228,14 +236,14 @@ func TestNonDeclaredLevelCollisionsIgnored(t *testing.T) {
 func TestFindReturnsByteRange(t *testing.T) {
 	b := newReadme(t)
 	src := []byte("# ta\n\n## Installation\n\nInstall from source.\n\n## Next\n\nmore\n")
-	got, ok, err := b.Find(src, "section.installation")
+	got, ok, err := b.Find(src, "section.ta.installation")
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
 	if !ok {
 		t.Fatal("section not found")
 	}
-	if got.Path != "section.installation" {
+	if got.Path != "section.ta.installation" {
 		t.Errorf("Path = %q", got.Path)
 	}
 	snippet := string(src[got.Range[0]:got.Range[1]])
@@ -251,10 +259,11 @@ func TestFindReturnsByteRange(t *testing.T) {
 }
 
 // TestFindDbPrefixedAddress confirms Find accepts addresses with
-// extra leading segments ("<db>.<instance>.<type>.<slug>"); the tail
-// "<type>.<slug>" is what the backend uses.
+// extra leading segments ("<db>.<instance>.<type>.<chain>"); the
+// "<type>.<chain>" tail is what the backend matches.
 func TestFindDbPrefixedAddress(t *testing.T) {
 	b := newReadme(t)
+	// No H1 in buf — H2's chain has no declared-ancestor slug.
 	src := []byte("## Installation\n\nbody\n")
 	_, ok, err := b.Find(src, "readme.section.installation")
 	if err != nil {
@@ -276,7 +285,7 @@ func TestFindDbPrefixedAddress(t *testing.T) {
 func TestFindMissing(t *testing.T) {
 	b := newReadme(t)
 	src := []byte("# ta\n\n## Installation\n\nx\n")
-	_, ok, err := b.Find(src, "section.does-not-exist")
+	_, ok, err := b.Find(src, "section.ta.does-not-exist")
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
@@ -374,7 +383,7 @@ func TestSpliceReplaceExisting(t *testing.T) {
 	b := newReadme(t)
 	src := []byte("# ta\n\n## Installation\n\nold\n\n## Next\n\nkeep\n")
 	emitted := []byte("## Installation\n\nnew body\n")
-	out, err := b.Splice(src, "section.installation", emitted)
+	out, err := b.Splice(src, "section.ta.installation", emitted)
 	if err != nil {
 		t.Fatalf("Splice: %v", err)
 	}
@@ -416,6 +425,7 @@ cfg
 `)
 	b := newReadme(t)
 	emitted := []byte("## Installation\n\nBrand new body.\n")
+	// No H1 in src, so H2 Installation's address has no ancestor slug.
 	out, err := b.Splice(src, "section.installation", emitted)
 	if err != nil {
 		t.Fatalf("Splice: %v", err)
@@ -434,11 +444,15 @@ cfg
 	}
 }
 
-func TestSpliceAppendWhenMissing(t *testing.T) {
+// TestSpliceInsertsUnderExistingParent: when the target H2 address
+// does not yet exist but its declared H1 ancestor does, splice inserts
+// the new record at the end of the parent's body range (V2-PLAN §5.3.2
+// / §11.D #3). The existing H2 sibling stays intact.
+func TestSpliceInsertsUnderExistingParent(t *testing.T) {
 	b := newReadme(t)
 	src := []byte("# ta\n\n## A\n\nbody-a\n")
 	emitted := []byte("## B\n\nbody-b\n")
-	out, err := b.Splice(src, "section.b", emitted)
+	out, err := b.Splice(src, "section.ta.b", emitted)
 	if err != nil {
 		t.Fatalf("Splice: %v", err)
 	}
@@ -464,10 +478,11 @@ func TestSpliceAppendToEmpty(t *testing.T) {
 
 func TestSpliceAppendEnsuresSeparator(t *testing.T) {
 	b := newReadme(t)
-	// Buffer ends without trailing newline.
+	// Buffer ends without trailing newline. H2 is inserted at end of
+	// its H1 parent's body range (which runs to EOF).
 	src := []byte("# ta\n\n## A\n\nbody-a")
 	emitted := []byte("## B\n\nbody-b\n")
-	out, err := b.Splice(src, "section.b", emitted)
+	out, err := b.Splice(src, "section.ta.b", emitted)
 	if err != nil {
 		t.Fatalf("Splice: %v", err)
 	}
@@ -481,7 +496,7 @@ func TestSpliceRoundTripInvariant(t *testing.T) {
 	// byte-identical output (modulo trailing-newline normalisation).
 	b := newReadme(t)
 	src := []byte("# ta\n\n## Installation\n\nInstall from source.\n\n## Next\n\nMore.\n")
-	sec, ok, err := b.Find(src, "section.installation")
+	sec, ok, err := b.Find(src, "section.ta.installation")
 	if err != nil || !ok {
 		t.Fatalf("Find: ok=%v err=%v", ok, err)
 	}
@@ -492,11 +507,11 @@ func TestSpliceRoundTripInvariant(t *testing.T) {
 	// Trim the leading blank line from body so Emit's own "\n\n" shim works.
 	body = strings.TrimPrefix(body, "\n")
 
-	emitted, err := b.Emit("section.installation", record.Record{"body": body})
+	emitted, err := b.Emit("section.ta.installation", record.Record{"body": body})
 	if err != nil {
 		t.Fatalf("Emit: %v", err)
 	}
-	out, err := b.Splice(src, "section.installation", emitted)
+	out, err := b.Splice(src, "section.ta.installation", emitted)
 	if err != nil {
 		t.Fatalf("Splice: %v", err)
 	}
@@ -529,5 +544,299 @@ func TestCollisionPropagatesThroughListAndFind(t *testing.T) {
 	}
 	if _, _, err := b.Find(src, "section.dup"); !errors.Is(err, ErrSlugCollision) {
 		t.Errorf("Find: expected ErrSlugCollision, got %v", err)
+	}
+}
+
+// TestHierarchicalAddressingH1H2H3 covers the full V2-PLAN §5.3.2
+// hierarchical addressing example: with H1 "title", H2 "section", and
+// H3 "subsection" all declared, an H3 under an H2 under an H1 resolves
+// to "subsection.<h1-slug>.<h2-slug>.<h3-slug>".
+func TestHierarchicalAddressingH1H2H3(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "title", Heading: 1},
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("# ta\n\n## Install\n\n### Prereqs\n\nbody\n\n### Setup\n\nbody\n\n## Config\n\nc\n")
+	got, err := b.List(src, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	want := []string{
+		"title.ta",
+		"section.ta.install",
+		"subsection.ta.install.prereqs",
+		"subsection.ta.install.setup",
+		"section.ta.config",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v\nwant %v", got, want)
+	}
+}
+
+// TestHierarchicalAddressingH2H3OnlyNoH1Declared: when H1 is not
+// declared the chain starts at the shallowest DECLARED ancestor. The
+// H1 "ta" heading is non-declared content; H2 addresses start at the
+// H2 slug and H3 addresses start at "<h2-slug>.<h3-slug>".
+func TestHierarchicalAddressingH2H3OnlyNoH1Declared(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("# ta\n\n## Install\n\n### Prereqs\n\nbody\n\n## Config\n\nc\n")
+	got, err := b.List(src, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	want := []string{
+		"section.install",
+		"subsection.install.prereqs",
+		"section.config",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v\nwant %v", got, want)
+	}
+}
+
+// TestPerParentSlugUniquenessAllowsCrossParentDuplicates: H3 "Prereqs"
+// under H2 "Install" and another H3 "Prereqs" under H2 "Config" must
+// NOT collide — they have different parent chains and therefore
+// different full addresses.
+func TestPerParentSlugUniquenessAllowsCrossParentDuplicates(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("## Install\n\n### Prereqs\n\nb1\n\n## Config\n\n### Prereqs\n\nb2\n")
+	got, err := b.List(src, "")
+	if err != nil {
+		t.Fatalf("List (expected no collision): %v", err)
+	}
+	want := []string{
+		"section.install",
+		"subsection.install.prereqs",
+		"section.config",
+		"subsection.config.prereqs",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v\nwant %v", got, want)
+	}
+}
+
+// TestPerParentSlugCollisionUnderSameParentErrors: two H3 "Prereqs"
+// under the same H2 DO collide — same parent chain + same slug = same
+// full address.
+func TestPerParentSlugCollisionUnderSameParentErrors(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("## Install\n\n### Prereqs\n\nb1\n\n### Prereqs\n\nb2\n")
+	if _, err := b.List(src, ""); !errors.Is(err, ErrSlugCollision) {
+		t.Errorf("expected ErrSlugCollision for duplicate subsection under same section, got %v", err)
+	}
+}
+
+// TestGetParentReturnsSubtreeIncludingChildren: Find on a parent H2
+// returns bytes including nested H3s (they are body bytes of the H2
+// AND addressable records with their own narrower ranges).
+func TestGetParentReturnsSubtreeIncludingChildren(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("## Install\n\nintro\n\n### Prereqs\n\ntoolchain\n\n### Setup\n\nsteps\n\n## Config\n\nc\n")
+	sec, ok, err := b.Find(src, "section.install")
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if !ok {
+		t.Fatal("section.install not found")
+	}
+	span := string(src[sec.Range[0]:sec.Range[1]])
+	if !strings.HasPrefix(span, "## Install") {
+		t.Errorf("span should start at H2 Install, got %q", span[:40])
+	}
+	for _, want := range []string{"### Prereqs", "### Setup", "toolchain", "steps"} {
+		if !strings.Contains(span, want) {
+			t.Errorf("span should contain %q, got %q", want, span)
+		}
+	}
+	if strings.Contains(span, "## Config") {
+		t.Errorf("span must stop before next H2, got %q", span)
+	}
+}
+
+// TestGetChildReturnsNestedRange: Find on the child H3 returns just the
+// H3 block, nested inside the parent H2's range.
+func TestGetChildReturnsNestedRange(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("## Install\n\nintro\n\n### Prereqs\n\ntoolchain\n\n### Setup\n\nsteps\n\n## Config\n\nc\n")
+	parent, _, err := b.Find(src, "section.install")
+	if err != nil {
+		t.Fatalf("Find parent: %v", err)
+	}
+	child, ok, err := b.Find(src, "subsection.install.prereqs")
+	if err != nil {
+		t.Fatalf("Find child: %v", err)
+	}
+	if !ok {
+		t.Fatal("subsection.install.prereqs not found")
+	}
+	span := string(src[child.Range[0]:child.Range[1]])
+	if !strings.HasPrefix(span, "### Prereqs") {
+		t.Errorf("child span should start at H3 Prereqs, got %q", span)
+	}
+	if !strings.Contains(span, "toolchain") {
+		t.Errorf("child span body missing: %q", span)
+	}
+	if strings.Contains(span, "### Setup") {
+		t.Errorf("child range must end at next same-or-shallower heading, got %q", span)
+	}
+	// Child range must nest inside parent range.
+	if child.Range[0] < parent.Range[0] || child.Range[1] > parent.Range[1] {
+		t.Errorf("child %v must nest inside parent %v", child.Range, parent.Range)
+	}
+}
+
+// TestEmitDeclaredChildErrorsIfParentMissing: splicing a new H3 whose
+// H2 ancestor is not present in buf returns ErrParentMissing rather
+// than silently inventing an H2 or appending at EOF.
+func TestEmitDeclaredChildErrorsIfParentMissing(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("## Other\n\nbody\n")
+	emitted := []byte("### Prereqs\n\ntoolchain\n")
+	_, err = b.Splice(src, "subsection.install.prereqs", emitted)
+	if err == nil {
+		t.Fatal("expected ErrParentMissing; got nil")
+	}
+	if !errors.Is(err, ErrParentMissing) {
+		t.Errorf("want ErrParentMissing, got %v", err)
+	}
+}
+
+// TestSpliceInsertsChildAtEndOfParentRange: when the H2 parent exists
+// but the target H3 child does not, Splice inserts the child at the
+// end of the parent's body range (just before the next same-or-shallower
+// declared heading, or EOF).
+func TestSpliceInsertsChildAtEndOfParentRange(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("## Install\n\nintro\n\n### Existing\n\nbody\n\n## Config\n\nc\n")
+	emitted := []byte("### New\n\nnewbody\n")
+	out, err := b.Splice(src, "subsection.install.new", emitted)
+	if err != nil {
+		t.Fatalf("Splice: %v", err)
+	}
+	// The new H3 must appear BEFORE the next H2 Config (which is the
+	// parent Install's range end).
+	newIdx := bytes.Index(out, []byte("### New"))
+	configIdx := bytes.Index(out, []byte("## Config"))
+	if newIdx < 0 || configIdx < 0 {
+		t.Fatalf("missing heading in output: %q", out)
+	}
+	if newIdx >= configIdx {
+		t.Errorf("new child should land before ## Config: got %q", out)
+	}
+	// Existing sibling and config must survive.
+	for _, want := range []string{"### Existing", "## Config", "newbody"} {
+		if !bytes.Contains(out, []byte(want)) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+}
+
+// TestRangeEndsAtSameOrShallowerDeclaredLevel: scanner-level boundary
+// check. Under H1+H2+H3 declared, an H2's range ends at the next H2 OR
+// H1 (whichever comes first), not at the next H3.
+func TestRangeEndsAtSameOrShallowerDeclaredLevel(t *testing.T) {
+	declared := map[int]string{1: "title", 2: "section", 3: "subsection"}
+	src := []byte("## A\n\nabody\n\n### A1\n\na1body\n\n## B\n\nbbody\n")
+	got, err := scanATX(src, declared)
+	if err != nil {
+		t.Fatalf("scanATX: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d headings, want 3: %+v", len(got), brief(got))
+	}
+	// H2 A ends at H2 B.
+	aSpan := string(src[got[0].ByteRange[0]:got[0].ByteRange[1]])
+	if !strings.Contains(aSpan, "### A1") || strings.Contains(aSpan, "## B") {
+		t.Errorf("H2 A range wrong: %q", aSpan)
+	}
+	// H3 A1 ends at H2 B (shallower than H3).
+	a1Span := string(src[got[1].ByteRange[0]:got[1].ByteRange[1]])
+	if !strings.Contains(a1Span, "a1body") || strings.Contains(a1Span, "## B") {
+		t.Errorf("H3 A1 range wrong: %q", a1Span)
+	}
+	// H2 B runs to EOF.
+	if got[2].ByteRange[1] != len(src) {
+		t.Errorf("H2 B end = %d, want %d", got[2].ByteRange[1], len(src))
+	}
+}
+
+// TestOrphanH3UnderH1WithMissingH2 covers V2-PLAN §11.D pre-answered
+// ambiguity #1: an H3 directly under an H1 when H2 is declared but no
+// H2 heading exists in buf. The H3 is scanned; its chain skips the
+// missing H2 slot and contains only declared ancestors that ARE
+// present. Address = "subsection.<h1-slug>.<h3-slug>".
+func TestOrphanH3UnderH1WithMissingH2(t *testing.T) {
+	types := []record.DeclaredType{
+		{Name: "title", Heading: 1},
+		{Name: "section", Heading: 2},
+		{Name: "subsection", Heading: 3},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	src := []byte("# ta\n\n### Prereqs\n\nA Go toolchain.\n")
+	got, err := b.List(src, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	want := []string{"title.ta", "subsection.ta.prereqs"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v\nwant %v", got, want)
 	}
 }

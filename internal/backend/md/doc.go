@@ -14,16 +14,33 @@
 //     what lets authors use H3+ as free-form subheadings inside a
 //     record body without declaring each as its own type.
 //
-//   - Body range runs from a declared heading to the start of the
-//     next declared heading (at any declared level), or EOF for the
-//     last (V2-PLAN §2.11 / §5.3.2). Non-declared headings between
-//     two declared boundaries are absorbed into the first record's
-//     body.
+//   - Hierarchical addressing (V2-PLAN §5.3.2 / §5.5, 2026-04-21
+//     refinement). A record at declared level N is addressed by
+//     "<type>.<chain>" where <chain> is the ordered slugs at DECLARED
+//     heading levels from the shallowest down to this heading's own
+//     level. An H3 "Prereqs" under H2 "Install" under H1 "ta" with
+//     H1+H2+H3 all declared resolves to
+//     "subsection.ta.install.prereqs". If only H2 and H3 were
+//     declared, the chain would start at H2 →
+//     "subsection.install.prereqs". Orphan headings at a declared
+//     level whose immediate declared parent is absent from the buffer
+//     compose their chain from the declared ancestors that ARE present
+//     — e.g. an H3 under an H1 with H2 declared-but-missing becomes
+//     "subsection.<h1-slug>.<h3-slug>".
 //
-//   - Slug uniqueness is per declared level within a file. Two H2s
-//     with slug "install" is a collision (refused at read and write).
-//     An H2 "install" and an H3 "install" do not collide — different
-//     declared types at different levels. Non-declared levels don't
+//   - Body range runs from a declared heading to the start of the
+//     next heading at the SAME OR SHALLOWER declared level, or EOF
+//     for the last such heading (V2-PLAN §2.11 / §5.3.2, 2026-04-21
+//     refinement). Deeper declared headings are BOTH body bytes of
+//     this record AND addressable records in their own right with
+//     narrower nested ranges. Non-declared deeper headings are opaque
+//     body bytes.
+//
+//   - Slug uniqueness is per FULL ADDRESS (i.e. per-parent, per
+//     declared level). Two H3 "Prereqs" under the same H2 collide
+//     because they produce the same address. Two H3 "Prereqs" under
+//     different H2 parents do not collide — different parent chains
+//     produce different addresses. Non-declared levels don't
 //     participate in the collision check at all.
 //
 //   - Strict col-0 ATX only. CommonMark allows 0-3 spaces of leading
