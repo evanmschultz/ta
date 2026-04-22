@@ -25,6 +25,32 @@ func newTemplateLibraryFixture(t *testing.T) string {
 	return root
 }
 
+// seedCwdSchema makes a temp project dir, writes a .ta/schema.toml
+// containing `body` into it, and chdirs there for the test. The
+// previous cwd is restored via t.Cleanup. Used by `ta template save`
+// tests, which need a cwd-relative project to promote from.
+func seedCwdSchema(t *testing.T, body string) {
+	t.Helper()
+	project := t.TempDir()
+	taDir := filepath.Join(project, ".ta")
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
+		t.Fatalf("mkdir .ta: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("seed schema: %v", err)
+	}
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(project); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(prev)
+	})
+}
+
 func TestTemplateListCmdDefault(t *testing.T) {
 	newTemplateLibraryFixture(t)
 	cmd := newTemplateCmd()
@@ -148,5 +174,219 @@ func TestTemplateShowCmdMissingErrors(t *testing.T) {
 	cmd.SetArgs([]string{"show", "ghost"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected error showing missing template")
+	}
+}
+
+// ---- save -----------------------------------------------------------
+
+// runTemplateCmd is the standard harness for `ta template <sub> ...`.
+// Stdin is always a nil reader — huh never fires because test stdin is
+// not a TTY (matches init_cmd_test.go's non-interactive discipline).
+func runTemplateCmd(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	cmd := newTemplateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetIn(bytes.NewReader(nil))
+	cmd.SetArgs(args)
+	err = cmd.Execute()
+	return out.String(), errOut.String(), err
+}
+
+func TestTemplateSaveHappyPath(t *testing.T) {
+	libRoot := t.TempDir()
+	restore := templates.SetRootForTest(libRoot)
+	t.Cleanup(restore)
+	seedCwdSchema(t, cliTaskSchema)
+
+	// Non-interactive: name positional arg, no --force needed because
+	// target does not exist.
+	out, errOut, err := runTemplateCmd(t, "save", "foo", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	var report struct {
+		Name    string `json:"name"`
+		Source  string `json:"source"`
+		Written bool   `json:"written"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &report); jsonErr != nil {
+		t.Fatalf("stdout not JSON: %v\n%s", jsonErr, out)
+	}
+	if report.Name != "foo" {
+		t.Errorf("name = %q, want foo", report.Name)
+	}
+	if !report.Written {
+		t.Errorf("written = false, want true")
+	}
+	if !strings.HasSuffix(report.Source, filepath.Join(".ta", "schema.toml")) {
+		t.Errorf("source = %q, want path ending in .ta/schema.toml", report.Source)
+	}
+
+	// Destination file must carry the original bytes verbatim.
+	got, err := os.ReadFile(filepath.Join(libRoot, "foo.toml"))
+	if err != nil {
+		t.Fatalf("read promoted template: %v", err)
+	}
+	if string(got) != cliTaskSchema {
+		t.Errorf("promoted bytes drift:\n--- got ---\n%s\n--- want ---\n%s", got, cliTaskSchema)
+	}
+}
+
+func TestTemplateSaveMalformedSourceErrors(t *testing.T) {
+	libRoot := t.TempDir()
+	restore := templates.SetRootForTest(libRoot)
+	t.Cleanup(restore)
+	// Malformed TOML — missing closing bracket on the db table.
+	seedCwdSchema(t, "[plans\nfile = \"plans.toml\"\n")
+
+	_, _, err := runTemplateCmd(t, "save", "foo", "--json")
+	if err == nil {
+		t.Fatal("expected error on malformed source schema")
+	}
+	// Pre-validation error should name the source path, not the target.
+	if !strings.Contains(err.Error(), filepath.Join(".ta", "schema.toml")) {
+		t.Errorf("error should point at source path: %v", err)
+	}
+	// Target must NOT have been created.
+	if _, statErr := os.Stat(filepath.Join(libRoot, "foo.toml")); !os.IsNotExist(statErr) {
+		t.Errorf("target should not exist after malformed save: %v", statErr)
+	}
+}
+
+func TestTemplateSaveMissingSourceErrors(t *testing.T) {
+	libRoot := t.TempDir()
+	restore := templates.SetRootForTest(libRoot)
+	t.Cleanup(restore)
+	// cwd with NO .ta dir.
+	project := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(project); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	_, _, err = runTemplateCmd(t, "save", "foo", "--json")
+	if err == nil {
+		t.Fatal("expected error when source schema absent")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("expected 'does not exist' diagnostic, got: %v", err)
+	}
+}
+
+func TestTemplateSaveOverwriteWithoutForceErrors(t *testing.T) {
+	libRoot := t.TempDir()
+	// Seed an existing template under the name we'll try to save to.
+	if err := os.WriteFile(filepath.Join(libRoot, "foo.toml"), []byte(cliTaskSchema), 0o644); err != nil {
+		t.Fatalf("seed pre-existing: %v", err)
+	}
+	restore := templates.SetRootForTest(libRoot)
+	t.Cleanup(restore)
+	seedCwdSchema(t, cliTaskSchema)
+
+	_, _, err := runTemplateCmd(t, "save", "foo", "--json")
+	if err == nil {
+		t.Fatal("expected error on overwrite without --force off-TTY")
+	}
+	if !strings.Contains(err.Error(), "exists") {
+		t.Errorf("expected 'exists' diagnostic, got: %v", err)
+	}
+}
+
+func TestTemplateSaveOverwriteWithForceSucceeds(t *testing.T) {
+	libRoot := t.TempDir()
+	// Seed an existing template with sentinel bytes so we can confirm
+	// the overwrite actually happened.
+	sentinel := "# sentinel\n"
+	if err := os.WriteFile(filepath.Join(libRoot, "foo.toml"), []byte(sentinel), 0o644); err != nil {
+		t.Fatalf("seed pre-existing: %v", err)
+	}
+	restore := templates.SetRootForTest(libRoot)
+	t.Cleanup(restore)
+	seedCwdSchema(t, cliTaskSchema)
+
+	_, _, err := runTemplateCmd(t, "save", "foo", "--force", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(libRoot, "foo.toml"))
+	if string(got) == sentinel {
+		t.Errorf("overwrite did not happen: bytes unchanged from sentinel")
+	}
+	if string(got) != cliTaskSchema {
+		t.Errorf("bytes drift after --force:\n--- got ---\n%s", got)
+	}
+}
+
+func TestTemplateSaveNameMissingOffTTYErrors(t *testing.T) {
+	libRoot := t.TempDir()
+	restore := templates.SetRootForTest(libRoot)
+	t.Cleanup(restore)
+	seedCwdSchema(t, cliTaskSchema)
+
+	_, _, err := runTemplateCmd(t, "save", "--json")
+	if err == nil {
+		t.Fatal("expected error: off-TTY without name arg")
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Errorf("expected 'name' in error, got: %v", err)
+	}
+}
+
+// ---- delete ---------------------------------------------------------
+
+func TestTemplateDeleteHappyPath(t *testing.T) {
+	libRoot := newTemplateLibraryFixture(t)
+
+	out, errOut, err := runTemplateCmd(t, "delete", "dogfood", "--force", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	var report struct {
+		Name    string `json:"name"`
+		Deleted bool   `json:"deleted"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &report); jsonErr != nil {
+		t.Fatalf("stdout not JSON: %v\n%s", jsonErr, out)
+	}
+	if report.Name != "dogfood" {
+		t.Errorf("name = %q, want dogfood", report.Name)
+	}
+	if !report.Deleted {
+		t.Errorf("deleted = false, want true")
+	}
+	if _, err := os.Stat(filepath.Join(libRoot, "dogfood.toml")); !os.IsNotExist(err) {
+		t.Errorf("dogfood.toml still present after delete: %v", err)
+	}
+	// Sibling template must survive.
+	if _, err := os.Stat(filepath.Join(libRoot, "schema.toml")); err != nil {
+		t.Errorf("schema.toml removed by sibling delete: %v", err)
+	}
+}
+
+func TestTemplateDeleteMissingErrors(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	_, _, err := runTemplateCmd(t, "delete", "ghost", "--force")
+	if err == nil {
+		t.Fatal("expected error deleting missing template")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error missing 'not found': %v", err)
+	}
+}
+
+func TestTemplateDeleteOffTTYWithoutForceErrors(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	_, _, err := runTemplateCmd(t, "delete", "schema")
+	if err == nil {
+		t.Fatal("expected error off-TTY without --force")
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("error missing '--force': %v", err)
 	}
 }

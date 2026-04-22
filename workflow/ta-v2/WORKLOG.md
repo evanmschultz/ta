@@ -30,6 +30,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.13 | Template library + read CLI          | ✅    | ✅    | ✅     | ✅   |
 | 12.14 | `ta init` project bootstrap          | ✅    | ✅    | ✅     | ✅   |
 | 12.14.5 | Style cleanup sweep                | ✅    | ✅    | ✅     | ✅   |
+| 12.15 | `ta template save` + `delete`        | ⏳    | —     | —      | —    |
+| 12.16 | huh root + `ta template apply` + Example retrofit | — | — | — | — |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 
@@ -960,3 +962,37 @@ Status: BUILD DONE @<PAIR-12.14.5>. QA pair pending.
 - **§12.12 touched files:** `cmd/ta/commands.go` — one unused-return note from falsification sibling (above); `magefile.go` — clean; `CLAUDE.md` / `AGENTS.md` — docs, N/A for Go modernization.
 - **§12.13 touched files:** `internal/fsatomic/fsatomic.go` — clean; `internal/templates/templates.go` — already uses `strings.CutSuffix`; `cmd/ta/template_cmd.go` — clean.
 - **§12.14 touched files:** `cmd/ta/init_cmd.go` — clean (range-over-SeqFunc in `containsTable`; `slices.Contains` in `pickTemplate`). `containsTable` correctness note: line-walk with exact `trim == want` prevents false positives (e.g. `[mcp_servers.taproot]` does NOT match `[mcp_servers.ta]`). Design is correct as-is.
+
+---
+
+## 12.15 — `ta template save` + `ta template delete`
+
+**Scope (from V2-PLAN.md §12.15 + §14.3):** Add the write-side `save` and `delete` children to the existing `ta template` parent. `save [name]` promotes `<cwd>/.ta/schema.toml` to `~/.ta/<name>.toml` verbatim; `delete <name>` removes a template from the library. Both honor huh confirms on a TTY and require `--force` off-TTY. `apply` + huh interactive root + fang `Example` retrofit land in §12.16.
+
+### Build — go-builder-agent (Pair C)
+
+Status: BUILD DONE @<PAIR-C-12.15>. QA twins pending.
+
+**Added:**
+
+- `cmd/ta/template_cmd.go` — `newTemplateSaveCmd` and `newTemplateDeleteCmd` registered under `newTemplateCmd`. Shared helpers: `promptTemplateName` (huh input for the save name prompt), `promptConfirm` (huh confirm used by both write paths — distinct from `init_cmd.go:confirmOverwrite` because title phrasing differs per command). JSON report shapes mirror V2-PLAN §14.3: `{"name","source","written"}` for save; `{"name","deleted"}` for delete.
+- `runTemplateSave` does pre-validation via `schema.LoadBytes` on the cwd source BEFORE `templates.Save`. The in-library validation inside `templates.Save` would surface the same parse error but wrapped with the destination path; the CLI-side pre-validate produces a line/column pointing at `<cwd>/.ta/schema.toml` so the user sees where the problem is rather than where we tried to write.
+- `runTemplateDelete` pre-checks existence via `os.Stat` so the missing-template error is clean (`"delete: template %q not found at %s"`) before any huh prompt. Confirms on a TTY via huh; requires `--force` off-TTY.
+- `cmd/ta/init_cmd.go` — extracted shared `ttyInteractive(nonInteractive bool) bool` helper. `interactive(_, _, initFlags)` now just calls `ttyInteractive(f.nonInterRq)`. Keeps `ta init`'s behavior byte-identical (its tests still pass unchanged) while exposing the TTY-vs-flags gate to every `ta template *` write subcommand without duplicating `os.Stdin.Fd()` / `os.Stdout.Fd()` plumbing.
+- `cmd/ta/template_cmd_test.go` — nine new tests covering both write commands: save happy path (JSON shape + byte-identical promotion), save malformed source errors with source-path diagnostic, save missing source errors, save overwrite without --force errors, save overwrite with --force succeeds, save name missing off-TTY errors, delete happy path (sibling template survives), delete missing errors, delete off-TTY without --force errors. Plus a shared `seedCwdSchema` helper that creates a project dir + `.ta/schema.toml`, chdirs into it, and restores cwd via `t.Cleanup`.
+
+**Design calls (no spec drift):**
+
+- **Pre-validation redundancy in save.** `templates.Save` re-validates internally. The CLI layer's pre-validation exists solely to target the error message at the source path rather than the destination. Documented in the save command's Long help.
+- **Save: `--force` / `--json` / name-present all treat as non-interactive.** Mirrors `ta init`'s `--json` → nonInteractive promotion from the §12.14 LOW-2 fix — agents piping stdout expect structured JSON and cannot complete a huh prompt, so any of those signals skips the TTY-interactive branch.
+- **Delete off-TTY without `--force` errors rather than silently succeeding.** Matches the "break loudly" preference the dev has stated across prior rounds. `--json` alone is also treated as non-interactive (matches save).
+- **Apply deferred to §12.16.** The execution-plan scope (V2-PLAN §12.15) is "save only"; delete colocated here because it lives in the same file and shares `promptConfirm` + the TTY gate. Apply lands with the huh root-menu + Example retrofit to keep the second commit cohesive.
+
+**Verification:**
+
+- `mage check` green across all 12 packages with `-race`.
+- `mage dogfood` clean (skip-existing).
+- `go list -deps ./internal/templates | rg "ta/internal/"` still returns only `internal/fsatomic` + `internal/schema` + `internal/templates` (firewall preserved — §12.15 adds CLI surface, not library-layer deps).
+
+**Next:** §12.16 lands `ta template apply`, wires bare `ta` with TTY dispatch to a huh subcommand menu, and retrofits fang `Example` fields on the subcommands that missed them in §12.12 rush.
+

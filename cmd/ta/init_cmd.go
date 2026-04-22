@@ -402,7 +402,19 @@ func effectiveMCPToggles(f initFlags, cfg bootstrapConfig) (claude, codex bool) 
 // no non-interactive flag (--template / --blank) was set, so the
 // picker is both possible and wanted.
 func interactive(_ io.Reader, _ io.Writer, f initFlags) bool {
-	if f.nonInterRq {
+	return ttyInteractive(f.nonInterRq)
+}
+
+// ttyInteractive is the shared TTY-vs-flags gate used by `ta init` and
+// every `ta template *` write subcommand. Returns true only when both
+// stdin AND stdout are TTYs AND the caller has NOT forced a
+// non-interactive path via flags (e.g. `--force`, `--json`,
+// `--template`, `--blank`). Matching `os.Stdin` / `os.Stdout` keeps
+// behavior consistent across commands: cobra's per-cmd io.Reader /
+// io.Writer are test buffers that cannot report TTY-ness, so the
+// process-level descriptors are the real signal.
+func ttyInteractive(nonInteractive bool) bool {
+	if nonInteractive {
 		return false
 	}
 	return term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())
