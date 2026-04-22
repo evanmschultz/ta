@@ -25,11 +25,11 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.8  | Search                               | ✅    | ✅    | ✅     | ✅   |
 | 12.9  | MCP caching                          | ✅    | ✅    | ✅     | ✅   |
 | 12.10 | Dogfood migration                    | ✅    | ✅    | ✅     | ✅   |
-| 12.11 | Strip global cascade from runtime    | ✅    | ✅    | ✅     | —    |
-| 12.12 | JSON output mode                     | ✅    | ✅    | ✅     | —    |
-| 12.13 | Template library + read CLI          | ✅    | ✅    | ✅     | —    |
-| 12.14 | `ta init` project bootstrap          | ✅    | ✅    | ✅     | —    |
-| 12.14.5 | Style cleanup sweep                | ✅    | ✅    | ✅     | —    |
+| 12.11 | Strip global cascade from runtime    | ✅    | ✅    | ✅     | ✅   |
+| 12.12 | JSON output mode                     | ✅    | ✅    | ✅     | ✅   |
+| 12.13 | Template library + read CLI          | ✅    | ✅    | ✅     | ✅   |
+| 12.14 | `ta init` project bootstrap          | ✅    | ✅    | ✅     | ✅   |
+| 12.14.5 | Style cleanup sweep                | ✅    | ✅    | ✅     | ✅   |
 
 Legend: ⏳ in progress · ✅ passed · ❌ failed (blocks advance) · — not yet started
 
