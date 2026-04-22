@@ -375,3 +375,94 @@ func TestInitCmdMergesTaBlockIntoExistingCodexConfig(t *testing.T) {
 		t.Errorf("ta block not appended: %s", s)
 	}
 }
+
+// TestContainsTableWhitespaceVariants locks in the QA falsification
+// §12.14 MEDIUM-1 fix: containsTable must treat TOML-equivalent
+// whitespace / quoted forms of the target header as matches so
+// mergeCodexMCP does not append a duplicate canonical block.
+func TestContainsTableWhitespaceVariants(t *testing.T) {
+	want := "mcp_servers.ta"
+	cases := []struct {
+		name string
+		doc  string
+		hit  bool
+	}{
+		{"canonical", "[mcp_servers.ta]\ncommand = \"ta\"\n", true},
+		{"outer whitespace", "[ mcp_servers.ta ]\ncommand = \"ta\"\n", true},
+		{"inner whitespace", "[mcp_servers . ta]\ncommand = \"ta\"\n", true},
+		{"quoted tail", "[mcp_servers.\"ta\"]\ncommand = \"ta\"\n", true},
+		{"quoted head", "[\"mcp_servers\".ta]\ncommand = \"ta\"\n", true},
+		{"combined whitespace + quotes", "[ \"mcp_servers\" . ta ]\ncommand = \"ta\"\n", true},
+		{"different table", "[mcp_servers.other]\ncommand = \"other\"\n", false},
+		{"substring-only", "[mcp_servers.taproot]\ncommand = \"taproot\"\n", false},
+		{"array of tables rejected", "[[mcp_servers.ta]]\ncommand = \"ta\"\n", false},
+		{"commented header not a hit", "# [mcp_servers.ta]\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := containsTable(tc.doc, want); got != tc.hit {
+				t.Errorf("containsTable(%q) = %v, want %v", tc.doc, got, tc.hit)
+			}
+		})
+	}
+}
+
+// TestInitCmdCodexWhitespaceVariantNotDuplicated is the end-to-end
+// version of TestContainsTableWhitespaceVariants: a pre-existing
+// whitespace-variant [mcp_servers.ta] block must be detected so
+// mergeCodexMCP leaves the file untouched rather than appending a
+// duplicate canonical block (invalid TOML under the single-instance
+// rule).
+func TestInitCmdCodexWhitespaceVariantNotDuplicated(t *testing.T) {
+	seedTemplateLibrary(t)
+	target := t.TempDir()
+	codexDir := filepath.Join(target, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Whitespace-variant header per TOML v1.0.0 — equivalent to
+	// [mcp_servers.ta] but not byte-identical.
+	existing := "[ mcp_servers.ta ]\ncommand = \"custom-ta\"\n"
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	_, _, err := runInitCmd(t, target, "--template", "schema", "--no-claude")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if string(got) != existing {
+		t.Errorf("whitespace-variant codex config modified (should be untouched):\ngot:  %q\nwant: %q", got, existing)
+	}
+	// A canonical [mcp_servers.ta] must NOT have been appended.
+	if strings.Count(string(got), "[mcp_servers.ta]") > 0 {
+		t.Errorf("duplicate canonical block appended: %s", got)
+	}
+}
+
+// TestInitCmdJSONImpliesNonInteractive locks in the §12.14 LOW-2 fix:
+// --json on a stdin-less runner must not fall into a missing-template
+// error. Before the fix, nonInterRq was set only by --template/--blank
+// so --json alone dropped into pickTemplate's missing-template branch.
+// After the fix, --json satisfies nonInterRq on its own — and without
+// --template, the command errors loudly with the same "missing
+// template" diagnostic the no-flag-no-tty path uses. The assertion
+// here is that --json does not SILENTLY do something surprising (like
+// write a blank schema or hang); a loud error is the correct non-
+// interactive behaviour.
+func TestInitCmdJSONImpliesNonInteractive(t *testing.T) {
+	seedTemplateLibrary(t)
+	target := t.TempDir()
+	_, _, err := runInitCmd(t, target, "--json", "--no-claude", "--no-codex")
+	if err == nil {
+		t.Fatalf("expected error (non-interactive without --template / --blank); got nil")
+	}
+	if !strings.Contains(err.Error(), "template") {
+		t.Errorf("expected 'template' in error; got: %v", err)
+	}
+	// Template flag + --json should succeed on the non-interactive path.
+	_, _, err = runInitCmd(t, target, "--template", "schema", "--json", "--no-claude", "--no-codex")
+	if err != nil {
+		t.Fatalf("template + --json should succeed non-interactively: %v", err)
+	}
+}

@@ -91,7 +91,12 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			f.nonInterRq = f.template != "" || f.blank
+			// --json is treated as a non-interactive request: agents
+			// piping stdout expect structured JSON and cannot complete
+			// a huh form. Without this, `ta init --json` from a TTY
+			// would block on the picker then emit JSON afterward (QA
+			// falsification §12.14 LOW-2 finding).
+			f.nonInterRq = f.template != "" || f.blank || f.asJSON
 			return runInit(c.OutOrStdout(), c.InOrStdin(), target, f)
 		},
 		SilenceUsage:  true,
@@ -543,15 +548,48 @@ func mergeCodexMCP(path string) ([]byte, bool, error) {
 // containsTable checks whether a TOML document already declares the
 // given dotted table header. Walks lines because round-tripping
 // through go-toml would reformat the user's file.
+//
+// Matches TOML-equivalent whitespace variants per v1.0.0 grammar:
+// `[ mcp_servers.ta ]`, `[mcp_servers . ta]`, `[mcp_servers."ta"]`
+// and combinations are all treated as equivalent to the canonical
+// `[mcp_servers.ta]`. Array-of-tables (`[[...]]`) does NOT match a
+// standard-table header and is rejected. See QA falsification
+// §12.14 MEDIUM-1 finding: whitespace variants were previously
+// missed, causing a duplicate canonical block to be appended
+// (invalid TOML under the single-instance rule).
 func containsTable(doc, header string) bool {
-	want := "[" + header + "]"
+	wantSegs := splitHeaderSegments(header)
 	for line := range strings.SplitSeq(doc, "\n") {
 		trim := strings.TrimSpace(line)
-		if trim == want {
+		if !strings.HasPrefix(trim, "[") || strings.HasPrefix(trim, "[[") {
+			continue
+		}
+		if !strings.HasSuffix(trim, "]") || strings.HasSuffix(trim, "]]") {
+			continue
+		}
+		inner := trim[1 : len(trim)-1]
+		if slices.Equal(wantSegs, splitHeaderSegments(inner)) {
 			return true
 		}
 	}
 	return false
+}
+
+// splitHeaderSegments splits a dotted TOML key by '.', trimming
+// surrounding whitespace per segment and stripping a single pair of
+// matching basic or literal quotes. Returns the normalized segment
+// list so containsTable can compare against the canonical form.
+func splitHeaderSegments(s string) []string {
+	parts := strings.Split(s, ".")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if len(p) >= 2 && (p[0] == '"' || p[0] == '\'') && p[0] == p[len(p)-1] {
+			p = p[1 : len(p)-1]
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // emitInitReport writes either a JSON payload (agent-facing) or a

@@ -814,6 +814,37 @@ Status: BUILD DONE @<PAIR-B-12.14>. QA twins pending.
 
 **Unused identifiers flagged:** None in `aa2808b` touch set. Pre-existing `lookupDBAndType`'s ignored `dbDecl` return (see §12.12) persists but is not §12.14-introduced.
 
+### Option A resolution — orchestrator direct-fix
+
+**Landed 2026-04-22 @<PAIR-B-12.14-FIX>.** Both CONFIRMED findings from the Falsification pass fixed inline; QA re-spawn waived per the established Option A precedent (§12.2 / §12.5 / §12.6). Both fixes are mechanical guard additions backed by direct negative tests of the pre-fix behaviour.
+
+- **MEDIUM 2.1 — `containsTable` whitespace blind-spot.** Rewrote `cmd/ta/init_cmd.go:containsTable` to parse each bracketed line, split on `.`, trim whitespace per segment, and strip a single pair of matching basic/literal quotes. Compares normalized segment lists via `slices.Equal`. Array-of-tables `[[...]]` is explicitly rejected. Added helper `splitHeaderSegments`. Fix + negative test locks in the six equivalent TOML header forms (`[mcp_servers.ta]`, `[ mcp_servers.ta ]`, `[mcp_servers . ta]`, `[mcp_servers."ta"]`, `["mcp_servers".ta]`, combined whitespace + quotes) + four rejection cases (different table, substring-only, array-of-tables, commented-out header).
+- **LOW 2.2 — `ta init --json` on TTY still fires huh picker.** One-line fix at `cmd/ta/init_cmd.go:94`: `f.nonInterRq = f.template != "" || f.blank || f.asJSON`. Added doc comment citing the Falsification finding. Negative test proves `ta init --json` without `--template`/`--blank` errors loudly with the "template" diagnostic instead of silently blocking on a huh form.
+
+**Tests added in `cmd/ta/init_cmd_test.go`:**
+
+- `TestContainsTableWhitespaceVariants` — table-test of ten TOML header variants covering all whitespace/quote cases plus array-of-tables and commented-header negative cases.
+- `TestInitCmdCodexWhitespaceVariantNotDuplicated` — end-to-end proof: a pre-existing `[ mcp_servers.ta ]` (whitespace variant) in `.codex/config.toml` survives `ta init` byte-identically, no duplicate canonical block appended.
+- `TestInitCmdJSONImpliesNonInteractive` — proves `ta init --json` off-TTY errors with "template" diagnostic (loud non-interactive) rather than hanging; also proves `--template schema --json` succeeds on the non-interactive path.
+
+**Verification:**
+
+- `mage check` green across all 12 packages with `-race`.
+- All three new tests present and exercising the post-fix code paths.
+
+**Why Option A, not re-spawn.** Both fixes are isolated-scope guard additions (whitespace normalization + one flag disjunction). The negative tests reproduce the Falsification agent's exact counterexample recipes and assert the fixed behaviour. A fresh-context QA re-spawn on these mechanical guards would be ceremony over substance — the pattern is already validated by the §12.2 / §12.5 / §12.6 waivers. Recording the waiver explicitly so the discipline remains audit-visible.
+
+**Advisory follow-ups NOT fixed in this block** (reserved for future orchestrator sweeps):
+
+- §12.11 cache cross-project error untested (both Proof and Falsification flagged) — simple test addition.
+- §12.11 `cache.go:111-118` loader-error path still binds `projectPath` — docstring note.
+- §12.12 `MAGEFILE_JSON` truthy parser accepts `no` as enabled — doc-nit.
+- §12.13 `fsatomic.Write` docstring silent on rename-failure rollback — doc improvement.
+- §12.14 codex merge preserve-non-`ta`-sibling assertion uses `strings.Contains` not byte-strict comparison — test tightening.
+- §12.14 bootstrap `default_template` pointing at missing template has no negative test — coverage gap.
+- Pre-existing `_ = dbDecl` unused return in `lookupDBAndType` at `cmd/ta/commands.go:152` — standing-concern.
+- Pre-existing `sourceMoved` dual-branch flatten in `internal/mcpsrv/cache.go:167-176` — style.
+
 ---
 
 ## 12.14.5 — Style cleanup sweep
