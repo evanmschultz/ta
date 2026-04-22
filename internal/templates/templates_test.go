@@ -1,6 +1,7 @@
 package templates_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,5 +207,63 @@ func TestSetRootForTest(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("Root = %q, want %q", got, want)
+	}
+}
+
+// TestValidateNameRejectsPathTraversal locks in the QA falsification
+// §12.16 HIGH finding: Save/Load/Delete must reject any template name
+// that could escape the library root or name a hidden file. Covers
+// the agent's reproduction recipe ("../escape", "../other-tool/config")
+// plus related escape vectors (absolute paths, Windows separators,
+// dot-prefixed names, trailing separators).
+func TestValidateNameRejectsPathTraversal(t *testing.T) {
+	cases := []struct {
+		name string
+		arg  string
+	}{
+		{"empty", ""},
+		{"dot", "."},
+		{"dotdot", ".."},
+		{"hidden", ".hidden"},
+		{"parent slash", "../escape"},
+		{"nested parent", "../other-tool/config"},
+		{"absolute", "/etc/passwd"},
+		{"windows separator", "foo\\bar"},
+		{"trailing slash", "foo/"},
+		{"inner slash", "foo/bar"},
+		{"self-reference", "./foo"},
+	}
+	root := t.TempDir()
+	for _, tc := range cases {
+		t.Run("Save/"+tc.name, func(t *testing.T) {
+			err := templates.Save(root, tc.arg, []byte(sampleTemplate))
+			if err == nil || !errors.Is(err, templates.ErrInvalidName) {
+				t.Errorf("Save(%q) err = %v, want ErrInvalidName", tc.arg, err)
+			}
+		})
+		t.Run("Load/"+tc.name, func(t *testing.T) {
+			_, err := templates.Load(root, tc.arg)
+			if err == nil || !errors.Is(err, templates.ErrInvalidName) {
+				t.Errorf("Load(%q) err = %v, want ErrInvalidName", tc.arg, err)
+			}
+		})
+		t.Run("Delete/"+tc.name, func(t *testing.T) {
+			err := templates.Delete(root, tc.arg)
+			if err == nil || !errors.Is(err, templates.ErrInvalidName) {
+				t.Errorf("Delete(%q) err = %v, want ErrInvalidName", tc.arg, err)
+			}
+		})
+	}
+}
+
+// TestValidateNameAllowsReasonableNames ensures the guard does not
+// over-reject — plain names, hyphens, underscores, digits, and mixed
+// case all pass.
+func TestValidateNameAllowsReasonableNames(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"schema", "schema-v2", "schema_v2", "SCHEMA", "schema2", "my-project-schema"} {
+		if err := templates.Save(root, name, []byte(sampleTemplate)); err != nil {
+			t.Errorf("Save(%q) unexpectedly rejected: %v", name, err)
+		}
 	}
 }

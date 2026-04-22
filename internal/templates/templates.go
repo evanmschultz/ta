@@ -93,13 +93,49 @@ func List(root string) ([]string, error) {
 	return out, nil
 }
 
+// ErrInvalidName is returned when a template name would escape the
+// library root or name a hidden file. Covers empty strings, names with
+// path separators, names containing `..` segments, leading-dot names
+// (which List would hide), and any name whose `filepath.Clean` form
+// differs from the input.
+var ErrInvalidName = errors.New("templates: invalid name")
+
+// validateName rejects template names that would escape the library
+// root or collide with hidden-file semantics. Closes the QA
+// falsification §12.16 HIGH finding: without this guard,
+// `Save("foo", "../escape", data)` would resolve to `foo/../escape.toml`
+// which filepath.Clean normalizes to a sibling of root, outside the
+// library. Applied identically to Load, Save, Delete so every entry
+// point shares the same contract.
+func validateName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: empty name", ErrInvalidName)
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("%w: %q contains a path separator", ErrInvalidName, name)
+	}
+	if strings.HasPrefix(name, ".") {
+		// Covers ".", "..", ".hidden", and any dotfile-style name.
+		// Separators are already rejected above, so a bare "." here
+		// really is a dot-prefixed plain name (or `..`), not a
+		// walked-path segment.
+		return fmt.Errorf("%w: %q starts with a dot", ErrInvalidName, name)
+	}
+	if name != filepath.Clean(name) {
+		// Belt-and-braces: catches anything stdlib considers
+		// non-canonical that the other rules did not reject.
+		return fmt.Errorf("%w: %q is not in canonical form", ErrInvalidName, name)
+	}
+	return nil
+}
+
 // Load reads the named template's raw bytes and validates them through
 // schema.LoadBytes. Per V2-PLAN §14.6 a malformed template on disk must
 // break loudly BEFORE any downstream consumer (`ta init`, preview) uses
 // it — so the parse error is wrapped with the absolute file path.
 func Load(root, name string) ([]byte, error) {
-	if name == "" {
-		return nil, errors.New("templates: Load: empty name")
+	if err := validateName(name); err != nil {
+		return nil, err
 	}
 	path := filepath.Join(root, name+templateExt)
 	data, err := os.ReadFile(path)
@@ -118,8 +154,8 @@ func Load(root, name string) ([]byte, error) {
 // payload never touches disk and never clobbers a pre-existing valid
 // template on the same name.
 func Save(root, name string, data []byte) error {
-	if name == "" {
-		return errors.New("templates: Save: empty name")
+	if err := validateName(name); err != nil {
+		return err
 	}
 	if _, err := schema.LoadBytes(data); err != nil {
 		return fmt.Errorf("templates: validate %q: %w", name, err)
@@ -138,8 +174,8 @@ func Save(root, name string, data []byte) error {
 // caller is expected to know which templates exist (via List) before
 // issuing a delete.
 func Delete(root, name string) error {
-	if name == "" {
-		return errors.New("templates: Delete: empty name")
+	if err := validateName(name); err != nil {
+		return err
 	}
 	path := filepath.Join(root, name+templateExt)
 	if err := os.Remove(path); err != nil {
