@@ -116,7 +116,7 @@ schema(path, action, [scope], [kind], [name], [data])
 **`data` shape per `kind`** (enforced by the meta-schema in §4.7):
 
 - `kind = "db"`: `{format, description?}` **plus exactly one of** `{file}` (single-instance) **or** `{directory}` (multi-instance). See §4.1 / §5.5.
-- `kind = "type"`: `{description, heading?}` — `heading` required when the owning db has `format = "md"`.
+- `kind = "type"`: `{description, heading?, fields?}` — `heading` required when the owning db has `format = "md"`; `fields` is an optional sub-table of `{<field-name>: {type, required?, description, enum?, default?, format?}, ...}` that seeds the type's initial fields in one atomic mutation. Because §4.7 meta-schema validation requires every type to carry ≥1 field, creating a type without also declaring fields (or having a follow-up `schema(action="create", kind="field", ...)` inside the same atomic window) would fail the post-mutation re-validation and roll back. The `fields` key lets agents land a type + its initial fields in one call; subsequent fields are still added via `schema(action="create", kind="field", ...)`.
 - `kind = "field"`: `{type, required?, description, enum?, default?, format?}`.
 
 **`action = "delete"` behavior:**
