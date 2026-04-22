@@ -27,13 +27,16 @@ The MVP shipped a working MCP server with `get` / `list_sections` / `schema` / `
 ## 2. Design principles
 
 - **2.1 Schema owns format.** `[plan_db] format = "toml"` binds one db to one format. No extension-based dispatch. No format argument on any tool call.
-- **2.2 Agents never see filenames or extensions.** They address records by `<db>.<type>.<id>`. The tool resolves to disk.
+- **2.2 Agents never see filenames or extensions.** They address records by `<db>.<type>.<id-path>` (§2.9). The tool resolves to disk.
 - **2.3 Format is not a user concern after schema creation.** Once the schema says `format = "md"`, everything routes to the MD backend automatically.
 - **2.4 DRY backend interface.** Lang-agnostic logic (schema resolution, validation, search, MCP routing, atomic writes) is one package layer above a thin `record.Backend` interface. Each format is a small implementation.
 - **2.5 Pure Go, no CGO.** Tree-sitter-markdown is CGO; we stay on a hand-rolled ATX scanner. Cross-compilation and single-binary distribution matter more than handling arbitrary CommonMark edge cases.
 - **2.6 One drop, not phased.** This is a pre-1.0 rewrite of the tool surface. Phasing adds coordination cost without meaningful safety — the MVP's scope is small enough to rewrite coherently.
 - **2.7 Dogfood.** The schema at `.ta/schema.toml` governs this project's own `README.md`, `CLAUDE.md`, planning records, and worklog. We eat the output.
 - **2.8 No doc files after implementation.** Single `README.md`. Every other doc collapses. The schema is the API reference.
+- **2.9 Uniform address grammar.** Every record, TOML or MD, single- or multi-instance, is addressed by the same shape: `<db>.<type>.<id-path>` (single-instance) or `<db>.<instance>.<type>.<id-path>` (multi-instance). `<id-path>` is 1+ dot-separated segments. Format does not bleed into address shape. Agents learn one grammar.
+- **2.10 Schema-driven sectioning.** The scanner parses between **id-paths matching declared types**, not between raw syntactic markers. A heading or TOML bracket that doesn't match any declared type is body content of the enclosing declared section. This is what lets a TOML record's body carry a TOML code block without the code block's inner `[brackets]` becoming sibling sections, and lets an MD record's body carry subheadings without every subheading having to be a schema-declared type.
+- **2.11 Body = bytes to next declared boundary.** A declared record's byte range runs from its start (heading line or bracket line) to the start of the next declared record (at any type) or EOF. Non-declared markers between them are content. No overlapping ranges; splice invariant stays simple.
 
 ---
 
@@ -54,10 +57,12 @@ Read one record. Returns the raw bytes of that record's on-disk section (comment
 ```
 get(path, section)
   path     — project directory
-  section  — "<db>.<type>.<id>" (e.g. "plan_db.build_task.task_001")
+  section  — "<db>.<type>.<id-path>" (e.g. "plan_db.build_task.task_001"
+             or "plans.task.t1.subtask" for a TOML record at bracket
+             path [plans.task.t1.subtask])
 ```
 
-Behavior: resolve schema cascade from `path` → find the db → dispatch to backend → return the record's section bytes. Errors if the record doesn't exist or the db isn't declared in the schema.
+Behavior: resolve schema cascade from `path` → find the db → dispatch to backend → backend locates the record whose **declared-type id-path** matches → return the record's section bytes. `<id-path>` is 1+ dot-separated segments; depth is format-natural (TOML bracket tail; MD heading slug, typically 1 segment). Errors if no declared record at that id-path exists or the db isn't declared.
 
 ### 3.2 `list_sections`
 
@@ -70,7 +75,7 @@ list_sections(path, scope)
            (wildcard prefix also accepted: "<db>.reference-*")
 ```
 
-Returns the ordered list of full section addresses under that scope. Multi-instance dbs return instance-qualified addresses (`<db>.<instance>.<type>.<id>`).
+Returns the ordered list of full section addresses under that scope. Multi-instance dbs return instance-qualified addresses (`<db>.<instance>.<type>.<id-path>`).
 
 ### 3.3 `schema`
 
@@ -120,10 +125,11 @@ Create a new record. Fails if the record already exists. Creates the backing fil
 ```
 create(path, section, data, [path_hint])
   path       — project directory
-  section    — "<db>.<type>.<id>" | "<db>.<instance>.<type>.<id>"
+  section    — "<db>.<type>.<id-path>" | "<db>.<instance>.<type>.<id-path>"
   data       — JSON object matching the type's field schema
   path_hint  — optional (collection dbs only): relative path within the
                collection root for the backing file, e.g. "reference/api.md".
+               Must stay inside the collection root (no `..` escape).
                When omitted, the flat form is used (`<slug>.<ext>`).
 ```
 
@@ -136,7 +142,7 @@ Update an existing record. Fails if the file doesn't exist. Creates the record w
 ```
 update(path, section, data)
   path     — project directory
-  section  — "<db>.<type>.<id>"
+  section  — "<db>.<type>.<id-path>" | "<db>.<instance>.<type>.<id-path>"
   data     — JSON object matching the type's field schema
 ```
 
@@ -154,7 +160,7 @@ delete(path, section)
 
 **Address levels:**
 
-- **`<db>.<type>.<id>`** / **`<db>.<instance>.<type>.<id>`** — remove just that record's bytes from the file. Leaves the file on disk even if empty.
+- **`<db>.<type>.<id-path>`** / **`<db>.<instance>.<type>.<id-path>`** — remove just that record's bytes from the file. Leaves the file on disk even if empty. `<id-path>` may be multi-segment for deep TOML bracket paths.
 - **`<db>`** (single-instance db only) — remove the entire data file (`plans.toml`, `README.md`).
 - **`<db>.<instance>`** (`directory` db) — remove the entire instance directory (`workflow/drop_3/`).
 - **`<db>.<instance>`** (`collection` db) — remove the single backing file (`docs/reference/api.md`). Empty parent dirs are left in place; prune manually if desired.
@@ -291,6 +297,8 @@ Violations fail the `schema` tool mutation with a structured error and the schem
 
 All format-specific work sits behind one interface. Everything above it is lang-agnostic.
 
+Backends are **schema-aware at construction** (per §2.10): the factory takes the list of declared types for the db so the scanner can recognize which headings/brackets are record boundaries and which are content. Non-declared markers between two declared records belong to the first record's body.
+
 ```go
 package record
 
@@ -300,31 +308,71 @@ type Record map[string]any
 
 // Section is a backend's view of one on-disk record.
 type Section struct {
-    Path   string     // full address "<db>.<type>.<id>..."
-    Range  [2]int     // byte range in the file buffer
+    Path   string     // full address "<db>.<type>.<id-path>"
+    Range  [2]int     // byte range in the file buffer — from this
+                      // declared record's start to the next declared
+                      // record's start (or EOF)
     Record Record     // parsed fields (nil until Load)
 }
 
+// DeclaredType is the minimum schema info a backend needs to section a
+// buffer. Each backend interprets the fields per its format:
+//   TOML: Name = "<db>.<type>" bracket-path prefix. Heading is ignored.
+//   MD:   Heading = 1..6 heading level. Name is the type name used when
+//         composing addresses for records at that level.
+type DeclaredType struct {
+    Name    string
+    Heading int
+}
+
 type Backend interface {
-    // List returns every section address under scope (or all if scope == "").
+    // List returns every declared-record address under scope (or all
+    // declared records if scope == ""). Non-declared markers in the
+    // buffer are ignored (content, not structure).
     List(buf []byte, scope string) ([]string, error)
 
-    // Find locates one section by full address.
+    // Find locates one declared record by full address.
     Find(buf []byte, section string) (Section, bool, error)
 
-    // Emit serializes a validated record to this format's canonical bytes.
-    // Includes the heading/header line.
+    // Emit serializes a validated record to this format's canonical bytes
+    // for the given address. Includes the heading/header line.
     Emit(section string, rec Record) ([]byte, error)
 
-    // Splice replaces (or appends) a section's bytes in buf, preserving
-    // everything outside the touched range verbatim.
+    // Splice replaces (or appends) a declared record's bytes in buf,
+    // preserving every byte outside the touched range verbatim.
     Splice(buf []byte, section string, emitted []byte) ([]byte, error)
 }
+
+// Each backend package provides:
+//   func NewBackend(types []DeclaredType) Backend
+// The types slice is the full list of declared types in the owning db.
+// Callers rebuild the backend when the schema cascade reloads.
 ```
 
 ### 5.2 TOML backend
 
-The current `internal/tomlfile/` package moves behind this interface. Implementation is already correct — only the shape changes. Named `internal/backend/toml/`.
+The current `internal/tomlfile/` package moves behind this interface. Named `internal/backend/toml/`.
+
+Under §2.10 the TOML scanner is also schema-driven: after pelletier parses the file, the backend **filters** the raw bracket list down to brackets whose path starts with a declared-type prefix (`<db>.<type>.…`). Brackets that don't match any declared prefix are **not sections** — their bytes belong to the preceding declared record's body range.
+
+This is what lets a TOML record's body carry a fenced TOML code sample or a `[nested.helper]` bookkeeping bracket without either becoming a sibling record:
+
+```toml
+[plans.task.t1]
+title = "parent"
+body = "some body"
+
+[plans.task.t1.notes]   # not declared as a type → content of plans.task.t1
+note1 = "..."
+note2 = "..."
+
+[plans.task.t2]         # next declared record → boundary
+title = "next"
+```
+
+With schema declaring only `[plans.task]` as a type, `plans.task.t1`'s byte range extends from its bracket line to the start of `[plans.task.t2]`; the `[plans.task.t1.notes]` bracket and its key-values are part of `plans.task.t1`'s body bytes. If a caller wants `[plans.task.t1.notes]` to be its own record, the schema must declare `[plans.notes]` (or an analogous type at the right anchor depth) — otherwise it stays content.
+
+**Deep TOML id-paths.** A declared type at `[plans.task]` admits records at any deeper depth — `plans.task.t1`, `plans.task.t1.subtask`, `plans.task.a.b.c`. The `<id-path>` in the address is the bracket tail after the `<type>` segment. TOML's parser enforces bracket-path uniqueness natively; the backend inherits that guarantee.
 
 ### 5.3 MD backend — pure-Go ATX scanner
 
@@ -338,15 +386,19 @@ New package `internal/backend/md/`.
 - Full parity for what we need: section boundaries by ATX heading, fenced-code-block awareness, byte ranges. We do not care about emphasis, links, tables, etc. — those are all inside the body string.
 - Constrained input: since agents write all content through `create` / `update`, the tool controls what ends up on disk. Edge cases (setext, HTML blocks, nested blockquotes containing headings) are tool-emitted never, so the scanner can be strict.
 
-#### 5.3.2 Section model — every heading is a section
+#### 5.3.2 Section model — schema-declared headings are sections
 
-- Each ATX heading `# Text` through `###### Text` is a section.
-- Heading level is declared per record type in the schema (`heading = 2` means this type's records are H2).
-- Section address: `<db>.<type>.<slug>` where `slug` is `kebab-case(heading-text)`.
-- Section body: bytes from the start of the heading line to the start of the next heading of **any depth**, or EOF. This is the flat model (not hierarchical).
-- H1 is supported exactly like H2–H6. This matters for READMEs and CLAUDE.md which put a title H1 at the top with prose below it before the first H2.
+Per §2.10 / §2.11, the scanner is schema-driven:
 
-**Example.** Given:
+- A heading `# Text` through `###### Text` is a **section** only when its level matches a declared type's `heading` value. Headings at non-declared levels are body content of the enclosing declared section.
+- Each declared type maps exactly one heading level to a type name (`[readme.section] heading = 2` says "every H2 in this db is a `section` record").
+- Section address: `<db>.<type>.<slug>` (single-instance) or `<db>.<instance>.<type>.<slug>` (multi-instance). `<slug>` is `kebab-case(heading-text)` — one segment for MD. Deeper addressable sub-records require declaring another type at a deeper `heading` (e.g. `[readme.subsection] heading = 3`) — otherwise those deeper headings remain content.
+- Section body: bytes from the start of the declared heading line to the start of the **next declared heading (at any declared level)**, or EOF. Non-declared headings between two declared boundaries are content of the first.
+- H1 is treated identically to H2–H6 — if the schema declares a type with `heading = 1`, H1s are records; otherwise they're content.
+- **Slug uniqueness** is per-declared-level within a file: two H2s with slug `install` in the same file is a collision (refused at read + write). An H2 `install` and an H3 `install` do not collide — different levels, different type namespaces (and H3 may not even be declared).
+- **Author discipline for non-declared subheadings.** Agents writing deep subheadings inside a section's body should keep their slugs locally unique for human readability, but the scanner neither enforces nor cares — non-declared headings are opaque content bytes to it.
+
+**Example.** Given schema `[readme.title] heading = 1` and `[readme.section] heading = 2` (no deeper types declared) and the file:
 
 ```md
 # ta
@@ -359,13 +411,24 @@ Install from source:
 
     mage install
 
+### Prerequisites
+
+A Go toolchain.
+
+### Troubleshooting
+
+If `mage install` fails, ...
+
 ## MCP client config
 
 ...
 ```
 
-- `readme.title.ta` → `"# ta\n\nTiny MCP server for schema-validated TOML and Markdown.\n\n"`
-- `readme.section.installation` → `"## Installation\n\nInstall from source:\n\n    mage install\n\n"`
+- `readme.title.ta` → `"# ta\n\nTiny MCP server for schema-validated TOML and Markdown.\n\n"` (ends at the next declared heading, `## Installation`).
+- `readme.section.installation` → `"## Installation\n\nInstall from source:\n\n    mage install\n\n### Prerequisites\n\nA Go toolchain.\n\n### Troubleshooting\n\nIf `mage install` fails, ...\n\n"`. The two H3s are body content — they belong to `installation` because no H3 type is declared and the next declared boundary is `## MCP client config`.
+- `readme.section.mcp-client-config` → `"## MCP client config\n\n...\n"`.
+
+If the schema later adds `[readme.subsection] heading = 3`, `readme.subsection.prerequisites` becomes its own addressable record, and `readme.section.installation`'s body ends at `### Prerequisites`.
 
 #### 5.3.3 MVP field layout — body only
 
@@ -424,9 +487,10 @@ Rejected because fenced code blocks inside subheading-delimited fields collide w
 #### 5.3.5 Edge cases the scanner handles
 
 - **Fenced code blocks** (```` ```lang ```` or `~~~lang`): `#` lines inside them are content, not headings. Scanner tracks fence open/close state.
-- **Indented code blocks** (4+ leading spaces): `#` at column 4+ is not a heading. Scanner requires heading start at column 0–3.
+- **Indented code blocks** (4+ leading spaces): `#` at column 4+ is not a heading. Scanner requires heading start at column 0.
 - **Setext headings** (`Heading\n====`): on read, scanner ignores them. On write (tool-emitted), we never produce them. If a human hand-edits and introduces one, `get` won't see it as a section — human error, documented as a limitation.
 - **HTML blocks**: out of scope for MVP. Tool-emitted content never contains raw HTML blocks.
+- **Non-declared heading levels**: syntactically valid ATX headings at levels that no declared type claims are **content**, not section boundaries (per §5.3.2 / §2.10). They don't terminate the enclosing declared section's body.
 
 ### 5.4 Extension path for new backends
 
@@ -441,13 +505,17 @@ Two multi-instance modes exist because two semantically distinct use cases exist
 
 **Address grammar by db shape:**
 
-| Db shape                       | Address                             |
-|--------------------------------|-------------------------------------|
-| Single-instance                | `<db>.<type>.<id>`                  |
-| Dir-per-instance               | `<db>.<instance>.<type>.<id>`       |
-| File-per-instance              | `<db>.<instance>.<type>.<id>`       |
+| Db shape                       | Address                                  |
+|--------------------------------|------------------------------------------|
+| Single-instance                | `<db>.<type>.<id-path>`                  |
+| Dir-per-instance               | `<db>.<instance>.<type>.<id-path>`       |
+| File-per-instance              | `<db>.<instance>.<type>.<id-path>`       |
 
-Tools resolve which form applies by looking up the db's declaration in the cascade.
+Tools resolve which form applies by looking up the db's declaration in the cascade. `<id-path>` is **1+ dot-separated segments**, uniform across both formats:
+
+- **TOML:** `<id-path>` is the bracket tail after `<type>`. Can be any depth (`t1`, `t1.subtask`, `a.b.c.d`) as long as the bracket exists in the file and no intervening segment is itself a declared type name. Cross-file uniqueness is automatic because the file is selected by `<db>` or `<db>.<instance>`.
+- **MD:** `<id-path>` is typically a single kebab-slug — the heading's slug at the type's declared `heading` level. Deeper addressable records require declaring another type at a deeper heading value (e.g. `[<db>.subsection] heading = 3`) — then sub-records are addressed via that type, not by chaining slugs.
+- **Typo detection.** `<id-path>` that does not match any declared-type record in the resolved file errors loudly with "no record at `<address>`". The schema-driven scanner makes this check unambiguous: a typo cannot silently land as a deeper section because non-declared markers are content, not sections.
 
 #### 5.5.1 Dir-per-instance (`directory`)
 
@@ -742,7 +810,7 @@ description = "The rules under this heading. Bullet lists and subheadings typica
 # plan_db — TOML-backed planning records. Multi-instance: each drop gets
 # its own subdir under workflow/ with a canonical db.toml holding that
 # drop's build tasks and QA twins. Address shape:
-# `plan_db.<drop-slug>.build_task.<id>`.
+# `plan_db.<drop-slug>.build_task.<id-path>`.
 # ----------------------------------------------------------------------------
 [plan_db]
 directory = "workflow"
@@ -886,7 +954,7 @@ description = "Section body. Markdown with fenced code and deeper subheadings al
 
 - `internal/record/` — `Backend` interface.
 - `internal/backend/md/` — ATX scanner implementation.
-- `internal/db/` — address resolution (parse `<db>.<type>.<id>` and `<db>.<instance>.<type>.<id>` into backend lookups; scan multi-instance dirs for instances; handle `collection` slug derivation, `path_hint` on create, prefix-glob scope).
+- `internal/db/` — address resolution (parse `<db>.<type>.<id-path>` and `<db>.<instance>.<type>.<id-path>` into backend lookups per §2.9; scan multi-instance dirs for instances; handle `collection` slug derivation, `path_hint` on create with `filepath.IsLocal` safety, prefix-glob scope).
 - `internal/search/` — structured + regex search over backends; cross-instance union for multi-instance dbs.
 - `internal/render/` — laslig-based CLI rendering layer; glamour for markdown-content string fields.
 - New MCP tools: `create`, `update`, `delete`, `search`. Extended `schema` tool with action param.
@@ -906,8 +974,8 @@ At implementation time (not yet):
 Per-package coverage targets:
 
 - `internal/schema/` ≥ 85% — load, validate, meta-validate.
-- `internal/backend/toml/` ≥ 85% — section scanning, splice invariant, canonical emit.
-- `internal/backend/md/` ≥ 85% — ATX scanner, fenced-code state, H1–H6 section extraction, splice invariant.
+- `internal/backend/toml/` ≥ 85% — schema-driven bracket filtering (§2.10), splice invariant across declared-section boundaries with non-declared brackets as body content, canonical emit.
+- `internal/backend/md/` ≥ 85% — ATX scanner, fenced-code state, schema-driven section extraction (declared heading levels only), non-declared headings preserved as body content, splice invariant.
 - `internal/db/` ≥ 80% — address parsing.
 - `internal/search/` ≥ 80% — match + query combinations.
 - `internal/mcpsrv/` ≥ 70% — tool routing; use in-process fixtures.
@@ -957,6 +1025,15 @@ Critical invariant tests:
 - **Prefix-glob scope.** `list_sections` and `search` accept `<db>.<prefix>-*` as an instance-slug wildcard (§5.5.3).
 - **Release tag.** `v0.1.0` (not `v1.0.0`); pre-stable per §2.6.
 
+### 11.D Decided in the 2026-04-21 schema-driven-sectioning round
+
+- **Uniform address grammar.** `<db>.<type>.<id-path>` single-instance / `<db>.<instance>.<type>.<id-path>` multi-instance, where `<id-path>` is 1+ segments. Same shape for TOML and MD — see §2.9. Refactored grammar table at §5.5.
+- **Schema-driven sectioning.** Backend scanners parse between declared-type id-paths, not raw syntactic markers. Non-declared markers are content of the enclosing declared section. See §2.10, §2.11, §5.2, §5.3.2. Applies to both backends.
+- **Body range model.** A declared record's byte range extends from its start to the next declared record's start (or EOF). No overlapping ranges; splice invariant simple. See §2.11.
+- **Backend is schema-aware at construction.** `record.Backend` factory takes a list of declared types for the owning db so the scanner knows which markers to treat as boundaries. Interface signatures unchanged from §12.1; what changes is how the backend is instantiated. See §5.1.
+- **`path_hint` safety.** `path_hint` must stay inside the collection root — `..` escape is rejected (implementation note: use `filepath.IsLocal`; Go 1.20+). See §3.4.
+- **MD non-declared subheadings = content.** Authors can use H3–H6 (or any non-declared level) as free-form subheadings inside a record body without having to declare each as a schema type. Slug-uniqueness only applies at declared levels. Per-level author discipline for deeper headings is a human-readability concern, not a scanner-enforced one. See §5.3.2.
+
 ---
 
 ## 12. Execution plan — ordered work breakdown
@@ -965,8 +1042,8 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 
 1. **12.1 Backend interface extraction.** Define `internal/record/Backend`. Move `internal/tomlfile/` behind it as `internal/backend/toml/`. Zero behavior change yet; all existing tests keep passing.
 2. **12.2 Schema language update.** Rename `[schema.<type>]` → `[<db>.<type>]` in the loader. Add `file` / `directory` / `format` / `heading` meta-fields. Write meta-schema validator covering single-instance vs multi-instance. Update dogfood schema at `.ta/schema.toml` to the new shape (§9). Expose the meta-schema as a literal in the binary surfaced via `ta_schema` scope.
-3. **12.3 Address resolution package.** `internal/db/` parses `<db>.<type>.<id>` and `<db>.<instance>.<type>.<id>` into backend lookups. Dir-per-instance scan (canonical filename per subdir). File-per-instance scan (recursive, slug from path). Prefix-glob matching on instance slug. `path_hint` resolution on `create`. Collision detection at read and write time. Lang-agnostic.
-4. **12.4 MD backend.** ATX scanner + List / Find / Emit / Splice. Body-only field layout. Splice-invariant fuzz test. Slug-collision error at read and write.
+3. **12.3 Address resolution package.** `internal/db/` parses `<db>.<type>.<id-path>` and `<db>.<instance>.<type>.<id-path>` into backend lookups. Uniform rule across formats (§2.9): 3+ segments single-instance, 4+ segments multi-instance; tail is joined into `<id-path>`. Dir-per-instance scan (canonical filename per subdir). File-per-instance scan (recursive, slug from path). Prefix-glob matching on instance slug. `path_hint` resolution on `create`, with `filepath.IsLocal` guard against `..` escape (§11.D). Collision detection at read and write time. Lang-agnostic.
+4. **12.4 MD backend.** Schema-driven ATX scanner (§2.10) + List / Find / Emit / Splice. Scanner takes declared types at construction; emits sections only for headings matching a declared level; non-declared headings are body content. Body range = from declared heading to next declared heading (at any declared level) or EOF. Body-only field layout. Splice-invariant fuzz test. Slug-collision error at read and write **per declared level**.
 5. **12.5 Data tool surface.** Replace `upsert` with `create` / `update` / `delete` in `mcpsrv` and CLI. Wire multi-instance auto-dir-and-file creation into `create`; wire three address levels into `delete` (§3.6). Hard cut, no aliases.
 6. **12.6 Schema tool CRUD.** Extend the existing `schema` tool with `action` param. `get` keeps current behavior; `create` / `update` / `delete` mutate the resolved-cascade write layer (project `.ta/schema.toml`). Re-validate via meta-schema on every mutation with atomic rollback.
 7. **12.7 Laslig CLI rendering.** Build `internal/render/` on top of laslig. String fields rendered as markdown via glamour (syntax-highlighted code blocks). MCP output unchanged (structured JSON). See §13.
