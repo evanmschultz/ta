@@ -60,6 +60,19 @@ func newGetCmd() *cobra.Command {
 	return cmd
 }
 
+// renderVerboseRecord fetches the named record and renders its bytes
+// via renderRawRecord. Used by the --verbose flag on create / update
+// to echo the post-mutation record content after the success notice
+// per V2-PLAN §13.1. Returns any fetch error so the caller can surface
+// it rather than silently skip the echo.
+func renderVerboseRecord(w io.Writer, path, section string) error {
+	res, err := mcpsrv.Get(path, section, nil)
+	if err != nil {
+		return fmt.Errorf("verbose echo: %w", err)
+	}
+	return renderRawRecord(render.New(w), path, section, res.Bytes)
+}
+
 // renderRawRecord routes an unparsed record through glamour. TOML bytes
 // are wrapped in a ```toml fence so code highlighting survives; MD bytes
 // are passed through unchanged because they're already markdown.
@@ -185,13 +198,16 @@ func newCreateCmd() *cobra.Command {
 	var dataInline string
 	var dataFile string
 	var pathHint string
+	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "create <path> <section>",
 		Short: "Create a new record (fails if it exists); mirrors MCP tool `create`.",
 		Long: "Create a new record at the given address. Fails if the record " +
 			"already exists (V2-PLAN §3.4). Creates the backing file and any " +
 			"intermediate directories on first use. For file-per-instance dbs, " +
-			"--path-hint disambiguates flat vs nested placement.",
+			"--path-hint disambiguates flat vs nested placement. With --verbose, " +
+			"the newly-created record content is echoed after the success " +
+			"notice per V2-PLAN §13.1.",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -209,12 +225,19 @@ func newCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return noticeMutation(c.OutOrStdout(), "created", section, targetPath, sources)
+			if err := noticeMutation(c.OutOrStdout(), "created", section, targetPath, sources); err != nil {
+				return err
+			}
+			if verbose {
+				return renderVerboseRecord(c.OutOrStdout(), path, section)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
 	cmd.Flags().StringVar(&pathHint, "path-hint", "", "relative placement hint inside a collection db's root")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the newly-created record after the success notice")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	return cmd
 }
@@ -222,12 +245,15 @@ func newCreateCmd() *cobra.Command {
 func newUpdateCmd() *cobra.Command {
 	var dataInline string
 	var dataFile string
+	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "update <path> <section>",
 		Short: "Update an existing record; mirrors MCP tool `update`.",
 		Long: "Update an existing record. Fails if the backing file does not " +
 			"exist (V2-PLAN §3.5). Creates the record within the file if the " +
-			"file exists but the record does not (record-level upsert).",
+			"file exists but the record does not (record-level upsert). With " +
+			"--verbose, the updated record content is echoed after the success " +
+			"notice per V2-PLAN §13.1.",
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -245,11 +271,18 @@ func newUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return noticeMutation(c.OutOrStdout(), "updated", section, targetPath, sources)
+			if err := noticeMutation(c.OutOrStdout(), "updated", section, targetPath, sources); err != nil {
+				return err
+			}
+			if verbose {
+				return renderVerboseRecord(c.OutOrStdout(), path, section)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the updated record after the success notice")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	return cmd
 }
@@ -282,6 +315,7 @@ func newSchemaCmd() *cobra.Command {
 	var name string
 	var dataInline string
 	var dataFile string
+	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "schema <path> [section]",
 		Short: "Inspect or mutate the resolved schema; mirrors MCP tool `schema`.",
@@ -317,7 +351,13 @@ func newSchemaCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return noticeMutation(c.OutOrStdout(), "schema "+action, name, "", sources)
+			if err := noticeMutation(c.OutOrStdout(), "schema "+action, name, "", sources); err != nil {
+				return err
+			}
+			if verbose {
+				return runSchemaGet(c.OutOrStdout(), path, "")
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&action, "action", "get", "one of get | create | update | delete")
@@ -325,6 +365,7 @@ func newSchemaCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "dotted schema address (for action != get)")
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON payload (for action create|update)")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON payload from file; use `-` for stdin")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the post-mutation schema after the success notice (no effect on action=get)")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	return cmd
 }

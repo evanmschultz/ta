@@ -66,6 +66,18 @@ func Run(q Query) ([]Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Type-unconstrained scope pre-validation: a Match/Field name that
+	// no type in scope declares is a pure typo and must fail loudly,
+	// not silently-zero-hit per record (V2-PLAN §1.1 / §12.7
+	// Falsification finding #2). The existing per-record silent-skip
+	// in searchFile still handles the legitimate "some types declare
+	// this, others don't" heterogeneous case — a name declared on at
+	// least one type in scope passes this gate.
+	if plan.typeName == "" {
+		if err := validateScopeNames(resolution.Registry, plan, q); err != nil {
+			return nil, err
+		}
+	}
 
 	resolver := db.NewResolver(q.Path, resolution.Registry)
 
@@ -219,6 +231,15 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 		if err := fieldFilterError(st, q.Field); err != nil {
 			return nil, err
 		}
+		// MD body-only layout (§5.3.3) can only serve the "body" field;
+		// a declared non-body MD field is a typed-contract lie and must
+		// error loudly, not return silent zero-hits. Mirror the get
+		// tool's contract (mcpsrv/fields.go:extractMDFields) via the
+		// shared md.CheckBackableFields helper so the two entry points
+		// cannot drift.
+		if err := mdLayoutCheck(dbDecl, st, q); err != nil {
+			return nil, err
+		}
 	}
 
 	// List every declared section in the file; we filter further after
@@ -281,6 +302,14 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 		// scopes where the typo is unambiguous.
 		skip := false
 		if plan.typeName == "" {
+			// MD body-only layout violation is ALWAYS loud, even under
+			// unconstrained scope, because a declared non-body MD field
+			// is a typed-contract lie independent of which types happen
+			// to fall in scope. Run this check first so it propagates
+			// out of the silent-skip gate below.
+			if err := mdLayoutCheck(dbDecl, typeSt, q); err != nil {
+				return nil, err
+			}
 			if matchFilterErrors(typeSt, q.Match) != nil {
 				skip = true
 			}
@@ -471,6 +500,78 @@ func stripHeadingLine(raw []byte) []byte {
 		rest = rest[1:]
 	}
 	return rest
+}
+
+// validateScopeNames runs at Run entry for type-unconstrained scope
+// and errors when a Match/Field name is declared on zero types in
+// scope. A name declared on at least one type in scope passes — the
+// existing per-record silent-skip in searchFile correctly handles the
+// heterogeneous case where some types declare the field and others
+// don't. This closes the "pure typo under bare <db> scope returns
+// silent zero-hits" hole (V2-PLAN §12.7 Falsification finding #2).
+func validateScopeNames(reg schema.Registry, plan searchPlan, q Query) error {
+	names := make([]string, 0, len(q.Match)+1)
+	for name := range q.Match {
+		names = append(names, name)
+	}
+	if q.Field != "" {
+		names = append(names, q.Field)
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	for _, name := range names {
+		found := false
+		for _, dbName := range plan.dbOrder {
+			dbDecl := reg.DBs[dbName]
+			for _, t := range dbDecl.Types {
+				if _, ok := t.Fields[name]; ok {
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%w: %q not declared on any type in scope",
+				ErrUnknownField, name)
+		}
+	}
+	return nil
+}
+
+// mdLayoutCheck rejects Match keys and the named regex Field when the
+// db is MD-format and the name is a declared non-body field. Under the
+// body-only layout (§5.3.3) only "body" is readable, so a declared
+// non-body field is a typed-contract lie: the schema claims it exists
+// but the layout has no on-disk representation. Fails loudly to match
+// the contract mcpsrv/fields.go:extractMDFields enforces on the `get`
+// path — both entry points route through md.CheckBackableFields so
+// they cannot drift (V2-PLAN §12.7 Falsification finding #30).
+//
+// Names not declared on typeSt are left to matchFilterErrors /
+// fieldFilterError (the unknown-field surface, scope-dependent).
+func mdLayoutCheck(dbDecl schema.DB, typeSt schema.SectionType, q Query) error {
+	if dbDecl.Format != schema.FormatMD {
+		return nil
+	}
+	names := make([]string, 0, len(q.Match)+1)
+	for name := range q.Match {
+		if _, declared := typeSt.Fields[name]; declared {
+			names = append(names, name)
+		}
+	}
+	if q.Field != "" {
+		if _, declared := typeSt.Fields[q.Field]; declared {
+			names = append(names, q.Field)
+		}
+	}
+	if err := md.CheckBackableFields(names); err != nil {
+		return fmt.Errorf("%w: %s", ErrUnknownField, err.Error())
+	}
+	return nil
 }
 
 // fieldFilterError validates Query.Field against a declared type. Empty

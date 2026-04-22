@@ -358,3 +358,48 @@ func TestSchemaCmdDeleteField(t *testing.T) {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
 }
+
+// TestCreateCmdVerboseEchoesRecord locks in the §13.1 "no content
+// echo unless --verbose is passed" rule. Without --verbose, only the
+// laslig success notice appears; with --verbose, the just-created
+// record bytes are rendered after the notice.
+func TestCreateCmdVerboseEchoesRecord(t *testing.T) {
+	root := newSchemaFixture(t)
+
+	// Baseline: no --verbose → notice only, no record content.
+	cmd := newCreateCmd()
+	var quietOut bytes.Buffer
+	cmd.SetOut(&quietOut)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		root, "plans.task.quiet",
+		"--data", `{"id": "Q1", "status": "todo"}`,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("quiet create: %v", err)
+	}
+	if strings.Contains(quietOut.String(), `id = "Q1"`) {
+		t.Errorf("quiet create should not echo record content:\n%s", quietOut.String())
+	}
+
+	// Verbose: --verbose → success notice + record bytes.
+	cmd = newCreateCmd()
+	var verboseOut bytes.Buffer
+	cmd.SetOut(&verboseOut)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		root, "plans.task.loud",
+		"--data", `{"id": "L1", "status": "todo"}`,
+		"--verbose",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("verbose create: %v", err)
+	}
+	text := verboseOut.String()
+	if !strings.Contains(text, "[plans.task.loud]") {
+		t.Errorf("verbose create should echo record header:\n%s", text)
+	}
+	if !strings.Contains(text, `L1`) {
+		t.Errorf("verbose create should echo record body containing the id:\n%s", text)
+	}
+}

@@ -765,3 +765,89 @@ status = "todo"
 		}
 	}
 }
+
+// mdSchemaWithNonBodyField declares an MD type with a non-body field.
+// The outer schema-declared check would pass on "subtitle", but the
+// MD body-only layout (§5.3.3) can't serve it — matching or field-
+// restricting against that name is a typed-contract violation and
+// must error loudly, not silently return zero hits. Mirrors the
+// `get`-path guard landed in §12.5+§12.6.
+const mdSchemaWithNonBodyField = `
+[readme]
+file = "README.md"
+format = "md"
+description = "MD db with a declared non-body field."
+
+[readme.section]
+heading = 2
+description = "H2 section."
+
+[readme.section.fields.body]
+type = "string"
+
+[readme.section.fields.subtitle]
+type = "string"
+description = "Subtitle — declared but not backed by body-only layout."
+`
+
+// TestSearchMDNonBodyFieldErrors locks in the §12.7+§12.8 Falsification
+// finding #30 fix. The declared non-body MD field must error loudly on
+// both Match and Field, matching the mcpsrv.extractMDFields contract
+// on the `get` path. Previously the search engine silently returned
+// zero hits, giving callers no signal that the field exists-but-
+// unbacked vs "no records match this value."
+func TestSearchMDNonBodyFieldErrors(t *testing.T) {
+	root := writeSchemaProject(t, mdSchemaWithNonBodyField)
+	body := "## Hello\n\nworld\n"
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	t.Run("match-non-body", func(t *testing.T) {
+		_, err := search.Run(search.Query{
+			Path:  root,
+			Scope: "readme.section",
+			Match: map[string]any{"subtitle": "foo"},
+		})
+		if !errors.Is(err, search.ErrUnknownField) {
+			t.Fatalf("got err=%v, want ErrUnknownField", err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "body-only") {
+			t.Errorf("error should mention body-only layout: %v", err)
+		}
+	})
+	t.Run("field-non-body", func(t *testing.T) {
+		_, err := search.Run(search.Query{
+			Path:  root,
+			Scope: "readme.section",
+			Query: regexp.MustCompile("x"),
+			Field: "subtitle",
+		})
+		if !errors.Is(err, search.ErrUnknownField) {
+			t.Fatalf("got err=%v, want ErrUnknownField", err)
+		}
+	})
+}
+
+// TestSearchUnconstrainedScopeUnknownFieldErrors locks in the tighter
+// unconstrained-scope behavior: a Match/Field name that no type in
+// scope declares is a pure typo and must error loudly rather than
+// silently returning zero hits per record. Closes the "everything
+// strict" discipline hole (V2-PLAN §12.7 Falsification finding #2).
+func TestSearchUnconstrainedScopeUnknownFieldErrors(t *testing.T) {
+	root := writeSchemaProject(t, singleInstanceTOMLSchema)
+	body := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(filepath.Join(root, "plans.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	_, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "plans",
+		Match: map[string]any{"nope_typo": "x"},
+	})
+	if !errors.Is(err, search.ErrUnknownField) {
+		t.Fatalf("got err=%v, want ErrUnknownField", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "not declared on any type in scope") {
+		t.Errorf("error should mention 'not declared on any type in scope': %v", err)
+	}
+}

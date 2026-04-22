@@ -7,6 +7,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/evanmschultz/ta/internal/backend/md"
 	"github.com/evanmschultz/ta/internal/record"
 	"github.com/evanmschultz/ta/internal/schema"
 )
@@ -87,15 +88,17 @@ func extractTOMLFields(fileBuf []byte, relPath string, fields []string) (map[str
 // should not silently receive an empty field entry. When MD frontmatter
 // (§5.3.4) lands post-MVP this branch extends to parse fenced fields.
 func extractMDFields(fileBuf []byte, sec record.Section, fields []string) (map[string]any, error) {
+	if err := md.CheckBackableFields(fields); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrUnknownField, err.Error())
+	}
 	out := make(map[string]any, len(fields))
 	raw := fileBuf[sec.Range[0]:sec.Range[1]]
 	body := stripHeadingLine(raw)
 	for _, name := range fields {
-		if name != "body" {
-			return nil, fmt.Errorf(
-				"%w: MD body-only layout does not back field %q (only %q is readable)",
-				ErrUnknownField, name, "body")
-		}
+		// CheckBackableFields has already rejected anything other than
+		// "body"; this loop just populates the result for each
+		// requested name.
+		_ = name
 		out["body"] = string(body)
 	}
 	return out, nil
