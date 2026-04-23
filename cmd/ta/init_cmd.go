@@ -97,7 +97,7 @@ func newInitCmd() *cobra.Command {
 			// would block on the picker then emit JSON afterward (QA
 			// falsification §12.14 LOW-2 finding).
 			f.nonInterRq = f.template != "" || f.blank || f.asJSON
-			return runInit(c.OutOrStdout(), c.InOrStdin(), target, f)
+			return runInit(c.OutOrStdout(), c.ErrOrStderr(), c.InOrStdin(), target, f)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -134,8 +134,11 @@ func resolveInitPath(args []string) (string, error) {
 // runInit orchestrates bootstrap: mkdir -p the target, resolve
 // template choice (flag or picker), validate schema write (force /
 // confirm path), write schema, then write the two MCP configs honoring
-// flags and `<path>/.ta/config.toml`.
-func runInit(out io.Writer, in io.Reader, target string, f initFlags) error {
+// flags and `<path>/.ta/config.toml`. `errOut` receives diagnostic
+// warnings (e.g. skipped malformed templates) so they never pollute
+// stdout — agents reading `--json` output on stdout see no warning
+// prefix.
+func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) error {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", target, err)
 	}
@@ -147,7 +150,7 @@ func runInit(out io.Writer, in io.Reader, target string, f initFlags) error {
 
 	effClaude, effCodex := effectiveMCPToggles(f, bootCfg)
 
-	schemaSource, schemaBytes, err := chooseSchema(in, out, f, bootCfg)
+	schemaSource, schemaBytes, err := chooseSchema(in, out, errOut, f, bootCfg)
 	if err != nil {
 		return err
 	}
@@ -189,7 +192,11 @@ func runInit(out io.Writer, in io.Reader, target string, f initFlags) error {
 // chooseSchema resolves which schema bytes to write: explicit flag
 // (--template / --blank), bootstrap default, or huh picker on TTY.
 // Returns the source label used for the report ("<name>" or "blank").
-func chooseSchema(in io.Reader, out io.Writer, f initFlags, cfg bootstrapConfig) (string, []byte, error) {
+// `errOut` receives per-template warnings when the picker path encounters
+// a malformed entry (typical case: legacy pre-v2 `~/.ta/schema.toml`);
+// the malformed template is filtered out of the picker, the user sees
+// the warning on stderr, and the rest of the library still shows up.
+func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstrapConfig) (string, []byte, error) {
 	if f.blank {
 		return "blank", []byte(blankSchemaBody), nil
 	}
@@ -224,13 +231,37 @@ func chooseSchema(in io.Reader, out io.Writer, f initFlags, cfg bootstrapConfig)
 		return "", nil, err
 	}
 
-	choice, err := pickTemplate(names, cfg.Bootstrap.DefaultTemplate)
+	// Validate each candidate once. A template that fails schema
+	// validation (e.g. legacy pre-v2 `~/.ta/schema.toml` in the new
+	// template-library world) is filtered out of the picker with a
+	// stderr warning so a single bad file does not block bootstrap.
+	// Cache bytes so the post-pick path does not re-read and re-parse.
+	validNames := make([]string, 0, len(names))
+	cache := make(map[string][]byte, len(names))
+	for _, n := range names {
+		data, err := templates.Load(root, n)
+		if err != nil {
+			fmt.Fprintf(errOut,
+				"warning: skipping malformed template %q: %v\n  fix: edit ~/.ta/%s.toml, rename it, or `ta template delete %s`\n",
+				n, err, n, n)
+			continue
+		}
+		validNames = append(validNames, n)
+		cache[n] = data
+	}
+
+	choice, err := pickTemplate(validNames, cfg.Bootstrap.DefaultTemplate)
 	if err != nil {
 		return "", nil, err
 	}
 	if choice == blankTemplateChoice {
 		return "blank", []byte(blankSchemaBody), nil
 	}
+	if data, ok := cache[choice]; ok {
+		return choice, data, nil
+	}
+	// Defensive fallback: picker somehow returned a name we did not
+	// validate. Re-load directly — validation will fire again.
 	data, err := loadTemplate(choice)
 	if err != nil {
 		return "", nil, err
