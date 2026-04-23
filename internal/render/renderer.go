@@ -47,19 +47,6 @@ func (r *Renderer) Success(title, body string, detail []string) error {
 	return r.Notice(laslig.NoticeSuccessLevel, title, body, detail)
 }
 
-// Error writes a concise laslig error notice. err.Error() is the body.
-func (r *Renderer) Error(title string, err error) error {
-	body := ""
-	if err != nil {
-		body = err.Error()
-	}
-	return r.p.Notice(laslig.Notice{
-		Level: laslig.NoticeErrorLevel,
-		Title: title,
-		Body:  body,
-	})
-}
-
 // List writes a titled list of addresses or labels. Maps to
 // `list_sections` output (§13.1).
 func (r *Renderer) List(title string, items []string, empty string) error {

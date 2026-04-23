@@ -51,7 +51,6 @@ func main() {
 		fang.WithVersion(version()),
 		fang.WithCommit(commitRev()),
 		fang.WithNotifySignal(os.Interrupt),
-		fang.WithErrorHandler(renderErrorHandler),
 		fang.WithoutCompletions(),
 	)
 	if err != nil {
@@ -198,10 +197,6 @@ func renderStartupNotice(w io.Writer) {
 		"serving MCP over stdio",
 		nil,
 	)
-}
-
-func renderErrorHandler(w io.Writer, _ fang.Styles, err error) {
-	_ = render.New(w).Error(appName, err)
 }
 
 func version() string {

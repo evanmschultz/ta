@@ -116,17 +116,6 @@ func TestRendererRecordEmptyFieldsOnlyHeader(t *testing.T) {
 	}
 }
 
-func TestRendererErrorLevel(t *testing.T) {
-	var buf bytes.Buffer
-	r := NewWithPolicy(&buf, plainPolicy())
-	if err := r.Error("delete", errInvalid("boom")); err != nil {
-		t.Fatalf("Error: %v", err)
-	}
-	if !strings.Contains(buf.String(), "boom") {
-		t.Errorf("error body missing: %q", buf.String())
-	}
-}
-
 func TestSortFieldsByName(t *testing.T) {
 	fields := []RenderField{
 		{Name: "b"},
@@ -141,9 +130,3 @@ func TestSortFieldsByName(t *testing.T) {
 		}
 	}
 }
-
-type stringErr string
-
-func (s stringErr) Error() string { return string(s) }
-
-func errInvalid(s string) error { return stringErr(s) }
