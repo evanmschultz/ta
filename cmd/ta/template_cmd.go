@@ -150,8 +150,10 @@ func newTemplateSaveCmd() *cobra.Command {
 			"`templates.Save` (which re-validates internally) — kept to produce a " +
 			"line/column error pointing at `<cwd>/.ta/schema.toml` before the " +
 			"promotion attempt.",
-		Example: "  ta template save                           # interactive name prompt\n  ta template save schema-v2                 # non-interactive\n  ta template save schema-v2 --force --json  # agent-facing, no prompts",
-		Args:    cobra.MaximumNArgs(1),
+		Example: `  ta template save
+  ta template save schema-v2
+  ta template save schema-v2 --force --json`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			var name string
 			if len(args) == 1 {
@@ -276,8 +278,10 @@ func newTemplateApplyCmd() *cobra.Command {
 			"requires `--force` off-TTY. Schema-only — does NOT touch " +
 			"`.mcp.json` / `.codex/config.toml` (use `ta init` for a full " +
 			"bootstrap) per V2-PLAN §14.3.",
-		Example: "  ta template apply schema                      # write to cwd\n  ta template apply schema /abs/path/proj       # write to a specific project\n  ta template apply schema /abs/path --force --json",
-		Args:    cobra.RangeArgs(1, 2),
+		Example: `  ta template apply schema
+  ta template apply schema /abs/path/proj
+  ta template apply schema /abs/path --force --json`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
 			var targetArg string
@@ -386,8 +390,9 @@ func newTemplateDeleteCmd() *cobra.Command {
 		Short: "Remove a template from ~/.ta/",
 		Long: "Removes `~/.ta/<name>.toml`. Confirms via huh on a TTY; " +
 			"requires `--force` off-TTY. Missing templates error loudly.",
-		Example: "  ta template delete old-schema              # interactive confirm\n  ta template delete old-schema --force      # non-interactive",
-		Args:    cobra.ExactArgs(1),
+		Example: `  ta template delete old-schema
+  ta template delete old-schema --force`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			return runTemplateDelete(c.OutOrStdout(), args[0], force, asJSON)
 		},

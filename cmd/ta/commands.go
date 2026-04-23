@@ -339,9 +339,9 @@ func newDeleteCmd() *cobra.Command {
 			"file, or a multi-instance instance dir/file. Whole multi-instance " +
 			"db deletes error as ambiguous; zero the instances first or route " +
 			"through `schema delete --kind db` (V2-PLAN §3.6).",
-		Example: "  ta delete ./proj plans.task.task-001         # drop one record\n" +
-			"  ta delete ./proj plans                        # drop the single-instance file\n" +
-			"  ta delete ./proj plan_db.drop-3               # drop one instance dir",
+		Example: `  ta delete ./proj plans.task.task-001
+  ta delete ./proj plans
+  ta delete ./proj plan_db.drop-3`,
 		Args:          cobra.ExactArgs(2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -375,10 +375,10 @@ func newSchemaCmd() *cobra.Command {
 			"rollback — V2-PLAN §4.6). With --json the laslig path is " +
 			"bypassed and JSON is written for agent consumption (action=get " +
 			"only; mutations always print the success notice).",
-		Example: "  ta schema ./proj                           # render resolved schema\n" +
-			"  ta schema ./proj plans.task --json         # narrow + JSON\n" +
-			"  ta schema ./proj ta_schema                 # print embedded meta-schema\n" +
-			"  ta schema ./proj --action=create --kind=type --name=plans.note --data '{...}'",
+		Example: `  ta schema ./proj
+  ta schema ./proj plans.task --json
+  ta schema ./proj ta_schema
+  ta schema ./proj --action=create --kind=type --name=plans.note --data '{...}'`,
 		Args:          cobra.RangeArgs(1, 2),
 		SilenceUsage:  true,
 		SilenceErrors: true,

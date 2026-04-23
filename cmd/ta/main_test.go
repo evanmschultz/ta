@@ -141,3 +141,57 @@ func walkCommands(t *testing.T, cmd *cobra.Command, prefix string) {
 		walkCommands(t, sub, name)
 	}
 }
+
+// TestHelpAliasResolves regression-locks the V2-PLAN §14.7 requirement
+// that `ta h` and `ta h <cmd>` work as aliases for `ta help [cmd]`.
+// A future delete of Aliases: []string{"h"} on the custom help
+// command would ship green without this test.
+func TestHelpAliasResolves(t *testing.T) {
+	root := newRootCmd()
+	help, _, err := root.Find([]string{"help"})
+	if err != nil || help == nil {
+		t.Fatalf("help command not registered: %v", err)
+	}
+	if help.Name() != "help" {
+		t.Fatalf("expected help command, got %q", help.Name())
+	}
+	want := "h"
+	found := false
+	for _, a := range help.Aliases {
+		if a == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("help command missing %q alias; have %v", want, help.Aliases)
+	}
+	// `ta h` must resolve to the help command via alias.
+	aliasResolved, _, err := root.Find([]string{"h"})
+	if err != nil || aliasResolved == nil {
+		t.Fatalf("root.Find([\"h\"]) failed: %v", err)
+	}
+	if aliasResolved.Name() != "help" {
+		t.Errorf("`ta h` resolved to %q, want help", aliasResolved.Name())
+	}
+	// `ta h init` passes through alias resolution AND leaves `init` as
+	// the remaining arg so the Run closure can print init's help.
+	// cobra Find walks the alias first, treating trailing tokens as
+	// positional args. This guarantees the nested form works end-to-end.
+	nestedTarget, nestedRest, err := root.Find([]string{"h", "init"})
+	if err != nil {
+		t.Fatalf("root.Find([\"h\", \"init\"]) failed: %v", err)
+	}
+	if nestedTarget.Name() != "help" {
+		t.Errorf("`ta h init` resolved target to %q, want help", nestedTarget.Name())
+	}
+	if len(nestedRest) != 1 || nestedRest[0] != "init" {
+		t.Errorf("`ta h init` remaining args = %v, want [init]", nestedRest)
+	}
+	// Then the Run closure calls Find on the remaining args against the
+	// root to find the target — verify init resolves.
+	initTarget, _, err := root.Find(nestedRest)
+	if err != nil || initTarget == nil || initTarget.Name() != "init" {
+		t.Errorf("nested resolution failed: target=%v, err=%v", initTarget, err)
+	}
+}

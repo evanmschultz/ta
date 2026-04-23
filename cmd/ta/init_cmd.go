@@ -12,6 +12,7 @@ import (
 
 	"charm.land/huh/v2"
 	"github.com/charmbracelet/x/term"
+	"github.com/evanmschultz/laslig"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 
@@ -234,20 +235,65 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 	// Validate each candidate once. A template that fails schema
 	// validation (e.g. legacy pre-v2 `~/.ta/schema.toml` in the new
 	// template-library world) is filtered out of the picker with a
-	// stderr warning so a single bad file does not block bootstrap.
+	// styled warning so a single bad file does not block bootstrap.
 	// Cache bytes so the post-pick path does not re-read and re-parse.
 	validNames := make([]string, 0, len(names))
 	cache := make(map[string][]byte, len(names))
+	var invalid []string
+	warn := render.New(errOut)
 	for _, n := range names {
 		data, err := templates.Load(root, n)
 		if err != nil {
-			fmt.Fprintf(errOut,
-				"warning: skipping malformed template %q: %v\n  fix: edit ~/.ta/%s.toml, rename it, or `ta template delete %s`\n",
-				n, err, n, n)
+			_ = warn.Notice(
+				laslig.NoticeWarningLevel,
+				"malformed template",
+				fmt.Sprintf("skipping %q — not a valid v2 schema", n),
+				[]string{
+					fmt.Sprintf("reason: %v", err),
+					fmt.Sprintf("fix: edit ~/.ta/%s.toml to add file=/directory=/collection= at the top", n),
+					fmt.Sprintf("or remove it: ta template delete %s", n),
+				},
+			)
+			invalid = append(invalid, n)
 			continue
 		}
 		validNames = append(validNames, n)
 		cache[n] = data
+	}
+
+	// Offer inline deletion of malformed templates so the user can act
+	// on the warnings without exiting the picker first. Only fires on
+	// a TTY — non-interactive flows (--json, off-TTY) just see the
+	// warnings and move on.
+	if len(invalid) > 0 {
+		if ok, err := promptDeleteMalformed(invalid); err != nil {
+			return "", nil, err
+		} else if ok {
+			deleted := deleteMalformed(errOut, root, invalid)
+			switch {
+			case deleted == len(invalid):
+				_ = warn.Notice(
+					laslig.NoticeSuccessLevel,
+					"templates deleted",
+					fmt.Sprintf("removed %d malformed template(s)", deleted),
+					nil,
+				)
+			case deleted > 0:
+				_ = warn.Notice(
+					laslig.NoticeWarningLevel,
+					"partial delete",
+					fmt.Sprintf("removed %d of %d; see stderr for per-template failures", deleted, len(invalid)),
+					nil,
+				)
+			default:
+				_ = warn.Notice(
+					laslig.NoticeErrorLevel,
+					"delete failed",
+					fmt.Sprintf("none of the %d malformed template(s) could be removed; see stderr for details", len(invalid)),
+					nil,
+				)
+			}
+		}
 	}
 
 	choice, err := pickTemplate(validNames, cfg.Bootstrap.DefaultTemplate)
@@ -346,6 +392,45 @@ func confirmOverwrite(path string) (bool, error) {
 		return false, fmt.Errorf("confirm prompt: %w", err)
 	}
 	return ok, nil
+}
+
+// promptDeleteMalformed asks whether to remove the set of malformed
+// templates identified during the picker scan. Runs a single huh
+// Confirm sized to the count — one-off wording for a single entry
+// reads better than the generic plural form.
+func promptDeleteMalformed(names []string) (bool, error) {
+	title := fmt.Sprintf("Delete %d malformed template(s)?", len(names))
+	if len(names) == 1 {
+		title = fmt.Sprintf("Delete malformed template %q?", names[0])
+	}
+	var ok bool
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().
+			Title(title).
+			Affirmative("Delete").
+			Negative("Skip").
+			Value(&ok),
+	))
+	if err := form.Run(); err != nil {
+		return false, fmt.Errorf("delete-malformed prompt: %w", err)
+	}
+	return ok, nil
+}
+
+// deleteMalformed removes each named template from root. Failures are
+// logged to errOut but do NOT abort the sweep — a permission error on
+// one template should not block deleting the others. Returns the count
+// of successful deletions.
+func deleteMalformed(errOut io.Writer, root string, names []string) int {
+	var deleted int
+	for _, n := range names {
+		if err := templates.Delete(root, n); err != nil {
+			fmt.Fprintf(errOut, "failed to delete %q: %v\n", n, err)
+			continue
+		}
+		deleted++
+	}
+	return deleted
 }
 
 // promptMCPToggles offers the two MCP-target toggles via a single

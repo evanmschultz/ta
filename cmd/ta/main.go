@@ -30,16 +30,22 @@ const appName = "ta"
 
 const longDescription = "# ta\n\n" +
 	"Tiny MCP server (and matching CLI) that exposes TOML and Markdown " +
-	"files as schema-validated, agent-accessible structured data. " +
-	"Running `ta` with no subcommand starts the MCP server over **stdio** — " +
-	"point an MCP client (e.g. Claude Code) at the binary.\n\n" +
+	"files as schema-validated, agent-accessible structured data.\n\n" +
+	"Running `ta` with no subcommand is dual-mode:\n\n" +
+	"- On an interactive terminal (TTY), shows a huh picker of the available " +
+	"subcommands.\n" +
+	"- When spawned by an MCP client (e.g. Claude Code — stdio pipes, no TTY), " +
+	"starts the MCP server. Register it via `.mcp.json` or `claude mcp add`; " +
+	"the stdio handshake makes the server path fire automatically.\n\n" +
 	"The same tool surface is available as terminal subcommands:\n\n" +
 	"- `ta get <path> <section>` — read a record; optionally --fields name[,name]\n" +
 	"- `ta list-sections <path>` — enumerate sections in a TOML file\n" +
 	"- `ta schema <path> [section]` — show the resolved schema\n" +
 	"- `ta create <path> <section> --data <json>` — create a new record\n" +
 	"- `ta update <path> <section> --data <json>` — update an existing record\n" +
-	"- `ta delete <path> <section>` — remove a record, file, or instance dir\n\n" +
+	"- `ta delete <path> <section>` — remove a record, file, or instance dir\n" +
+	"- `ta init [path]` — bootstrap a project directory (schema + MCP configs)\n" +
+	"- `ta template (list|show|save|apply|delete)` — manage the ~/.ta library\n\n" +
 	"Each project has a self-contained schema at `<project>/.ta/schema.toml`. " +
 	"The runtime reads exactly that one file — no home-layer cascade, no " +
 	"ancestor walk."
@@ -64,10 +70,9 @@ func newRootCmd() *cobra.Command {
 		Use:   appName,
 		Short: "MCP server (and matching CLI) for schema-validated TOML",
 		Long:  longDescription,
-		Example: "  ta                         # MCP server (stdio) when spawned by a client\n" +
-			"  ta                         # huh subcommand menu on a TTY\n" +
-			"  ta init /abs/path/proj     # bootstrap a new project\n" +
-			"  ta get ./plans.toml foo    # read one record",
+		Example: `  ta init /abs/path/to/new-project
+  ta get ./plans.toml plans.task.task-001
+  ta template list`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			return runRoot(c, logStartup)
@@ -87,6 +92,37 @@ func newRootCmd() *cobra.Command {
 		newTemplateCmd(),
 		newInitCmd(),
 	)
+	// Custom help command so `ta h` and `ta h <cmd>` work in addition
+	// to cobra's default `ta help [cmd]`. Mirrors cobra's default help
+	// behavior (walk args against root, print target's Help, fall back
+	// to root usage on unknown target). V2-PLAN §14.7.
+	//
+	// The `target == nil || err != nil` guard mirrors the defense in
+	// cobra's own InitDefaultHelpCmd. Under the current root config
+	// (Args: cobra.NoArgs) Find returns `(root, leftover, nil)` even
+	// for unknown topics, so the guard is unreachable in practice —
+	// but keeping it aligns with stock cobra and guards against a
+	// future Args change that would make Find return nil/err.
+	cmd.SetHelpCommand(&cobra.Command{
+		Use:     "help [command]",
+		Short:   "Help about any command",
+		Aliases: []string{"h"},
+		Run: func(c *cobra.Command, args []string) {
+			target, _, err := c.Root().Find(args)
+			if target == nil || err != nil {
+				c.Printf("unknown help topic %q\n", args)
+				_ = c.Root().Usage()
+				return
+			}
+			target.InitDefaultHelpFlag()
+			target.InitDefaultVersionFlag()
+			_ = target.Help()
+		},
+	})
+	// Register the help command eagerly so `Find`-based lookups (tests,
+	// the huh root menu) see it without having to invoke Execute first.
+	// cobra's Execute would otherwise call this lazily.
+	cmd.InitDefaultHelpCmd()
 	return cmd
 }
 
