@@ -1571,3 +1571,140 @@ None. All ten attack surfaces refuted under direct evidence.
 
 **Verdict.** **PASS-WITH-FOLLOWUPS.** No CONFIRMED HIGH or MEDIUM counterexamples. Two LOW/MINOR findings: (1) stale `pre-v2` at `init_cmd.go:197` should flip to `pre-MVP` to match the diff's stated intent — one-line edit, worth folding in before commit; (2) `Facts` lacks a direct unit test — small coverage hole, non-blocking. One standing unknown (visual end-to-end of new Notice+Facts pair) routed to the §12.17 dev walkthrough. Independently agrees with sibling QA Proof's PASS-WITH-FOLLOWUPS verdict; adds one finding (A5 dropped-error-chain trade-off) and one additional lint (lingering `pre-v2` at line 197) that the proof pass did not flag. Safe to commit the current diff as-is; landing the `init_cmd.go:197` fix in the same commit would be cleaner.
 
+### QA Proof — go-qa-proof-agent (plan doc update)
+
+Scope: uncommitted `git diff HEAD -- docs/PLAN.md` against HEAD `b83aa09`. Docs-only edit; no code. Sibling `go-qa-falsification-agent` running in parallel.
+
+**Claims verified.**
+
+- **Header rename + 2026-04-23 amendments** (`docs/PLAN.md:1-17`). Title drops "v2" (line 1). Status block lists both amendments — §3.5 PATCH (line 4) and §12.17.5 dogfooding-readiness rollup (lines 5-6). `docs/` → root `README.md` collapse pointer preserved (lines 8-9). Naming note is fully historical (past tense "was split" / "was deleted" / "renamed") and calls out the internal/user-facing "v2" split (lines 15-17).
+- **§3.5 PATCH semantics complete** (`docs/PLAN.md:153-172`). Signature line 161 updated to "fields to change (PATCH semantics)". Overlay rule stated (line 164). Null-clear NOT-required → bytes removed (line 166). Null on required → errors with exact string `"cannot clear required field <name>"` (line 167). Post-overlay validation is atomic with unchanged-on-failure on-disk bytes (line 168). Behavior pipeline reflects overlay step (line 170). **MCP parity** bullet (line 172) explicitly names MCP tool, and the `create` cross-ref points to §3.4, notes it stays full-required, and concedes schema-default omission — matches the prompt's "stays full-required" criterion.
+- **§12.17.5 reframing + bullet count** (`docs/PLAN.md:1121-1130`). Heading is "Dogfooding readiness" (line 1121). Explicit anti-"pre-release" framing: *"Not 'pre-release' — these are gates that must resolve before §12.17 becomes a real dogfood flow rather than a bootstrap smoke test. Release is later and has its own gate at §12.19."* All 7 discussion items present: default-cwd path (1122), relative-path CLI (1123), update=PATCH (1124), huh form per field (1125), list-sections positional scope (1126), schema get Record-per-field (1127); plus 2 prior items retained: default embedded schema (1128), dogfood pass (1129); plus the "Additional items" stub (1130). Total 9 bullets = 7 new + 2 prior + 1 stub. Matches discussion summary exactly.
+- **§3.5 ↔ §12.17.5 cross-refs internally consistent.** §3.5 line 164 cites "(§12.17.5 decision)"; §12.17.5 line 1124 cites "§3.5 spec already amended 2026-04-23" and flags code-side implementation pending — directional arrows point correctly both ways.
+- **§10.3 deletion list** (`docs/PLAN.md:1015`). `docs/V2-PLAN.md` removed from the collapse target list; parenthetical historical note appended. Still correctly says `docs/PLAN.md (this file)`.
+- **§12.10 dogfood migration** (`docs/PLAN.md:1101`). Rewritten to "Migrate the redesign plan (then named `docs/V2-PLAN.md`, renamed to `docs/PLAN.md` on 2026-04-23)". No stale dual-file reference.
+- **§12.18 phrasing** (`docs/PLAN.md:1131`). Reads "`docs/ta.md` + consolidated plan spec"; no "V2 spec" residue.
+- **Stable anchors preserved.** §14.8 (line 1285), §14.9 (line 1294), §14.10 (line 1302) all present and still reference `§12.19` / `§12.11 – §12.16` as expected — the anchors the prompt flagged as "stable" are untouched.
+- **No V2 residue**: inspection of the diff's negative space plus a read of lines 1-17, 1015, 1101, 1131, 1285-1302 confirms no user-facing "V2 spec" / "V2 plan" / "V2-PLAN" text remains outside the deliberate historical notes at 10.3 / 12.10 / header.
+- **Markdown integrity.** Blockquote `>` lines 3-17 uninterrupted. `###` level consistent for §3.5 / §10.3 / §12.x numbering. 4-space bullet indentation under numbered items 19 / 20 unchanged. No stray / orphaned fences — only the existing `update(...)` signature fence at 157-162 is mutated (data line edited, fence intact) and the `create(...)` fence at 141-149 untouched.
+
+**Coverage gaps.** None. Every discussion-round decision the orchestrator enumerated maps to a bullet in §12.17.5, and every §3.5 PATCH sub-requirement (overlay / null-clear NOT-required / null-on-required error string / MCP parity / create carve-out) has an explicit sentence.
+
+**Evidence.** `git diff HEAD -- docs/PLAN.md`; `Read docs/PLAN.md` lines 1-30, 140-200, 1000-1140, 1140-1304; directory check on `workflow/ta-v2/`. No Hylla query attempted (Hylla is Go-only; this is a markdown file — see Hylla Feedback).
+
+**Hylla Feedback.** N/A — task touched non-Go files only.
+
+**Verdict.** **PASS.** Diff accurately executes every acceptance check: semantically correct PATCH spec in §3.5, all 7 discussion bullets + 2 prior + 1 stub in §12.17.5 under the correct "dogfooding readiness" framing, clean cross-ref hygiene at §10.3 / §12.10 / §12.18, header rewritten to a historical naming note, §14.8/9/10 anchors untouched. Markdown structure intact. No follow-ups required before commit.
+
+### QA Falsification — go-qa-falsification-agent (plan doc update)
+
+**Scope.** `git diff HEAD -- docs/PLAN.md` only. Header rename + 2026-04-23 disclosure, §3.5 PATCH semantics, §12.17.5 dogfooding-readiness rollup (7 bullets), §10.3 + §12.10 + §12.18 rename-historical notes. Working tree uncommitted; HEAD `b83aa09`. Parallel with QA Proof; attacking, not duplicating.
+
+**Attack results.**
+
+- **A1 — `update({})` no-op ambiguity. CONFIRMED MEDIUM.** §3.5 PATCH text: "Provided fields replace their stored values; unspecified fields retain their existing bytes verbatim." An empty `data` object → zero provided fields → by the stated rule, a silent no-op. But an agent plausibly sends `{}` meaning "save current state" (touch / bump mtime) or as a programming bug (forgot the payload). Neither case is called out. Spec should either (a) document `{}` as an explicit no-op success, or (b) reject with `"update requires at least one field"`. Current text is implementation-defined. MCP parity (§172) means the same ambiguity applies both surfaces.
+
+- **A2 — `null` on required+default unspecified. CONFIRMED MEDIUM.** §3.5 rejects `{"field": null}` on a required field. But the schema supports `required = true` *with* `default = <val>` (§125-126, §309). Passing null on a required+default field rejects, even though "clear back to default" is semantically coherent and matches `create`'s omit-to-default behavior (§172). Spec silent on whether default-backed required fields reject or revert-to-default. Agents will hit this asymmetry: `create` lets them omit, `update` does not. Needs a disambiguating bullet.
+
+- **A3 — null-vs-absent impl risk. REFUTED (impl note only).** Go `encoding/json` into `map[string]any` *does* preserve the distinction: `{"field": null}` → key present with `nil` value; absent key → not in map. `internal/schema/validate.go:25` already accepts `map[string]any`. So the MCP tool boundary survives without `json.RawMessage`. The risk shifts downstream: the TOML marshal path must preserve "key present → delete" vs "key absent → retain". Not a spec defect; note for the §12.17.5 "code-side implementation pending" bullet so the builder adds an explicit null-entry test.
+
+- **A4 — Default-to-cwd "none would be surprising". CONFIRMED LOW.** Bullet 1 claim inspected against `ta search`: search is schema-scoped per §201, not filesystem-breadth-scoped — `ta search` from `/` fails loudly at `config.Resolve("/")` with no `/.ta/schema.toml`, so the "whole filesystem scan" worst case is not reachable. Claim survives that attack. However: `ta create` / `ta update` / `ta delete` from a typo cwd with an unrelated `.ta/schema.toml` silently writes to the *wrong* project. Not a filesystem-breadth surprise but a wrong-target surprise. The blanket "no command surfaces a behavior that would make cwd-default surprising" should be qualified: "cwd-default resolves via the standard `<cwd>/.ta/schema.toml` gate; missing schema fails loudly; present-but-wrong schema is a dev-discipline concern."
+
+- **A5 — CLI-relative / MCP-absolute inconsistency with §14.3 still-absolute. CONFIRMED MEDIUM — merges with A9.** Bullet 2 ("Accept relative paths on the CLI") says lift `filepath.Abs` on CLI but keep absolute-required on MCP tool handlers. §14.3 at `docs/PLAN.md:1213` still reads "Optional absolute path arg (defaults to cwd)" for `ta init`, and `docs/PLAN.md:1222` says `ta template apply` path "must be absolute when supplied". Live code at `cmd/ta/init_cmd.go:130` (`fmt.Errorf("init: path must be absolute; got %q", p)`) and `cmd/ta/template_cmd.go:360` matches §14.3, not §12.17.5. Spec contradicts itself and the code.
+
+- **A6 — Huh form field-type dispatch under-specified. CONFIRMED LOW.** Bullet 4: "string → huh.Input, markdown-string → huh.Text". Conflates two separate schema concepts: `type = "string"` is one of the seven supported types (§309); `format = "markdown"` is a **field-level attribute** on a string field (§125, §126), not a distinct type called `markdown-string`. Actual dispatch is `type == string && format == markdown → huh.Text`. The same conflation affects `datetime` (also a field format on a string, not a standalone type). Also unaddressed: `huh.Text` returns a string with literal newlines — the builder must decide whether that round-trips through the TOML emitter cleanly or needs triple-quoted-string fallback; escape handling on embedded `"""` is not discussed. Non-blocking for the rollup; essential before code-side build.
+
+- **A7 — "Record-per-field" render mis-names the target method. CONFIRMED LOW.** Bullet 6: "Current Table layout wraps each cell word-by-word under narrow terminal widths". Verified at `cmd/ta/commands.go:743-744`: `renderSchemaMarkdown` emits a pipe-delimited **markdown table** (`| field | type | required | default | description |`) and routes through `Renderer.Markdown` → laslig → glamour. The wrapping is glamour's markdown-table rendering; it is NOT the laslig render-layer's `Table` primitive (laslig's exposed helpers are `Notice`, `List`, `Markdown`, `Facts`/`KV`, `Record`). "Switch to Record-per-field" names `Renderer.Record`, which signature is `Record(section string, fields []RenderField)` built for *record* data keyed by `schema.Type`, not schema metadata. Fix-shape isn't "use existing Record"; it's either (a) change `renderSchemaMarkdown` to emit `### <field>` + per-field metadata `KV`, or (b) extend the Renderer with a schema-specific helper. Directional intent right; target method name misleading.
+
+- **A8 — Header amendment disclosure asymmetric. CONFIRMED MEDIUM.** Header lines 8-9 disclose amendments to §3.5 + §12.17.5 on 2026-04-23. Diff also modifies §10.3 (line 1015), §12.10 (line 1101), §12.18 (line 1121) with rename-historical notes. Header does not list those. Either the header is the canonical "what changed today" pointer (its current prose reads that way — call it incomplete) or it's a "semantic changes only" pointer and the rename notes are housekeeping (then say so). Trivial extend-the-list fix.
+
+- **A9 — §14.3 "must be absolute" contradicts §12.17.5 relative-accept. CONFIRMED MEDIUM — load-bearing.** `docs/PLAN.md:1213` ("Optional absolute path arg (defaults to cwd)") and `docs/PLAN.md:1222` ("must be absolute when supplied") directly contradict §12.17.5 bullet 2 ("Accept relative paths on the CLI ... via `filepath.Abs(arg)`"). §14.3 is the canonical "CLI shape after this drop" block. Either §12.17.5 supersedes §14.3 (and §14.3 needs an inline amendment note analogous to the one on §10.3 / §12.10 / §12.18 for 2026-04-23) or §14.3 stands and §12.17.5 is pending / aspirational. Current prose gives neither signal. Blocker-level for spec coherence.
+
+- **A10 — Bullet ordering severity-ignoring. REFUTED.** Orchestrator flagged as minor; agreed. The chosen ordering (path-default → relative-accept → PATCH → huh form → list-sections positional → Record render → blank-init schema → dogfood pass) groups CLI-ergonomics then code-semantics — a valid axis, just not severity. Not a finding.
+
+- **A11 — "v2" in user-visible strings. PARTIAL — CONFIRMED LOW.** Header claim: "user-visible messages avoid [v2] per the 2026-04-23 naming correction." Scan of `cmd/ta/` + `internal/` confirms 30+ "V2-PLAN" references are all in code comments / docstrings (not user-visible), satisfying the internal-delta carve-out. But `cmd/ta/template_cmd.go:154-155` contains two **fang help examples**: `ta template save schema-v2` and `ta template save schema-v2 --force --json`. These render in the CLI's `--help` output — that is user-visible. Also `internal/templates/templates_test.go:264` uses `"schema-v2"` as a test fixture (not user-visible, but if this is leaking into golden-file reference shapes it propagates). Header's claim is violated by the fang help examples. Drop under §12.17.5 "dogfood pass" bullet or rename the exemplar to `schema-minimal`.
+
+**Unmitigated counterexamples — severity-ordered.**
+
+1. **A9 MEDIUM — §14.3 vs §12.17.5 contradiction against live code.** Requires amendment note on §14.3 for `ta init` and `ta template apply`.
+2. **A8 MEDIUM — header omits §10.3 / §12.10 / §12.18 rename amendments.**
+3. **A1 MEDIUM — `update({})` semantics undefined.** Pick no-op vs reject.
+4. **A2 MEDIUM — `null` on required+default unspecified.** Pick reject vs revert-to-default.
+5. **A5 LOW — duplicates A9 root cause.**
+6. **A7 LOW — "Record-per-field" mis-names method.**
+7. **A6 LOW — huh-form dispatch conflates `schema.Type` with `Field.Format`.**
+8. **A4 LOW — "none would be surprising" too strong; needs qualifier.**
+9. **A11 LOW — `schema-v2` in fang help examples violates header.**
+
+**Unknowns routed.** None outstanding — all attacks either confirmed or refuted with cited evidence.
+
+**Evidence.** `git diff HEAD -- docs/PLAN.md`; `git status`, `git log --oneline -5`; `rg 'V2-PLAN|V2 spec' docs/PLAN.md`; `rg 'must be absolute|relative path|filepath\.Abs' docs/PLAN.md`; `rg 'v2|V2' cmd/ta/ internal/`; `rg 'path must be absolute' cmd/ta/ internal/`; `rg 'Table' internal/render/ cmd/ta/`; `Read docs/PLAN.md` around lines 1-30, 120-175, 1005-1030, 1095-1135, 1203-1232; `Read internal/render/renderer.go`; `Read cmd/ta/commands.go:700-750`. No Hylla queries — plan-doc diff + Go sources, project has no Hylla index.
+
+**Hylla Feedback.** N/A — project has no Hylla index; navigation via `git`, `Read`, `rg`, and local file reads only.
+
+**Verdict.** **FAIL-LOW-REWORK.** Four MEDIUM findings cluster around spec coherence: two (A8, A9) on disclosure / cross-ref asymmetry — both trivial amendment-note fixes — and two (A1, A2) on under-specified PATCH edge cases — need one sentence each in §3.5 or §12.17.5. The five LOW findings can ride as follow-up worklog bullets. Docs-only, no code risk. Disagrees with QA Proof's unconditional PASS: the proof sibling verified the diff *executes the orchestrator's discussion decisions*, which is true; the falsification sibling verified the diff's *coherence against the rest of PLAN.md and against live code*, where the contradictions surface. Recommendation: land the A8/A9 amendment notes + the A1/A2 spec clarifications in the same commit before push. A single round-trip reads cleaner than a fixup sequence in history.
+
+### QA Proof — go-qa-proof-agent (plan amendments r2)
+
+Scope: uncommitted `git diff HEAD` against HEAD `b83aa09`. Round-2 fixes addressing r1 falsification's 4 MEDIUM (A1, A2, A8, A9) + 5 LOW (A4, A6, A7, A11, A5-dup) findings. `docs/PLAN.md` + `cmd/ta/template_cmd.go` only; WORKLOG appends. Sibling falsification running in parallel.
+
+**Acceptance checks — all pass.**
+
+- **A9 resolved.** §14.3 `ta init` bullet (`docs/PLAN.md:1222`) now reads "Optional path arg (defaults to cwd). Per the 2026-04-23 §12.17.5 amendment the CLI accepts both relative and absolute forms and resolves via `filepath.Abs`; the MCP tool handler continues to reject relative paths... Pre-amendment spec said 'must be absolute'; live code still enforces that until §12.17.5 lands." Parallel amendment on `template apply` at `:1231`. Three-way relationship (spec-intent / live-code / MCP-retention) all disclosed. Matches prompt's "CLI accepts relative via `filepath.Abs`, MCP keeps absolute-only, live code still pre-amendment".
+- **A8 resolved.** Header amendment block (`docs/PLAN.md:4-9`) lists all six edited sections: §3.5 (line 5), §12.17.5 (line 6), §14.3 (lines 7-8), §10.3 + §12.10 + §12.18 (line 9). Asymmetry closed.
+- **A1 resolved.** §3.5 first bullet (`docs/PLAN.md:173`): "Empty `data` (`{}`). No-op success: `update` returns the existing record unchanged, touches no bytes. The caller gets a clean success response they can use to confirm the record exists without mutating." Picks no-op-success over reject; documents both behavior and intended use. Unambiguous.
+- **A2 resolved.** §3.5 third+fourth bullets (`docs/PLAN.md:175-176`) split the required-field null case: no-default → error `"cannot clear required field <name>"`; with-default → "stored bytes are replaced with the schema default... Semantically equivalent to 'reset this field to the declared default'." Asymmetry with `create`'s omit-to-default (called out via MCP-parity bullet at :181) now internally consistent.
+- **A4 resolved.** §12.17.5 bullet 1 (`docs/PLAN.md:1131`) adds typo-cwd caveat: "Caveat: `ta create` / `ta update` / `ta delete` from a typoed cwd that happens to contain `.ta/schema.toml` would silently mutate the wrong project. Acceptable risk... but worth a release-note mention." Blanket "none would be surprising" replaced with qualified risk acknowledgement + release-note mention.
+- **A6 resolved.** §12.17.5 huh-form bullet (`docs/PLAN.md:1134`) now dispatches on `(Field.Type, Field.Format)` with seven concrete pairings (`string`+`markdown` → Text; `string`+enum → Select; `string`+`datetime` OR `Type=datetime` → Input/RFC3339; bare `string` → Input; `integer`/`float` → Input/numeric; `boolean` → Confirm; `array`/`table` → JSON-textarea). Type-vs-format conflation cleared; datetime ambiguity (format-on-string vs standalone type) explicitly handled; multi-line TOML emit escape strategy called out (`"""` + embedded-triple escape).
+- **A7 resolved.** §12.17.5 render bullet (`docs/PLAN.md:1136`) now notes: "laslig's existing `Renderer.Record` helper is keyed on `schema.Type`-dispatched value rendering for RECORD DATA, not schema metadata; the schema-get render likely needs its own dedicated helper (e.g. `SchemaFlow`) built on laslig primitives (Section/Paragraph/KV per field), not a reuse of `Record`." Mis-reference corrected with the right primitives named.
+- **A11 resolved.** `cmd/ta/template_cmd.go:154-155` now read `ta template save dogfood` / `ta template save dogfood --force --json` — no `schema-v2`. Header at `docs/PLAN.md:20-24` softens the v2-claim: "'v2' appears in schema/code comments as the internal delta identifier, and still leaks into a few fang-help examples... user-facing surfaces drift toward 'v2-free' wording but are not mechanically purged; fix opportunistically." Help output cleaned; header no longer over-promises.
+
+**Build verification.** `mage check` green (fmtcheck + vet + test -race + tidy all pass; all 12 touched packages `ok`).
+
+**Structural cross-checks.** Markdown integrity preserved (blockquote at lines 3-24 uninterrupted; `###` levels consistent; 4-space nested bullets under numbered items 19/20 correct). §3.5 PATCH-bullet list is well-formed (5 bullets: empty-data / clear-not-required / clear-required-no-default / clear-required-with-default / validation). §12.17.5 bullet count: 7 discussion items + 2 prior items + 1 stub = 10 bullets (previous round had 9; the split of A6's huh-form into `(Type, Format)` pairings kept it as one bullet, so the +1 is A1/A2/A4 folded into existing §3.5 and §12.17.5-bullet-1 rather than new bullets — structurally consistent).
+
+**Coverage gaps.** None. Every r1 finding mapped to a concrete amendment. No new findings surface in r2 scope.
+
+**Evidence.** `git diff HEAD` full read; `Read docs/PLAN.md` lines 1-30, 155-195, 1127-1142, 1215-1236; `Read cmd/ta/template_cmd.go:145-164`; `mage check` (tail 60 lines: all `ok`). No Hylla queries — project has no Hylla index; target is docs + one Go literal-string change.
+
+### QA Falsification — go-qa-falsification-agent (plan amendments r2)
+
+**Scope.** Round 2 attack on orchestrator r1 fixes for A1/A2/A4/A6/A7/A8/A9/A11. Uncommitted `git diff HEAD` against branch `main` HEAD `b83aa09`. `docs/PLAN.md` + `cmd/ta/template_cmd.go` only. Parallel with QA Proof; attacking, not duplicating.
+
+**Attack results.**
+
+- **Attack 1 — empty `{}` composes with post-overlay validation. REFUTED.** §3.5 bullet (`docs/PLAN.md:173`): empty data → no-op success, `touches no bytes`. The behavior line at :179 is the full overlay-validate-splice-write sequence; the empty-data bullet short-circuits BEFORE overlay runs. Validation is not re-invoked against the on-disk record, so there is no silent-stale-read window. Stored bytes already passed validation at create/prior-update time (atomic writes on failure per :177). Consistent.
+
+- **Attack 2 — "reset to default" write-literal vs read-implicit ambiguity. CONFIRMED LOW (ride-along).** §3.5 :176 says "stored bytes are replaced with the schema default" — write-literal, unambiguous for the immediate call. Gap: if a schema `default` later changes (dev bumps default from `"draft"` to `"open"`), a record with an update-time-defaulted field reads the new default (not frozen to old bytes). The spec picks write-literal (which matches semantic `reset to default at this point in time`) but doesn't spell out "later schema edits don't re-apply". One-sentence clarification; not a round-2 blocker.
+
+- **Attack 3 — live code still enforces absolute-only. REFUTED.** `rg 'IsAbs' cmd/ta/` → `cmd/ta/init_cmd.go:129-130` (`return "", fmt.Errorf("init: path must be absolute; got %q", p)`) and `cmd/ta/template_cmd.go:359-360` (`return "", fmt.Errorf("apply: path must be absolute; got %q", arg)`). §14.3's amendment note ("live code still enforces absolute-only until §12.17.5 lands") is literally true for both command sites. Accurate disclosure.
+
+- **Attack 4 — header amendment list completeness. REFUTED.** `git diff HEAD --stat -- docs/PLAN.md` → 7 hunks: header (1-14), §3.5 (152-183), §10.3 (1021-1024), §12.10 (1110), §12.17.5 (1107-1140), §12.18 (1130), §14.3 (1219-1231). Header amendment list at :5-9 enumerates exactly six non-header sections (§3.5, §12.17.5, §14.3, §10.3, §12.10, §12.18). 1:1 mapping between header claims and diff hunks. Addressed.
+
+- **Attack 5 — `Field.Format` exact struct-field name. REFUTED.** `internal/schema/schema.go:65-83` defines `type Field struct { ... Format string ... }`. Spec's `(Field.Type, Field.Format)` dispatch tuple references exact struct field names. No drift.
+
+- **Attack 6 — `dogfood` test-fixture collision. REFUTED.** `rg dogfood cmd/ta/` → 8 existing hits in `cmd/ta/template_cmd_test.go` (lines 17, 65, 88, 475, 486-493) using `dogfood` as a template-library test fixture across create/list/delete round-trips. The round-2 fang-help change to `dogfood` aligns with live test reality — no new fixture conflict.
+
+- **Attack 7 — remaining `v2` residue in code. CONFIRMED LOW (ride-along).** `rg 'schema-v2' cmd/ta/ internal/` now returns ONE hit: `internal/templates/templates_test.go:264` — part of `TestValidateNameAllowsReasonableNames`'s charset fixture `{"schema", "schema-v2", "schema_v2", "SCHEMA", "schema2", "my-project-schema"}`. Non-user-visible. Renaming risks false positives on the "hyphens-allowed" assertion. Header claim at :22 ("still leaks into a few fang-help examples (e.g. `ta template save schema-v2`)") is now zero-match in cmd/ta/ — wording could tighten to "zero current fang-help examples; survives in one name-validation test fixture". Not a blocker.
+
+- **Attack 8 — A2 one-sentence-fix adequacy. REFUTED.** Orchestrator delivered TWO bullets, not one: §3.5 :175 (required-no-default → errors with `"cannot clear required field <name>"`) and :176 (required-with-default → bytes replaced with default, `semantically equivalent to "reset this field to the declared default"`). Both branches explicit with concrete error string + concrete disk behavior. Symmetric with `create`'s omit-to-default (cross-ref at :181 "MCP parity"). The "one sentence" concern from the prompt is over-cautious — the amendment is materially bigger.
+
+**Unmitigated counterexamples — severity-ordered.**
+
+1. **Attack 2 LOW — write-literal vs later-schema-edit re-apply semantics.** One-sentence clarification ("defaults applied at update freeze into on-disk bytes; subsequent schema default-value edits do not retroactively update records"). Follow-up.
+2. **Attack 7 LOW — header's "few fang-help examples" phrasing now overstates post-fix residue.** Zero matches in cmd/ta/; one surviving test-fixture hit in a charset-validation test. Ride-along wording tighten.
+
+Two LOW; zero MEDIUM; zero blockers. All four round-1 MEDIUMs (A1/A2/A8/A9) land with concrete spec text + verifiable cross-refs to live code.
+
+**Unknowns routed.** None outstanding. Attack 2 is a documentation-clarity gap with a defensible implicit writer stance, not a reasoning gap.
+
+**Evidence.** `git diff HEAD --stat -- docs/PLAN.md cmd/ta/template_cmd.go` (7 hunks, 49+/20-); `git diff HEAD -- docs/PLAN.md`; `git diff HEAD -- cmd/ta/template_cmd.go`; `rg 'schema-v2|v2-' cmd/ta/ internal/` (1 hit, charset test fixture only); `rg 'must be absolute|IsAbs' cmd/ta/` (2 live enforcement sites, matching §14.3 amendment claim); `rg dogfood cmd/ta/` (8 existing test-fixture hits); `Read internal/schema/schema.go:50-99` (Field struct fields confirmed: `Name, Type, Required, Description, Enum, Format, Default`); `Read docs/PLAN.md:160-182, 1210-1234`; `rg '^##' docs/PLAN.md` for section-heading enumeration. No Hylla queries — plan-doc + Go source, project has no Hylla index.
+
+**Hylla Feedback.** N/A — project has no Hylla index; evidence gathered via `git diff`, `Read`, `rg` on committed Go sources.
+
+**Verdict.** **PASS-WITH-FOLLOWUPS.** All four round-1 MEDIUMs land cleanly: §3.5 empty-data is explicit no-op, both null-on-required branches documented with concrete error string / concrete disk behavior, header lists all six amended sections 1:1 with diff hunks, §14.3 carries inline amendment notes pointing at §12.17.5 with "live code still absolute-only" disclosure that `rg` confirms accurate. Two residual LOWs are docs-wording nits (default-freeze-on-later-schema-edit implicit; header "few fang-help examples" is now zero). Neither blocks merge. Recommend landing the round-2 diff as-is; capture the two LOWs as a single follow-up §12.17.5 worklog bullet for the next opportunistic sweep. Converges with QA Proof's PASS — same merge recommendation, two additional ride-along nits the dev may want to fold in.
+
+**Hylla Feedback.** N/A — project has no Hylla index; navigation via `git diff`, `Read`, and `mage check` only.
+
+**Verdict.** **PASS.** All 9 r1 findings addressed with correct scope and phrasing. `mage check` green. Safe to commit.
+

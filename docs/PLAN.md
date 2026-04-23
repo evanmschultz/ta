@@ -1,14 +1,27 @@
-# ta v2 — Redesign Plan
+# ta — Redesign Plan
 
-> **Status:** design-locked through §13; §11 open questions mostly
-> resolved in the 2026-04-21 round (two new minor Qs remain). This
-> document is a temporary working artifact. When implementation is
-> complete, the entire `docs/` directory collapses into a single
-> `README.md` at the project root.
+> **Status:** design-locked through §13; §11 open questions resolved in
+> the 2026-04-21 round. Amendments landed 2026-04-23:
+> §3.5 gains PATCH semantics on `update`;
+> §12.17.5 reframes the pre-§12.18 rollup as "dogfooding readiness";
+> §14.3 softens the absolute-path requirement on CLI `ta init` /
+> `ta template apply` (CLI accepts relative; MCP still absolute-only);
+> §10.3, §12.10, §12.18 gain rename-historical notes.
+> §12.17.5 is the live rollup of dogfooding-readiness items surfacing
+> during §12.17 E2E — fluid; dev owns the authoritative list
+> out-of-band. This document is a temporary working artifact; when
+> implementation is complete it collapses into the project-root
+> `README.md` at §12.18 and `docs/` is deleted.
 >
-> **Relationship to `docs/PLAN.md`:** that file was the MVP plan; MVP is
-> shipped. This document supersedes it for all new work and is the single
-> source of truth for the v2 redesign.
+> **Naming note.** An earlier iteration of this file was split between
+> `docs/PLAN.md` (the MVP plan) and `docs/V2-PLAN.md` (the redesign).
+> The MVP is shipped; the redesign is in flight. The MVP plan was
+> deleted on 2026-04-23 and V2-PLAN renamed to PLAN, making this the
+> single plan source. "v2" appears in schema/code comments as the
+> internal delta identifier, and still leaks into a few fang-help
+> examples (e.g. `ta template save schema-v2`) — user-facing surfaces
+> drift toward "v2-free" wording but are not mechanically purged; fix
+> opportunistically.
 
 ---
 
@@ -152,10 +165,20 @@ Update an existing record. Fails if the file doesn't exist. Creates the record w
 update(path, section, data)
   path     — project directory
   section  — "<db>.<type>.<id-path>" | "<db>.<instance>.<type>.<id-path>"
-  data     — JSON object matching the type's field schema
+  data     — JSON object of fields to change (PATCH semantics)
 ```
 
-Behavior: resolve schema → validate `data` → require file exists → splice the record (replace-or-append within the file) → atomic write.
+**PATCH semantics (§12.17.5 decision).** `data` is a partial overlay, not a full replacement. Provided fields replace their stored values; unspecified fields retain their existing bytes verbatim. Rationale: agents and humans both routinely change one or two fields on a multi-field record — demanding a full re-send burns MCP context budget and invites copy-paste errors.
+
+- **Empty `data` (`{}`).** No-op success: `update` returns the existing record unchanged, touches no bytes. The caller gets a clean success response they can use to confirm the record exists without mutating.
+- **Clearing a NOT-required field.** Pass `{"field": null}`. The field is removed from the on-disk bytes.
+- **Clearing a required field (no `default`).** Pass `{"field": null}` → errors with `"cannot clear required field <name>"`. Required fields cannot be unset via `update`; change the schema first or delete + recreate the record.
+- **Clearing a required field with a schema `default`.** Pass `{"field": null}` → the stored bytes are replaced with the schema default. The merged record still has a value for the field (so validation passes), but the user-supplied value is dropped and the default fills. Semantically equivalent to "reset this field to the declared default".
+- **Validation.** After overlay, the merged record is validated against the type's field schema. Any provided field that fails type/enum/format validation rejects the whole update (atomic; on-disk bytes unchanged).
+
+Behavior: resolve schema → require file exists → locate existing record → overlay `data` onto existing fields → validate merged record → splice the record (replace-or-append within the file) → atomic write.
+
+**MCP parity.** The MCP `update` tool uses the same PATCH semantics as the CLI. `create` (§3.4) remains full-required — no prior state to overlay — though fields with a schema `default` may be omitted.
 
 ### 3.6 `delete`
 
@@ -998,7 +1021,7 @@ description = "Section body. Markdown with fenced code and deeper subheadings al
 
 At implementation time (not yet):
 
-- `docs/ta.md`, `docs/api-notes.md`, `docs/PLAN.md`, `docs/V2-PLAN.md` (this file) — all collapse into a single final `README.md` covering installation, MCP client config, schema language, tool reference, and rationale for why `ta` exists.
+- `docs/ta.md`, `docs/api-notes.md`, `docs/PLAN.md` (this file) — all collapse into a single final `README.md` covering installation, MCP client config, schema language, tool reference, and rationale for why `ta` exists. (The MVP-era `docs/PLAN.md` was deleted and V2-PLAN renamed to PLAN on 2026-04-23.)
 - The MVP example `schema.toml` if its contents are already represented in the new dogfood.
 
 ### 10.4 Test plan
@@ -1084,7 +1107,7 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 7. **12.7 Laslig CLI rendering.** Build `internal/render/` on top of laslig. String fields rendered as markdown via glamour (syntax-highlighted code blocks). MCP output unchanged (structured JSON). See §13.
 8. **12.8 Search.** `internal/search/` + `search` tool + CLI subcommand. Regex via `regexp`. Cross-instance union for multi-instance dbs.
 9. **12.9 MCP caching.** In-memory schema cache with `os.Stat`-mtime check per call; atomic swap on schema mutations; startup meta-validation refuses to boot on a malformed cascade.
-10. **12.10 Dogfood migration.** Migrate `docs/PLAN.md` + `docs/V2-PLAN.md` → `workflow/ta-v2/db.toml` via `ta create` calls (each §12.x step becomes one `build_task` record; each QA pass a `qa_task` twin). Verify `search` and `get` against real records.
+10. **12.10 Dogfood migration.** Migrate the redesign plan (then named `docs/V2-PLAN.md`, renamed to `docs/PLAN.md` on 2026-04-23) → `workflow/ta-v2/db.toml` via `ta create` calls (each §12.x step becomes one `build_task` record; each QA pass a `qa_task` twin). Verify `search` and `get` against real records.
 11. **12.11 Strip global cascade from runtime.** `internal/config/Resolve` reads only `<project>/.ta/schema.toml`. No home-layer, no ancestor walk. `mcpsrv.Config.ProjectPath` required. Cache collapses to a single entry. All six `config.Resolve` callers updated (mcpsrv cache / ops / schema_mutate / tools, search, cmd/ta). `mage dogfood` loses its HOME-staging workaround. Tests simplify (drop `t.Setenv HOME` staging). See §14 for the full architecture.
 12. **12.12 JSON output mode.** All CLI read commands (`get`, `list-sections`, `schema get`, `search`, `template list`, `template show`) grow a `--json` flag that emits structured JSON instead of laslig-rendered markdown. Mage targets `Test` / `Check` / `Cover` grow `--json` output (or respect `MAGEFILE_JSON=1`). Default human path unchanged. Agent-facing guidance in CLAUDE.md / AGENTS.md: use `--json` for every `ta` and `mage` invocation.
 13. **12.13 Template library at `~/.ta/`.** New `internal/templates/` package: `List()`, `Load(name)`, `Save(name, bytes)`, `Delete(name)`. Convention: `~/.ta/<name>.toml` is one named template; `~/.ta/schema.toml` is the "default" template. `ta template list` + `ta template show <name>` CLI subcommands (read-only this slice). **Firewall:** `internal/templates/` imports stdlib + `internal/schema/` only — NEVER `internal/config/Resolve`. Runtime consumers never touch `internal/templates/`.
@@ -1104,11 +1127,17 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 16. **12.15 Template save — `ta template save`.** Verbatim-copy `<cwd>/.ta/schema.toml` to `~/.ta/<name>.toml`. Huh-prompts for name if not given; huh-confirms overwrite. Enables the "find a better schema in a project, promote it to global template" flow.
 17. **12.16 Huh interactive CLI root.** Bare `ta` with TTY detected → huh menu of subcommands. Bare `ta` without TTY (MCP client over stdio) → MCP server, unchanged from today. Existing `.mcp.json` / `claude mcp add` invocations that spawn bare `ta` keep working. Huh pickers also added inside `ta init` (template + claude/codex opt-in) and `ta template save` (name prompt) where a dropdown helps.
 18. **12.17 E2E dev+assistant gate.** No code. Dev + assistant walk through: fresh `ta init` on a new absolute path, template save round-trip, CRUD round-trip on the seeded project, MCP registration verified in Claude Code + Codex, `mage dogfood` still works end-to-end with the new cascade-free runtime. Gate before §12.17.5.
-19. **12.17.5 Pre-release planning items (open-ended).** Open collection of small planning slices that must resolve before §12.18 but do not fit the tight phased list above. Dev maintains the authoritative checklist out-of-band; this item is the plan-side gate that blocks the release-doc sweep until the dev signs off. Currently queued:
+19. **12.17.5 Dogfooding readiness.** Not "pre-release" — these are gates that must resolve before §12.17 becomes a real dogfood flow rather than a bootstrap smoke test. Release is later and has its own gate at §12.19. Dev maintains the authoritative checklist out-of-band; this item is the plan-side rollup of what has surfaced so far during E2E.
+    - **Default `path` to cwd on every path-taking command.** Currently only `ta init` accepts an optional path (defaults to cwd). `ta get`, `ta list-sections`, `ta create`, `ta update`, `ta delete`, `ta schema`, `ta search` all require `<path>` as a positional arg, which produces noise like `ta get . worklog.entry.foo` when the dev is already inside the project. Change to: every command with a `<path>` positional treats it as optional and defaults to cwd when omitted. Mostly safe — cwd-default is the common case. Caveat: `ta create` / `ta update` / `ta delete` from a typoed cwd that happens to contain `.ta/schema.toml` would silently mutate the wrong project. Acceptable risk (users typing in the right dir is the overwhelming common case) but worth a release-note mention. MCP tool calls are unaffected (they always pass path explicitly via the stdio handshake).
+    - **Accept relative paths on the CLI.** `ta init` currently rejects relative paths with `"path must be absolute"` — that rule was intended to stop agents from invoking against ambiguous shell cwds, not to block humans typing `./proj`. Lift the CLI-side restriction via `filepath.Abs(arg)` for uniform resolution. Keep the absolute-required guard in the MCP tool handlers — agents with a drifted cwd would silently write to the wrong project.
+    - **`update` is PATCH semantics everywhere (MCP + CLI).** Provided fields overlay the existing record; unspecified fields retain their stored values. Explicit `null` clears a NOT-required field (field removed from on-disk bytes). Explicit `null` on a required field errors with "cannot clear required field". Rationale: minimum context load for agents (no need to re-send the whole record on a one-field change) and matches human intuition. `create` stays full-required (no prior state to overlay); fields with a schema `default` may be omitted and the default fills. §3.5 spec already amended 2026-04-23 with the PATCH shape; code-side implementation pending.
+    - **Interactive huh form per field on `ta create` / `ta update`.** JSON is agent-shape; humans shouldn't hand-craft `--data '{...}'` payloads. On TTY default, build a huh.Form from the type's declared fields. Dispatch keys on `(Field.Type, Field.Format)`: `string` + `format="markdown"` → huh.Text (multi-line, triple-quoted on TOML emit); `string` + enum non-empty → huh.Select; `string` + `format="datetime"` OR `Type=datetime` → huh.Input with RFC3339 validator; bare `string` → huh.Input; `integer`/`float` → huh.Input with numeric validator; `boolean` → huh.Confirm; `array`/`table` → JSON-textarea fallback (huh.Text validating `json.Unmarshal`). On `update`, pre-fill existing values; empty submission retains existing. `--data` and `--json` remain as non-interactive escapes for agents and scripts. TOML emit of multi-line strings uses `"""` with embedded `"""` escaped via concatenation or backslash; MD emit is literal. Without this, CLI data-entry is hostile to human dogfooding.
+    - **`ta list-sections [path] [scope]` — both positional, both optional.** Dev's intuition was `ta list-sections . worklog` (path + scope); current CLI only accepts scope via `--scope` flag. Mirror the MCP tool shape (`list_sections(path, scope)` per §3.2) and accept scope as optional second positional. `--scope` flag stays for explicit form.
+    - **`ta schema get` render: flow per-field, not table.** Current Table layout wraps each cell word-by-word under narrow terminal widths, producing unreadable column-broken text. Schema get is inherently per-field prose (type + description + enum + default + required) — a flow layout (one field per block, labels on the left, description as paragraph prose) reads cleanly at any terminal width. Implementation note: laslig's existing `Renderer.Record` helper is keyed on `schema.Type`-dispatched value rendering for RECORD DATA, not schema metadata; the schema-get render likely needs its own dedicated helper (e.g. `SchemaFlow`) built on laslig primitives (Section/Paragraph/KV per field), not a reuse of `Record`.
     - **Default embedded schema for `ta init --blank`.** Today `--blank` writes a one-comment header. An embedded default schema should ship with the binary so `ta init` produces an immediately-usable project even with an empty template library. Must include agent-rules type definitions (CLAUDE.md / AGENTS.md surface) alongside the existing §9 dogfood shape so onboarding covers the agent-facing discipline the CLI already assumes. Shape, scope, and naming are TBD; dev signs off before build.
     - **Dogfood pass.** Dev-driven exercise of the cascade-free runtime against real project work (not just §12.17 walkthrough). Observations feed back into any last polish rounds.
     - **Additional items.** Dev is compiling the full list; more entries land here as they surface.
-20. **12.18 README collapse.** Compose final `README.md` from existing doc content (`docs/ta.md` + consolidated V2 spec). Delete `docs/` and the MVP-era `examples/schema.toml` if superseded.
+20. **12.18 README collapse.** Compose final `README.md` from existing doc content (`docs/ta.md` + consolidated plan spec). Delete `docs/` and the MVP-era `examples/schema.toml` if superseded.
 21. **12.19 Release.** `mage check` clean; tag `v0.1.0` (pre-stable per §2.6). Release notes cover all breaking changes from §12.11 + §12.14 + §12.16 (home-layer runtime drop, bare-`ta` TTY dispatch, `Config.ProjectPath` required).
 
 ---
@@ -1190,7 +1219,7 @@ More fundamentally, the cascade couples every project to per-user home state, wh
   - With a TTY (human in a terminal): launches a huh menu listing every subcommand with its short description.
   - Without a TTY (MCP client over stdio): starts the MCP server, unchanged from today. Existing `.mcp.json` / `claude mcp add` invocations that spawn bare `ta` keep working byte-identically.
 - **`ta init [path]`** — bootstrap a project.
-  - Optional absolute path arg (defaults to cwd).
+  - Optional path arg (defaults to cwd). Per the 2026-04-23 §12.17.5 amendment the CLI accepts both relative and absolute forms and resolves via `filepath.Abs`; the MCP tool handler continues to reject relative paths (agents with a drifted cwd would silently write to the wrong project). Pre-amendment spec said "must be absolute"; live code still enforces that until §12.17.5 lands.
   - `mkdir -p` the target.
   - Huh-based template picker; `~/.ta/` scan plus a "blank" option.
   - Writes `<path>/.ta/schema.toml` from the chosen template (or empty file for "blank").
@@ -1199,7 +1228,7 @@ More fundamentally, the cascade couples every project to per-user home state, wh
 - **`ta template list | save [name] | apply <name> [path] | show <name> | delete <name>`** — template library management.
   - `list` prints every `.toml` file under `~/.ta/`.
   - `save [name]` copies `<cwd>/.ta/schema.toml` to `~/.ta/<name>.toml` verbatim (project → global). Huh-prompts for name if omitted; huh-confirms overwrite if the name exists.
-  - `apply <name> [path]` copies `~/.ta/<name>.toml` into `<path>/.ta/schema.toml` (global → project). Target path defaults to cwd; must be absolute when supplied. Huh-confirms overwrite if `<path>/.ta/schema.toml` already exists. Schema-only — does NOT touch `.mcp.json` / `.codex/config.toml`; use `ta init` for a full bootstrap.
+  - `apply <name> [path]` copies `~/.ta/<name>.toml` into `<path>/.ta/schema.toml` (global → project). Target path defaults to cwd; CLI accepts relative or absolute per the §12.17.5 amendment (live code still enforces absolute-only until the amendment lands). Huh-confirms overwrite if `<path>/.ta/schema.toml` already exists. Schema-only — does NOT touch `.mcp.json` / `.codex/config.toml`; use `ta init` for a full bootstrap.
   - `show <name>` renders the template via `render.Renderer.Markdown` (or `--json`).
   - `delete <name>` removes a template; huh-confirms.
 - **All existing data/schema tools unchanged** on the CLI surface; only their internals update for project-local resolution.

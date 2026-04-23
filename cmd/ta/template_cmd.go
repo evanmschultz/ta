@@ -151,8 +151,8 @@ func newTemplateSaveCmd() *cobra.Command {
 			"line/column error pointing at `<cwd>/.ta/schema.toml` before the " +
 			"promotion attempt.",
 		Example: `  ta template save
-  ta template save schema-v2
-  ta template save schema-v2 --force --json`,
+  ta template save dogfood
+  ta template save dogfood --force --json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			var name string
