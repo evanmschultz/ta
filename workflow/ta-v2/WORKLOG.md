@@ -1480,3 +1480,94 @@ None. All ten attack surfaces refuted under direct evidence.
 
 **Verdict:** **PASS-WITH-FOLLOWUPS.** Round 3 cleanly reverts the round-2 `pickerKeyMap` regression (zero dangling references, `bubbles/v2/key` back to indirect), the strengthened `TestHelpAliasResolves` now genuinely exercises `["h", "init"]` nested resolution (closing the round-2 MEDIUM), and the extended `deleteMalformed` 3-branch switch now emits a summary for every outcome (closing the round-2 LOW on zero-delete silence). All ten attack surfaces refuted under `mage check` green + direct source cross-check. Followups (all optional, non-blocking): (1) consider `errors.Is(err, huh.ErrUserAborted)` special-case at caller sites to return a softer "cancelled" info notice and nil; (2) singularize the `"removed %d malformed template(s)"` success format for count=1. Safe to commit.
 
+### QA Proof — go-qa-proof-agent (laslig polish)
+
+**Scope.** Uncommitted diff on `main` (HEAD `c80643c`). Three files, +76/-39: `internal/render/renderer.go` (new `Facts` helper), `cmd/ta/init_cmd.go` (warning reshape, `summarizeMalformedDelete` + `pluralize` extraction, `emitInitReport` rewrite to Notice+Facts), `docs/V2-PLAN.md` (new §12.17.5, list renumber).
+
+**Claims verified.**
+
+- **`Facts` helper correctness.** `renderer.go:66-72` — one-line wrap of `laslig.KV{Pairs: pairs}`. `go doc laslig.KV` confirms shape (`Title`, `Pairs []Field`, `Empty`); the helper uses only `Pairs`, which is the intended minimal labelled-facts form. `go doc laslig.Printer.KV` confirms the method exists and returns `error`. Type signature matches (`[]laslig.Field` in, `error` out). One call site (`init_cmd.go:757`). Idiomatic Go.
+- **`Field.Value` is a `string`.** `go doc laslig.Field` confirms `Value string`. All three call-site values are strings: `r.SchemaSource` (`initReport.SchemaSource string`, declared `init_cmd.go:59`) and two `writeLabel(...) string` calls. No implicit `%v` coercion is hidden — type-safe.
+- **Warning shape.** `rg '"v2"' cmd/ta/init_cmd.go` → zero hits. New Notice (lines 247-256): Title `"malformed template skipped"` (12 words → actually 3 words, short); Body `"~/.ta/%s.toml is not a valid schema"` (short, identifies the file); Detail is two bullets — `"delete: ta template delete %s"` and `"or fix: add file=, directory=, or collection= at the top of the file"`. Drops the `reason: %v` error chain and the "v2 schema" framing. Both Detail bullets are actionable. User feedback addressed.
+- **Delete-summary extraction.** `summarizeMalformedDelete(warn, deleted, len(invalid))` at `init_cmd.go:272` replaces the inline 3-branch switch. New helper `init_cmd.go:419-444` with identical three-branch semantics (all-success → NoticeSuccessLevel; partial → NoticeWarningLevel; zero → NoticeErrorLevel). Verified by trace: `deleted == total` → success, `deleted > 0` → partial, default → failure. Arithmetic preserves the original semantics.
+- **Pluralization correctness.** Trace the three branches for `(deleted, total)` pairs:
+  - `(1, 1)`: Title = `"malformed " + pluralize("template", 1) + " removed"` = `"malformed template removed"` (singular, correct). Body = `"deleted 1 template from ~/.ta/"` (singular, correct — `noun = pluralize("template", deleted=1) = "template"`).
+  - `(3, 3)`: Title = `"malformed templates removed"`; Body = `"deleted 3 templates from ~/.ta/"`. Both plural, correct.
+  - `(0, 3)` (failure branch): `"none of the 3 malformed templates could be removed"`. `pluralize("template", 3)` = `"templates"`, correct.
+  - `(0, 1)` (failure branch, singular total): `"none of the 1 malformed template could be removed"`. `pluralize("template", 1)` = `"template"`, correct. (Awkward but grammatical — "the 1 malformed template" reads fine; a future rewrite could special-case the `n==1` prose, but not a regression.)
+  - `(1, 3)` (partial): Body = `"removed 1 of 3; see stderr for per-template failures"`. Literal text, no pluralize call — acceptable since the numbers are the variable, not the noun.
+  - Fixes the round-3 standing followup: `"removed %d malformed template(s)"` is gone.
+- **`emitInitReport` render shape.** `init_cmd.go:747-762`. Human-mode path emits `rr.Notice(NoticeSuccessLevel, "bootstrap complete", r.Path, nil)` then `rr.Facts([...])` with three `{Label, Value}` pairs (schema / claude / codex). Drops the three-line Detail on the Notice. JSON-mode path unchanged (`enc.Encode(r)`). Via laslig, `laslig.KV` renders column-aligned label:value — matches user's stated goal of structured facts over wall-of-text.
+- **V2-PLAN structure.** `§12.17.5` is inserted as list item 19 between §12.17 (item 18) and §12.18 (item 20). Item 21 is §12.19. Cross-refs to `§12.19` at lines 1262 and 1276 are section-label references (semantic `§N.N`), not list-ordinal references — they still resolve because the `§12.19` label is stable. Item 18's closing sentence correctly updated from "Gate before §12.18" to "Gate before §12.17.5". Three queued sub-items match the brief (default embedded schema with agent-rules type definitions, dogfood pass, "more items incoming").
+- **Comment correction.** `chooseSchema` comment at `init_cmd.go:235-238` changed from "legacy pre-v2" to "legacy pre-MVP", per user's naming correction.
+
+**Build gates.**
+
+- `mage check` → all 12 packages `ok` under `-race`. `cmd/ta` 1.627s, `internal/render` 2.533s. Zero failures, zero skips.
+- `mage build` → `./bin/ta` produced (Mach-O arm64, verified via `file`).
+- `mage dogfood` → idempotent "already materialized" no-op (expected; db.toml pre-exists).
+- `mage tidy` — covered inside `mage check`, silent.
+
+**Coverage gaps.**
+
+- **No unit test for `Facts`** on `internal/render/renderer.go`. The helper is a one-liner, but `renderer_test.go` has tests for `Notice`, `List`, `Markdown`, `Record` — adding `TestRendererFactsPlain` to assert aligned-label output would match the pattern and lock the contract against laslig API drift. Low-priority followup.
+- **No unit test for `summarizeMalformedDelete`**. The three branches are only exercised indirectly through integration-ish test paths, and `init_cmd_test.go` has no test that forces the malformed-template picker path (requires pre-seeding `~/.ta/*.toml` with invalid bytes plus stdin simulation). The pluralization fix specifically (`(1,1)` vs `(3,3)` vs `(0,N)` vs `(1,3)`) is the user-visible behavior most worth locking. Medium-priority followup — the whole reason this polish round exists is a string-shape regression.
+- **No unit test for `pluralize`**. Trivial but would be a 4-line table-driven test that also documents the count-1 singular contract.
+- **No test asserts the new human-render stdout shape.** `TestInitCmdTemplateWritesBothMCPConfigs` runs through `emitInitReport`'s human branch but only inspects file side-effects, not stdout. The "[SUCCESS] bootstrap complete / <path> / schema ... / claude ... / codex ..." shape is the user-visible artifact of this round and should have a test asserting it. Medium-priority followup.
+- **No test for the reshaped warning.** `"malformed template skipped"` Title + short Body + two-bullet Detail has no assertion.
+
+**Modernization / unused-identifier scan (§12.14.5).**
+
+- `pluralize` (new, `init_cmd.go:448-453`) — used 3 times inside `summarizeMalformedDelete` (lines 420, 425, 440). Three call sites justify extraction over inlining; inlining would repeat the `if n == 1` check three times. Keep as-is.
+- `summarizeMalformedDelete` (new) — one call site (line 272). Extraction justified by the earlier inline switch being ~22 lines of nested Notice calls inside `chooseSchema`; the extraction reduces `chooseSchema`'s cyclomatic complexity without losing readability.
+- `Facts` (new) — one call site today. Comment declares intent to reuse from `ta template save/apply/delete`; fine as a semantic helper even at one site since it tags intent (`Facts` reads more clearly than raw `p.KV({Pairs: ...})` at call sites and keeps the laslig import leaky-abstraction at bay).
+- Zero new stdlib-modernization candidates (no SplitSeq / CutSuffix / maps.Copy / bytes.Cut / range-over-int / WaitGroup.Go territory touched).
+- Zero new unused identifiers. All new symbols (`Facts`, `summarizeMalformedDelete`, `pluralize`) have live call sites.
+- `gofmt -s`, `go vet`, `go mod tidy` all clean via `mage check`.
+
+**Standing concerns forwarded to orchestrator (all non-blocking, pre-existing).**
+
+- `_ = dbDecl` at `commands.go:155` — LOW-priority standing cleanup candidate since §12.14.5. Untouched this round.
+- `.ta/schema.toml` working-tree drift and untracked `.mcp.json` / `.codex/` remain; out of this round's scope (the brief only lists three modified files).
+
+**Hylla Feedback:** N/A — this project has no Hylla index. All navigation used `git diff`, `Read`, `rg`, `go doc`, and `mage`.
+
+**Verdict:** **PASS-WITH-FOLLOWUPS.** The diff cleanly addresses the user's three stated complaints: (1) the malformed-template warning drops the "v2 schema" label and tightens Body + Detail to two actionable bullets; (2) the init success now renders as SUCCESS banner + aligned `schema/claude/codex` KV block via the new `Facts` helper instead of a three-line Detail wall; (3) the §12.17.5 planning placeholder lands between §12.17 and §12.18 with the embedded-default-schema item prominently queued (plus agent-rules type definitions per the user's spec). The round also closes the round-3 standing followup on `template(s)` plural awkwardness via `summarizeMalformedDelete` + `pluralize`. `mage check` green, `mage build` green, `mage dogfood` idempotent. Followups (all optional, non-blocking): (1) add `TestRendererFactsPlain` to `internal/render/renderer_test.go`; (2) add a test asserting `summarizeMalformedDelete` pluralization across `(1,1)` / `(3,3)` / `(0,1)` / `(1,3)` cases; (3) add a human-mode stdout-shape assertion to `TestInitCmdTemplateWritesBothMCPConfigs` or a sibling. None block commit. Safe to commit.
+
+### QA Falsification — go-qa-falsification-agent (laslig polish)
+
+**Scope.** Uncommitted diff at HEAD `c80643c`: `internal/render/renderer.go` (+8 / new `Facts`), `cmd/ta/init_cmd.go` (+57/-32 — warning rewrite, new `summarizeMalformedDelete` + `pluralize`, `emitInitReport` Notice+Facts), `docs/V2-PLAN.md` (+7/-3 — inject §12.17.5 placeholder).
+
+**Evidence.** `git diff HEAD` full read; `mage -v check` → 12 packages `ok`; `mage -v build` → `bin/ta` rebuilt clean; `go doc github.com/evanmschultz/laslig Field` → `Value string` (NOT `any`); `go doc github.com/evanmschultz/laslig KV` → `Pairs []Field`; `rg` sweeps for `Facts(` / `pluralize` / `summarizeMalformedDelete` / `v2 schema` / `pre-v2` / `§12.18` / `§12.19`; `Read` of `cmd/ta/init_cmd.go` lines 1-530 + 740-770, `cmd/ta/init_cmd_test.go` lines 40-140, `internal/render/renderer_test.go` full, `docs/V2-PLAN.md` §12.17-§12.19 + §14.8-§14.9. Binary exec of `./bin/ta init ...` was DENIED by sandbox — relied on static + test evidence.
+
+**Attack trace (12 attacks from spawn brief).**
+
+- **A1 — `Facts([])` with empty pairs.** REFUTED. Only one caller, `emitInitReport` line 757, hard-codes a three-element slice. Degenerate nil/empty-pairs path unreachable today.
+- **A2 — `Facts` with non-string values.** REFUTED; brief's premise is wrong. `laslig.Field.Value` is **`string`**, not `any`. `go doc laslig Field` confirms. Non-string callers would fail to compile. The one live caller passes string fields (`r.SchemaSource`, `writeLabel(...)`). `mage check` green corroborates. Flag: brief's A2 hypothesis rests on a misread of the laslig API; next reviewer shouldn't re-run it.
+- **A3 — `summarizeMalformedDelete` degenerate `deleted=0 total=0`.** REFUTED. Caller guards with `if len(invalid) > 0` at `init_cmd.go:267`, so `total >= 1` at the call site. `deleteMalformed` returns `0 <= deleted <= total`. With `total >= 1`, all three branches map to correct semantics.
+- **A4 — `pluralize(-1)`.** REFUTED. Returns `"templates"` (anything `!= 1` pluralizes). Unreachable — `deleteMalformed` never returns negative. Robust enough for local scope.
+- **A5 — Dropped error chain hides debug info.** ACCEPTED TRADE-OFF, not a regression. Prior Detail listed `reason: %v` + fix line + delete line; new Detail is just delete + fix. `templates.Load` error is swallowed entirely — a savvy user debugging *why* their legacy schema is malformed now has no in-band diagnostic path. Spec-aligned per brief; documenting as a UX regression worth revisiting if support volume rises. NON-BLOCKING.
+- **A6 — Notice+Facts under `--json`.** REFUTED. `emitInitReport` short-circuits to `json.Encoder` before reaching Notice/Facts (lines 749-752). `TestInitCmdTemplateJSONNoMCP` + `TestInitCmdBlankWritesHeader` both `json.Unmarshal` stdout. `mage check` green.
+- **A7 — Notice with empty Body.** REFUTED. `r.Path` populated by `resolveInitPath` which errors on empty input; `runInit` returns early before `emitInitReport` on any path error.
+- **A8 — No `Facts` unit test.** CONFIRMED (MINOR). `internal/render/renderer_test.go` covers `Success` / `List` / `Markdown` / `Record` but not `Facts`. Low severity — `Facts` is a one-line delegation to `r.p.KV(...)` already exercised via `renderScalarField`. Recommend `TestRendererFactsPlain` for coverage symmetry. NON-BLOCKING.
+- **A9 — V2-PLAN cross-refs.** REFUTED. `§N.N` anchors are stable by number, not list position. Only live `§12.18` ref is the new self-ref in §12.17.5 ("blocks the release-doc sweep") which correctly maps to renumbered README-collapse. `§12.19` refs at lines 1262 + 1276 still describe release (§12.19 is still Release). `rg "item 20|step 20|item 21|step 21"` → 0 hits.
+- **A10 — §12.14.5 modernization regressions.** REFUTED. No new `strings.Split`-loops, no `HasSuffix`+`TrimSuffix` pairs, no manual map copies, no unused identifiers in the diff. New helpers are clean.
+- **A11 — Odd characters in template name.** REFUTED (accepted per brief). `templates.List` upstream-filters via `validateName`.
+- **A12 — `summarizeMalformedDelete` returns no error.** REFUTED. Consistent with codebase idiom — every `warn.Notice` call site in `init_cmd.go` swallows the return via `_ =`. Caller doesn't propagate, so void is fine.
+
+**Counterexamples found.**
+
+- **CONFIRMED LOW — Lingering `pre-v2` at `cmd/ta/init_cmd.go:197`.** Commit intends "pre-v2 → pre-MVP" and fixes line 236 inside `chooseSchema`, but the **first** occurrence at line 197 (the `chooseSchema` docstring: "typical case: legacy pre-v2 `~/.ta/schema.toml`") is untouched. `rg "pre-v2|pre-MVP" docs/ cmd/ internal/` shows both forms coexisting. Cosmetic / docs-only. Fix: one-line edit at line 197.
+- **CONFIRMED MINOR — `Facts` has no direct unit test.** Add `TestRendererFactsPlain` to `internal/render/renderer_test.go` mirroring the list/notice tests. Helps future refactors catch signature drift.
+
+**Unknowns.**
+
+- Binary-level end-to-end rendering unverified. Sandbox denied `./bin/ta init ...`, so I could not eyeball the rendered Notice+Facts stack in a real terminal. `mage check` green on plain-policy renderer tests + JSON-branch test coverage gives strong indirect evidence, but a human visual pass on the new output is still outstanding. Routed: §12.17 dev walkthrough covers this.
+- `ta template show <name>` existence / behavior (relevant to A5's mitigation) not verified against current tree. If that command doesn't surface parse errors, the dropped `reason: %v` becomes a harder-to-recover UX regression.
+
+**Verification commands run.** `git status`, `git log --oneline -5`, `git diff HEAD --stat`, `git diff HEAD` (full), `mage -v build`, `mage -v check` (12 packages green), `go doc github.com/evanmschultz/laslig {KV,Field,Printer.KV}`, `go doc -all ... Field`, `rg "Facts\("`, `rg "pluralize|summarizeMalformedDelete|emitInitReport"`, `rg "v2 schema|pre-v2"`, `rg "pre-v2|pre-MVP"`, `rg "§12\.18|§12\.19"`, `rg "Field\{"`, `rg "strings\.Split|HasSuffix|TrimSuffix|HasPrefix|TrimPrefix"`, `rg "schema source|bootstrap complete|malformed template|not a valid"` in tests. Sandbox denied direct `./bin/ta` invocation.
+
+**Hylla Feedback:** N/A — this project has no Hylla index. All navigation via `git diff`, `Read`, `rg`, `go doc`, and `mage`.
+
+**Verdict.** **PASS-WITH-FOLLOWUPS.** No CONFIRMED HIGH or MEDIUM counterexamples. Two LOW/MINOR findings: (1) stale `pre-v2` at `init_cmd.go:197` should flip to `pre-MVP` to match the diff's stated intent — one-line edit, worth folding in before commit; (2) `Facts` lacks a direct unit test — small coverage hole, non-blocking. One standing unknown (visual end-to-end of new Notice+Facts pair) routed to the §12.17 dev walkthrough. Independently agrees with sibling QA Proof's PASS-WITH-FOLLOWUPS verdict; adds one finding (A5 dropped-error-chain trade-off) and one additional lint (lingering `pre-v2` at line 197) that the proof pass did not flag. Safe to commit the current diff as-is; landing the `init_cmd.go:197` fix in the same commit would be cleaner.
+

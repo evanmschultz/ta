@@ -233,8 +233,8 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 	}
 
 	// Validate each candidate once. A template that fails schema
-	// validation (e.g. legacy pre-v2 `~/.ta/schema.toml` in the new
-	// template-library world) is filtered out of the picker with a
+	// validation (e.g. a legacy pre-MVP `~/.ta/schema.toml` left over
+	// from the old cascade era) is filtered out of the picker with a
 	// styled warning so a single bad file does not block bootstrap.
 	// Cache bytes so the post-pick path does not re-read and re-parse.
 	validNames := make([]string, 0, len(names))
@@ -246,12 +246,11 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 		if err != nil {
 			_ = warn.Notice(
 				laslig.NoticeWarningLevel,
-				"malformed template",
-				fmt.Sprintf("skipping %q — not a valid v2 schema", n),
+				"malformed template skipped",
+				fmt.Sprintf("~/.ta/%s.toml is not a valid schema", n),
 				[]string{
-					fmt.Sprintf("reason: %v", err),
-					fmt.Sprintf("fix: edit ~/.ta/%s.toml to add file=/directory=/collection= at the top", n),
-					fmt.Sprintf("or remove it: ta template delete %s", n),
+					fmt.Sprintf("delete: ta template delete %s", n),
+					"or fix: add file=, directory=, or collection= at the top of the file",
 				},
 			)
 			invalid = append(invalid, n)
@@ -270,29 +269,7 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 			return "", nil, err
 		} else if ok {
 			deleted := deleteMalformed(errOut, root, invalid)
-			switch {
-			case deleted == len(invalid):
-				_ = warn.Notice(
-					laslig.NoticeSuccessLevel,
-					"templates deleted",
-					fmt.Sprintf("removed %d malformed template(s)", deleted),
-					nil,
-				)
-			case deleted > 0:
-				_ = warn.Notice(
-					laslig.NoticeWarningLevel,
-					"partial delete",
-					fmt.Sprintf("removed %d of %d; see stderr for per-template failures", deleted, len(invalid)),
-					nil,
-				)
-			default:
-				_ = warn.Notice(
-					laslig.NoticeErrorLevel,
-					"delete failed",
-					fmt.Sprintf("none of the %d malformed template(s) could be removed; see stderr for details", len(invalid)),
-					nil,
-				)
-			}
+			summarizeMalformedDelete(warn, deleted, len(invalid))
 		}
 	}
 
@@ -431,6 +408,48 @@ func deleteMalformed(errOut io.Writer, root string, names []string) int {
 		deleted++
 	}
 	return deleted
+}
+
+// summarizeMalformedDelete emits one laslig Notice reporting the
+// outcome of the sweep. Three cases cover all delete-count arithmetic:
+// success (every template removed), partial (some removed, some
+// failed), and failure (zero removed). Count-aware noun matches the
+// reported number; pluralization is explicit so `1 template` does not
+// render as `1 template(s)`.
+func summarizeMalformedDelete(warn *render.Renderer, deleted, total int) {
+	noun := pluralize("template", deleted)
+	switch {
+	case deleted == total:
+		_ = warn.Notice(
+			laslig.NoticeSuccessLevel,
+			"malformed "+pluralize("template", total)+" removed",
+			fmt.Sprintf("deleted %d %s from ~/.ta/", deleted, noun),
+			nil,
+		)
+	case deleted > 0:
+		_ = warn.Notice(
+			laslig.NoticeWarningLevel,
+			"partial delete",
+			fmt.Sprintf("removed %d of %d; see stderr for per-template failures", deleted, total),
+			nil,
+		)
+	default:
+		_ = warn.Notice(
+			laslig.NoticeErrorLevel,
+			"delete failed",
+			fmt.Sprintf("none of the %d malformed %s could be removed; see stderr for details", total, pluralize("template", total)),
+			nil,
+		)
+	}
+}
+
+// pluralize returns noun or noun+"s" based on count. Simple English
+// pluralization — one-off call site, not worth importing a helper.
+func pluralize(noun string, n int) string {
+	if n == 1 {
+		return noun
+	}
+	return noun + "s"
 }
 
 // promptMCPToggles offers the two MCP-target toggles via a single
@@ -721,19 +740,25 @@ func splitHeaderSegments(s string) []string {
 }
 
 // emitInitReport writes either a JSON payload (agent-facing) or a
-// laslig success notice (human-facing).
+// laslig success notice + Facts pair (human-facing). The Notice gives
+// the semantic SUCCESS marker and the target path; Facts renders the
+// structured outcome fields with aligned labels — cleaner than a
+// three-line Detail list on the Notice.
 func emitInitReport(w io.Writer, r initReport, asJSON bool) error {
 	if asJSON {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
 	}
-	detail := []string{
-		fmt.Sprintf("schema source: %s", r.SchemaSource),
-		fmt.Sprintf("claude (.mcp.json): %s", writeLabel(r.ClaudeWritten)),
-		fmt.Sprintf("codex (.codex/config.toml): %s", writeLabel(r.CodexWritten)),
+	rr := render.New(w)
+	if err := rr.Notice(laslig.NoticeSuccessLevel, "bootstrap complete", r.Path, nil); err != nil {
+		return err
 	}
-	return render.New(w).Success("ta init", r.Path, detail)
+	return rr.Facts([]laslig.Field{
+		{Label: "schema", Value: r.SchemaSource},
+		{Label: "claude", Value: writeLabel(r.ClaudeWritten)},
+		{Label: "codex", Value: writeLabel(r.CodexWritten)},
+	})
 }
 
 func writeLabel(written bool) string {

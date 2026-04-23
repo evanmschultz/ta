@@ -63,6 +63,14 @@ func (r *Renderer) Markdown(body string) error {
 	return r.p.Markdown(laslig.Markdown{Body: body})
 }
 
+// Facts renders a compact column-aligned block of labelled facts via
+// laslig.KV. Use for post-mutation summaries (ta init, ta template
+// save/apply/delete) where Notice's title+body+detail shape reads as a
+// wall of text but the underlying data is really labelled pairs.
+func (r *Renderer) Facts(pairs []laslig.Field) error {
+	return r.p.KV(laslig.KV{Pairs: pairs})
+}
+
 // RenderField is one labelled field in a Record render. Type drives the
 // per-field rendering dispatch: string fields glamour-rendered as
 // markdown; everything else label:value. Array and table values are
