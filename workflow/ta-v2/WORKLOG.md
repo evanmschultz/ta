@@ -30,6 +30,8 @@ Temporary artifact. Will be re-materialized into the dogfood `workflow/ta-v2/db.
 | 12.13 | Template library + read CLI          | ✅    | ✅    | ✅     | ✅   |
 | 12.14 | `ta init` project bootstrap          | ✅    | ✅    | ✅     | ✅   |
 | 12.14.5 | Style cleanup sweep                | ✅    | ✅    | ✅     | ✅   |
+| 12.15 | `ta template save` + `delete`        | ✅    | ✅    | ✅     | ✅   |
+| 12.16 | huh root + `apply` + Example retrofit | ✅    | ✅    | ✅     | ✅   |
 | 12.15 | `ta template save` + `delete`        | ✅    | ✅    | ✅     | —    |
 | 12.16 | huh root + `ta template apply` + Example retrofit | ✅ | ✅ | ✅ | — |
 
@@ -1201,5 +1203,21 @@ Status: BUILD DONE @3fa4039. QA twins pending.
 **Standing concern forwarded to orchestrator:** §12.14.5 `_ = dbDecl` at `commands.go:155` is still present after the §12.16 Example retrofit (commits `0ad3379` and `3fa4039` did not touch `buildRenderFields` / `renderSearchHits`). Continues to carry as a LOW-priority standing item for the next sweep. Not a §12.16 regression.
 
 **Hylla Feedback:** N/A — this project has no Hylla index; all navigation used `Read` / `rg` / LSP / `git show` / `mage`.
+
+### Option A resolution — orchestrator direct-fix
+
+**Landed 2026-04-22 @`9183483` + @`035a3b1`.** Both CONFIRMED findings from the §12.15/§12.16 Falsification pass fixed inline; QA re-spawn waived per the established Option A precedent (§12.2 / §12.5 / §12.6 / §12.14). Both fixes are mechanical guard additions backed by direct negative tests.
+
+- **HIGH (§12.15 templates path traversal) — `9183483 fix(templates): validate names to prevent path traversal`.** Added `ErrInvalidName` + `validateName` helper in `internal/templates/templates.go`. Rejects empty, path-separator-containing (`/` or `\`), leading-dot, and non-canonical (`filepath.Clean` normalizes differently) names. `Load` / `Save` / `Delete` all validate via the shared helper BEFORE touching the filesystem. Closes the agent's reproduction recipe (`ta template save "../escape" --force --json` → would have written `~/escape.toml`; now errors with `ErrInvalidName`). Tests: `TestValidateNameRejectsPathTraversal` table-tests 11 escape vectors against each of Save / Load / Delete (33 cases). `TestValidateNameAllowsReasonableNames` confirms hyphens, underscores, digits, mixed-case still pass.
+
+- **MEDIUM (§12.15 save TTY gate) — `035a3b1 fix(cli): drop positional name from save tty gate`.** Fixed `cmd/ta/template_cmd.go:193` from `nonInteractive := force || asJSON || name != ""` to `nonInteractive := force || asJSON`. The positional `name` arg now affects only the empty-name-prompt branch (which keys on `name == ""` directly, not on the gate); the overwrite-confirm branch at line 214 now mirrors `runTemplateApply`'s correct `force || asJSON` gate. Regression test: `TestTemplateSaveOverwriteWithoutJSONStillErrorsOffTTY` — `save foo` (no `--json`, no `--force`) off-TTY with existing target still errors with `exists`, confirming the off-TTY path is unchanged. The TTY-branch improvement (huh confirm now fires on a real terminal) is inherently pty-dependent; covered by V2-PLAN §12.17 manual E2E gate.
+
+**Verification:**
+
+- `mage check` green across all 12 packages with `-race` after each commit.
+- New tests exercise the pre-fix counterexamples directly (path traversal) or lock the fix's contract (off-TTY save regression).
+- Pre-existing `_ = dbDecl` at `commands.go:155` untouched; still carried as a standing LOW-priority cleanup candidate.
+
+**Why Option A, not re-spawn.** Both fixes are isolated guard additions with direct reproductions of the Falsification agent's counterexample recipes. A fresh-context QA re-run would be ceremony over substance — the pattern is already validated by prior §12.2 / §12.5 / §12.6 / §12.14 waivers. Recording the waiver explicitly so the discipline remains audit-visible.
 
 
