@@ -3129,3 +3129,255 @@ N/A — PROOF review worked against an uncommitted working tree; Hylla's committ
 
 N/A — task touched Go code actively under uncommitted edit plus render-package fixture files (golden text); Hylla's committed index would not reflect the C1 diff. All evidence flowed via `Read`, `git diff HEAD`, `git status --short`, `rg` sweeps (caller identification + Section-0 pollution + WORKLOG heading integrity), and `go doc` on the external `github.com/evanmschultz/laslig` module (Context7 does not index this module per the builder's §7.1 note, corroborated in-session).
 
+## 12.17.5 D1 — interactive huh form per field on `ta create` / `ta update`
+
+## 1. Scope landed
+
+- 1.1 `cmd/ta/commands.go` — `newCreateCmd` / `newUpdateCmd` now branch on presence of `--data` / `--data-file`. When either is set, the existing JSON path runs unchanged (agent / script contract preserved). When neither is set and stdin+stdout are TTYs, `collectCreateData` / `collectUpdateData` build a `huh.Form` from the resolved `schema.SectionType` and run it; the returned `map[string]any` flows into `ops.Create` / `ops.Update` verbatim. Off-TTY with no flag errors politely: `input required — pass --data '{...}' or --data-file <path>, or run interactively in a TTY`.
+- 1.2 `cmd/ta/huh_form.go` (NEW) — `FormFor(typeSt, prefill, isUpdate) (*huh.Form, []FormField, func() (map[string]any, error))`. Pure-function `dispatchWidget(schema.Field) WidgetKind` encodes the §12.17.5 [D1] dispatch table in isolation so the test surface is the lookup, not the interactive runtime. `FormField` carries `{Name, Kind, Required}` plus internal raw-accumulator pointers the post-`Run()` `collect` closure coerces back to typed values.
+- 1.3 `cmd/ta/huh_form_test.go` (NEW) — eight table-driven / collect-driven tests: `TestDispatchWidgetTable` (12 rows covering every row of the [D1] table + markdown case-insensitivity + empty-enum fallback), `TestFormForReturnsFieldsInStableOrder`, `TestFormForMetaCarriesKindAndRequired`, `TestFormForCollectCreateCoercesScalars` (all nine widget kinds simultaneously: id/count/weight/active/due/status/notes/tags/metadata), `TestFormForCollectUpdateBlankRetains`, `TestFormForCollectUpdateEmptyStringBlankRetains`, `TestFormForCollectCreateRequiredFailsOnBlank`, `TestFormForCollectJSONTextareaInvalid`, `TestStringifyForFieldPrefill`.
+- 1.4 `cmd/ta/commands_test.go` — `TestCreateCmdRequiresData` updated to assert the new `"input required"` diagnostic; added `TestCreateCmdInlineDataNonInteractiveRegression` (D1 regression lock that `--data` still works byte-identically off-TTY) and `TestUpdateCmdRequiresDataOffTTY` (symmetric off-TTY check for update).
+- 1.5 `go.mod` / `go.sum` — untouched. `go list -m charm.land/huh/v2` → `charm.land/huh/v2 v2.0.3` (already a direct dep via the existing bare-`ta` menu).
+
+## 2. Widget dispatch table (matches PLAN §12.17.5 [D1])
+
+| `Field.Type` | `Field.Format` / Enum | `WidgetKind` | huh constructor |
+|---|---|---|---|
+| `string` | `markdown` | `WidgetText` | `huh.NewText` |
+| `string` | `datetime` | `WidgetDatetime` | `huh.NewInput` + RFC3339 `Validate` |
+| `string` | enum non-empty | `WidgetSelect` | `huh.NewSelect[string]` |
+| `string` | (other) | `WidgetInput` | `huh.NewInput` |
+| `integer` / `float` | — | `WidgetNumeric` | `huh.NewInput` + `ParseInt` / `ParseFloat` validator |
+| `boolean` | — | `WidgetConfirm` | `huh.NewConfirm` |
+| `datetime` | — | `WidgetDatetime` | `huh.NewInput` + RFC3339 validator |
+| `array` / `table` | — | `WidgetJSONTextarea` | `huh.NewText` + `json.Unmarshal` + shape assertion |
+
+- 2.1 Empty-enum slices (`Enum: []any{}`) on a `string` field correctly fall through to `WidgetInput` — verified by `TestDispatchWidgetTable` row 6. This avoids spawning a `huh.NewSelect` with zero options (which huh would reject).
+- 2.2 `Format` comparison is case-insensitive (`strings.EqualFold`) — locked by `TestDispatchWidgetTable` row 3 (`MARKDOWN`).
+- 2.3 `datetime` is reachable via **two** routes: `Field.Type == TypeDatetime` and `Field.Type == TypeString && Format == "datetime"`. Both land on `WidgetDatetime` with identical RFC3339 validation. Covered by rows 4 and 7.
+
+## 3. TTY detection
+
+- 3.1 Reused the existing `ttyInteractive(bool)` helper in `cmd/ta/init_cmd.go` (backed by `github.com/charmbracelet/x/term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())`). Rationale: the project already standardizes on `charmbracelet/x/term` (direct dep at v0.2.2) — importing `golang.org/x/term` as the spec suggested would add a parallel dep for no gain. Functional equivalence: both expose `IsTerminal(uintptr) bool` with identical semantics.
+- 3.2 Under `go test`, `ttyInteractive` returns false (stdout is a pipe), so the existing and new non-interactive tests exercise the flag-driven path. Interactive form behavior is not unit-tested directly — the testable surface is `FormFor` + `dispatchWidget` + `collect`, which cover every edge case without a live terminal.
+
+## 4. PATCH semantics on update prefill
+
+- 4.1 `collectUpdateData` calls `ops.GetAllFields(path, section)` to read the stored record, then passes the fields map as `prefill` into `FormFor(typeSt, prefill, isUpdate=true)`. Each widget shows the prefilled value so the user edits in place.
+- 4.2 The `collect` closure's blank-retains logic: on update, if a field's final raw value equals its prefilled value OR is blank with a prefill, the field is **omitted** from the returned payload. The downstream `ops.Update` PATCH overlay (`internal/ops/ops.go:361 overlayPatch`) then leaves the stored bytes untouched for omitted fields. Covered by `TestFormForCollectUpdateBlankRetains` (3 fields: 2 unchanged → omitted, 1 changed → patched) and `TestFormForCollectUpdateEmptyStringBlankRetains` (blanked-by-user → retain).
+- 4.3 Explicit clearing (`null` on optional, `null`-reset on required-with-default, `null`-error on required-no-default) stays on the non-interactive `--data '{"field":null}'` path. The form UI cannot cleanly distinguish "keep" from "clear" for an empty string input; the spec's retain-on-blank choice is the pragmatic call and matches the existing CLI contract (`TestUpdateCmdJSONNullPreservedToPatch` still passes untouched).
+- 4.4 Required fields: huh-side `Validate` rejects empty input when no prefill exists (create, or update on a new field). When a prefill is present on update, empty input is allowed (retain semantics). The `collect` closure also enforces required-on-blank as a belt-and-suspenders layer — locked by `TestFormForCollectCreateRequiredFailsOnBlank`.
+
+## 5. huh v2 API notes from Context7
+
+- 5.1 Confirmed v2 signatures via `/charmbracelet/huh v2.0.0` docs: `huh.NewForm(groups ...*Group) *Form`; `huh.NewGroup(fields ...Field) *Group`; `huh.NewInput / NewText / NewConfirm` return concrete `*Input / *Text / *Confirm`; `huh.NewSelect[T comparable]()` is generic. `.Title(string)`, `.Description(string)`, `.Value(ptr)`, `.Validate(func(string) error)` all present and fluent. Used `huh.Option[string]` via `huh.NewOption(key, value)` for the enum `Select`.
+- 5.2 No global keymap rebinds performed — respects the prior `pickerKeyMap q` regression memory. Only default keymaps in use; `ctrl+c` quits, edit/navigation keys untouched.
+- 5.3 `huh.Field` is an interface, not an exported struct per kind. Test surface is the `WidgetKind` enum on the `FormField` metadata slice rather than introspecting the returned `*huh.Form` internals. Cleaner and avoids coupling tests to huh's internal layout.
+
+## 6. TOML multi-line string emit
+
+- 6.1 `internal/backend/toml/emit.go:89 emitString` / `:123 emitMultilineBasicString` already handle `\n`-bearing strings with `"""..."""` wrapping and consecutive-quote escaping (`\"` insertion when >=3 consecutive `"`). `WidgetText` returns the raw string verbatim; the backend emitter owns the multi-line concern. No new layer added here — aligns with the spec's "scope creep risk" warning. Verified by reading the existing emitter, not by a new test (backend already has `emit_test.go` coverage).
+
+## 7. Verification gates
+
+- 7.1 `mage check` — **exit 0**. 12 test packages green (`cmd/ta`, `internal/backend/md`, `internal/backend/toml`, `internal/config`, `internal/db`, `internal/fsatomic`, `internal/mcpsrv`, `internal/ops`, `internal/render`, `internal/schema`, `internal/search`, `internal/templates`; `internal/record` reports `[no test files]`). `MAGEFILE_JSON=1` prefix unavailable in this sandbox; plain `mage check` satisfies the all-packages-green gate.
+- 7.2 `mage dogfood` — **exit 0**, idempotent (`db.toml already exists ... Skipping`).
+- 7.3 `git diff HEAD --stat` — 2 modified (`cmd/ta/commands.go` +91/-12 touched; `cmd/ta/commands_test.go` +60/-4 touched); 2 untracked (`cmd/ta/huh_form.go`, `cmd/ta/huh_form_test.go`). Matches claim.
+- 7.4 `go list -m charm.land/huh/v2` → `v2.0.3`. `go.mod` / `go.sum` unchanged — huh was already a direct dep.
+
+## 8. Non-blocker followups
+
+- 8.1 **No live-TTY test coverage** of the interactive form. By design — unit-testing huh's `form.Run()` requires a PTY harness (`creack/pty`) that the repo doesn't currently use. The testable surface (`dispatchWidget` + `FormFor` metadata + `collect` closure) covers the logic the form runs; the live TTY path is an integration concern deferred to manual §12.17 E2E gate.
+- 8.2 **Blank-retains asymmetry documentation.** Interactive-form blank on update = retain; explicit `--data '{"f":null}'` = clear. This is an intentional UI-side simplification but should be mentioned in the user-facing `ta update --help` long text at some point. Out of scope for D1 (would re-introduce copy-edit scope).
+- 8.3 **`FormFor` does not emit per-field Description prose from `schema.Field.Description`** — it does (see `description := f.Description` + `.Description(description)` chain per widget branch), but the empty-description case results in an empty line in huh's layout. Minor cosmetic; acceptable and matches huh's own examples.
+
+## TL;DR
+
+- T1: D1 landed — 2 modified (`commands.go` + `commands_test.go`) + 2 new (`huh_form.go` + `huh_form_test.go`); dispatch table matches §12.17.5 [D1] row-for-row; non-interactive `--data` / `--data-file` paths byte-identical.
+- T2: Widget dispatch covers 9 kinds (`Input`, `Text`, `Select`, `Confirm`, `Datetime`, `Numeric`, `JSONTextarea`) across 12 table-rows including case-insensitive markdown, empty-enum fallback, and dual-route datetime.
+- T3: TTY detection via existing `ttyInteractive` (charmbracelet/x/term); off-TTY with no `--data`/`--data-file` errors `"input required"` politely.
+- T4: PATCH semantics on update prefill — blank or unchanged field → omit from payload → `overlayPatch` leaves stored bytes untouched. Explicit `null`-clear stays on non-interactive path.
+- T5: huh v2 API per Context7 `/charmbracelet/huh v2.0.0` — `NewForm/NewGroup/NewInput/NewText/NewSelect[string]/NewConfirm/Value/Validate/Title/Description` confirmed; no global keymap rebinds.
+- T6: TOML `"""` multi-line escape already owned by `internal/backend/toml/emit.go` — form returns raw strings, backend handles the wire format.
+- T7: `mage check` exit 0 across 12 test packages; `mage dogfood` exit 0 idempotent; `go list -m charm.land/huh/v2` → v2.0.3; `go.mod` / `go.sum` unchanged.
+- T8: Three non-blocker followups — live-TTY coverage (defer to §12.17 manual E2E), blank-retains docs (out of scope), description-prose cosmetic.
+
+### Hylla Feedback
+
+N/A — task touched Go files actively under uncommitted edit. Evidence flowed via `Read`, `git diff HEAD --stat`, `git status --short`, `rg`, `go doc charm.land/huh/v2`, `go doc github.com/charmbracelet/x/term`, `go doc github.com/evanmschultz/ta/internal/ops`, and Context7 `/charmbracelet/huh v2.0.0` docs. Hylla's committed index pre-dates this D1 diff and would have been stale.
+
+## 12.17.5 D1 — QA PROOF REVIEW
+
+**Scope.** PROOF review of the uncommitted §12.17.5 [D1] stack against HEAD `5cfc247`. Five-file claim verified: 2 modified (`cmd/ta/commands.go` +91/−12, `cmd/ta/commands_test.go` +60/−4) and 2 new (`cmd/ta/huh_form.go` 464 LOC, `cmd/ta/huh_form_test.go` 385 LOC), plus `workflow/ta-v2/WORKLOG.md` bookkeeping. Evidence via `Read`, `git diff HEAD`, `rg`, `mage check`, `mage dogfood`, `go list -m`.
+
+## 1. Dispatch table matches §12.17.5 [D1] row-for-row
+
+- 1.1 `cmd/ta/huh_form.go:327-351 dispatchWidget(f schema.Field) WidgetKind` is a pure function with no huh dependency. Switch structure: boolean → Confirm; integer/float → Numeric; datetime → Datetime; array/table → JSONTextarea; string routes through inner switch (markdown → Text, datetime format → Datetime, non-empty enum → Select, else → Input). Matches the spec table.
+- 1.2 `Format` comparison uses `strings.EqualFold` (lines 338, 341) — case-insensitive per the spec's intent. Locked by `TestDispatchWidgetTable` row "string + MARKDOWN" (`huh_form_test.go:34-37`).
+- 1.3 Empty-enum slices (`Enum: []any{}`) correctly fall through to `WidgetInput` via `len(f.Enum) > 0` gate on line 344 — locked by `huh_form_test.go:49-52`. Prevents huh from crashing on a zero-option `Select`.
+- 1.4 `WidgetDatetime` is reachable via two routes (`Type == TypeDatetime` at line 333, or `Type == TypeString && Format == "datetime"` at line 341). Both paths attach the same RFC3339 validator (line 164 via `datetimeValidator`). Covered by `TestDispatchWidgetTable` rows at lines 38-42 and 53-57.
+- 1.5 `WidgetInput` is the `default:` branch (line 349) AND the string-fallback when none of markdown/datetime/enum hit (line 347). Two-level fallback is intentional and covered.
+
+## 2. FormFor builder and collect closure
+
+- 2.1 `cmd/ta/huh_form.go:77-322 FormFor(typeSt, prefill, isUpdate)` returns `(*huh.Form, []FormField, func() (map[string]any, error))`. Stable field order enforced by `sort.Strings(names)` at line 85 — locked by `TestFormForReturnsFieldsInStableOrder`.
+- 2.2 `FormField` metadata struct (lines 49-65) carries `Name`, `Kind`, `Required` for the public test surface, plus internal raw-accumulator pointers (`rawStr *string`, `rawBool *bool`), `prefilled string`, `hadPrefill bool`, `prefilledRaw any` — the two private groups serve the post-submit collect closure. Metadata assertions locked by `TestFormForMetaCarriesKindAndRequired`.
+- 2.3 Each widget branch allocates exactly one raw accumulator (`&s` or `&b`), stores its address on the FormField, and chains `.Title(title)`, `.Description(description)`, `.Value(ptr)`. Title carries a trailing `" *"` for required fields (line 109) so the TTY user gets a visual required marker. Confirmed across lines 114-187.
+- 2.4 Validators attached per widget:
+  - `WidgetInput` + required → `nonEmptyIfRequiredValidator` (lines 184-186).
+  - `WidgetText` + required → same (line 153); JSONTextarea always gets `jsonArrayOrTableValidator` (line 151).
+  - `WidgetDatetime` always gets `datetimeValidator` (line 164) — required gate lives inside the validator.
+  - `WidgetNumeric` always gets `numericValidator` (line 174) — same pattern.
+  - `WidgetSelect` has no Validate (huh enforces option-set membership on its own).
+  - `WidgetConfirm` takes a `*bool` — no string-validation needed.
+  - All three field-level validators check `hadPrefill` to allow blank on update (blank-retains) — lines 388-393, 397-411, 415-435, 439-464.
+
+## 3. PATCH semantics on update prefill (§3.5)
+
+- 3.1 `cmd/ta/commands.go:740-764 collectUpdateData` calls `ops.GetAllFields(path, section)` to hydrate the prefill map, then `FormFor(typeSt, res.Fields, true)` with `isUpdate=true`.
+- 3.2 `collect` closure implements blank-retains across four value branches (lines 195-319):
+  - **Confirm** (line 200-209): if `isUpdate && hadPrefill && prev == v`, continue (omit from patch). Otherwise include.
+  - **Select / Input / Text** (line 211-234): TrimSpace; if raw=="", omit on update-with-prefill or on non-required fields; require-blank-create errors; if raw equals prefilled text on update, omit; else include. Text re-reads raw without trim (line 215-217) so markdown newlines survive.
+  - **Datetime** (line 236-256): same empty/unchanged rules; non-empty parses RFC3339 and writes a `time.Time` for the TOML emitter.
+  - **Numeric** (line 258-284): same empty/unchanged rules; non-empty routes to `ParseInt`/`ParseFloat` based on `f.Type`.
+  - **JSONTextarea** (line 286-315): TrimSpace for comparison; non-empty `json.Unmarshal` then shape-asserts array-vs-table.
+- 3.3 Blank-retains is locked by two tests: `TestFormForCollectUpdateBlankRetains` (unchanged ↔ omitted; changed ↔ included) and `TestFormForCollectUpdateEmptyStringBlankRetains` (user-blanked-on-update ↔ retained ↔ omitted from payload).
+- 3.4 Explicit `null`-clear stays on the non-interactive path. `TestUpdateCmdJSONNullPreservedToPatch` at `commands_test.go:296` is unchanged and still passes under `mage check`; the interactive UI cannot synthesize a `null` over an empty text input, which is the deliberate spec choice per the builder's 4.3 note.
+
+## 4. TTY detection and non-interactive preservation
+
+- 4.1 `collectCreateData` / `collectUpdateData` call `ttyInteractive(false)` at `commands.go:721` and `:752`. The helper lives at `init_cmd.go:534-539` and is backed by `github.com/charmbracelet/x/term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())`. No parallel `golang.org/x/term` import — `rg "golang.org/x/term"` in `cmd/ta/` returns zero hits. Single-source TTY detection preserved.
+- 4.2 Under `go test` stdout is a pipe, `ttyInteractive(false)` returns false, and the escape path fires: `errors.New("input required — pass --data '{...}' or --data-file <path>, or run interactively in a TTY")` (lines 722, 753). Locked by `TestCreateCmdRequiresData` and `TestUpdateCmdRequiresDataOffTTY`, both checking `strings.Contains(err.Error(), "input required")`.
+- 4.3 Non-interactive `--data` / `--data-file` paths unchanged: both `collectCreateData` (lines 710-720) and `collectUpdateData` (lines 741-751) short-circuit before the TTY check when either flag carries a value, running the existing `readJSONData` + `json.Unmarshal` path. Byte-identical behavior locked by `TestCreateCmdInlineData`, `TestCreateCmdInlineDataNonInteractiveRegression`, `TestUpdateCmdInlineData`, `TestUpdateCmdJSONNullPreservedToPatch`, `TestUpdateCmdEmptyDataIsNoOp` — all green under `mage check`.
+
+## 5. TOML multi-line string passthrough
+
+- 5.1 `rg "emitMultilineBasicString" internal/backend/toml/` returns 2 hits at `emit.go:91` and `emit.go:123` — the existing `emitString` branch on `ContainsAny(s, "\n\r")` delegates to `emitMultilineBasicString`, which wraps in `"""..."""` and inserts `\"` on 3+ consecutive quotes (lines 134-140). Markdown body strings from `WidgetText` arrive as raw Go strings with newlines; the backend owns the wire format. D1 adds no new escaping layer — confirmed by reading `huh_form.go:211-234` (TrimSpace on Input/Select; raw passthrough on Text).
+
+## 6. Default huh keymap — no global rebinds
+
+- 6.1 `rg "pickerKeyMap|WithKeyMap|bubbles/v2/key" cmd/ta/` returns zero hits in any source file. `huh_form.go` uses `huh.NewForm(huh.NewGroup(huhFields...))` at line 193 with no `.WithKeyMap(...)` chain. Default keymap only — prior `pickerKeyMap q` regression memory respected.
+- 6.2 Imports in `huh_form.go` (lines 3-15): stdlib + `charm.land/huh/v2` + `internal/schema`. No `charm.land/bubbles/v2/key`. Clean.
+
+## 7. Module hygiene
+
+- 7.1 `git diff HEAD -- go.mod go.sum` produces zero output — unchanged.
+- 7.2 `go list -m charm.land/huh/v2` → `charm.land/huh/v2 v2.0.3`. Matches claim.
+- 7.3 `rg "charm.land/huh" go.mod` → one hit at line 7 (direct require). D1 adds no new deps.
+
+## 8. Verification gates
+
+- 8.1 `mage check` — exit 0. 12 test packages green: `cmd/ta 2.438s`, `internal/backend/md 2.258s`, `internal/backend/toml 1.336s`, `internal/config 1.717s`, `internal/db 3.691s`, `internal/fsatomic 1.523s`, `internal/mcpsrv 2.852s`, `internal/ops 3.479s`, `internal/render 2.877s`, `internal/schema 3.478s`, `internal/search 3.050s`, `internal/templates 3.955s`; `internal/record` `[no test files]`. Matches build-task gate.
+- 8.2 `mage dogfood` — exit 0. Stdout: `ta: <root>/workflow/ta-v2/db.toml already exists; dogfood migration already materialized. Skipping.` Idempotent per §12.17 dogfood contract.
+- 8.3 `git diff HEAD --stat` — `cmd/ta/commands.go | 91 +++++++++++++++++++++++++++++++++++++++++------`, `cmd/ta/commands_test.go | 60 +++++++++++++++++++++++++++++--`, `workflow/ta-v2/WORKLOG.md | 77 +++++++++++++++++++++++++++++++++++++++`. Plus two untracked: `cmd/ta/huh_form.go`, `cmd/ta/huh_form_test.go`. 3 modified + 2 untracked = 5-file claim (WORKLOG is builder bookkeeping). Matches.
+
+## 9. WORKLOG integrity
+
+- 9.1 Builder's D1 section begins at line 3132 (`## 12.17.5 D1 — interactive huh form per field on ta create / ta update`) and runs through the Hylla Feedback block at line 3207. All prior `## 12.17.5` entries and their predecessors remain intact above that anchor. PROOF review appends strictly after the builder's block.
+
+## 10. Test coverage verdict
+
+- 10.1 Eight `huh_form_test.go` tests cover: dispatch table (12 rows, all widget kinds and edge cases), stable field order, metadata Kind+Required, nine-widget simultaneous coerce round-trip, blank-retains (2 variants), required-on-blank-create, JSON-invalid, and prefill formatting for array/datetime/boolean. Coverage crosses every collect-side branch listed in Premises §3. No missing widget, no uncovered coerce branch. Table-driven where applicable (dispatch).
+- 10.2 Three `commands_test.go` deltas: existing `TestCreateCmdRequiresData` retargeted to assert `"input required"` (the new diagnostic), plus `TestCreateCmdInlineDataNonInteractiveRegression` + `TestUpdateCmdRequiresDataOffTTY` added. The regression lock proves `--data` still lands a record with both `[plans.task.regress]` and `id = "REGRESS"` in the emitted TOML file — belt-and-suspenders over the unchanged `TestCreateCmdInlineData`.
+
+## 11. Findings
+
+- 11.1 **Accepted tradeoff — no live-TTY coverage.** `form.Run()` requires a PTY harness (`creack/pty`) that the repo does not vendor. The testable surface (`dispatchWidget` + `FormFor` metadata + `collect` closure) covers every piece of logic the live form runs. Integration-level TTY coverage is deferred to §12.17 manual E2E. Consistent with the builder's §8.1 followup.
+- 11.2 **Accepted tradeoff — blank-retains-vs-null-clear asymmetry is undocumented user-facing.** Interactive blank = retain; `--data '{"f":null}'` = clear. The spec chose retain-on-blank and this is correct, but neither `ta update --help` long text nor `ta update` example strings mention it. Non-blocking for D1; future copy-edit item.
+- 11.3 **Minor cosmetic — `Description` chained on every widget even when empty.** `huh_form.go:111` always sets `description := f.Description`. When the schema field has no description huh emits a blank line. Not a functional issue; matches huh's own examples.
+
+## 12. Missing evidence
+
+- 12.1 None. Every premise in §1-§9 is grounded in a specific file+line citation, a specific test name, or a gate-output string from `mage check` / `mage dogfood` / `git diff HEAD --stat` / `go list -m`.
+
+## 13. Summary
+
+**PASS.** §12.17.5 [D1] landed cleanly. Dispatch table matches the spec row-for-row across 9 widget kinds and 12 test rows. `FormFor` builder + `collect` closure correctly implement stable field order, typed coercion on create, blank-retains on update, required-on-blank, JSON shape validation, and RFC3339 datetime round-trip. Non-interactive `--data` / `--data-file` paths preserved byte-identically and locked by dedicated regression test. TTY gate routes through the existing `ttyInteractive` helper — no parallel `golang.org/x/term` import. `go.mod` / `go.sum` untouched; `charm.land/huh/v2 v2.0.3` already present. No global keymap rebinds — prior `pickerKeyMap q` regression memory respected. TOML `"""` escape passthrough owned by the existing backend. `mage check` 12 packages green; `mage dogfood` idempotent. WORKLOG builder section intact, PROOF appends strictly after. No blockers; three non-blocker followups (live-TTY coverage deferred to §12.17 manual E2E; blank-vs-null docs pending copy-edit; empty-description cosmetic) accepted.
+
+## TL;DR
+
+- T1: Dispatch table at `huh_form.go:327-351` matches §12.17.5 [D1] row-for-row; case-insensitive `Format`, empty-enum fallback, dual-route datetime all locked by `TestDispatchWidgetTable`.
+- T2: `FormFor` returns `(*huh.Form, []FormField, collect)`; stable field order via `sort.Strings`; per-widget raw accumulator + Title/Description/Value/Validate chain correct across all 9 kinds.
+- T3: PATCH blank-retains implemented across Confirm / Input / Text / Select / Datetime / Numeric / JSONTextarea branches; explicit `null`-clear stays on non-interactive `--data` path per spec.
+- T4: `ttyInteractive(false)` gates the form; off-TTY emits `"input required"` politely; non-interactive `--data` path byte-identical and regression-locked.
+- T5: TOML `"""` wrapping owned by existing `internal/backend/toml/emit.go:123 emitMultilineBasicString`; D1 adds no new escape layer.
+- T6: Zero global keymap rebinds — `rg "pickerKeyMap|WithKeyMap|bubbles/v2/key" cmd/ta/` clean; prior regression memory respected.
+- T7: `go.mod` / `go.sum` unchanged; `charm.land/huh/v2 v2.0.3` already direct dep.
+- T8: `mage check` exit 0 across 12 packages; `mage dogfood` exit 0 idempotent; 5-file claim matches `git diff HEAD --stat`.
+- T9: Builder's D1 WORKLOG section (lines 3132-3207) intact above PROOF append; no clobbering.
+- T10: Eight `huh_form_test.go` + three `commands_test.go` tests cover every dispatch row and collect branch; live-TTY `form.Run()` deferred to manual E2E per §8.1 followup.
+- T11: Three non-blocker findings accepted — deferred TTY integration tests, docs gap on null-vs-blank, empty-description cosmetic.
+- T12: No missing evidence; every premise is cited to file+line or gate output.
+- T13: PASS. Safe for orchestrator to proceed to falsification review / commit.
+
+### Hylla Feedback
+
+N/A — PROOF review targeted an uncommitted working tree touching only Go files under active edit. Hylla's committed index pre-dates this D1 diff. Evidence flowed via `Read`, `git diff HEAD`, `git diff HEAD --stat`, `git status`, `rg` sweeps (TTY helper location, `pickerKeyMap`/`WithKeyMap`/`bubbles/v2/key` negative-match sweep, `emitMultilineBasicString` callsite), `go list -m charm.land/huh/v2`, and `mage check` / `mage dogfood` gate runs. Hylla would have returned stale pre-diff state for every uncommitted symbol.
+
+## 12.17.5 D1 — QA FALSIFICATION REVIEW
+
+**Scope.** Adversarial pass against the same uncommitted §12.17.5 [D1] stack at HEAD `5cfc247`. Targets the 18 attack vectors supplied in the prompt plus opportunistic extras (confirm prefill-absent emit, dispatch precedence for `string+datetime+Enum`, empty-flag-value UX). Fresh-context subagent; no parent hindsight from the PROOF sibling.
+
+## 1. Attack vectors — results
+
+- 1.1 **A1 dispatch precedence (string + datetime + enum).** `dispatchWidget` (`huh_form.go:337-347`) routes a `TypeString` field through inner switch: markdown → Text, datetime-format → Datetime, non-empty enum → Select, else → Input. For `string + Format="datetime" + Enum=[...]` datetime wins BEFORE the enum check. Schema does not reject this combination upstream. **CONFIRMED-MINOR (design precedence not covered by test)** — not a blocker, not a crash; routed as non-blocker §3.1.
+- 1.2 **A1 dispatch precedence (integer + enum).** Outer switch matches `TypeInteger` → `WidgetNumeric`; `f.Enum` never consulted. Design choice matches spec (enum constraint lives at validation layer, not widget layer); not a bug. REFUTED.
+- 1.3 **A1 dispatch precedence (array + format).** Outer switch matches `TypeArray` → `WidgetJSONTextarea`; `f.Format` never consulted. Spec-aligned. REFUTED.
+- 1.4 **A2 pre-fill crash on missing/null.** `collectUpdateData` reads `res.Fields` from `ops.GetAllFields`; `extractAllDeclaredFields` silently omits missing keys. `FormFor` checks `prefill[name]` with `ok` pattern (`huh_form.go:100`), so absent keys leave `hadPrefill=false`. `stringifyForField(nil, f)` returns `""` (line 357-359). No nil deref, no panic. REFUTED.
+- 1.5 **A3 `null`-in-JSON swallow.** Non-interactive branch (`commands.go:710-719, 741-750`) runs `json.Unmarshal(raw, &data)` into `map[string]any` — JSON null unmarshals to a Go `nil` map entry, preserved. `TestUpdateCmdJSONNullPreservedToPatch` (`commands_test.go:296-338`) passes under `mage check`. REFUTED.
+- 1.6 **A4 empty-object `--data '{}'`.** `dataInline = "{}"` is non-empty → non-interactive branch → unmarshal → empty map → passes through to `ops.Update` → existing `TestUpdateCmdEmptyDataIsNoOp` still green. REFUTED.
+- 1.7 **A5 TTY-vs-stdout detection asymmetry.** `ttyInteractive(false)` requires BOTH `os.Stdin` AND `os.Stdout` be TTYs (`init_cmd.go:538`). Stdin-TTY + stdout-piped (e.g. `ta create … > out.txt`) returns false → `"input required"` error fires even though the user has an interactive terminal. Strictly this is correct (huh cannot render to a pipe), but the diagnostic does not name the stdout-pipe cause. **CONFIRMED-MINOR** (UX diagnostic); routed as non-blocker §3.2.
+- 1.8 **A6 required-field empty-submission.** `nonEmptyIfRequiredValidator` (`huh_form.go:386-393`) rejects empty on create-or-update-without-prefill at the huh-Validate layer; `collect` also enforces (line 229) for belt-and-suspenders. Locked by `TestFormForCollectCreateRequiredFailsOnBlank`. REFUTED.
+- 1.9 **A7 boolean prefill update retention.** `WidgetConfirm` collect branch (`huh_form.go:200-209`) checks `isUpdate && hadPrefill && prev == v` to omit. But when `hadPrefill=false` on update (optional bool absent from stored record), the branch does NOT trigger → `out[ff.Name] = v` always emits the current rawBool. Since `b := false` initializes (line 115) and the user may scroll past without flipping, an untouched optional bool writes `false` to the PATCH payload for a field that previously had no stored value. **CONFIRMED-MINOR** — matches the builder's own Attack-8 self-note in §4.4 that "bool retain on update shares logic with the scalar path and is not separately tested"; the scalar path DOES skip unchanged optionals via `!f.Required { continue }` (line 226), but Confirm has no equivalent. Non-blocking for D1 because (a) the user did see the widget, (b) huh has no tri-state default, (c) a later drop can add an `addedOnUpdate` skip if this surfaces as a real user complaint. Routed as non-blocker §3.3.
+- 1.10 **A8 numeric coercion.** `numericValidator(TypeInteger)` uses `strconv.ParseInt(s, 10, 64)` → rejects `"123.5"` ("invalid syntax") and `"abc"` ("invalid syntax"). Huh Validate fires before submission; collect re-parses as belt-and-suspenders (line 273-277). REFUTED.
+- 1.11 **A9 RFC3339 validator strictness.** `time.Parse(time.RFC3339, s)` where `RFC3339 = "2006-01-02T15:04:05Z07:00"` requires a timezone offset. Timezone-naive (`2024-01-01T00:00:00`) rejected; date-only (`2024-01-01`) rejected. Prefill round-trip via `t.Format(time.RFC3339)` produces a TZ-bearing string. If stored TOML ever emits a *local* datetime (no offset), `go-toml/v2` returns a `toml.LocalDateTime`, not `time.Time` — `stringifyForField` would hit the `default:` branch `fmt.Sprint(v)` and produce an unparseable prefill. Current codebase has zero references to `LocalDateTime` / `LocalDate` / `LocalTime` and `emit.go:77` always emits `RFC3339Nano`, so the only way to trigger this is a hand-edited TOML file with a local datetime. **UNKNOWN — theoretical only**; not reachable via the dogfood path. Routed as non-blocker §3.4.
+- 1.12 **A10 JSON textarea validator shape.** `jsonArrayOrTableValidator` (`huh_form.go:439-464`) unmarshals then type-asserts. Scalar `42` → `float64`, assertion fails → "expected JSON array/object". Empty array `[]` → `[]any{}` passes `TypeArray`. `null` → unmarshals to `nil`, `nil.([]any)` → `(nil, false)` → fails. Collect closure re-checks (lines 306-314). REFUTED.
+- 1.13 **A11 `--data-file -` stdin path.** `dataFile="-"` is non-empty → non-interactive branch fires → `readJSONData(inline, "-", c.InOrStdin())` hits the `case "-":` branch (`commands.go:789-790`) → `io.ReadAll(stdin)`. Not intercepted by the TTY gate. REFUTED.
+- 1.14 **A12 empty-string vs unchanged on update text.** Spec choice: blank-on-update = retain (omit from payload). `TestFormForCollectUpdateEmptyStringBlankRetains` locks it. Explicit `null`-clear stays on the `--data '{"f":null}'` path. REFUTED (as designed).
+- 1.15 **A13 off-TTY + `--data ''` empty flag value.** Cobra sets `dataInline=""` when `--data` is passed with an empty argument. The gate `dataInline != ""` evaluates false → falls through to TTY check → off-TTY errors `"input required"`; on-TTY launches the form. The user gets a surprising outcome (they "passed `--data`" but got an interactive prompt or an error). **CONFIRMED-MINOR UX gap**; routed as non-blocker §3.5.
+- 1.16 **A14 markdown prefill containing `"""`.** `huh.NewText` returns the literal Go string the user entered; the builder does no TOML escaping on the huh side (`huh_form.go:215-217` preserves raw without TrimSpace for Text). `internal/backend/toml/emit.go:91, 123 emitMultilineBasicString` handles `"""` escaping at the wire layer (`\"` insertion on 3+ consecutive quotes). Round-trip: TOML decoder gives a clean Go string; huh emits that string verbatim; user edits it; ops.Update sends it back; TOML encoder re-escapes. REFUTED.
+- 1.17 **A15 WORKLOG clobber.** PROOF review landed at lines 3209-3315 immediately after the builder's D1 block (3132-3207). B0/A2.1/A2.2/B2/C1 entries and all prior V2 sections remain intact above line 3132. This falsification append starts at 3317 via an `Edit` that only extends after the PROOF Hylla-Feedback stanza. REFUTED.
+- 1.18 **A16 `go.mod` / `go.sum` drift.** `git diff HEAD -- go.mod go.sum` → empty output. `huh.NewInput/NewText/NewSelect[string]/NewConfirm/NewGroup/NewForm/NewOption` were already direct deps before D1. REFUTED.
+- 1.19 **A17 huh v2 API drift.** Context7 `/charmbracelet/huh` (v2.0.0 docs) confirms `huh.NewInput().Title(string).Description(string).Value(*string).Validate(func(string) error)`, `huh.NewText().Title(...).Value(*string).Validate(...)`, `huh.NewSelect[T comparable]().Title(...).Options(Option[T]...).Value(*T)`, `huh.NewConfirm().Title(...).Value(*bool)`, and `huh.NewOption[T](key string, value T) Option[T]`. Builder's chain at `huh_form.go:122-187` matches row-for-row. `mage check` compiles clean against `charm.land/huh/v2 v2.0.3`. REFUTED.
+- 1.20 **A18 import cycles.** `cmd/ta/huh_form.go` imports stdlib + `charm.land/huh/v2` + `github.com/evanmschultz/ta/internal/schema`. `rg "github.com/evanmschultz/ta/cmd/ta" internal/` → zero hits. No internal package imports cmd/ta; no cycle surface. REFUTED.
+
+## 2. Counterexamples — CONFIRMED
+
+- 2.1 **None blocking.** Zero CONFIRMED counterexamples against the D1 behavioral contract or its advertised gates. Four CONFIRMED-MINOR items surfaced (§1.1 dispatch precedence for `string+datetime+Enum` is a design choice, §1.7 TTY diagnostic in stdout-only-piped case, §1.9 optional-bool-on-update-no-prefill always emits `false`, §1.15 `--data ''` empty-flag-value UX), all routed as non-blocker followups §3.1-§3.4-§3.5.
+- 2.2 **Builder's Attack-8 self-note corroborated not invalidated.** §1.9's confirm-prefill-absent-emit is the exact edge the builder flagged in the round's Attack 8 self-note. The scalar path skips unchanged optionals via `!f.Required { continue }` (`huh_form.go:226`) but Confirm does not — asymmetric but non-crashing, and matches the "user saw the widget, user accepted default" pragmatic reading.
+
+## 3. Non-blocker followups
+
+- 3.1 **Dispatch precedence `string + Format=datetime + Enum`.** Current behavior: datetime wins, enum silently ignored. No test row asserts the combination. If schemas ever legitimately declare enumerated RFC3339 literals the UX will feel silent. Mitigation: either add a table row to `TestDispatchWidgetTable` pinning the current precedence (datetime > enum), or invert the precedence (enum > datetime) so enumerated timestamps route through Select. Out of scope for D1.
+- 3.2 **TTY diagnostic does not name stdout-pipe cause.** Current message: `"input required — pass --data '{...}' or --data-file <path>, or run interactively in a TTY"`. Consider splitting into stdin-not-tty vs stdout-not-tty diagnostics, or at least mention `"requires both stdin and stdout on a terminal"`. Minor copy edit.
+- 3.3 **Optional bool on update without stored prefill emits `false`.** `WidgetConfirm` collect branch (`huh_form.go:200-209`) emits the rawBool unconditionally when `hadPrefill=false`. If the schema declares an optional bool that has never been set on the record, an unchanged form now writes `false` into the PATCH payload. Future fix: track `addedOnUpdate` skip for Confirm mirroring the scalar `!f.Required { continue }` guard. Not blocking — user did see the widget, and huh has no tri-state default.
+- 3.4 **`toml.LocalDateTime` prefill path untested / unreachable via dogfood.** Theoretical only: if any stored TOML ever uses a local-date-time (no offset), `stringifyForField` hits the `default:` branch and produces an unparseable RFC3339 prefill. Zero references in the codebase today; `emit.go` always writes `RFC3339Nano`. File a followup test or explicitly reject local-date-time at parse time if the codebase ever admits them.
+- 3.5 **`--data ''` empty-flag-value UX.** Passing `--data` with an empty string argument falls through to the TTY gate (because `dataInline != ""` is false). On-TTY launches the form; off-TTY errors `"input required"`. Minor surprise. Consider distinguishing "flag was provided but empty" from "flag was not provided" via a Cobra `Changed("data")` check, or documenting the current behavior in `--help`.
+
+## 4. Verification gates
+
+- 4.1 `mage check` — exit 0 under plain invocation (sandbox blocked `MAGEFILE_JSON=1` prefix; same constraint the PROOF sibling recorded in §8.1). 12 test packages green (`cmd/ta 2.175s`, `internal/backend/md 1.229s`, `internal/backend/toml 1.417s`, `internal/config 1.917s`, `internal/db 2.577s`, `internal/fsatomic 1.540s`, `internal/mcpsrv 2.602s`, `internal/ops 2.591s`, `internal/render 2.843s`, `internal/schema 2.909s`, `internal/search 3.096s`, `internal/templates 2.530s`); `internal/record` `[no test files]`. Matches build-task gate.
+- 4.2 `git diff HEAD --stat` — `cmd/ta/commands.go` (+91/-12), `cmd/ta/commands_test.go` (+60/-4), `workflow/ta-v2/WORKLOG.md` (+77 builder + PROOF append + this FALSIFICATION append). Untracked: `cmd/ta/huh_form.go`, `cmd/ta/huh_form_test.go`. Matches the 5-file claim (WORKLOG is bookkeeping).
+- 4.3 `go list -m charm.land/huh/v2` → `charm.land/huh/v2 v2.0.3`. `go.mod` / `go.sum` untouched.
+- 4.4 Context7 `/charmbracelet/huh` (v2.0.0) — API row-for-row match with builder's chain; no drift.
+
+## 5. Falsification certificate
+
+- 5.1 **Premises.** Dispatch table routes (Type, Format, Enum) → WidgetKind per §12.17.5 [D1]; `FormFor` emits stable field order, typed coercion on create, PATCH blank-retains on update; non-interactive `--data` / `--data-file` paths are byte-identical; TTY gate rejects off-TTY with `"input required"`; required validation fires at both huh-Validate and collect layers; TOML `"""` escaping is owned by the backend; `go.mod` / `go.sum` are clean; huh v2.0.3 API surface is stable; no internal package imports cmd/ta.
+- 5.2 **Evidence.** `Read` on `huh_form.go`, `huh_form_test.go`, `commands.go:700-793`, `commands_test.go:176-355`, `init_cmd.go:520-540`, `ops/ops.go:105-147`, `ops/fields.go:107-155`, `schema/schema.go:1-80`; `rg` sweeps for `ttyInteractive`, `GetAllFields`, `LocalDateTime`, `github.com/evanmschultz/ta/cmd/ta` (negative), `charm.land/huh` in `go.mod`, `pickerKeyMap|WithKeyMap|bubbles/v2/key` (negative in huh_form.go); `mage check` live exit 0; `git diff HEAD --stat` and `git diff HEAD -- go.mod go.sum` (empty); Context7 `/charmbracelet/huh` v2.0.0 for API surface confirmation.
+- 5.3 **Trace or cases.** 18 attack vectors per prompt + 2 opportunistic extras (A1 split into three sub-cases: string+datetime+enum / integer+enum / array+format). Refuted: A2, A3, A4, A6, A8, A10, A11, A12, A14, A15, A16, A17, A18 and the integer+enum / array+format sub-cases (15 REFUTED). Confirmed-minor (non-blocking): A1-stringdatetimeenum, A5, A7, A13 (4 CONFIRMED-MINOR). Unknown / theoretical: local-datetime prefill path (§3.4) — reachable only via hand-edited TOML, no code path today (1 UNKNOWN).
+- 5.4 **Conclusion. PASS.** Zero CONFIRMED counterexamples against the D1 behavioral contract or the advertised acceptance gates. Four CONFIRMED-MINOR items are UX / precedence design choices and asymmetric-edge-case followups (§3.1, §3.2, §3.3, §3.5) not round-blockers. One UNKNOWN (§3.4) is theoretical only and not reachable via the current dogfood or emit path. Converges with sibling PROOF PASS at WORKLOG:3293. Safe for orchestrator to commit.
+- 5.5 **Unknowns.** (i) Live-TTY form behavior is not directly exercised (PTY harness not vendored; matches PROOF §11.1 and builder §8.1). (ii) `toml.LocalDateTime` prefill path theoretical only. (iii) Suggested commit message: `feat(cli): interactive huh form per field on ta create and ta update`.
+
+## TL;DR
+
+- T1: 18 prompt attacks + 2 opportunistic extras; 15 REFUTED outright, 4 CONFIRMED-MINOR (string+datetime+enum precedence silent, TTY diagnostic ambiguous when only stdout is piped, optional-bool-on-update-no-prefill always emits `false`, `--data ''` empty flag surprise), 1 UNKNOWN-theoretical (LocalDateTime prefill path unreachable in current codebase).
+- T2: Zero CONFIRMED counterexamples against the D1 behavioral contract; builder's Attack-8 self-note on bool-retain asymmetry corroborated at §1.9.
+- T3: Five non-blocker followups routed §3.1-§3.5 (precedence, TTY copy-edit, bool-unchanged-skip, local-datetime, `--data ''` diagnostic).
+- T4: `mage check` exit 0 (plain — `MAGEFILE_JSON=1` prefix sandbox-blocked); `git diff HEAD -- go.mod go.sum` empty; `go list -m charm.land/huh/v2` → v2.0.3; Context7 huh v2 API matches builder's chain row-for-row.
+- T5: Verdict **PASS** — convergent with sibling PROOF PASS at WORKLOG:3293. Orchestrator may commit.
+
+### Hylla Feedback
+
+N/A — task touched uncommitted Go working-tree diffs only. Hylla's committed index pre-dates the D1 stack and would have been stale for every interesting symbol. Evidence flowed via `Read`, `git diff HEAD`, `git diff HEAD --stat`, `git diff HEAD -- go.mod go.sum`, `rg` sweeps, `mage check` live re-run, `go list -m charm.land/huh/v2`, and Context7 `/charmbracelet/huh` (v2.0.0) docs.
+

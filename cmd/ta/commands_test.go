@@ -203,8 +203,64 @@ func TestCreateCmdRequiresData(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{"--path", root, "plans.task.t1"})
-	if err := cmd.Execute(); err == nil {
-		t.Fatalf("expected error when --data is omitted")
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error when --data is omitted off-TTY")
+	}
+	// Post-§12.17.5 [D1]: the error explicitly names the TTY-or-flag
+	// escape path, not a bare "must provide --data". Off-TTY the form
+	// cannot run so we fall through to the polite diagnostic.
+	if !strings.Contains(err.Error(), "input required") {
+		t.Errorf("error missing 'input required': %v", err)
+	}
+}
+
+// TestCreateCmdInlineDataNonInteractiveRegression is the §12.17.5 [D1]
+// regression lock that the --data path still works byte-identically
+// after the interactive-form branch landed. Off-TTY (go test) with
+// --data set, the form is skipped and the existing JSON path runs.
+func TestCreateCmdInlineDataNonInteractiveRegression(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newCreateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.task.regress",
+		"--data", `{"id": "REGRESS", "status": "todo"}`,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stdout=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "plans.toml"))
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	body := string(raw)
+	if !strings.Contains(body, "[plans.task.regress]") || !strings.Contains(body, `id = "REGRESS"`) {
+		t.Errorf("create --data path did not land record: %s", body)
+	}
+}
+
+// TestUpdateCmdRequiresDataOffTTY mirrors the create-side check for
+// the off-TTY update escape path.
+func TestUpdateCmdRequiresDataOffTTY(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newUpdateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "plans.task.t1"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error when --data is omitted off-TTY")
+	}
+	if !strings.Contains(err.Error(), "input required") {
+		t.Errorf("error missing 'input required': %v", err)
 	}
 }
 

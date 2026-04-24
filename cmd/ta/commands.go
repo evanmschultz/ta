@@ -404,13 +404,9 @@ func newCreateCmd() *cobra.Command {
 				return err
 			}
 			section := args[0]
-			raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
+			data, err := collectCreateData(c, path, section, dataInline, dataFile)
 			if err != nil {
 				return err
-			}
-			var data map[string]any
-			if err := json.Unmarshal(raw, &data); err != nil {
-				return fmt.Errorf("parse data JSON: %w", err)
 			}
 			targetPath, sources, err := runCreate(path, section, pathHint, data)
 			if err != nil {
@@ -465,13 +461,9 @@ func newUpdateCmd() *cobra.Command {
 				return err
 			}
 			section := args[0]
-			raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
+			data, err := collectUpdateData(c, path, section, dataInline, dataFile)
 			if err != nil {
 				return err
-			}
-			var data map[string]any
-			if err := json.Unmarshal(raw, &data); err != nil {
-				return fmt.Errorf("parse data JSON: %w", err)
 			}
 			targetPath, sources, err := runUpdate(path, section, data)
 			if err != nil {
@@ -707,6 +699,85 @@ func renderSearchHits(w io.Writer, path string, hits []ops.SearchHit) error {
 }
 
 // ---- helpers (CLI-local mirrors of the MCP handlers) -----------------
+
+// collectCreateData is the create-side entrypoint for field data.
+// Preserves the non-interactive --data / --data-file contract and, when
+// neither is set and stdin is a TTY, runs the interactive huh form
+// built from the resolved type's declared fields (V2-PLAN §12.17.5
+// [D1]). Off-TTY with no flags errors politely so agents and scripts
+// fail loudly instead of hanging on stdin.
+func collectCreateData(c *cobra.Command, path, section, dataInline, dataFile string) (map[string]any, error) {
+	if dataInline != "" || dataFile != "" {
+		raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
+		if err != nil {
+			return nil, err
+		}
+		var data map[string]any
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return nil, fmt.Errorf("parse data JSON: %w", err)
+		}
+		return data, nil
+	}
+	if !ttyInteractive(false) {
+		return nil, errors.New("input required — pass --data '{...}' or --data-file <path>, or run interactively in a TTY")
+	}
+	typeSt, err := resolveTypeForSection(path, section)
+	if err != nil {
+		return nil, err
+	}
+	form, _, collect := FormFor(typeSt, nil, false)
+	if err := form.Run(); err != nil {
+		return nil, fmt.Errorf("form: %w", err)
+	}
+	return collect()
+}
+
+// collectUpdateData is the update-side entrypoint. Same shape as
+// collectCreateData, but when no --data / --data-file is passed and
+// stdin is a TTY, the form prefills existing values from the stored
+// record so the user edits in place. Blank submissions retain per PATCH
+// semantics (V2-PLAN §3.5).
+func collectUpdateData(c *cobra.Command, path, section, dataInline, dataFile string) (map[string]any, error) {
+	if dataInline != "" || dataFile != "" {
+		raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
+		if err != nil {
+			return nil, err
+		}
+		var data map[string]any
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return nil, fmt.Errorf("parse data JSON: %w", err)
+		}
+		return data, nil
+	}
+	if !ttyInteractive(false) {
+		return nil, errors.New("input required — pass --data '{...}' or --data-file <path>, or run interactively in a TTY")
+	}
+	res, typeSt, err := ops.GetAllFields(path, section)
+	if err != nil {
+		return nil, err
+	}
+	form, _, collect := FormFor(typeSt, res.Fields, true)
+	if err := form.Run(); err != nil {
+		return nil, fmt.Errorf("form: %w", err)
+	}
+	return collect()
+}
+
+// resolveTypeForSection returns the SectionType that the address names,
+// resolving the db + type from the project registry. Used by the
+// create path, which cannot rely on an existing record for schema
+// lookup.
+func resolveTypeForSection(path, section string) (schema.SectionType, error) {
+	resolution, err := ops.ResolveProject(path)
+	if err != nil {
+		return schema.SectionType{}, fmt.Errorf("resolve schema: %w", err)
+	}
+	_, typeSt, err := lookupDBAndType(resolution.Registry, section)
+	if err != nil {
+		return schema.SectionType{}, err
+	}
+	return typeSt, nil
+}
 
 func readJSONData(inline, file string, stdin io.Reader) ([]byte, error) {
 	if inline != "" {
