@@ -2070,3 +2070,50 @@ Followups (non-blocking).
 
 - Laslig `List` title carries `"<path> [scope: <s>]"` on scoped calls — the title format is cosmetic, subject to §13.1 visual-group follow-ups already tracked.
 
+### QA Proof — go-qa-proof-agent (A2 list-sections rewrite)
+
+Verdict: PASS.
+
+Evidence.
+
+- Project-level addresses locked in by two assertions: `cmd/ta/commands_test.go:TestListSectionsCmdProjectLevelAddresses` (JSON-decoded, exact index-by-index match of five `plan_db.drop_a|b.build_task.task_N` strings) and `internal/mcpsrv/server_test.go:TestListSectionsMultiInstanceAddresses` (MCP-surface twin covering the `<db>.<instance>.<type>.<id>` shape, plus scoped narrow to `plan_db.drop_1`).
+- Flag wiring matches spec: `--scope` (string), `--limit`/`-n` (int, default 10), `--all` (bool), `--path` (via `addPathFlag`). Mutex pairs proven: `cmd.MarkFlagsMutuallyExclusive("limit","all")` + `TestListSectionsCmdMutex`; `resolveListScope` error-path + `TestListSectionsCmdBothScopeFormsErrors`. `--limit`/`--all`/scoped filter each have dedicated tests (`TestListSectionsCmdLimit`/`All`/`ScopeFilter`/`ScopePositional`).
+- Shared implementation: `mcpsrv.ListSections(path, scope)` (ops.go:279) wraps `search.Run(Query{Path,Scope})`; both the CLI `RunE` (commands.go:241) and `handleListSections` (tools.go:236) route through it. Zero-filter search reuse keeps the address shape in lockstep with `get`/`search`.
+- Old file-path signature fully retired: `toml.Parse` import removed from `commands.go` and `tools.go`; pre-A1 `<path>` positional is gone from `list-sections` (Use `[scope]`); `longDescription` in `main.go:44` reads `ta list-sections [scope]`; tool description in `tools.go:38` updated to the scope-aware phrasing.
+- `TestPathFlagAcceptedAcrossCommands` (commands_test.go:738) explicitly carves out list-sections as [A2]-owned — no drift.
+- `mage check` / `mage dogfood` green per builder (sandbox-blocked for me; trusted on the builder's claim — no green-gate proxy available without re-running).
+- §12.14.5 standing scan: `resolveListScope` is 12 lines doing exactly what the spec demands; no speculative flags, no dead code, no cross-cutting config.
+
+Unknowns.
+
+- CLI applies `--limit` by slicing the fully materialized list after `mcpsrv.ListSections` returns. Correct for A2 scope; large-project truncation-before-walk is a latent follow-up, not a blocker.
+
+
+### QA Falsification — go-qa-falsification-agent (A2 list-sections rewrite)
+
+Verdict: **PASS-WITH-FOLLOWUPS** (commit `99b5bff`, HEAD `b06ff33`). No counterexample breaks the A2 contract; three low-severity follow-ups surfaced.
+
+Attack pass (each REFUTED unless noted).
+
+- **Both-form scope mutex (P1).** REFUTED. `resolveListScope` (`commands.go:282`) errors `"pass scope once: supply either the positional or --scope, not both"` when `flagScope != "" && positional != ""`; locked in by `TestListSectionsCmdBothScopeFormsErrors`.
+- **`--limit`/`--all` cobra mutex (P2).** REFUTED. `cmd.MarkFlagsMutuallyExclusive("limit","all")` registered; `TestListSectionsCmdMutex` asserts `Execute()` errors. Cobra's stock message is sufficient.
+- **CLI/MCP path divergence (P3).** REFUTED. Both surfaces call `mcpsrv.ListSections(path, scope)` (commands.go:241 + tools.go:236) with identical zero-filter `search.Run` wrap. No drift possible.
+- **Walker ordering (P4, P10).** REFUTED. `search.Run` doc (`internal/search/search.go:54`) pins "hits in source order across files. Files are visited in stable lexical order so results are deterministic across runs." `TestListSectionsCmdProjectLevelAddresses` asserts index-by-index ordering across `drop_a`/`drop_b`.
+- **Scope grammar inheritance (P5).** REFUTED. `parseScope` (`search.go:128-195`) supports all five forms + `-*` / `*` wildcard via `trimGlob`. `ListSections` inherits cleanly.
+- **Empty project (P7).** REFUTED. `Resolver.Instances` returns empty on missing `directory`; CLI renders `"(no sections)"` placeholder — `TestListSectionsCmdEmptyProject` asserts the string.
+- **Legacy `ta list-sections ./plans.toml` (P8).** REFUTED-with-nuance. Positional `./plans.toml` is parsed as scope → `search.parseScope` splits on `.` → `parts[0] == ""` → `ErrInvalidScope: "./plans.toml"`. Errors loudly as required; no silent treatment as file path. No dedicated regression test locks this in (minor gap — the misuse-mode error message is what users will first hit post-migration).
+- **Dead code (P12).** REFUTED. `rg 'toml.Parse' cmd/ta/ internal/mcpsrv/tools.go` returns zero; `TestListSectionsStillWorks` renamed out. `internal/backend/toml` import still used in unrelated callers (`schema_mutate.go`, `backend.go`) — legitimate.
+- **§12.14.5 modernization (P9).** REFUTED. No `interface{}`, no pre-1.22 range idioms, `resolveListScope` is 12 lines of targeted logic.
+
+Follow-ups (non-blocking).
+
+- **F1 — MCP tool lacks `limit`/`all` params.** Tool schema exposes only `path`+`scope`; CLI caps at 10. Agent calling MCP directly sees the raw list while CLI user sees 10; observable asymmetry under the "matches MCP tool shape" commit tagline. Either port `--limit`/`--all` into the MCP tool or tighten the commit message's claim.
+- **F2 — `--limit 0` / negative silently uncaps.** `if !all && limit > 0 && len(sections) > limit` (commands.go:255) treats `≤0` as no-cap. Consider erroring on negatives; `0` as "no cap" is fine but undocumented.
+- **F3 — Legacy file-path misuse test.** No regression test asserts `ta list-sections ./plans.toml` errors loudly via `ErrInvalidScope`. The contract holds today via accidental path-through; a one-line negative test locks it in.
+
+Unknowns.
+
+- **`mage check` / `mage dogfood` not independently re-run.** Sandbox blocks bash exec of mage targets this turn; trusting builder + QA proof green claim.
+
+
+
