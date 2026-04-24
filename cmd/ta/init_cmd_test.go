@@ -44,7 +44,7 @@ func TestInitCmdTemplateJSONNoMCP(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
 
-	out, errOut, err := runInitCmd(t, target, "--template", "schema", "--no-claude", "--no-codex", "--json")
+	out, errOut, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex", "--json")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -87,7 +87,7 @@ func TestInitCmdTemplateWritesBothMCPConfigs(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
 
-	_, errOut, err := runInitCmd(t, target, "--template", "schema")
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "schema")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -128,7 +128,7 @@ func TestInitCmdBlankWritesHeader(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
 
-	out, errOut, err := runInitCmd(t, target, "--blank", "--no-claude", "--no-codex", "--json")
+	out, errOut, err := runInitCmd(t, "--path", target, "--blank", "--no-claude", "--no-codex", "--json")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -162,7 +162,7 @@ func TestInitCmdExistingSchemaWithoutForceErrors(t *testing.T) {
 		t.Fatalf("pre-seed: %v", err)
 	}
 
-	_, _, err := runInitCmd(t, target, "--template", "schema", "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
 	if err == nil {
 		t.Fatal("expected error when schema exists without --force")
 	}
@@ -188,7 +188,7 @@ func TestInitCmdExistingSchemaWithForceOverwrites(t *testing.T) {
 		t.Fatalf("pre-seed: %v", err)
 	}
 
-	_, _, err := runInitCmd(t, target, "--template", "schema", "--force", "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--force", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestInitCmdBootstrapConfigSuppressesClaude(t *testing.T) {
 		t.Fatalf("seed config: %v", err)
 	}
 
-	_, errOut, err := runInitCmd(t, target, "--template", "schema")
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "schema")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -222,21 +222,39 @@ func TestInitCmdBootstrapConfigSuppressesClaude(t *testing.T) {
 	}
 }
 
-func TestInitCmdRelativePathErrors(t *testing.T) {
+// TestInitCmdRelativePathResolvesAgainstCwd locks in the V2-PLAN §12.17.5
+// [A1] semantics: relative --path values resolve via filepath.Abs rather
+// than erroring. The relative target is created under cwd and a schema
+// is written into it. Pre-[A1] the positional [path] arg required
+// absolute paths; post-[A1] --path accepts either form.
+func TestInitCmdRelativePathResolvesAgainstCwd(t *testing.T) {
 	seedTemplateLibrary(t)
-	_, _, err := runInitCmd(t, "relative/path", "--template", "schema")
-	if err == nil {
-		t.Fatal("expected error for relative path")
+	// chdir to a throwaway dir so the relative path resolves there.
+	parent := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
 	}
-	if !strings.Contains(err.Error(), "absolute") {
-		t.Errorf("error missing 'absolute': %v", err)
+	if err := os.Chdir(parent); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	_, errOut, err := runInitCmd(t, "--path", "relative/path", "--template", "schema", "--no-claude", "--no-codex")
+	if err != nil {
+		t.Fatalf("relative --path should resolve against cwd: %v stderr=%s", err, errOut)
+	}
+	// Schema must land under the resolved absolute path.
+	absTarget := filepath.Join(parent, "relative", "path")
+	if _, err := os.Stat(filepath.Join(absTarget, ".ta", "schema.toml")); err != nil {
+		t.Errorf("schema not written under resolved path: %v", err)
 	}
 }
 
 func TestInitCmdMissingTemplateErrors(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
-	_, _, err := runInitCmd(t, target, "--template", "ghost", "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "ghost", "--no-claude", "--no-codex")
 	if err == nil {
 		t.Fatal("expected error for missing template")
 	}
@@ -246,7 +264,7 @@ func TestInitCmdNonInteractiveWithoutTemplateErrors(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
 	// No --template, no --blank; stdin is not a TTY (test context).
-	_, _, err := runInitCmd(t, target, "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--no-claude", "--no-codex")
 	if err == nil {
 		t.Fatal("expected error running non-interactive without --template or --blank")
 	}
@@ -257,7 +275,7 @@ func TestInitCmdCreatesMissingTarget(t *testing.T) {
 	parent := t.TempDir()
 	target := filepath.Join(parent, "new-project")
 
-	_, _, err := runInitCmd(t, target, "--template", "schema", "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -284,7 +302,7 @@ func TestInitCmdPreservesExistingTaEntryInMCPJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(target, ".mcp.json"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, target, "--template", "schema", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -308,7 +326,7 @@ func TestInitCmdMergesTaEntryIntoExistingMCPJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(target, ".mcp.json"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, target, "--template", "schema", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -341,7 +359,7 @@ func TestInitCmdPreservesExistingCodexTaBlock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, target, "--template", "schema", "--no-claude")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -362,7 +380,7 @@ func TestInitCmdMergesTaBlockIntoExistingCodexConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, target, "--template", "schema", "--no-claude")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -426,7 +444,7 @@ func TestInitCmdCodexWhitespaceVariantNotDuplicated(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, target, "--template", "schema", "--no-claude")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -453,7 +471,7 @@ func TestInitCmdCodexWhitespaceVariantNotDuplicated(t *testing.T) {
 func TestInitCmdJSONImpliesNonInteractive(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
-	_, _, err := runInitCmd(t, target, "--json", "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--json", "--no-claude", "--no-codex")
 	if err == nil {
 		t.Fatalf("expected error (non-interactive without --template / --blank); got nil")
 	}
@@ -461,7 +479,7 @@ func TestInitCmdJSONImpliesNonInteractive(t *testing.T) {
 		t.Errorf("expected 'template' in error; got: %v", err)
 	}
 	// Template flag + --json should succeed on the non-interactive path.
-	_, _, err = runInitCmd(t, target, "--template", "schema", "--json", "--no-claude", "--no-codex")
+	_, _, err = runInitCmd(t, "--path", target, "--template", "schema", "--json", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("template + --json should succeed non-interactively: %v", err)
 	}

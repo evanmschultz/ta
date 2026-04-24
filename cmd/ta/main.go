@@ -37,14 +37,16 @@ const longDescription = "# ta\n\n" +
 	"- When spawned by an MCP client (e.g. Claude Code — stdio pipes, no TTY), " +
 	"starts the MCP server. Register it via `.mcp.json` or `claude mcp add`; " +
 	"the stdio handshake makes the server path fire automatically.\n\n" +
-	"The same tool surface is available as terminal subcommands:\n\n" +
-	"- `ta get <path> <section>` — read a record; optionally --fields name[,name]\n" +
+	"The same tool surface is available as terminal subcommands (every " +
+	"path-taking command takes `--path` as a flag; default cwd, relative " +
+	"or absolute accepted — V2-PLAN §12.17.5 [A1]):\n\n" +
+	"- `ta get <section>` — read a record; optionally --fields name[,name]\n" +
 	"- `ta list-sections <path>` — enumerate sections in a TOML file\n" +
-	"- `ta schema <path> [section]` — show the resolved schema\n" +
-	"- `ta create <path> <section> --data <json>` — create a new record\n" +
-	"- `ta update <path> <section> --data <json>` — update an existing record\n" +
-	"- `ta delete <path> <section>` — remove a record, file, or instance dir\n" +
-	"- `ta init [path]` — bootstrap a project directory (schema + MCP configs)\n" +
+	"- `ta schema [section]` — show the resolved schema\n" +
+	"- `ta create <section> --data <json>` — create a new record\n" +
+	"- `ta update <section> --data <json>` — update an existing record\n" +
+	"- `ta delete <section>` — remove a record, file, or instance dir\n" +
+	"- `ta init` — bootstrap a project directory (schema + MCP configs)\n" +
 	"- `ta template (list|show|save|apply|delete)` — manage the ~/.ta library\n\n" +
 	"Each project has a self-contained schema at `<project>/.ta/schema.toml`. " +
 	"The runtime reads exactly that one file — no home-layer cascade, no " +
@@ -70,8 +72,8 @@ func newRootCmd() *cobra.Command {
 		Use:   appName,
 		Short: "MCP server (and matching CLI) for schema-validated TOML",
 		Long:  longDescription,
-		Example: `  ta init /abs/path/to/new-project
-  ta get ./plans.toml plans.task.task-001
+		Example: `  ta init --path /abs/path/to/new-project
+  ta get plans.task.task-001
   ta template list`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {

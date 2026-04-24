@@ -373,7 +373,7 @@ func TestTemplateApplyHappyPath(t *testing.T) {
 	newTemplateLibraryFixture(t)
 	target := t.TempDir()
 
-	out, errOut, err := runTemplateCmd(t, "apply", "schema", target, "--force", "--json")
+	out, errOut, err := runTemplateCmd(t, "apply", "schema", "--path", target, "--force", "--json")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -408,20 +408,35 @@ func TestTemplateApplyMissingNameErrors(t *testing.T) {
 	newTemplateLibraryFixture(t)
 	target := t.TempDir()
 
-	_, _, err := runTemplateCmd(t, "apply", "ghost", target, "--force")
+	_, _, err := runTemplateCmd(t, "apply", "ghost", "--path", target, "--force")
 	if err == nil {
 		t.Fatal("expected error for missing template")
 	}
 }
 
-func TestTemplateApplyRelativePathErrors(t *testing.T) {
+// TestTemplateApplyRelativePathResolvesAgainstCwd locks in V2-PLAN
+// §12.17.5 [A1]: relative --path values resolve via filepath.Abs rather
+// than erroring. Pre-[A1] the positional [path] arg was absolute-only.
+func TestTemplateApplyRelativePathResolvesAgainstCwd(t *testing.T) {
 	newTemplateLibraryFixture(t)
-	_, _, err := runTemplateCmd(t, "apply", "schema", "relative/path", "--force")
-	if err == nil {
-		t.Fatal("expected error for relative path arg")
+	// chdir to a throwaway dir so the relative path resolves there.
+	parent := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
 	}
-	if !strings.Contains(err.Error(), "absolute") {
-		t.Errorf("error missing 'absolute': %v", err)
+	if err := os.Chdir(parent); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	_, _, err = runTemplateCmd(t, "apply", "schema", "--path", "relative/path", "--force")
+	if err != nil {
+		t.Fatalf("relative --path should resolve against cwd: %v", err)
+	}
+	absTarget := filepath.Join(parent, "relative", "path", ".ta", "schema.toml")
+	if _, err := os.Stat(absTarget); err != nil {
+		t.Errorf("template not written under resolved path: %v", err)
 	}
 }
 
@@ -435,7 +450,7 @@ func TestTemplateApplyExistingTargetWithoutForceErrors(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte("# existing\n"), 0o644); err != nil {
 		t.Fatalf("pre-seed: %v", err)
 	}
-	_, _, err := runTemplateCmd(t, "apply", "schema", target)
+	_, _, err := runTemplateCmd(t, "apply", "schema", "--path", target)
 	if err == nil {
 		t.Fatal("expected error on existing target without --force")
 	}
@@ -455,7 +470,7 @@ func TestTemplateApplyDoesNotTouchMCPConfigs(t *testing.T) {
 	newTemplateLibraryFixture(t)
 	target := t.TempDir()
 
-	_, _, err := runTemplateCmd(t, "apply", "schema", target, "--force")
+	_, _, err := runTemplateCmd(t, "apply", "schema", "--path", target, "--force")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}

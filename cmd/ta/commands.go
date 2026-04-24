@@ -30,7 +30,7 @@ func newGetCmd() *cobra.Command {
 	var fields []string
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "get <path> <section>",
+		Use:   "get <section>",
 		Short: "Read one record; optionally extract declared field values",
 		Long: "Mirrors the MCP tool `get`. Without --fields the raw record " +
 			"bytes are rendered through laslig (TOML wrapped in a ```toml " +
@@ -38,15 +38,20 @@ func newGetCmd() *cobra.Command {
 			"name[,name...] or repeated --field <name> the named field values " +
 			"are rendered per type: string fields as markdown, scalars as " +
 			"label:value, arrays/tables as fenced JSON. With --json the " +
-			"laslig path is bypassed and JSON is written for agent consumption.",
-		Example: "  ta get ./plans.toml plans.task.task-001\n" +
-			"  ta get ./plans.toml plans.task.task-001 --fields status,body\n" +
-			"  ta get ./plans.toml plans.task.task-001 --json",
-		Args:          cobra.ExactArgs(2),
+			"laslig path is bypassed and JSON is written for agent consumption. " +
+			"--path defaults to cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Example: "  ta get plans.task.task-001\n" +
+			"  ta get --path /abs/proj plans.task.task-001 --fields status,body\n" +
+			"  ta get plans.task.task-001 --json",
+		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path, section := args[0], args[1]
+			path, err := resolveCLIPath(c)
+			if err != nil {
+				return err
+			}
+			section := args[0]
 			res, err := mcpsrv.Get(path, section, fields)
 			if err != nil {
 				return err
@@ -68,6 +73,7 @@ func newGetCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated declared field names to extract")
 	cmd.Flags().StringSliceVar(&fields, "field", nil, "declared field name to extract (repeatable)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
+	addPathFlag(cmd)
 	return cmd
 }
 
@@ -239,22 +245,27 @@ func newCreateCmd() *cobra.Command {
 	var pathHint string
 	var verbose bool
 	cmd := &cobra.Command{
-		Use:   "create <path> <section>",
+		Use:   "create <section>",
 		Short: "Create a new record (fails if it exists); mirrors MCP tool `create`.",
 		Long: "Create a new record at the given address. Fails if the record " +
 			"already exists (V2-PLAN §3.4). Creates the backing file and any " +
 			"intermediate directories on first use. For file-per-instance dbs, " +
 			"--path-hint disambiguates flat vs nested placement. With --verbose, " +
 			"the newly-created record content is echoed after the success " +
-			"notice per V2-PLAN §13.1.",
-		Example: "  ta create ./proj plans.task.task-001 --data '{\"id\":\"TASK-001\",\"status\":\"todo\"}'\n" +
-			"  ta create ./proj plans.task.task-001 --data-file payload.json\n" +
-			"  cat payload.json | ta create ./proj plans.task.task-001 --data-file -",
-		Args:          cobra.ExactArgs(2),
+			"notice per V2-PLAN §13.1. --path defaults to cwd; relative or " +
+			"absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Example: "  ta create plans.task.task-001 --data '{\"id\":\"TASK-001\",\"status\":\"todo\"}'\n" +
+			"  ta create --path /abs/proj plans.task.task-001 --data-file payload.json\n" +
+			"  cat payload.json | ta create plans.task.task-001 --data-file -",
+		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path, section := args[0], args[1]
+			path, err := resolveCLIPath(c)
+			if err != nil {
+				return err
+			}
+			section := args[0]
 			raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
 			if err != nil {
 				return err
@@ -281,6 +292,7 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&pathHint, "path-hint", "", "relative placement hint inside a collection db's root")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the newly-created record after the success notice")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
+	addPathFlag(cmd)
 	return cmd
 }
 
@@ -289,20 +301,25 @@ func newUpdateCmd() *cobra.Command {
 	var dataFile string
 	var verbose bool
 	cmd := &cobra.Command{
-		Use:   "update <path> <section>",
+		Use:   "update <section>",
 		Short: "Update an existing record; mirrors MCP tool `update`.",
 		Long: "Update an existing record. Fails if the backing file does not " +
 			"exist (V2-PLAN §3.5). Creates the record within the file if the " +
 			"file exists but the record does not (record-level upsert). With " +
 			"--verbose, the updated record content is echoed after the success " +
-			"notice per V2-PLAN §13.1.",
-		Example: "  ta update ./proj plans.task.task-001 --data '{\"status\":\"done\"}'\n" +
-			"  ta update ./proj plans.task.task-001 --data-file patch.json --verbose",
-		Args:          cobra.ExactArgs(2),
+			"notice per V2-PLAN §13.1. --path defaults to cwd; relative or " +
+			"absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Example: "  ta update plans.task.task-001 --data '{\"status\":\"done\"}'\n" +
+			"  ta update --path /abs/proj plans.task.task-001 --data-file patch.json --verbose",
+		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path, section := args[0], args[1]
+			path, err := resolveCLIPath(c)
+			if err != nil {
+				return err
+			}
+			section := args[0]
 			raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
 			if err != nil {
 				return err
@@ -328,25 +345,31 @@ func newUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the updated record after the success notice")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
+	addPathFlag(cmd)
 	return cmd
 }
 
 func newDeleteCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "delete <path> <section>",
+	cmd := &cobra.Command{
+		Use:   "delete <section>",
 		Short: "Remove a record, file, or instance directory; mirrors MCP tool `delete`.",
 		Long: "Remove a record (bytes spliced out), a single-instance data " +
 			"file, or a multi-instance instance dir/file. Whole multi-instance " +
 			"db deletes error as ambiguous; zero the instances first or route " +
-			"through `schema delete --kind db` (V2-PLAN §3.6).",
-		Example: `  ta delete ./proj plans.task.task-001
-  ta delete ./proj plans
-  ta delete ./proj plan_db.drop-3`,
-		Args:          cobra.ExactArgs(2),
+			"through `schema delete --kind db` (V2-PLAN §3.6). --path defaults " +
+			"to cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Example: `  ta delete plans.task.task-001
+  ta delete --path /abs/proj plans
+  ta delete plan_db.drop-3`,
+		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path, section := args[0], args[1]
+			path, err := resolveCLIPath(c)
+			if err != nil {
+				return err
+			}
+			section := args[0]
 			targetPath, sources, err := runDelete(path, section)
 			if err != nil {
 				return err
@@ -354,6 +377,8 @@ func newDeleteCmd() *cobra.Command {
 			return noticeMutation(c.OutOrStdout(), "deleted", section, targetPath, sources)
 		},
 	}
+	addPathFlag(cmd)
+	return cmd
 }
 
 func newSchemaCmd() *cobra.Command {
@@ -365,7 +390,7 @@ func newSchemaCmd() *cobra.Command {
 	var verbose bool
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "schema <path> [section]",
+		Use:   "schema [section]",
 		Short: "Inspect or mutate the resolved schema; mirrors MCP tool `schema`.",
 		Long: "With action=get (default), renders the resolved schema; an " +
 			"optional section/scope narrows to one db or type. Passing the " +
@@ -374,19 +399,23 @@ func newSchemaCmd() *cobra.Command {
 			"`.ta/schema.toml` (re-validated on every mutation with atomic " +
 			"rollback — V2-PLAN §4.6). With --json the laslig path is " +
 			"bypassed and JSON is written for agent consumption (action=get " +
-			"only; mutations always print the success notice).",
-		Example: `  ta schema ./proj
-  ta schema ./proj plans.task --json
-  ta schema ./proj ta_schema
-  ta schema ./proj --action=create --kind=type --name=plans.note --data '{...}'`,
-		Args:          cobra.RangeArgs(1, 2),
+			"only; mutations always print the success notice). --path defaults " +
+			"to cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Example: `  ta schema
+  ta schema plans.task --json
+  ta schema ta_schema
+  ta schema --path /abs/proj --action=create --kind=type --name=plans.note --data '{...}'`,
+		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path := args[0]
+			path, err := resolveCLIPath(c)
+			if err != nil {
+				return err
+			}
 			var scope string
-			if len(args) == 2 {
-				scope = args[1]
+			if len(args) == 1 {
+				scope = args[0]
 			}
 			if action == "" || action == "get" {
 				if asJSON {
@@ -425,6 +454,7 @@ func newSchemaCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the post-mutation schema after the success notice (no effect on action=get)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output (action=get)")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
+	addPathFlag(cmd)
 	return cmd
 }
 
@@ -439,21 +469,25 @@ func newSearchCmd() *cobra.Command {
 	var field string
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "search <path>",
+		Use:   "search",
 		Short: "Structured + regex search across records; mirrors MCP tool `search`.",
 		Long: "Walks declared records under --scope, applies --match exact-match " +
 			"filters on typed scalar fields (JSON object), then optionally " +
 			"applies --query regex against string fields (restricted to " +
 			"--field when set). One laslig card per hit — or, with --json, " +
-			"a structured hits array for agent consumption.",
-		Example: "  ta search ./proj --scope=plans.task --match '{\"status\":\"todo\"}'\n" +
-			"  ta search ./proj --scope=plans.task --query='TODO' --field=body\n" +
-			"  ta search ./proj --scope=plans.task --json",
-		Args:          cobra.ExactArgs(1),
+			"a structured hits array for agent consumption. --path defaults " +
+			"to cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Example: "  ta search --scope=plans.task --match '{\"status\":\"todo\"}'\n" +
+			"  ta search --path /abs/proj --scope=plans.task --query='TODO' --field=body\n" +
+			"  ta search --scope=plans.task --json",
+		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path := args[0]
+			path, err := resolveCLIPath(c)
+			if err != nil {
+				return err
+			}
 			var match map[string]any
 			if matchJSON != "" {
 				if err := json.Unmarshal([]byte(matchJSON), &match); err != nil {
@@ -475,6 +509,7 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&query, "query", "", "Go RE2 regex matched against string fields")
 	cmd.Flags().StringVar(&field, "field", "", "restrict --query to one string field")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
+	addPathFlag(cmd)
 	return cmd
 }
 

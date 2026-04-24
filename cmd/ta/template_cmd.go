@@ -269,40 +269,37 @@ func newTemplateApplyCmd() *cobra.Command {
 	var force bool
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "apply <name> [path]",
+		Use:   "apply <name>",
 		Short: "Copy ~/.ta/<name>.toml into <path>/.ta/schema.toml",
 		Long: "Writes the template bytes verbatim to `<path>/.ta/schema.toml`. " +
-			"Target path defaults to cwd; if supplied, MUST be absolute " +
-			"(matches `ta init`). Creates the `.ta/` directory if missing. " +
+			"--path defaults to cwd; relative or absolute accepted (V2-PLAN " +
+			"§12.17.5 [A1]). Creates the `.ta/` directory if missing. " +
 			"If the target already exists, confirms via huh on a TTY or " +
 			"requires `--force` off-TTY. Schema-only — does NOT touch " +
 			"`.mcp.json` / `.codex/config.toml` (use `ta init` for a full " +
 			"bootstrap) per V2-PLAN §14.3.",
 		Example: `  ta template apply schema
-  ta template apply schema /abs/path/proj
-  ta template apply schema /abs/path --force --json`,
-		Args: cobra.RangeArgs(1, 2),
+  ta template apply schema --path /abs/path/proj
+  ta template apply schema --path /abs/path --force --json`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
-			var targetArg string
-			if len(args) == 2 {
-				targetArg = args[1]
+			target, err := resolveCLIPath(c)
+			if err != nil {
+				return err
 			}
-			return runTemplateApply(c.OutOrStdout(), name, targetArg, force, asJSON)
+			return runTemplateApply(c.OutOrStdout(), name, target, force, asJSON)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing <path>/.ta/schema.toml without prompting")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered notice")
+	addPathFlag(cmd)
 	return cmd
 }
 
-func runTemplateApply(out io.Writer, name, targetArg string, force, asJSON bool) error {
-	target, err := resolveApplyPath(targetArg)
-	if err != nil {
-		return err
-	}
+func runTemplateApply(out io.Writer, name, target string, force, asJSON bool) error {
 	root, err := templates.Root()
 	if err != nil {
 		return err
@@ -343,23 +340,6 @@ func runTemplateApply(out io.Writer, name, targetArg string, force, asJSON bool)
 	}
 	report := templateApplyReport{Name: name, Target: destPath, Written: true}
 	return emitTemplateApplyReport(out, report, asJSON)
-}
-
-// resolveApplyPath mirrors resolveInitPath's discipline: no arg → cwd;
-// arg → must be absolute. Keeps agent invocations independent of the
-// shell's cwd per V2-PLAN §14.3.
-func resolveApplyPath(arg string) (string, error) {
-	if arg == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("resolve cwd: %w", err)
-		}
-		return cwd, nil
-	}
-	if !filepath.IsAbs(arg) {
-		return "", fmt.Errorf("apply: path must be absolute; got %q", arg)
-	}
-	return filepath.Clean(arg), nil
 }
 
 func emitTemplateApplyReport(w io.Writer, r templateApplyReport, asJSON bool) error {

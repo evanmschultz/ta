@@ -74,7 +74,7 @@ type bootstrapConfig struct {
 func newInitCmd() *cobra.Command {
 	f := initFlags{}
 	cmd := &cobra.Command{
-		Use:   "init [path]",
+		Use:   "init",
 		Short: "Bootstrap a project directory with a schema and MCP configs",
 		Long: "Bootstrap a project directory from the `~/.ta/` template " +
 			"library. With a TTY and no flags, runs an interactive huh " +
@@ -84,11 +84,12 @@ func newInitCmd() *cobra.Command {
 			"(Claude Code) and `<path>/.codex/config.toml` (Codex). Per-path " +
 			"defaults can be set in `<path>/.ta/config.toml` (V2-PLAN §14.5); " +
 			"`ta init` does NOT create that file itself — edit it by hand to " +
-			"tune future `ta init` runs on the same path.",
-		Example: "  ta init\n  ta init /abs/path/to/new-project --template schema\n  ta init /abs/path --template schema --no-codex --json",
-		Args:    cobra.MaximumNArgs(1),
+			"tune future `ta init` runs on the same path. --path defaults to " +
+			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Example: "  ta init\n  ta init --path /abs/path/to/new-project --template schema\n  ta init --path /abs/path --template schema --no-codex --json",
+		Args:    cobra.NoArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			target, err := resolveInitPath(args)
+			target, err := resolveCLIPath(c)
 			if err != nil {
 				return err
 			}
@@ -110,26 +111,8 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&f.force, "force", false, "overwrite an existing .ta/schema.toml without prompting")
 	cmd.Flags().BoolVar(&f.asJSON, "json", false, "emit JSON instead of laslig-rendered notices")
 	cmd.MarkFlagsMutuallyExclusive("template", "blank")
+	addPathFlag(cmd)
 	return cmd
-}
-
-// resolveInitPath turns an optional arg into an absolute path. With no
-// arg, defaults to cwd. With an arg, requires absolute per V2-PLAN
-// §14.3 "no relative paths" rule — explicit so agent invocations do
-// not depend on the shell's cwd.
-func resolveInitPath(args []string) (string, error) {
-	if len(args) == 0 {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("resolve cwd: %w", err)
-		}
-		return cwd, nil
-	}
-	p := args[0]
-	if !filepath.IsAbs(p) {
-		return "", fmt.Errorf("init: path must be absolute; got %q", p)
-	}
-	return filepath.Clean(p), nil
 }
 
 // runInit orchestrates bootstrap: mkdir -p the target, resolve
