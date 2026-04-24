@@ -2116,4 +2116,137 @@ Unknowns.
 - **`mage check` / `mage dogfood` not independently re-run.** Sandbox blocks bash exec of mage targets this turn; trusting builder + QA proof green claim.
 
 
+## 12.17.5 B1 — update PATCH semantics
+
+BUILD DONE — commit SHA: sandbox blocked `git add` / `git commit` (working tree also carried B3's in-progress render refactor; clean separation requires orchestrator commit). Expected subject: `feat(update): patch semantics with overlay and null-clear rules`.
+
+Touched files (B1 scope only).
+
+- `internal/mcpsrv/errors.go` — `ErrCannotClearRequired` sentinel.
+- `internal/mcpsrv/ops.go` — rewrote `Update` for PATCH: empty-data short-circuit, existing-field load, `overlayPatch` for null-clear / null-default-reset / null-required-error, post-overlay `Registry.Validate`, then Emit + Splice + WriteAtomic.
+- `internal/mcpsrv/tools.go` — `updateTool` description rewrite; param docstring rewrite.
+- `cmd/ta/commands.go` — `newUpdateCmd` long/short docstrings + examples rewrite. No behavior change in the CLI glue (runUpdate still forwards straight through).
+- `internal/mcpsrv/server_test.go` — 6 new tests exercising the §3.5 rules (overlay preservation, empty-data no-op, null-clear optional, null on required-no-default errors, null on required-with-default resets, invalid overlay rejects atomically).
+- `cmd/ta/commands_test.go` — 2 new CLI tests: `json.Unmarshal` null preservation through `ta update --data '{"notes":null}'`; empty-data no-op.
+
+Verification.
+
+- `mage check` green (race on; fmt + vet + tidy + test). All existing tests continue to pass alongside the new ones.
+- `mage dogfood` green (already-materialized short-circuit fires; no new side effects).
+- Manual `ta update …` run blocked by sandbox (no binary exec). Unit tests cover every §3.5 rule end-to-end through the MCP in-process client and through the cobra Execute path.
+
+Spec gaps / observations.
+
+- **Pre-existing flaky `TestGetCmdDefaultsPathToCwd`.** Failed on first run, passed on second; B3 territory (render refactor changed `ta get` output shape from raw-TOML to field-block — the test still asserts `id = "T1"` substring). Not in B1 scope. Flagging for B3 / closeout: the assertion needs updating to match `### id\n\nT1` (or similar) post-B3.
+- **`json.Unmarshal` null preservation confirmed in code + test.** `json.Unmarshal(raw, &map[string]any{})` preserves JSON `null` as Go `nil` in the map. `TestUpdateCmdJSONNullPreservedToPatch` locks this in.
+- **Empty-data contract.** Short-circuit confirms file existence (ErrFileNotFound parity with non-empty path) but does NOT read the file body or confirm record existence. Matches the spec's "not a validator" framing — if the stored record is malformed, the next read surfaces it, not `update`.
+
+Sample test output (snippet).
+
+```
+=== RUN   TestUpdatePatchOverlayPreservesUnspecifiedFields
+--- PASS: TestUpdatePatchOverlayPreservesUnspecifiedFields (0.00s)
+=== RUN   TestUpdatePatchEmptyDataIsNoOp
+--- PASS: TestUpdatePatchEmptyDataIsNoOp (0.00s)
+=== RUN   TestUpdatePatchNullClearsOptionalField
+--- PASS: TestUpdatePatchNullClearsOptionalField (0.00s)
+=== RUN   TestUpdatePatchNullOnRequiredWithoutDefaultErrors
+--- PASS: TestUpdatePatchNullOnRequiredWithoutDefaultErrors (0.00s)
+=== RUN   TestUpdatePatchNullOnRequiredWithDefaultResets
+--- PASS: TestUpdatePatchNullOnRequiredWithDefaultResets (0.00s)
+=== RUN   TestUpdatePatchInvalidOverlayRejectsAtomically
+--- PASS: TestUpdatePatchInvalidOverlayRejectsAtomically (0.00s)
+ok  	github.com/evanmschultz/ta/internal/mcpsrv	2.744s
+```
+
+
+## 12.17.5 B3 — unified render helper
+
+BUILD DONE — SHA: PENDING (sandbox blocked `git add` / `git commit`; working tree carries B1's parallel edits to shared files — orchestrator commit needed to untangle). Expected subject: `refactor(render): unify get and search through shared helper`.
+
+Scope.
+
+- Unified the `ta get` (no --fields) and `ta search` rendering dispatch through the shared `render.Renderer.Record` helper (V2-PLAN §12.17.5 [B3]). Pre-refactor `get` piped raw TOML bytes through a ```toml fence via `renderRawRecord`; post-refactor it synthesizes every declared field from schema + decoded record and routes through the same per-field dispatch `search` already uses.
+
+Code changes (B3 scope only).
+
+- `internal/render/renderer.go` — added exported `BuildFields(typeSt schema.SectionType, values map[string]any) []RenderField` that synthesizes the RenderField slice deterministically (alpha-sorted) from declared fields present in the decoded values. Added a Section-boundary doc comment on `Record` so future multi-record callers (B2) know the helper renders ONE record per call.
+- `internal/mcpsrv/ops.go` — added `GetAllFields(path, section) (GetResult, schema.SectionType, error)`. Unlike `Get(... , fields []string)` this never errors on non-body MD fields (gracefully omits them); it is the "no --fields, render everything" read path. Returns the type so callers can build render fields without a second resolve.
+- `internal/mcpsrv/fields.go` — added `extractAllDeclaredFields`: TOML path delegates to existing `extractTOMLFields` with the full declared name set; MD body-only path returns `{"body": ...}` if body is declared, empty map otherwise. Strict-mode `extractFields` stays unchanged (user-facing `--fields <name>` must still surface unknown-field errors).
+- `cmd/ta/commands.go:newGetCmd` — RunE rewritten. Without `--fields`: `mcpsrv.GetAllFields` → `render.BuildFields` → `r.Record`. With `--fields`: unchanged (`Get(... , fields)` → `buildRenderFields` → `r.Record`). `--json` path unchanged (still routes through `mcpsrv.Get`, no behavior change). `renderRawRecord` retained solely for `renderVerboseRecord` (create/update --verbose still echoes raw bytes through the TOML fence — deliberate: verbose is "show me exactly what was written to disk").
+- `cmd/ta/commands.go:renderSearchHits` — replaced the inline `typeSt.Fields` → `RenderField` loop with `render.BuildFields(typeSt, hit.Fields)`. Byte-for-byte equivalent (alpha-sort via `SortFieldsByName` in both places).
+
+Tests added / updated.
+
+- `internal/render/renderer_test.go` — added `TestBuildFieldsSynthesizesFromSchema` (declared-field set, alpha order, type dispatch from schema not value runtime shape, absent values omitted), `TestBuildFieldsEmptyValues` (nil-safe empty return), `TestRendererRecordMDAndTOMLConsistent` (same helper renders MD body-only + TOML multi-field; no raw TOML fence on either side), and `TestRendererRecordSearchGolden` (byte-identity golden lock per [B3] regression-lock mandate).
+- `internal/render/testdata/record_search.golden` — 28-line fixture materialized from live `Record` output under `plainPolicy`. First test run auto-materializes + fails loudly; subsequent runs enforce byte identity. `-update` flag regenerates.
+- `cmd/ta/commands_test.go` — renamed `TestGetCmdRawBytes` → `TestGetCmdRendersAllDeclaredFields` with the new assertion shape (labels + values present; `id = "T1"` raw TOML absent). Updated `TestGetCmdDefaultsPathToCwd` assertion to the same shape (addresses B1's flag that the old assertion was B3 territory). `TestGetCmdFields` (filtered path) unchanged.
+
+Verification.
+
+- `mage check` green across all 11 test packages under `-race`; fmtcheck / vet / tidy clean.
+- `mage dogfood` green (idempotent skip — `workflow/ta-v2/db.toml` already materialized).
+- Manual binary verification on `plan_db.ta-v2.build_task.task_12_1` deferred — sandbox blocks `./bin/ta` exec. Test fleet covers the contract; the new `TestGetCmdRendersAllDeclaredFields` directly locks in the shape-change the spec called out.
+
+Sample output (before vs after).
+
+BEFORE (raw-fence path, pre-B3):
+
+```
+```toml
+[plans.task.t1]
+id = "T1"
+status = "todo"
+```
+```
+
+AFTER (unified per-field path, golden fixture under plain policy):
+
+```
+
+plans.task.t1
+
+  ### body
+
+  ## Approach
+
+  Do the thing.
+
+  ### id
+
+  T1
+
+    prio  2
+
+  ### status
+
+  todo
+
+  ### tags
+
+  ```json
+  [
+    "a",
+    "b"
+  ]
+  ```
+```
+
+Section header via laslig `Section`; string fields (id, status, body) through `Markdown` with `### <label>` heading; integer scalar (prio) via `KV` with label + value; array (tags) via fenced JSON block.
+
+Spec-gap / unknowns.
+
+- Commit blocked. Sandbox denied `git add` / `git commit` / `git stash`. Working tree carries B1's parallel edits to shared files (`internal/mcpsrv/ops.go` Update-PATCH rewrite, `internal/mcpsrv/errors.go`, `internal/mcpsrv/tools.go`, `internal/mcpsrv/server_test.go`, plus B1's two new tests in `cmd/ta/commands_test.go`). My B3 changes and B1's PATCH changes share `ops.go` and `commands_test.go`; the orchestrator will need to untangle the commit split. `mage check` + `mage dogfood` green against the merged working tree.
+
+Orchestrator commit guidance.
+
+- Files that are strictly B3 (safe to bundle under one commit): `cmd/ta/commands.go`, `internal/mcpsrv/fields.go`, `internal/render/renderer.go`, `internal/render/renderer_test.go`, `internal/render/testdata/record_search.golden` (new).
+- Shared with B1 (non-overlapping hunks — easy split): `internal/mcpsrv/ops.go` (B3 added `GetAllFields` ~L95–147; B1 rewrote `Update`). `cmd/ta/commands_test.go` (B3 rewrote `TestGetCmdRawBytes` + `TestGetCmdDefaultsPathToCwd`; B1 added `TestUpdateCmdJSONNullPreservedToPatch` + `TestUpdateCmdEmptyDataIsNoOp`).
+- Strictly B1: `internal/mcpsrv/errors.go`, `internal/mcpsrv/tools.go`, `internal/mcpsrv/server_test.go`.
+
+Followups (non-blocking).
+
+- `renderRawRecord` kept only for `renderVerboseRecord` (create/update --verbose). If a future phase unifies verbose echo through the per-field helper, `renderRawRecord` + `dbFormatFor` can be retired. Left as-is because the verbose contract ("echo exactly what was written to disk") is arguably distinct from read-render.
+- `mage test` does not forward `-update` to `go test`. The golden auto-materializes on first run then enforces byte-identity. A future target `mage Golden` that forwards `-update` would be ergonomic but isn't blocking.
+
 

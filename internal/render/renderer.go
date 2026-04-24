@@ -88,6 +88,15 @@ type RenderField struct {
 // a fenced JSON code block inside a Markdown block so pretty-printing
 // survives.
 //
+// Record is the single shared entry point for per-record rendering used
+// by both `ta get` (no --fields = synthesized declared fields; --fields
+// = filtered subset) and `ta search` (each hit's decoded fields). The
+// Section boundary is the caller's responsibility — when multiple
+// records need to render in sequence (e.g. multi-record `get`, search
+// hit list), the caller stitches them by calling Record N times. That
+// keeps the helper decoupled from any multi-record output shape (V2-PLAN
+// §12.17.5 [B3]).
+//
 // Section is the full dotted address (e.g. "plans.task.t1"); fields may
 // be nil, in which case only the header is written.
 func (r *Renderer) Record(section string, fields []RenderField) error {
@@ -105,6 +114,32 @@ func (r *Renderer) Record(section string, fields []RenderField) error {
 		}
 	}
 	return nil
+}
+
+// BuildFields synthesizes the per-field RenderField slice for one
+// record from the declared type and the decoded value map. Field names
+// missing from values are simply omitted (same contract search uses for
+// optional declared fields). The result is alphabetized by name so CLI
+// output is deterministic across Go map-iteration order.
+//
+// Both `ta get` (no --fields) and `ta search` call BuildFields before
+// Record so the two surfaces cannot drift on field ordering or
+// per-type dispatch (V2-PLAN §12.17.5 [B3]).
+func BuildFields(typeSt schema.SectionType, values map[string]any) []RenderField {
+	fields := make([]RenderField, 0, len(typeSt.Fields))
+	for name, f := range typeSt.Fields {
+		v, ok := values[name]
+		if !ok {
+			continue
+		}
+		fields = append(fields, RenderField{
+			Name:  name,
+			Type:  f.Type,
+			Value: v,
+		})
+	}
+	SortFieldsByName(fields)
+	return fields
 }
 
 // renderField dispatches on f.Type.

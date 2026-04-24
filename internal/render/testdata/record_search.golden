@@ -1,0 +1,27 @@
+
+plans.task.t1
+
+  ### body
+  
+  ## Approach
+  
+  Do the thing.
+
+  ### id
+  
+  T1
+
+    prio  2
+
+  ### status
+  
+  todo
+
+  ### tags
+  
+  ```json
+  [
+    "a",
+    "b"
+  ]
+  ```

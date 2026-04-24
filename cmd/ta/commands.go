@@ -18,27 +18,27 @@ import (
 )
 
 // newGetCmd mirrors the MCP tool `get`. Without --fields the CLI
-// renders the raw on-disk bytes: TOML records go through a ```toml
-// fenced markdown block so glamour highlights them; MD records are
-// passed directly through the markdown renderer. With --fields the
-// field values are dispatched through render.Renderer.Record so string
-// fields pick up markdown rendering per V2-PLAN §13.2. With --json
-// the laslig path is bypassed; structured JSON is written for agent
-// consumption (V2-PLAN §14.3).
+// synthesizes every declared field from the record and routes through
+// the shared render.Renderer.Record helper — same visual shape as `ta
+// search` hits, and the same dispatch `ta get --fields <list>` already
+// uses (V2-PLAN §12.17.5 [B3]). With --fields the named field values
+// are rendered per type. With --json the laslig path is bypassed;
+// structured JSON is written for agent consumption (V2-PLAN §14.3).
 func newGetCmd() *cobra.Command {
 	var fields []string
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "get <section>",
 		Short: "Read one record; optionally extract declared field values",
-		Long: "Mirrors the MCP tool `get`. Without --fields the raw record " +
-			"bytes are rendered through laslig (TOML wrapped in a ```toml " +
-			"code fence; markdown passed through glamour). With --fields " +
-			"name[,name...] or repeated --field <name> the named field values " +
-			"are rendered per type: string fields as markdown, scalars as " +
-			"label:value, arrays/tables as fenced JSON. With --json the " +
-			"laslig path is bypassed and JSON is written for agent consumption. " +
-			"--path defaults to cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Long: "Mirrors the MCP tool `get`. Without --fields every declared " +
+			"field on the record is rendered through the shared per-field " +
+			"helper: string fields as markdown, scalars as label:value, " +
+			"arrays/tables as fenced JSON (V2-PLAN §12.17.5 [B3]). With " +
+			"--fields name[,name...] or repeated --field <name> the named " +
+			"fields are rendered the same way, just filtered. With --json " +
+			"the laslig path is bypassed and JSON is written for agent " +
+			"consumption. --path defaults to cwd; relative or absolute " +
+			"accepted (V2-PLAN §12.17.5 [A1]).",
 		Example: "  ta get plans.task.task-001\n" +
 			"  ta get --path /abs/proj plans.task.task-001 --fields status,body\n" +
 			"  ta get plans.task.task-001 --json",
@@ -51,16 +51,24 @@ func newGetCmd() *cobra.Command {
 				return err
 			}
 			section := args[0]
-			res, err := mcpsrv.Get(path, section, fields)
-			if err != nil {
-				return err
-			}
 			if asJSON {
+				res, err := mcpsrv.Get(path, section, fields)
+				if err != nil {
+					return err
+				}
 				return emitGetJSON(c.OutOrStdout(), section, res.Bytes, res.Fields, len(fields) > 0)
 			}
 			r := render.New(c.OutOrStdout())
 			if len(fields) == 0 {
-				return renderRawRecord(r, path, section, res.Bytes)
+				res, typeSt, err := mcpsrv.GetAllFields(path, section)
+				if err != nil {
+					return err
+				}
+				return r.Record(section, render.BuildFields(typeSt, res.Fields))
+			}
+			res, err := mcpsrv.Get(path, section, fields)
+			if err != nil {
+				return err
 			}
 			rf, err := buildRenderFields(path, section, res.Fields, fields)
 			if err != nil {
@@ -352,14 +360,21 @@ func newUpdateCmd() *cobra.Command {
 	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "update <section>",
-		Short: "Update an existing record; mirrors MCP tool `update`.",
-		Long: "Update an existing record. Fails if the backing file does not " +
-			"exist (V2-PLAN §3.5). Creates the record within the file if the " +
-			"file exists but the record does not (record-level upsert). With " +
-			"--verbose, the updated record content is echoed after the success " +
-			"notice per V2-PLAN §13.1. --path defaults to cwd; relative or " +
-			"absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Short: "PATCH an existing record; mirrors MCP tool `update`.",
+		Long: "PATCH-style update: --data is a partial overlay, not a full " +
+			"replacement. Provided fields overwrite their stored values; " +
+			"unspecified fields keep their bytes verbatim. Empty --data ({}) " +
+			"is a no-op success. Null on a non-required field clears it; " +
+			"null on a required field with a schema default resets it to " +
+			"that default; null on a required field with no default errors. " +
+			"The merged record is atomically re-validated (V2-PLAN §3.5 / " +
+			"§12.17.5 [B1]). Fails if the backing file does not exist; " +
+			"creates the record within the file when absent (record-level " +
+			"upsert). With --verbose, the updated record is echoed after " +
+			"the success notice per V2-PLAN §13.1. --path defaults to cwd; " +
+			"relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
 		Example: "  ta update plans.task.task-001 --data '{\"status\":\"done\"}'\n" +
+			"  ta update plans.task.task-001 --data '{\"notes\":null}'    # clear optional field\n" +
 			"  ta update --path /abs/proj plans.task.task-001 --data-file patch.json --verbose",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
@@ -597,18 +612,7 @@ func renderSearchHits(w io.Writer, path string, hits []mcpsrv.SearchHit) error {
 			}
 			continue
 		}
-		fields := make([]render.RenderField, 0, len(hit.Fields))
-		for name, f := range typeSt.Fields {
-			if v, ok := hit.Fields[name]; ok {
-				fields = append(fields, render.RenderField{
-					Name:  name,
-					Type:  f.Type,
-					Value: v,
-				})
-			}
-		}
-		render.SortFieldsByName(fields)
-		if err := r.Record(hit.Section, fields); err != nil {
+		if err := r.Record(hit.Section, render.BuildFields(typeSt, hit.Fields)); err != nil {
 			return err
 		}
 	}

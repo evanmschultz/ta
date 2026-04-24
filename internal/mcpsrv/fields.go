@@ -104,6 +104,40 @@ func extractMDFields(fileBuf []byte, sec record.Section, fields []string) (map[s
 	return out, nil
 }
 
+// extractAllDeclaredFields returns every declared field the record
+// actually carries on disk. Missing declared fields are silently
+// omitted. Used by GetAllFields in the B3 unified-render flow: `ta get`
+// (no --fields) synthesizes all declared fields from schema + decoded
+// record, then routes through the shared render helper (V2-PLAN
+// §12.17.5 [B3]).
+//
+// Unlike extractFields this never returns ErrUnknownField — the field
+// set is the declared type itself, not user input. For MD body-only
+// records this surfaces "body" when the type declares it and silently
+// skips any non-body declared fields (the body-only layout cannot
+// serve them; the strict path in extractFields still errors on explicit
+// user requests so the contract lie is surfaced there, not silently
+// masked here).
+func extractAllDeclaredFields(fileBuf []byte, sec record.Section, db schema.DB, typeSt schema.SectionType, relPath string) (map[string]any, error) {
+	switch db.Format {
+	case schema.FormatTOML:
+		names := make([]string, 0, len(typeSt.Fields))
+		for name := range typeSt.Fields {
+			names = append(names, name)
+		}
+		return extractTOMLFields(fileBuf, relPath, names)
+	case schema.FormatMD:
+		out := map[string]any{}
+		if _, ok := typeSt.Fields["body"]; ok {
+			raw := fileBuf[sec.Range[0]:sec.Range[1]]
+			out["body"] = string(stripHeadingLine(raw))
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("%w: db %q format=%q", ErrUnsupportedFormat, db.Name, db.Format)
+	}
+}
+
 // stripHeadingLine returns raw with the first line (the heading line)
 // and any directly-following blank separator removed. If raw has no
 // newline the whole buffer is considered the heading and the return

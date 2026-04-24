@@ -163,6 +163,83 @@ func TestUpdateCmdInlineData(t *testing.T) {
 	}
 }
 
+// TestUpdateCmdJSONNullPreservedToPatch proves json.Unmarshal into
+// map[string]any preserves JSON null as a Go nil entry, so the CLI
+// delivers `{"field": null}` payloads to the PATCH handler intact
+// (V2-PLAN §12.17.5 [B1]). This is a regression-lock: without the
+// preservation, the null-clear semantics silently devolve into
+// missing-field semantics (overlay keeps the stored value).
+func TestUpdateCmdJSONNullPreservedToPatch(t *testing.T) {
+	const body = `
+[plans]
+file = "plans.toml"
+format = "toml"
+description = "cli patch test."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.notes]
+type = "string"
+`
+	root := newSchemaFixtureWithBody(t, body)
+	dataPath := filepath.Join(root, "plans.toml")
+	initial := "[plans.task.t1]\nid = \"T1\"\nnotes = \"kept\"\n"
+	if err := os.WriteFile(dataPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newUpdateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.task.t1",
+		"--data", `{"notes": null}`,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+	}
+	raw, _ := os.ReadFile(dataPath)
+	s := string(raw)
+	if strings.Contains(s, "notes") {
+		t.Errorf("notes should be cleared by null-patch:\n%s", s)
+	}
+	if !strings.Contains(s, `id = "T1"`) {
+		t.Errorf("id should be preserved under null-patch:\n%s", s)
+	}
+}
+
+// TestUpdateCmdEmptyDataIsNoOp proves the CLI wraps the mcpsrv
+// empty-data short-circuit: `ta update --data '{}'` returns success
+// and leaves the backing file byte-identical.
+func TestUpdateCmdEmptyDataIsNoOp(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	initial := []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
+	if err := os.WriteFile(dataPath, initial, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newUpdateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.task.t1",
+		"--data", `{}`,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+	}
+	after, _ := os.ReadFile(dataPath)
+	if !bytes.Equal(initial, after) {
+		t.Errorf("empty-data update touched bytes:\n--- before ---\n%s\n--- after ---\n%s", initial, after)
+	}
+}
+
 func TestDeleteCmdRemovesRecord(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
@@ -188,7 +265,13 @@ func TestDeleteCmdRemovesRecord(t *testing.T) {
 
 // ---- get CLI --------------------------------------------------------
 
-func TestGetCmdRawBytes(t *testing.T) {
+// TestGetCmdRendersAllDeclaredFields locks in the §12.17.5 [B3] contract:
+// `ta get` without --fields no longer emits a raw TOML fence; instead
+// every declared field on the record is rendered through the shared
+// per-field helper that `search` already uses. The section header
+// appears as a laslig Section; each declared field surfaces its label
+// and value; the raw TOML assignment syntax (`id = "T1"`) is absent.
+func TestGetCmdRendersAllDeclaredFields(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
 	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
@@ -202,8 +285,17 @@ func TestGetCmdRawBytes(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
-	if !strings.Contains(out.String(), `id = "T1"`) {
-		t.Errorf("stdout missing record: %s", out.String())
+	s := out.String()
+	// Section header + both declared field labels + both values must
+	// appear. Raw TOML assignment syntax must NOT appear — that is the
+	// pre-refactor shape we are deliberately leaving behind.
+	for _, want := range []string{"plans.task.t1", "id", "T1", "status", "todo"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("stdout missing %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, `id = "T1"`) {
+		t.Errorf("stdout still carries raw TOML fence syntax:\n%s", s)
 	}
 }
 
@@ -862,8 +954,14 @@ func TestGetCmdDefaultsPathToCwd(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("default-cwd --path resolution failed: %v stderr=%s", err, errOut.String())
 	}
-	if !strings.Contains(out.String(), `id = "T1"`) {
-		t.Errorf("stdout missing record: %s", out.String())
+	// Post §12.17.5 [B3] `ta get` (no --fields) renders declared fields
+	// through the shared helper — assert label + value substrings, not
+	// raw TOML assignment syntax.
+	s := out.String()
+	for _, want := range []string{"plans.task.t1", "id", "T1"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("stdout missing %q: %s", want, s)
+		}
 	}
 }
 

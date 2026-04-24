@@ -1,6 +1,7 @@
 package mcpsrv_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -368,6 +369,220 @@ func TestUpdateAppendsWhenRecordAbsent(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q:\n%s", want, s)
 		}
+	}
+}
+
+// ---- update PATCH semantics (V2-PLAN §3.5 / §12.17.5 [B1]) -----------
+
+// patchSchema declares a type with a mix of required, optional, enum,
+// and required-with-default fields so the PATCH rules from §3.5 can be
+// exercised on one seed.
+const patchSchema = `
+[plans]
+file = "plans.toml"
+format = "toml"
+description = "PATCH-semantics test db."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.title]
+type = "string"
+required = true
+
+[plans.task.fields.body]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+required = true
+enum = ["todo", "doing", "done"]
+default = "todo"
+
+[plans.task.fields.notes]
+type = "string"
+`
+
+func seedPatchRecord(t *testing.T, fx fixture) string {
+	t.Helper()
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	initial := "[plans.task.t1]\n" +
+		"id = \"T1\"\n" +
+		"title = \"Build\"\n" +
+		"body = \"Do the thing.\"\n" +
+		"status = \"todo\"\n" +
+		"notes = \"kept\"\n"
+	if err := os.WriteFile(dataPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	return dataPath
+}
+
+// TestUpdatePatchOverlayPreservesUnspecifiedFields proves the §3.5
+// overlay rule: only the provided field changes; the other four
+// declared fields retain their stored values.
+func TestUpdatePatchOverlayPreservesUnspecifiedFields(t *testing.T) {
+	fx := newFixtureWithSchema(t, patchSchema)
+	c := newClient(t)
+	dataPath := seedPatchRecord(t, fx)
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"status": "done"},
+	})
+	if res.IsError {
+		t.Fatalf("update errored: %s", firstText(t, res))
+	}
+	raw, _ := os.ReadFile(dataPath)
+	s := string(raw)
+	for _, want := range []string{
+		`id = "T1"`,
+		`title = "Build"`,
+		`body = "Do the thing."`,
+		`status = "done"`,
+		`notes = "kept"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in merged record:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, `status = "todo"`) {
+		t.Errorf("old status still present:\n%s", s)
+	}
+}
+
+// TestUpdatePatchEmptyDataIsNoOp proves empty `data` short-circuits
+// before overlay — bytes are unchanged and the record is not
+// re-validated.
+func TestUpdatePatchEmptyDataIsNoOp(t *testing.T) {
+	fx := newFixtureWithSchema(t, patchSchema)
+	c := newClient(t)
+	dataPath := seedPatchRecord(t, fx)
+	before, _ := os.ReadFile(dataPath)
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{},
+	})
+	if res.IsError {
+		t.Fatalf("empty-data update errored: %s", firstText(t, res))
+	}
+	after, _ := os.ReadFile(dataPath)
+	if !bytes.Equal(before, after) {
+		t.Errorf("empty-data update touched bytes:\n--- before ---\n%s\n--- after ---\n%s", before, after)
+	}
+}
+
+// TestUpdatePatchNullClearsOptionalField proves the §3.5 null-clear
+// rule for a non-required field: the field is removed from the merged
+// record and therefore from the emitted bytes.
+func TestUpdatePatchNullClearsOptionalField(t *testing.T) {
+	fx := newFixtureWithSchema(t, patchSchema)
+	c := newClient(t)
+	dataPath := seedPatchRecord(t, fx)
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"notes": nil},
+	})
+	if res.IsError {
+		t.Fatalf("update errored: %s", firstText(t, res))
+	}
+	raw, _ := os.ReadFile(dataPath)
+	s := string(raw)
+	if strings.Contains(s, "notes") {
+		t.Errorf("notes still present after null-clear:\n%s", s)
+	}
+	for _, want := range []string{`id = "T1"`, `title = "Build"`, `status = "todo"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("null-clear touched sibling %q:\n%s", want, s)
+		}
+	}
+}
+
+// TestUpdatePatchNullOnRequiredWithoutDefaultErrors proves the §3.5
+// hard-error rule: null on a required field with no schema default
+// cannot clear it; on-disk bytes are untouched.
+func TestUpdatePatchNullOnRequiredWithoutDefaultErrors(t *testing.T) {
+	fx := newFixtureWithSchema(t, patchSchema)
+	c := newClient(t)
+	dataPath := seedPatchRecord(t, fx)
+	before, _ := os.ReadFile(dataPath)
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"title": nil},
+	})
+	if !res.IsError {
+		t.Fatalf("expected null-clear on required field to error")
+	}
+	msg := firstText(t, res)
+	if !strings.Contains(msg, "cannot clear required field") {
+		t.Errorf("error message should name the rule: %s", msg)
+	}
+	if !strings.Contains(msg, "title") {
+		t.Errorf("error should include the field name: %s", msg)
+	}
+	after, _ := os.ReadFile(dataPath)
+	if !bytes.Equal(before, after) {
+		t.Errorf("failed update touched bytes")
+	}
+}
+
+// TestUpdatePatchNullOnRequiredWithDefaultResets proves the §3.5
+// literal-write rule: null on a required field with a schema default
+// replaces the stored value with the declared default.
+func TestUpdatePatchNullOnRequiredWithDefaultResets(t *testing.T) {
+	fx := newFixtureWithSchema(t, patchSchema)
+	c := newClient(t)
+	dataPath := seedPatchRecord(t, fx)
+	// Flip status to "done" so the null-reset has a visible effect.
+	if res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"status": "done"},
+	}); res.IsError {
+		t.Fatalf("prep update errored: %s", firstText(t, res))
+	}
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"status": nil},
+	})
+	if res.IsError {
+		t.Fatalf("null-reset errored: %s", firstText(t, res))
+	}
+	raw, _ := os.ReadFile(dataPath)
+	s := string(raw)
+	if !strings.Contains(s, `status = "todo"`) {
+		t.Errorf("status not reset to default:\n%s", s)
+	}
+}
+
+// TestUpdatePatchInvalidOverlayRejectsAtomically proves the merged
+// record is validated after overlay and any field-level failure keeps
+// the on-disk bytes verbatim (atomic rollback).
+func TestUpdatePatchInvalidOverlayRejectsAtomically(t *testing.T) {
+	fx := newFixtureWithSchema(t, patchSchema)
+	c := newClient(t)
+	dataPath := seedPatchRecord(t, fx)
+	before, _ := os.ReadFile(dataPath)
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"data":    map[string]any{"status": "not-in-enum"},
+	})
+	if !res.IsError {
+		t.Fatalf("expected enum-mismatch to error")
+	}
+	after, _ := os.ReadFile(dataPath)
+	if !bytes.Equal(before, after) {
+		t.Errorf("rejected update touched bytes")
 	}
 }
 

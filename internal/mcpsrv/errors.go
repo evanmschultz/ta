@@ -58,4 +58,11 @@ var (
 	// declares a format no backend implements. Should never fire in
 	// practice once the schema loader validates formats.
 	ErrUnsupportedFormat = errors.New("mcpsrv: unsupported format")
+
+	// ErrCannotClearRequired is returned by Update (PATCH semantics,
+	// §3.5) when the caller passes {"<field>": null} on a field that is
+	// declared required and has no schema default. Required fields
+	// cannot be unset via Update; change the schema or delete +
+	// recreate the record.
+	ErrCannotClearRequired = errors.New("mcpsrv: cannot clear required field")
 )

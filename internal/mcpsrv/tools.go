@@ -70,14 +70,14 @@ func updateTool() mcp.Tool {
 	return mcp.NewTool(
 		"update",
 		mcp.WithDescription(
-			"Update an existing record. Fails if the backing file does not exist. Creates the record within the file if it is not present yet (record-level upsert within the file).",
+			"PATCH-style update of an existing record. `data` is a partial overlay: provided fields overwrite their stored values, unspecified fields retain their bytes. Empty `data` ({}) is a no-op success. Null on a non-required field clears it; null on a required field with a schema default resets it to that default; null on a required field with no default errors. Merged record is atomically re-validated. Fails if the backing file does not exist. Creates the record within the file if absent (record-level upsert). See V2-PLAN §3.5.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString("section", mcp.Required(), mcp.Description("Record address.")),
 		mcp.WithObject(
 			"data",
 			mcp.Required(),
-			mcp.Description("Field values. Validated against the declared type."),
+			mcp.Description("Partial overlay: {field: value} pairs. Null clears an optional field or resets a required-with-default field; empty object is a no-op. Merged record validated against the declared type."),
 			mcp.AdditionalProperties(map[string]any{}),
 		),
 	)

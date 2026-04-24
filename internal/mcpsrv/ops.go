@@ -93,6 +93,59 @@ func Get(path, section string, fields []string) (GetResult, error) {
 	return res, nil
 }
 
+// GetAllFields reads one record and returns ALL declared fields that
+// the record carries on disk, plus the type schema so callers can build
+// typed render output (render.BuildFields). Missing declared fields are
+// silently omitted — this is the "no --fields specified, render
+// everything" contract used by `ta get` in the B3 unified-render flow
+// (V2-PLAN §12.17.5 [B3]). For MD body-only records only the "body"
+// field materializes; a declared non-body MD field is skipped rather
+// than erroring (cf. extractFields' strict mode, which is still the
+// right contract for user-specified field lists).
+func GetAllFields(path, section string) (GetResult, schema.SectionType, error) {
+	resolution, err := resolveFromProjectDir(path)
+	if err != nil {
+		return GetResult{}, schema.SectionType{}, fmt.Errorf("resolve schema for %s: %w", path, err)
+	}
+	resolver := db.NewResolver(path, resolution.Registry)
+	addr, dbDecl, err := resolver.ParseAddress(section)
+	if err != nil {
+		return GetResult{}, schema.SectionType{}, err
+	}
+	typeSt, ok := dbDecl.Types[addr.Type]
+	if !ok {
+		return GetResult{}, schema.SectionType{}, fmt.Errorf("%w: type %q not declared on db %q", ErrUnknownField, addr.Type, dbDecl.Name)
+	}
+	_, _, filePath, err := resolver.ResolveRead(section)
+	if err != nil {
+		return GetResult{}, typeSt, err
+	}
+	buf, err := os.ReadFile(filePath)
+	if err != nil {
+		return GetResult{}, typeSt, fmt.Errorf("read %s: %w", filePath, err)
+	}
+	backend, err := buildBackend(dbDecl)
+	if err != nil {
+		return GetResult{}, typeSt, err
+	}
+	backendSection := backendSectionPath(dbDecl, section)
+	sec, found, err := backend.Find(buf, backendSection)
+	if err != nil {
+		return GetResult{}, typeSt, fmt.Errorf("locate %q in %s: %w", section, filePath, err)
+	}
+	if !found {
+		return GetResult{}, typeSt, fmt.Errorf("%w: %q in %s", ErrRecordNotFound, section, filePath)
+	}
+	res := GetResult{FilePath: filePath, Bytes: buf[sec.Range[0]:sec.Range[1]]}
+	relPath := tomlRelPathForFields(dbDecl, addr)
+	out, err := extractAllDeclaredFields(buf, sec, dbDecl, typeSt, relPath)
+	if err != nil {
+		return res, typeSt, err
+	}
+	res.Fields = out
+	return res, typeSt, nil
+}
+
 // Create creates a new record. Returns the absolute file path that
 // was written plus the resolved schema source list for diagnostics.
 // Fails with ErrRecordExists when the record already exists.
@@ -160,24 +213,63 @@ func Create(path, section, pathHint string, data map[string]any) (string, []stri
 	return filePath, resolution.Sources, nil
 }
 
-// Update updates an existing record. Fails with ErrFileNotFound when
-// the backing file does not exist.
+// Update applies a PATCH-style partial overlay to an existing record
+// (V2-PLAN §3.5, §12.17.5 [B1]). The incoming data map is NOT a full
+// replacement: provided fields overwrite their stored values; unspecified
+// fields retain their on-disk values byte-identically after the merged
+// record is re-emitted.
+//
+// Null-handling per the spec:
+//
+//   - `{"field": null}` on a NOT-required field removes the field from
+//     the merged record (and therefore from the emitted bytes).
+//   - `{"field": null}` on a required field with NO schema default
+//     returns ErrCannotClearRequired — required fields cannot be unset
+//     via Update.
+//   - `{"field": null}` on a required field WITH a schema default
+//     replaces the field with the declared default value at write time
+//     ("write-time freeze"; later schema default-value edits do not
+//     retroactively update existing records).
+//
+// Empty data (`{}`) short-circuits before overlay or re-validation: the
+// caller gets a clean success response and the on-disk bytes are not
+// touched. `update` is not a validator; if the stored record is
+// malformed, surface that on the next read, not here.
+//
+// After overlay, the merged record is validated against the type
+// schema. Any field-level validation failure rejects the whole update
+// atomically; the on-disk bytes are unchanged.
+//
+// Fails with ErrFileNotFound when the backing file does not exist. A
+// missing record in an existing file continues to be upserted (append)
+// under the non-empty-data path, matching the pre-PATCH behavior; empty
+// data on a missing record is a no-op and does not append.
 func Update(path, section string, data map[string]any) (string, []string, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
-	if err := resolution.Registry.Validate(validationPath(resolution.Registry, section), data); err != nil {
-		return "", nil, err
-	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	_, dbDecl, err := resolver.ParseAddress(section)
+	addr, dbDecl, err := resolver.ParseAddress(section)
 	if err != nil {
 		return "", nil, err
 	}
 	_, _, filePath, err := resolver.ResolveRead(section)
 	if err != nil {
 		return "", nil, err
+	}
+	// Empty-data short-circuit (§3.5 / §12.17.5 [B1]): confirm the file
+	// exists, then return a clean success without reading the file
+	// body, without re-validating the stored record, and without
+	// touching disk.
+	if len(data) == 0 {
+		if _, err := os.Stat(filePath); err != nil {
+			if os.IsNotExist(err) {
+				return "", nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+			}
+			return "", nil, fmt.Errorf("stat %s: %w", filePath, err)
+		}
+		return filePath, resolution.Sources, nil
 	}
 	buf, err := os.ReadFile(filePath)
 	if err != nil {
@@ -191,7 +283,28 @@ func Update(path, section string, data map[string]any) (string, []string, error)
 		return "", nil, err
 	}
 	backendSection := backendSectionPath(dbDecl, section)
-	emitted, err := backend.Emit(backendSection, record.Record(data))
+
+	// Load the existing record's declared fields into a map we can
+	// overlay onto. When the record is absent the merged map starts
+	// empty — pre-PATCH upsert-within-file semantics are preserved.
+	st, ok := dbDecl.Types[addr.Type]
+	if !ok {
+		return "", nil, fmt.Errorf("%w: type %q on db %q",
+			ErrUnknownField, addr.Type, dbDecl.Name)
+	}
+	existing, err := loadExistingFields(buf, backend, backendSection, dbDecl, addr, st)
+	if err != nil {
+		return "", nil, err
+	}
+	merged, err := overlayPatch(existing, data, st)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := resolution.Registry.Validate(validationPath(resolution.Registry, section), merged); err != nil {
+		return "", nil, err
+	}
+
+	emitted, err := backend.Emit(backendSection, record.Record(merged))
 	if err != nil {
 		return "", nil, fmt.Errorf("emit %q: %w", section, err)
 	}
@@ -203,6 +316,72 @@ func Update(path, section string, data map[string]any) (string, []string, error)
 		return "", nil, err
 	}
 	return filePath, resolution.Sources, nil
+}
+
+// loadExistingFields returns the declared-field values currently
+// stored for the record located by backendSection, or an empty map if
+// the record does not yet exist in the backing file. Only keys
+// declared on the type's schema are surfaced.
+func loadExistingFields(buf []byte, backend record.Backend, backendSection string, dbDecl schema.DB, addr db.Address, st schema.SectionType) (map[string]any, error) {
+	sec, ok, err := backend.Find(buf, backendSection)
+	if err != nil {
+		return nil, fmt.Errorf("locate %q: %w", backendSection, err)
+	}
+	if !ok {
+		return map[string]any{}, nil
+	}
+	relPath := tomlRelPathForFields(dbDecl, addr)
+	declaredNames := make([]string, 0, len(st.Fields))
+	for name := range st.Fields {
+		declaredNames = append(declaredNames, name)
+	}
+	out, err := extractFields(buf, sec, dbDecl, addr.Type, relPath, declaredNames)
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = map[string]any{}
+	}
+	return out, nil
+}
+
+// overlayPatch applies PATCH semantics to existing: each key in patch
+// overwrites the corresponding entry in a clone of existing. A nil
+// patch value triggers null-clear rules (§3.5):
+//
+//   - not-required field → key removed from the merged map.
+//   - required field with schema default → key replaced with the
+//     declared default value (literal write at update time).
+//   - required field with no schema default → ErrCannotClearRequired.
+//
+// Unknown-in-patch names with a non-nil value are passed through so
+// schema.Validate can surface them with its canonical unknown-field
+// failure. Unknown-in-patch names with a nil value are dropped (Emit
+// cannot serialize nil and schema.Validate would not run on it).
+func overlayPatch(existing, patch map[string]any, st schema.SectionType) (map[string]any, error) {
+	merged := make(map[string]any, len(existing)+len(patch))
+	for k, v := range existing {
+		merged[k] = v
+	}
+	for name, val := range patch {
+		if val != nil {
+			merged[name] = val
+			continue
+		}
+		field, declared := st.Fields[name]
+		if !declared {
+			continue
+		}
+		if !field.Required {
+			delete(merged, name)
+			continue
+		}
+		if field.Default == nil {
+			return nil, fmt.Errorf("%w: %q", ErrCannotClearRequired, name)
+		}
+		merged[name] = field.Default
+	}
+	return merged, nil
 }
 
 // Delete removes a record, a whole single-instance data file, or a
