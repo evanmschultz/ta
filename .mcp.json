@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "ta": {
-      "args": [],
-      "command": "ta",
-      "env": {}
-    }
-  }
-}

@@ -16,3 +16,5 @@ coverage.html
 
 # Mage cache
 mage_output_file.go
+.mcp.json
+.codex/
