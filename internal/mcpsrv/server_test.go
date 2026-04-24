@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1631,5 +1632,205 @@ func TestCreateDirPerInstanceLeavesDirOnSuccess(t *testing.T) {
 	dbFile := filepath.Join(instanceDir, "db.toml")
 	if _, err := os.Stat(dbFile); err != nil {
 		t.Errorf("expected canonical db file at %s: %v", dbFile, err)
+	}
+}
+
+// ---- limit / all — list_sections + search (V2-PLAN §12.17.5 [A2.1]+[A2.2]) ----
+
+// seedNTOMLTasks writes n [plans.task.tNN] records into the MCP fixture
+// so the limit/all MCP-surface tests can exercise the default-10 cap,
+// --all, and the mutex.
+func seedNTOMLTasks(t *testing.T, root string, n int) {
+	t.Helper()
+	var body bytes.Buffer
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&body, "[plans.task.t%02d]\nid = \"T%02d\"\nstatus = \"todo\"\n\n", i, i)
+	}
+	if err := os.WriteFile(filepath.Join(root, "plans.toml"), body.Bytes(), 0o644); err != nil {
+		t.Fatalf("seed plans.toml: %v", err)
+	}
+}
+
+// TestListSectionsDefaultLimitOfTen proves the MCP tool now caps at 10
+// by default — the F1-asymmetry fix from §12.17.5 [A2.1]. Pre-fix the
+// MCP `list_sections` was uncapped; post-fix the CLI and MCP surfaces
+// agree on the default-10 contract.
+func TestListSectionsDefaultLimitOfTen(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "list_sections", map[string]any{"path": fx.projectRoot})
+	if res.IsError {
+		t.Fatalf("list_sections errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Sections) != 10 {
+		t.Errorf("default limit should cap at 10, got %d", len(payload.Sections))
+	}
+}
+
+// TestListSectionsAllReturnsEveryRecord proves passing all=true disables
+// the default cap.
+func TestListSectionsAllReturnsEveryRecord(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "list_sections", map[string]any{
+		"path": fx.projectRoot,
+		"all":  true,
+	})
+	if res.IsError {
+		t.Fatalf("list_sections errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Sections) != 15 {
+		t.Errorf("all=true should return every record, got %d", len(payload.Sections))
+	}
+}
+
+// TestListSectionsExplicitLimit proves limit=N is honored over the
+// default.
+func TestListSectionsExplicitLimit(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"limit": 3,
+	})
+	if res.IsError {
+		t.Fatalf("list_sections errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Sections) != 3 {
+		t.Errorf("limit=3 should cap at 3, got %d", len(payload.Sections))
+	}
+}
+
+// TestListSectionsLimitAllMutex proves the MCP handler rejects passing
+// both limit and all — parity with the CLI's cobra mutex.
+func TestListSectionsLimitAllMutex(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 5)
+	res := callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"limit": 3,
+		"all":   true,
+	})
+	if !res.IsError {
+		t.Fatalf("expected error when limit + all passed together")
+	}
+	if !strings.Contains(firstText(t, res), "pass either limit or all") {
+		t.Errorf("error text missing mutex hint: %s", firstText(t, res))
+	}
+}
+
+// TestSearchDefaultLimitOfTen proves the MCP `search` tool also caps at
+// 10 by default — §12.17.5 [A2.2].
+func TestSearchDefaultLimitOfTen(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plans.task",
+		"match": map[string]any{"status": "todo"},
+	})
+	if res.IsError {
+		t.Fatalf("search errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Hits []map[string]any `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Hits) != 10 {
+		t.Errorf("default limit should cap at 10, got %d", len(payload.Hits))
+	}
+}
+
+// TestSearchAllReturnsEveryHit proves all=true disables the cap.
+func TestSearchAllReturnsEveryHit(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plans.task",
+		"match": map[string]any{"status": "todo"},
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("search errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Hits []map[string]any `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Hits) != 15 {
+		t.Errorf("all=true should return every hit, got %d", len(payload.Hits))
+	}
+}
+
+// TestSearchExplicitLimit proves the limit param caps at N.
+func TestSearchExplicitLimit(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plans.task",
+		"match": map[string]any{"status": "todo"},
+		"limit": 4,
+	})
+	if res.IsError {
+		t.Fatalf("search errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Hits []map[string]any `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Hits) != 4 {
+		t.Errorf("limit=4 should cap at 4, got %d", len(payload.Hits))
+	}
+}
+
+// TestSearchLimitAllMutex proves the MCP handler rejects both params.
+func TestSearchLimitAllMutex(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 5)
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plans.task",
+		"limit": 3,
+		"all":   true,
+	})
+	if !res.IsError {
+		t.Fatalf("expected error when limit + all passed together")
+	}
+	if !strings.Contains(firstText(t, res), "pass either limit or all") {
+		t.Errorf("error text missing mutex hint: %s", firstText(t, res))
 	}
 }

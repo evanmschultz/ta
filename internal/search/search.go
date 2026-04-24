@@ -34,12 +34,23 @@ import (
 //     Field == "" the regex is matched against every string-typed field;
 //     when Field is set, only that one declared string field is scanned.
 //     A hit is any FindIndex match.
+//   - Limit caps the returned hit count; 0 means "no cap". When Limit > 0
+//     and All is false, Run early-exits after each file's results are
+//     appended once len(out) >= Limit — O(until first cap-cross) rather
+//     than O(all records). Ignored when All is true.
+//   - All == true returns every hit (ignores Limit). Adapters (CLI cobra
+//     mutex, MCP handler guard) enforce the UX-level "pass limit OR all,
+//     not both" rule; this type stays permissive at the endpoint layer
+//     so library callers see predictable precedence (All wins). See
+//     docs/PLAN.md §6a.1 + §3.2 + §3.7 + §12.17.5 [A2.1]+[A2.2].
 type Query struct {
 	Path  string
 	Scope string
 	Match map[string]any
 	Query *regexp.Regexp
 	Field string
+	Limit int
+	All   bool
 }
 
 // Result is one hit. Section is the full dotted address; Bytes is the
@@ -103,6 +114,13 @@ func Run(q Query) ([]Result, error) {
 				return nil, err
 			}
 			out = append(out, results...)
+			// Endpoint-enforced cap with file-boundary early-exit per
+			// docs/PLAN.md §3.2 / §3.7 amendment. All=true bypasses the
+			// cap; Limit<=0 means "no cap" (callers that want the default
+			// substitute it at the adapter/ops layer before calling Run).
+			if !q.All && q.Limit > 0 && len(out) >= q.Limit {
+				return out[:q.Limit], nil
+			}
 		}
 	}
 	return out, nil

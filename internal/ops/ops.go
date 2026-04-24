@@ -443,20 +443,55 @@ type SearchHit struct {
 	Fields  map[string]any
 }
 
+// defaultListLimit is the endpoint-enforced default cap on ListSections
+// and Search when the caller passes limit <= 0 && all == false, per
+// docs/PLAN.md §3.2 / §3.7 / §12.17.5 [A2.1]+[A2.2]. The MCP surface
+// today is uncapped; moving the default into the endpoint means MCP
+// agents now also see 10-by-default unless they pass all=true or an
+// explicit limit. This is the F1-asymmetry fix §12.17.5 calls out —
+// release-note material, not a regression.
+const defaultListLimit = 10
+
+// resolveLimit applies the default-10 / all-wins rules for the endpoint
+// cap. Adapters (CLI cobra mutex, MCP handler guard) enforce the UX
+// "pass either limit or all, not both" rule; at the endpoint we stay
+// permissive — all == true beats any non-zero limit so library callers
+// see deterministic precedence.
+func resolveLimit(limit int, all bool) int {
+	if all {
+		return 0
+	}
+	if limit > 0 {
+		return limit
+	}
+	return defaultListLimit
+}
+
 // ListSections enumerates every record address reachable under `scope`
 // as full project-level dotted addresses (`<db>.<type>.<id-path>` for
 // single-instance dbs, `<db>.<instance>.<type>.<id-path>` for multi-
 // instance dbs). Scope grammar mirrors search (`<db>` | `<db>.<type>`
 // | `<db>.<instance>` | `<db>.<type>.<id-prefix>` |
 // `<db>.<instance>.<type>(.<id-prefix>)?`); empty scope walks the whole
-// project. Mirrors V2-PLAN §3.2 and the §12.17.5 [A2] CLI rewrite.
+// project. Mirrors docs/PLAN.md §3.2 and the §12.17.5 [A2] CLI rewrite.
+//
+// `limit` caps the returned address count; `all == true` returns every
+// address in scope (limit ignored). `limit <= 0 && all == false`
+// substitutes the endpoint default (`defaultListLimit` = 10). CLI and
+// MCP adapters pass their incoming flag/param values through verbatim;
+// the endpoint owns the default. §12.17.5 [A2.1].
 //
 // Implemented as a zero-filter search: the walker in internal/search
 // already produces full addresses in file-parse order, so routing
 // through it keeps the address shape in lockstep with `search` and
 // `get` (§3.1 scope expansion).
-func ListSections(path, scope string) ([]string, error) {
-	results, err := search.Run(search.Query{Path: path, Scope: scope})
+func ListSections(path, scope string, limit int, all bool) ([]string, error) {
+	results, err := search.Run(search.Query{
+		Path:  path,
+		Scope: scope,
+		Limit: resolveLimit(limit, all),
+		All:   all,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -469,13 +504,18 @@ func ListSections(path, scope string) ([]string, error) {
 
 // Search executes a ta `search` query. scope, match, queryRegex, and
 // field are optional. queryRegex is compiled with regexp.Compile — pass
-// "" to skip the regex pass. Mirrors V2-PLAN §3.7.
-func Search(path, scope string, match map[string]any, queryRegex, field string) ([]SearchHit, error) {
+// "" to skip the regex pass. `limit` caps the returned hit count;
+// `all == true` returns every hit. Default-10 / all-wins contract is
+// identical to ListSections (see resolveLimit). Mirrors docs/PLAN.md
+// §3.7 / §12.17.5 [A2.2].
+func Search(path, scope string, match map[string]any, queryRegex, field string, limit int, all bool) ([]SearchHit, error) {
 	q := search.Query{
 		Path:  path,
 		Scope: scope,
 		Match: match,
 		Field: field,
+		Limit: resolveLimit(limit, all),
+		All:   all,
 	}
 	if queryRegex != "" {
 		re, err := regexp.Compile(queryRegex)

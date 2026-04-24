@@ -609,6 +609,119 @@ func TestSearchCLINoHitsEmptyNotice(t *testing.T) {
 	}
 }
 
+// seedSearchTasks writes n [plans.task.tNN] records with status=todo to
+// plans.toml under a newSchemaFixture root so search CLI tests can
+// exercise the default-10 cap + --all + --limit + mutex behavior.
+func seedSearchTasks(t *testing.T, n int) string {
+	t.Helper()
+	root := newSchemaFixture(t)
+	var body strings.Builder
+	for i := 1; i <= n; i++ {
+		body.WriteString("[plans.task.t")
+		body.WriteString(padTwo(i))
+		body.WriteString("]\nid = \"T")
+		body.WriteString(padTwo(i))
+		body.WriteString("\"\nstatus = \"todo\"\n\n")
+	}
+	if err := os.WriteFile(filepath.Join(root, "plans.toml"), []byte(body.String()), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	return root
+}
+
+func padTwo(i int) string {
+	if i < 10 {
+		return "0" + string(rune('0'+i))
+	}
+	tens := i / 10
+	ones := i % 10
+	return string(rune('0'+tens)) + string(rune('0'+ones))
+}
+
+// TestSearchCmdDefaultLimitCaps proves the CLI's default --limit of 10
+// caps the rendered hit count to 10 even when scope matches >10
+// records. Mirrors the endpoint-level ops.Search contract per
+// docs/PLAN.md §12.17.5 [A2.2].
+func TestSearchCmdDefaultLimitCaps(t *testing.T) {
+	root := seedSearchTasks(t, 15)
+	cmd := newSearchCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Hits []map[string]any `json:"hits"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Hits) != 10 {
+		t.Errorf("default --limit should cap at 10, got %d", len(payload.Hits))
+	}
+}
+
+// TestSearchCmdLimitFlag proves --limit=N honors an explicit cap.
+func TestSearchCmdLimitFlag(t *testing.T) {
+	root := seedSearchTasks(t, 12)
+	cmd := newSearchCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task", "--limit", "4", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Hits []map[string]any `json:"hits"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Hits) != 4 {
+		t.Errorf("--limit 4 should cap at 4, got %d", len(payload.Hits))
+	}
+}
+
+// TestSearchCmdAllFlag proves --all returns every hit ignoring the
+// default.
+func TestSearchCmdAllFlag(t *testing.T) {
+	root := seedSearchTasks(t, 15)
+	cmd := newSearchCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task", "--all", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Hits []map[string]any `json:"hits"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Hits) != 15 {
+		t.Errorf("--all should return every record, got %d", len(payload.Hits))
+	}
+}
+
+// TestSearchCmdMutex proves --limit and --all cannot both be set
+// (cobra MarkFlagsMutuallyExclusive).
+func TestSearchCmdMutex(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSearchCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task", "--limit", "3", "--all"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --limit + --all to error")
+	}
+}
+
 func TestSchemaCmdDeleteField(t *testing.T) {
 	root := newSchemaFixture(t)
 	cmd := newSchemaCmd()

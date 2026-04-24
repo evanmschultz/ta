@@ -178,7 +178,7 @@ func TestDogfoodGetRoundtripsBuildTask(t *testing.T) {
 // QA twins (which have a different `status` enum).
 func TestDogfoodSearchFindsDoneBuildTasks(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	hits, err := ops.Search(root, "plan_db.ta-v2.build_task", map[string]any{"status": "done"}, "", "")
+	hits, err := ops.Search(root, "plan_db.ta-v2.build_task", map[string]any{"status": "done"}, "", "", 0, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestDogfoodSearchFindsDoneBuildTasks(t *testing.T) {
 // or build_task records.
 func TestDogfoodSearchFindsFalsificationTwins(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	hits, err := ops.Search(root, "plan_db.ta-v2.qa_task", map[string]any{"kind": "falsification"}, "", "")
+	hits, err := ops.Search(root, "plan_db.ta-v2.qa_task", map[string]any{"kind": "falsification"}, "", "", 0, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

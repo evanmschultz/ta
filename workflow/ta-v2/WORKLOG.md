@@ -2382,4 +2382,286 @@ Scope per `workflow/ta-v2/IMPACT-B0-A21-A22.md` §1 and `docs/PLAN.md §12.17.5 
 
 - Commit step blocked by sandbox (`git add`/`git commit` denied). Worktree is clean other than the B0 diff enumerated above under `git status --short`. Suggested commit message: `refactor(ops): split mcpsrv into ops domain and mcpsrv protocol glue`. Orchestrator to commit on builder's behalf.
 
+### QA Proof — go-qa-proof-agent (B0 mcpsrv→ops split)
+
+**Verdict: PASS-WITH-FOLLOWUPS** (HEAD `9d54231`, 2026-04-22).
+
+- **File inventory matches (`git show 9d54231 --stat`).** Seven domain files renamed `internal/{mcpsrv => ops}/{backend,cache,errors,fields,ops,schema_mutate,testing}.go`; two test files renamed `{mcpsrv => ops}/{cache_test,dogfood_test}.go`; new `internal/ops/{doc.go,helpers.go,export_test.go}`; mcpsrv-side `export_test.go` trimmed to the `MCPServer()` hook; `server.go`, `tools.go`, `doc.go` edited in place; `cmd/ta/{commands.go,commands_test.go}`, `magefile.go`, `internal/mcpsrv/server_test.go` rewired.
+- **Final directory state matches acceptance.** `internal/mcpsrv/` has exactly `{server,tools,doc,server_test,export_test}.go`; `internal/ops/` has the twelve expected files. `ls` confirmed.
+- **Orphan helpers landed.** `internal/ops/helpers.go` contains `spliceOut`, `readFileIfExists`, `validationPath`, `tomlRelPathForFields` — all unexported, callers live entirely inside `ops.go` (`rg ops.go:87,140,157,173,303,333,431`).
+- **Symbol rewire clean at the exported boundary.** `rg 'mcpsrv\.(Get|Update|Create|Delete|ListSections|GetAllFields|MutateSchema|ResolveProject|ResetDefaultCacheForTest)' --type go` → zero hits. `rg 'ops\.(Get|Update|ListSections|ResolveProject)' --type go` → hits in `cmd/ta/commands.go`, `internal/mcpsrv/{server.go,tools.go,server_test.go}`, `internal/ops/{cache_test.go,dogfood_test.go}` — exactly the expected set.
+- **`cmd/ta/main.go` untouched for `mcpsrv`.** Still imports `mcpsrv`, still constructs `mcpsrv.New(mcpsrv.Config{…})` at `main.go:217` (verified).
+- **Package decls consistent.** All 10 `ops`-package files declare `package ops` (or `ops_test` for the two external test files); all 5 mcpsrv files declare `package mcpsrv` / `mcpsrv_test`.
+
+**Followups noted (OUT OF SCOPE for mechanical B0, tracked):**
+
+1. Stale `mcpsrv.*` prose in comments of `internal/search/search.go`, `internal/search/search_test.go`, `internal/backend/md/layout.go`, `cmd/ta/commands.go` (lines 163, 867) — documentation drift, not live refs.
+2. Error-text prefixes `"mcpsrv: …"` still present in moved files (`ops/cache.go`, `ops/schema_mutate.go`) — builder flagged #10 in their own followups; agree mechanical move preserves prose intentionally.
+3. `mage check` / `mage dogfood` could not be re-run (sandbox denied `mage` in this review). Relying on builder's recorded green result for HEAD `9d54231`.
+
+**Premises / Evidence / Trace / Conclusion / Unknowns:**
+
+- Premises: (a) exported-symbol rename coverage; (b) directory layout per acceptance; (c) orphan-helper relocation; (d) `cmd/ta/main.go` untouched for mcpsrv; (e) package decls clean; (f) build green.
+- Evidence: `git show --stat`, two `rg` sweeps, file listings, direct reads of `server.go`, `tools.go`, `doc.go`, `helpers.go`, `export_test.go` (both), magefile diff, commands.go diff, server_test.go diff.
+- Trace: each acceptance bullet in the spawn prompt mapped to a specific tool-verified artifact above.
+- Conclusion: Mechanical split semantically neutral; every acceptance criterion I could verify statically holds. PASS-WITH-FOLLOWUPS on the documentation-drift comments.
+- Unknowns: Live `mage` re-run blocked by sandbox; builder's recorded green stands.
+
+### QA Falsification — go-qa-falsification-agent (B0 mcpsrv→ops split)
+
+**Verdict: PASS.** No CONFIRMED counterexample against the "mechanical rename, no semantic changes" claim at `9d54231`.
+
+**Attacks & outcomes:**
+
+1. **Semantic drift in rename diff** — REFUTED. `git diff --find-renames=50%` reports similarity 99% on `backend.go`, `cache.go`, `errors.go`, `fields.go`, `ops.go`, `schema_mutate.go`, `testing.go` (single `-package mcpsrv` / `+package ops`). `cache_test.go` 89%, `dogfood_test.go` 90% — deltas are pure call-site rewires (`mcpsrv.Resolve*` → `ops.Resolve*`, `mcpsrv.ResetDefaultCacheForTest` → `ops.ResetDefaultCacheForTest`). No logic changed inside any moved function body.
+2. **Import cycle ops→mcpsrv** — REFUTED. Production `package ops` never imports `mcpsrv` (rg: 0 hits in `internal/ops/*.go`). Only `internal/ops/cache_test.go` (package `ops_test`) imports `mcpsrv` for three `TestStartup*` probes that exercise `mcpsrv.New()` — Go's test-build isolation permits this; no runtime cycle.
+3. **Exported symbol leakage** — REFUTED. `Server`, `Config`, `New` remain in `internal/mcpsrv/server.go`; `MCPServer()` stays in `internal/mcpsrv/export_test.go`. `rg 'ops\.(Server|Config|New|Run|MCPServer)\b'` returns 0 hits.
+4. **Missing handler rewires** — REFUTED. `internal/mcpsrv/tools.go` handlers `handleGet/handleListSections/handleCreate/handleUpdate/handleDelete/handleSearch/handleSchemaGet/handleSchemaMutate` all call `ops.X(...)`. No unqualified local calls to moved symbols.
+5. **Test helper regression** — REFUTED. `ops.ResetDefaultCacheForTest` callable from all three surfaces: `ops_test` (cache_test.go:231/271/329, dogfood_test.go:82), `mcpsrv_test` (server_test.go:117/119/152/153), `cmd/ta` external (commands_test.go:40/41).
+6. **cmd/ta/main.go untouched** — REFUTED. `git show 9d54231 -- cmd/ta/main.go` returns 0 lines. commands.go changes are pure `mcpsrv.X` → `ops.X` rewires (also includes `mcpsrv.SearchHit` → `ops.SearchHit` type rewires; signature-compatible).
+7. **Orphan-helper lowercase** — REFUTED. `spliceOut`, `readFileIfExists`, `validationPath`, `tomlRelPathForFields` in `internal/ops/helpers.go` all lowercase first char; unexported.
+8. **Error-sentinel prefix `"mcpsrv: ..."`** — REFUTED as a counterexample (pre-existing; preserved per "no semantic changes"). All 12 sentinels in `internal/ops/errors.go` + 4 `fmt.Errorf` sites in `schema_mutate.go/cache.go/backend.go/fields.go` still carry the `mcpsrv:` prefix. Deferred cleanup; flagged for follow-up slice.
+9. **Stale `mcpsrv` comments** — REFUTED. B0 did not clean comments in `internal/search/search.go` (lines 111-112, 237, 347-348, 490, 547) or `internal/templates/templates.go:8` — that honors the "no semantic changes" rule. Additionally `internal/ops/ops.go:438-439` comment now mis-describes `SearchHit` as "the mcpsrv boundary". Same follow-up bucket as #8.
+10. **Test coverage parity** — REFUTED. Pre-B0: 8 cache + 4 dogfood tests in `internal/mcpsrv/`. Post-B0: 8 in `internal/ops/cache_test.go` + 4 in `internal/ops/dogfood_test.go`. Exact count match; same test names.
+11. **§12.14.5 standing scan** — no new stdlib-modernization regressions introduced. `strings.Split`/`HasPrefix`/`HasSuffix` in `ops/helpers.go`, `ops/schema_mutate.go`, `ops/ops.go`, `ops/fields.go` are pre-existing carried forward verbatim.
+
+**Premises / Evidence / Trace / Conclusion / Unknowns:**
+
+- Premises: mechanical rename, semantic neutrality, no new exported surface from `ops`, no cycle, test parity, acceptance criteria §6a-compatible split.
+- Evidence: `git diff --find-renames=50%` similarity scores, full rename-delta diffs for `cache_test.go` / `dogfood_test.go` / `tools.go`, `rg` queries for import graphs and symbol leakage, direct `Read` of `ops/helpers.go` / `ops/errors.go` / `ops/export_test.go` / `mcpsrv/doc.go` / `mcpsrv/server.go`, `wc -l` on pre/post test files.
+- Trace: each of the 11 attack vectors mapped to at least one rg/diff/Read observation; no observation contradicted the claim.
+- Conclusion: PASS. B0 is a clean mechanical split. Follow-up items (not blockers): `"mcpsrv: "` error prefix migration, stale comments in `internal/search/search.go`, `internal/templates/templates.go:8`, and `internal/ops/ops.go:438-439`.
+- Unknowns: live `mage check` / `mage dogfood` runs blocked by sandbox; relying on builder-recorded green at `9d54231`. Parity with proof review (which also flagged sandbox block).
+
+### Hylla Feedback
+
+N/A — task touched Go-file renames only; structural queries served by `git diff --find-renames`, `rg`, and `Read`. No Hylla query attempted.
+
+---
+
+## 12.17.5 A2.1+A2.2 — limit/all at the endpoint
+
+**Status:** BUILD DONE (awaiting orchestrator commit — sandbox blocked `git add`/`git commit`).
+
+Scope per `workflow/ta-v2/IMPACT-B0-A21-A22.md` §2 + §3 and `docs/PLAN.md §12.17.5 [A2.1]+[A2.2]`. Move the `limit` / `all` cap from a post-fetch CLI slice into the `ops.ListSections` / `ops.Search` endpoints, with file-boundary early-exit in `search.Run`. Extends the §6a.1 decoupling rule to both the CLI and MCP adapters.
+
+### Build — go-builder-agent
+
+**Shared plumbing (`internal/search/search.go`):**
+
+- Added `Limit int` and `All bool` fields to `search.Query` (docstring amended; semantics: Limit=0 means "no cap"; All=true overrides Limit).
+- Added file-boundary early-exit in `Run` after each `out = append(out, results...)`:
+  ```go
+  if !q.All && q.Limit > 0 && len(out) >= q.Limit {
+      return out[:q.Limit], nil
+  }
+  ```
+  Per IMPACT §2.3 this turns O(all records) into O(until first cap-cross) — the cheapest correct fix before considering per-record inner-loop pushdown, which is flagged as a possible follow-up if benchmarks ever show it's needed.
+
+**[A2.1] `list_sections`:**
+
+- `internal/ops/ops.go` — `ListSections(path, scope string, limit int, all bool) ([]string, error)` + new `defaultListLimit = 10` const + new unexported `resolveLimit(limit, all int) int` helper. Contract: `all=true` → no cap; `limit>0` → cap at N; `limit<=0 && !all` → substitute default (10). Forwards into `search.Query{Limit, All, ...}`.
+- `internal/mcpsrv/tools.go` — `listSectionsTool()` gains `mcp.WithNumber("limit", ...)` + `mcp.WithBoolean("all", ...)`; tool description amended to cite the default-10 contract. `handleListSections` parses with `req.GetInt("limit", 0)` + `req.GetBool("all", false)`, enforces mutex (`pass either limit or all, not both`), forwards to `ops.ListSections`.
+- `cmd/ta/commands.go` — `newListSectionsCmd` drops the post-fetch `sections[:limit]` slice at (was) line 253-255; passes `limit`/`all` through to `ops.ListSections`. Cobra mutex + default-10 flag behavior preserved.
+
+**[A2.2] `search`:**
+
+- `internal/ops/ops.go` — `Search(path, scope string, match map[string]any, queryRegex, field string, limit int, all bool) ([]SearchHit, error)`. Same default-10 / all-wins contract via `resolveLimit`.
+- `internal/mcpsrv/tools.go` — `searchTool()` gains the same `WithNumber("limit")` + `WithBoolean("all")` params; `handleSearch` adds the mutex guard + param extraction + forwards.
+- `cmd/ta/commands.go` — `newSearchCmd` gains `IntVarP(&limit, "limit", "n", 10, ...)` + `BoolVar(&all, "all", false, ...)` + `cmd.MarkFlagsMutuallyExclusive("limit", "all")` flags; pass-through to `ops.Search(..., limit, all)`; Long + Example prose amended.
+
+**mcp-go SDK surface used** (confirmed via Context7 `/mark3labs/mcp-go`):
+
+- Tool-decl builders: `mcp.WithNumber(name, opts...)` + `mcp.WithBoolean(name, opts...)`.
+- Handler-side extraction: `req.GetInt(name, default int) int` (preferred over `int(req.GetFloat(...))` cast from the IMPACT doc's initial guess) + `req.GetBool(name, default bool) bool`.
+
+The IMPACT doc suggested `req.GetFloat(...)`; Context7 confirmed `req.GetInt` exists directly on `CallToolRequest` and returns `int` — using it avoids the int/float cast noise. No SDK gap; no workaround needed.
+
+**Endpoint-level tests (new `internal/ops/ops_test.go`):**
+
+- `TestListSectionsDefaultLimit` — 15 seeded records, no flags → 10 returned.
+- `TestListSectionsExplicitLimit` — 15 records, `limit=5` → 5.
+- `TestListSectionsAll` — 15 records, `all=true` → 15.
+- `TestListSectionsAllBeatsLimit` — 12 records, `limit=3, all=true` → 12 (endpoint permissive, adapter-level mutex is UX guard).
+- `TestListSectionsEarlyExitWalkOrder` — 15 records, `limit=3` → first 3 in file-parse order.
+- `TestSearchDefaultLimit`, `TestSearchExplicitLimit`, `TestSearchAll`, `TestSearchAllBeatsLimit` — same matrix on the Search endpoint.
+
+**MCP-surface tests (appended to `internal/mcpsrv/server_test.go`):**
+
+- `TestListSectionsDefaultLimitOfTen` — 15 records, no flags → 10.
+- `TestListSectionsAllReturnsEveryRecord` — 15, `all=true` → 15.
+- `TestListSectionsExplicitLimit` — 15, `limit=3` → 3.
+- `TestListSectionsLimitAllMutex` — both flags → error `pass either limit or all, not both`.
+- `TestSearchDefaultLimitOfTen`, `TestSearchAllReturnsEveryHit`, `TestSearchExplicitLimit`, `TestSearchLimitAllMutex` — same matrix on MCP `search`.
+
+**CLI tests (new in `cmd/ta/commands_test.go`):**
+
+- `TestSearchCmdDefaultLimitCaps` — seeded 15 tasks, default flags → 10 JSON hits.
+- `TestSearchCmdLimitFlag` — `--limit 4` → 4.
+- `TestSearchCmdAllFlag` — `--all` → 15.
+- `TestSearchCmdMutex` — `--limit 3 --all` → error.
+- Existing `TestListSectionsCmdLimit` / `TestListSectionsCmdAll` / `TestListSectionsCmdMutex` still pass post-change (behavior parity: default-10 at endpoint, mutex at cobra).
+
+**dogfood_test.go adjustment:**
+
+- Two `ops.Search(...)` calls in `TestDogfoodSearchFindsDoneBuildTasks` and `TestDogfoodSearchFindsFalsificationTwins` gained `, 0, true` trailing args (request every hit) to preserve their "find every match" intent independent of the new default cap.
+
+**Verification:**
+
+- `mage check` green (fmtcheck + vet + test -race + tidy): 13 packages OK including the new `internal/ops/ops_test.go` and the extended `internal/mcpsrv/server_test.go` / `cmd/ta/commands_test.go`. Zero skipped tests.
+- `mage dogfood` green (idempotent skip — `workflow/ta-v2/db.toml` already materialized; unchanged behavior).
+
+**Manual-style assertion coverage** (per verification-gate bullet 3):
+
+- `limit=3` on a seeded project with 10+ matching records returns exactly 3 — covered by `TestListSectionsCmdLimit` (existing, still green), `TestListSectionsExplicitLimit` (new endpoint), `TestListSectionsExplicitLimit` MCP variant, `TestSearchCmdLimitFlag`, `TestSearchExplicitLimit` endpoint + MCP.
+- `all=true` returns every record — covered by `TestListSectionsAll`, `TestListSectionsAllReturnsEveryRecord` MCP, `TestSearchAll`, `TestSearchAllReturnsEveryHit`, `TestListSectionsCmdAll`, `TestSearchCmdAllFlag`.
+- Passing both errors loudly — `TestListSectionsCmdMutex` (CLI cobra), `TestSearchCmdMutex` (CLI cobra), `TestListSectionsLimitAllMutex` (MCP handler text), `TestSearchLimitAllMutex` (MCP handler text).
+
+**Breaking change release-note text** (per [A2.3] / §12.19 prep):
+
+> **MCP `list_sections` and `search` now cap at 10 results by default.**
+> Pre-§12.17.5 the MCP tools returned every matching address / hit (uncapped); post-§12.17.5 both endpoints enforce a default cap of 10, matching the existing CLI default. Agents that previously relied on the uncapped MCP behavior must now pass `all=true` to request every result, or an explicit `limit=N` to raise the cap. Passing both `limit` and `all` is rejected by the endpoint (and by the CLI's cobra mutex). CLI behavior is unchanged — the pre-existing `--limit`/`-n` / `--all` flags now pass through to the endpoint rather than post-slicing the result set, which is transparent at the UX level but fixes a latent performance issue (previously the walker materialized every record in scope before the CLI sliced down).
+
+**LoC deltas:**
+
+- `internal/search/search.go`: +18 LoC (Query fields + comment + early-exit block).
+- `internal/ops/ops.go`: +44 LoC net (const + resolveLimit helper + expanded signatures/docstrings).
+- `internal/ops/ops_test.go`: +181 LoC (new file, 8 tests + 1 seed helper).
+- `internal/mcpsrv/tools.go`: +30 LoC net (4 tool-param builder calls + 2 mutex guards + 2 extra arg rows on forward calls).
+- `internal/mcpsrv/server_test.go`: +202 LoC (1 seed helper + 8 MCP-surface tests + `fmt` import).
+- `cmd/ta/commands.go`: +14 net / -6 (flag vars + Long prose + pass-through; dropped post-fetch slice).
+- `cmd/ta/commands_test.go`: +113 LoC (4 search CLI tests + seed helper).
+- `internal/ops/dogfood_test.go`: +2 LoC net (two `ops.Search` call-site signature updates).
+
+**Unknowns:**
+
+- Commit step blocked by sandbox (`git add` / `git commit` denied). Worktree diff enumerated under `git status --short` above; orchestrator commits on builder's behalf. Suggested message: `feat(ops): limit and all params on list_sections and search endpoints`.
+
+### Hylla Feedback
+
+N/A — task touched Go code that is already under active edit; evidence flow was `Read` / `git diff` / Context7 for the mcp-go SDK. No Hylla query attempted because every target file was uncommitted or in-session.
+
+### QA Falsification — go-qa-falsification-agent (A2.1+A2.2 limit/all)
+
+**Verdict: PASS.** No CONFIRMED counterexample against the A2.1+A2.2 endpoint-cap claim at HEAD `9d54231` + uncommitted diff.
+
+**Attacks & outcomes:**
+
+1. **Early-exit placement inside/outside file loop** — REFUTED. `internal/search/search.go:121-123` sits INSIDE the instance loop, AFTER `out = append(out, results...)` at line 116, i.e. at the file boundary. `validateScopeNames` at line 88 runs BEFORE any iteration, so typo errors still surface even when the cap would trigger on file one. Ordering preserves "hits in source order within each file" and eliminates "materialize everything, then slice."
+2. **Permissive vs strict asymmetry** — REFUTED and DOCUMENTED. Endpoint is permissive (`resolveLimit` collapses `all=true, limit=N` to "no cap"); adapter layer (cobra + MCP handler) is strict. Documented at `internal/ops/ops.go:455-459` ("Adapters … enforce the UX 'pass either limit or all, not both' rule; at the endpoint we stay permissive — all == true beats any non-zero limit") and `internal/search/search.go:41-45`. MCP handler uses `limit > 0 && all`, so `{"all": true}` with missing limit (arrives as 0) is NOT rejected. Only both-explicit rejects. Matches the documented contract.
+3. **Cobra mutex + default-10** — REFUTED. Cobra's `MarkFlagsMutuallyExclusive` checks `Changed()`, not current value. `--all` alone (limit untouched at default 10) passes because `--limit` isn't Changed. `--limit N --all` rejects because both are Changed. Verified by `TestListSectionsCmdAll` (cmd_test.go:496, `--all` only, asserts 5 records returned) and `TestListSectionsCmdMutex` (cmd_test.go:519, both set, asserts error). Both green under `mage check`.
+4. **mcp-go SDK deviation (GetInt / GetBool)** — REFUTED. Context7 `/mark3labs/mcp-go` confirms `req.GetInt(name, default) int` and `req.GetBool(name, default bool) bool` are real methods on `CallToolRequest` (doc page `www/docs/pages/servers/tools.mdx`, "Optional Parameters with Defaults" section). No hallucination; builder's deviation from the IMPACT doc's `int(req.GetFloat(...))` is an improvement that avoids the cast, not a compile hazard. `mage check` compile gate confirms.
+5. **dogfood_test.go call-site rewire** — REFUTED. Two sites (`TestDogfoodSearchFindsDoneBuildTasks` at dogfood_test.go:181 and `TestDogfoodSearchFindsFalsificationTwins` at :199) gained `, 0, true` trailing args. `all=true` preserves the "find every match" intent; the tests assert specific-count invariants that are now verified against the full unfiltered result set, not the capped result. `mage check` green confirms both dogfood tests still pass.
+6. **Pre-existing search_test.go struct-literal sites** — REFUTED. Every pre-existing `search.Query{...}` literal omits `Limit` and `All`, so they default to `Limit=0, All=false`. The new early-exit condition `!q.All && q.Limit > 0 && len(out) >= q.Limit` is false when `Limit=0` → no cap triggered → unchanged behavior for all 32 pre-existing call sites (`git grep 'search.Query{' internal/search/`). `mage check` green confirms.
+7. **Gopls hints at ops.go:364 mapsloop + tools.go:401 errorsastype** — REFUTED as blockers. `ops.go:364` is inside `overlayPatch` (pre-existing copy-on-write over `existing` map; semantic preservation requires iterating — a `maps.Copy` replacement is stylistic, semantically identical). `tools.go:401` is pre-existing `errors.As` in `validationOrPlainError`; `AsType` is a gopls-suggested modernization, not a semantic change. Neither hint is in the A2.1+A2.2 diff; both are pre-existing, non-blocker style followups.
+8. **WORKLOG append ordering** — REFUTED. All three B0-era entries survive: `### QA Proof — … (B0 …)` at line 2385, `### QA Falsification — … (B0 …)` at line 2410, and `## 12.17.5 A2.1+A2.2` at line 2442. No prior content clobbered.
+9. **Release-note breaking-change prose** — REFUTED. WORKLOG:2522-2523 contains ship-quality prose: names both tools, states the cap (10), gives migration path (`all=true` or explicit `limit=N`), notes mutex behavior, highlights CLI no-regression + perf-bonus. Not placeholder text.
+10. **Section 0 / tillsyn-flow spec pollution in WORKLOG** — REFUTED. `rg "Section 0|SEMI-FORMAL REASONING|## Planner|## Builder|## QA Proof|## QA Falsification|## Convergence" workflow/ta-v2/WORKLOG.md` shows only the `### QA Proof —` and `### QA Falsification —` body-heading patterns (which are legitimate tillsyn-flow body headings, not Section 0 markers). No "Section 0" header, no `## Planner` / `## Builder` / `## Convergence` process text leaked into the durable artifact.
+
+**Build verification:**
+
+- `mage check` green. All 12 packages pass (fmtcheck + vet + race tests + tidy): `cmd/ta`, `internal/{backend/md, backend/toml, config, db, fsatomic, mcpsrv, ops, render, schema, search, templates}`. `internal/record` has no tests.
+
+**Non-blocker followups:**
+
+- Gopls `mapsloop` hint at `internal/ops/ops.go:364` (in `overlayPatch`, pre-existing) and `errorsastype` hint at `internal/mcpsrv/tools.go:401` (in `validationOrPlainError`, pre-existing). Both stylistic modernizations; neither in the A2.1+A2.2 diff. Bundle into a future §12.14.5-style sweep.
+- Stale `mcpsrv` prose in `internal/search/search.go` comments (B0 followup, already flagged by B0 QA sibling). Not A2.1+A2.2's concern.
+
+**Premises / Evidence / Trace / Conclusion / Unknowns:**
+
+- Premises: (a) endpoint owns the cap, adapters pass flags through verbatim; (b) file-boundary early-exit preserves file-order + validateScopeNames gate; (c) MCP strict mutex + CLI cobra mutex parity; (d) endpoint permissive (all wins) stays deterministic for library callers; (e) default-10 applies uniformly across MCP and CLI surfaces; (f) no regression on 32 pre-existing `search.Query{...}` literal sites.
+- Evidence: full `git diff HEAD` for `internal/search/search.go`, `internal/ops/ops.go`, `internal/mcpsrv/tools.go`, `cmd/ta/commands.go`, `internal/ops/dogfood_test.go`, `cmd/ta/commands_test.go`, `internal/mcpsrv/server_test.go`; full read of new `internal/ops/ops_test.go`; `git grep 'search.Query{'` enumerating all 32 pre-existing literal call sites; Context7 `/mark3labs/mcp-go` confirming GetInt/GetBool signatures; `rg` headings sweep across WORKLOG; `mage check` live run (13 packages green).
+- Trace: each of the 10 attack vectors mapped to a concrete file+line observation; no observation contradicts the claim.
+- Conclusion: PASS. A2.1+A2.2 is semantically sound, test-parity is preserved, release-note prose ships, WORKLOG append didn't clobber B0 history, MCP strict / endpoint permissive asymmetry is documented. The two gopls hints are pre-existing code outside this diff's scope.
+- Unknowns: none blocking. Commit step remains sandbox-blocked (orchestrator will commit on builder's behalf); no review bar affected.
+
+### Hylla Feedback
+
+None — Hylla answered everything needed for the attack plan. All attack vectors resolved via `git diff`, direct `Read`, `git grep`, Context7 (`/mark3labs/mcp-go`), and live `mage check`. No Hylla query attempted on this review because the target diff is uncommitted and Hylla's committed index would not yet reflect it.
+
+### QA Proof — go-qa-proof-agent (A2.1+A2.2 limit/all)
+
+**Verdict: PASS.** HEAD `9d54231` + uncommitted working tree. Every premise the builder asserted for A2.1+A2.2 is backed by a file+line observation or a live gate re-run; no evidence gap found.
+
+**Evidence gate re-runs (verification-gate bullet 1):**
+
+- `MAGEFILE_JSON=1 mage -v check` → exit 0. Zero `"Action":"fail"` events. Twelve packages pass: `cmd/ta`, `internal/{backend/md, backend/toml, config, db, fsatomic, mcpsrv, ops, render, schema, search, templates}`. (`internal/record` has no tests.)
+- `MAGEFILE_JSON=1 mage -v dogfood` → exit 0. Idempotent skip; no `db.toml` drift.
+- `git diff HEAD --stat` → 8 modified + 1 new (`internal/ops/ops_test.go`), matching the builder's file inventory exactly: `cmd/ta/commands.go`, `cmd/ta/commands_test.go`, `internal/mcpsrv/server_test.go`, `internal/mcpsrv/tools.go`, `internal/ops/dogfood_test.go`, `internal/ops/ops.go`, `internal/search/search.go`, `workflow/ta-v2/WORKLOG.md`, plus new `internal/ops/ops_test.go`.
+
+**Claim 1 — `search.go` Query fields + file-boundary early-exit (search.go:110-116 / actual 117-123):**
+
+- `Query.Limit int` + `Query.All bool` land on the struct at `internal/search/search.go:53-54` with the promised `Limit=0 no cap` / `All=true overrides Limit` semantics documented at :37-45.
+- Early-exit block lives at `internal/search/search.go:117-123`, immediately after `out = append(out, results...)` (line 116) and INSIDE the `for _, inst := range instances` loop. Condition `!q.All && q.Limit > 0 && len(out) >= q.Limit` is correct: `All=true` bypasses the cap, `Limit=0` falls through, and `len(out) >= q.Limit` with the `out[:q.Limit]` slice prevents over-return when a single file's results exceed the cap.
+- Ordering: `validateScopeNames` at :87-91 runs BEFORE the walk begins, so the typo-fails-loudly invariant from §12.7 Falsification #2 is preserved — a capped query never silently masks a scope-level typo.
+
+**Claim 2 — `ops.go` `resolveLimit` + signature extensions:**
+
+- `defaultListLimit = 10` const at `internal/ops/ops.go:452`. `resolveLimit(limit int, all bool) int` at :463-472: `all=true` → 0 (no cap downstream); `limit > 0` → pass-through; otherwise → 10. Matches the documented contract.
+- `ListSections(path, scope string, limit int, all bool) ([]string, error)` at :487-498 forwards `Limit: resolveLimit(limit, all), All: all` into `search.Query`.
+- `Search(path, scope string, match map[string]any, queryRegex, field string, limit int, all bool) ([]SearchHit, error)` at :510-526 applies the same pattern.
+- Permissive-at-endpoint semantics verified by `TestListSectionsAllBeatsLimit` and `TestSearchAllBeatsLimit` in `internal/ops/ops_test.go:103-112/179-188`: `ListSections(root, "", 3, true)` with 12 seeded records returns 12 — the endpoint honors `all=true` over a non-zero limit, exactly as the ops.go:455-459 docstring commits to.
+
+**Claim 3 — `tools.go` MCP surface (WithNumber/WithBoolean + strict mutex via `GetInt`/`GetBool`):**
+
+- Tool declarations: `listSectionsTool()` at `internal/mcpsrv/tools.go:43-50` adds `mcp.WithNumber("limit", ...)` + `mcp.WithBoolean("all", ...)`. `searchTool()` at :128-135 mirrors. Descriptions include "Default 10" + "Mutually exclusive with all=true".
+- Handlers: `handleListSections` at :248-259 extracts `limit := req.GetInt("limit", 0)` + `all := req.GetBool("all", false)`, rejects `limit > 0 && all` with `"pass either limit or all, not both"`, forwards to `ops.ListSections(path, scope, limit, all)`. `handleSearch` at :369-381 mirrors.
+- **Context7 confirmation (`/mark3labs/mcp-go`):** `GetInt(name, default) int` and `GetBool(name, default bool) bool` are the canonical `CallToolRequest` methods per `www/docs/pages/servers/tools.mdx` → "Optional Parameters with Defaults" section. The builder's divergence from the IMPACT doc's `int(req.GetFloat(...))` is a real SDK method (not a hallucination) AND an improvement over the cast-from-float path. `mage check` compile gate confirms symbolically.
+- Strict mutex (endpoint accepts both `all=true` alone with no limit, because `limit` parses as 0): `TestListSectionsLimitAllMutex` + `TestSearchLimitAllMutex` (server_test.go:1727 / :1820) both seed fixtures, call with `{"limit": 3, "all": true}`, assert `res.IsError` true, and check for the substring `"pass either limit or all"`. Both pass.
+
+**Claim 4 — `commands.go` CLI adapter (flag forwarding, post-fetch slice removed, cobra mutex):**
+
+- `newListSectionsCmd` at `cmd/ta/commands.go:217-278` forwards `limit, all` to `ops.ListSections(path, resolvedScope, limit, all)` at :249; the post-fetch slice is gone, replaced by the explanatory comment at :253-255. `IntVarP("limit", "n", 10, ...)` at :273 and `BoolVar("all", false, ...)` at :274 + `MarkFlagsMutuallyExclusive("limit", "all")` at :275. Default-10 CLI contract preserved.
+- `newSearchCmd` at :533-585 gains `IntVarP(&limit, "limit", "n", 10, ...)` + `BoolVar(&all, "all", false, ...)` + `MarkFlagsMutuallyExclusive("limit", "all")` (:581-583); forwards to `ops.Search(path, scope, match, query, field, limit, all)` at :566. Long/Example prose amended to cite §12.17.5 [A2.2] and the `--all --json` example.
+- Cobra mutex semantics: `MarkFlagsMutuallyExclusive` checks `Changed()`, not value — so `--all` alone (with `--limit` still at its default 10) passes because only `--all` was changed; `--limit N --all` rejects because both are changed. This is why `TestListSectionsCmdAll` (pre-existing) stays green post-refactor.
+
+**Claim 5 — `dogfood_test.go` intent preservation:**
+
+- `TestDogfoodSearchFindsDoneBuildTasks` at dogfood_test.go:181 and `TestDogfoodSearchFindsFalsificationTwins` at :199 each gained trailing `, 0, true` args. `all=true` preserves "every match" semantics; the tests' specific-count invariants are now verified against the full unfiltered result set. `mage check` green confirms both still pass.
+
+**Claim 6 — test matrix (8+8+4 new tests + 4 pre-existing list-sections CLI tests still green):**
+
+Endpoint (`internal/ops/ops_test.go`, all pass): `TestListSectionsDefaultLimit`, `TestListSectionsExplicitLimit`, `TestListSectionsAll`, `TestListSectionsAllBeatsLimit`, `TestListSectionsEarlyExitWalkOrder`, `TestSearchDefaultLimit`, `TestSearchExplicitLimit`, `TestSearchAll`, `TestSearchAllBeatsLimit` — that is 9 tests, not 8 (`TestListSectionsEarlyExitWalkOrder` is the 9th; the builder's count of 8 in their summary undercounted by one). Not a regression — additional coverage. All green.
+
+MCP surface (`internal/mcpsrv/server_test.go`, all pass): `TestListSectionsDefaultLimitOfTen`, `TestListSectionsAllReturnsEveryRecord`, `TestListSectionsExplicitLimit`, `TestListSectionsLimitAllMutex`, `TestSearchDefaultLimitOfTen`, `TestSearchAllReturnsEveryHit`, `TestSearchExplicitLimit`, `TestSearchLimitAllMutex` — 8 tests. `rg` confirmed all 8 hit the check output with `"Action":"pass"`.
+
+CLI (`cmd/ta/commands_test.go`, all pass): `TestSearchCmdDefaultLimitCaps`, `TestSearchCmdLimitFlag`, `TestSearchCmdAllFlag`, `TestSearchCmdMutex` — 4 tests. Pre-existing `TestListSectionsCmdLimit` / `TestListSectionsCmdAll` / `TestListSectionsCmdMutex` still present + green (zero diff to their function bodies).
+
+**Claim 7 — gopls diagnostic hints (ops.go:364 mapsloop + tools.go:401 errorsastype):**
+
+- `internal/ops/ops.go:363-364` — `for k, v := range existing { merged[k] = v }` lives inside `overlayPatch`. The A2.1+A2.2 diff does NOT touch this block (verified by `git diff HEAD -- internal/ops/ops.go` inspection — the diff is confined to the `defaultListLimit`/`resolveLimit`/`ListSections`/`Search` regions). Pre-existing code, flagged as a stylistic `maps.Copy` followup, NOT a blocker for this slice.
+- `internal/mcpsrv/tools.go:399-408` — `errors.As(err, &vErr)` lives inside `validationOrPlainError`. The A2.1+A2.2 diff does NOT touch this block (verified by reading the diff range for `tools.go` — all edits are in `listSectionsTool()`, `searchTool()`, `handleListSections`, `handleSearch`). Pre-existing code, flagged as `errors.AsType[*schema.ValidationError]` followup, NOT a blocker.
+- Both hints are legitimate modernization candidates for a future §12.14.5-style sweep. Bundling them here would widen the diff outside the task scope. PASS with followup.
+
+**WORKLOG append integrity (verification-gate bullet 4 — B0 history not clobbered):**
+
+- `## 12.17.5 B0 — mcpsrv→ops split` header at WORKLOG:2316 — intact.
+- `### QA Proof — go-qa-proof-agent (B0 mcpsrv→ops split)` at WORKLOG:2385 — intact; 5-field certificate at :2402-2408 preserved.
+- `### QA Falsification — go-qa-falsification-agent (B0 mcpsrv→ops split)` at WORKLOG:2410 — intact; 11 attack vectors + certificate at :2428-2434 preserved.
+- `## 12.17.5 A2.1+A2.2 — limit/all at the endpoint` at WORKLOG:2442 — builder's new section, appended cleanly below B0.
+- `### QA Falsification — go-qa-falsification-agent (A2.1+A2.2 limit/all)` at WORKLOG:2544 — sibling falsification review already landed cleanly below builder's summary; no clobber.
+
+**Release-note drift (verification-gate bullet 3 — §12.19 / [A2.3] prep):**
+
+- WORKLOG:2520-2523 carries ship-quality breaking-change prose: names both MCP tools, states the new cap (10), gives the migration path (`all=true` or explicit `limit=N`), notes the endpoint mutex, flags the CLI no-regression + perf-bonus (eliminates "materialize everything, then slice"). No standalone `## 12.19` section exists because [A2.3] is planning-only — release-note captured as prep inside §12.17.5's A2.1+A2.2 entry. Matches the spawn-prompt acceptance.
+
+**Non-blocker followups (forwarded, not gating):**
+
+1. `internal/ops/ops.go:364` `mapsloop` gopls hint in `overlayPatch` (pre-existing). Stylistic; bundle into §12.14.5 sweep.
+2. `internal/mcpsrv/tools.go:401` `errorsastype` gopls hint in `validationOrPlainError` (pre-existing). Stylistic; same bundle.
+3. B0's stale-comment / error-prefix followups (WORKLOG:2366-2379) are not A2.1+A2.2's concern; remain tracked against the B0 flag.
+4. Builder's summary undercounts the ops-endpoint test matrix by one (9 tests, not 8 — `TestListSectionsEarlyExitWalkOrder` is the uncounted one). Documentation drift; no impact on correctness.
+
+**Premises / Evidence / Trace / Conclusion / Unknowns:**
+
+- Premises: (a) endpoint owns the cap with adapters forwarding verbatim; (b) file-boundary early-exit preserves `validateScopeNames` ordering and file-parse source order; (c) `resolveLimit` collapses `all=true` to "no cap" before `search.Run` sees it; (d) MCP handler strict mutex + endpoint permissive mutex are documented asymmetry (UX guard at adapter, deterministic precedence at endpoint); (e) CLI cobra mutex is `Changed()`-based so default-10 + `--all` alone still works; (f) dogfood tests preserved intent via `, 0, true`; (g) two gopls hints are pre-existing out-of-scope code; (h) WORKLOG append preserves B0 QA history; (i) release-note prose is ship-quality.
+- Evidence: `mage -v check` exit 0 (12 packages green, 0 fails), `mage -v dogfood` exit 0, `git diff HEAD --stat` (8 modified + 1 new), full diff reads of all six touched source files + new `ops_test.go`, `rg` confirmation of 8 MCP-surface test pass events + 4 CLI test pass events + 9 ops endpoint test pass events, Context7 `/mark3labs/mcp-go` confirming `GetInt`/`GetBool` canonical, `rg '^##? 12\.'` enumerating §12.x headings, direct re-read of WORKLOG B0 sections.
+- Trace: each of the 7 spawn-prompt scope bullets + 4 verification gates mapped to at least one file+line or exit-code observation; no observation contradicted the PASS claim.
+- Conclusion: **PASS.** A2.1+A2.2 is semantically sound at the endpoint, mechanically forwarded by both adapters with the documented mutex asymmetry, covered by a 21-test matrix (9 ops + 8 mcpsrv + 4 CLI) all green under `mage -v check -race`, and safely composed with the B0 worklog history. The two gopls hints are pre-existing, out-of-scope, and correctly deferred.
+- Unknowns: none blocking. The builder's "8 endpoint tests" summary is off-by-one (actual 9 — `TestListSectionsEarlyExitWalkOrder` is the extra coverage bullet the summary missed); the orchestrator can either leave the WORKLOG builder-summary drift as-is or sweep it in the commit. Commit step remains sandbox-blocked — orchestrator commits on both QA agents' behalf once both siblings are green (which they now are).
+
+### Hylla Feedback
+
+N/A — task touched Go code that is actively under uncommitted edit; Hylla's committed index would not yet reflect the A2.1+A2.2 diff. All evidence flowed via `git diff HEAD`, direct `Read`, `rg` against the live tree, Context7 `/mark3labs/mcp-go` for SDK surface confirmation, and live `mage -v check` / `mage -v dogfood` re-runs. No Hylla query attempted.
+
 

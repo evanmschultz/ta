@@ -246,13 +246,13 @@ func newListSectionsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sections, err := ops.ListSections(path, resolvedScope)
+			sections, err := ops.ListSections(path, resolvedScope, limit, all)
 			if err != nil {
 				return err
 			}
-			if !all && limit > 0 && len(sections) > limit {
-				sections = sections[:limit]
-			}
+			// Post-fetch slice removed — endpoint owns the cap per
+			// docs/PLAN.md §12.17.5 [A2.1] and the §6a.1 decoupling
+			// principle. CLI flags pass through verbatim.
 			if asJSON {
 				if sections == nil {
 					sections = []string{}
@@ -533,6 +533,8 @@ func newSearchCmd() *cobra.Command {
 	var query string
 	var field string
 	var asJSON bool
+	var limit int
+	var all bool
 	cmd := &cobra.Command{
 		Use:   "search",
 		Short: "Structured + regex search across records; mirrors MCP tool `search`.",
@@ -540,11 +542,13 @@ func newSearchCmd() *cobra.Command {
 			"filters on typed scalar fields (JSON object), then optionally " +
 			"applies --query regex against string fields (restricted to " +
 			"--field when set). One laslig card per hit — or, with --json, " +
-			"a structured hits array for agent consumption. --path defaults " +
-			"to cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+			"a structured hits array for agent consumption. --limit caps the " +
+			"hit count (default 10, -n shorthand); --all returns every match. " +
+			"--path defaults to cwd; relative or absolute accepted " +
+			"(V2-PLAN §12.17.5 [A1] / [A2.2]).",
 		Example: "  ta search --scope=plans.task --match '{\"status\":\"todo\"}'\n" +
 			"  ta search --path /abs/proj --scope=plans.task --query='TODO' --field=body\n" +
-			"  ta search --scope=plans.task --json",
+			"  ta search --scope=plans.task --all --json",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -559,7 +563,7 @@ func newSearchCmd() *cobra.Command {
 					return fmt.Errorf("parse --match JSON: %w", err)
 				}
 			}
-			hits, err := ops.Search(path, scope, match, query, field)
+			hits, err := ops.Search(path, scope, match, query, field, limit, all)
 			if err != nil {
 				return err
 			}
@@ -574,6 +578,9 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&query, "query", "", "Go RE2 regex matched against string fields")
 	cmd.Flags().StringVar(&field, "field", "", "restrict --query to one string field")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
+	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the hit count at N (default 10)")
+	cmd.Flags().BoolVar(&all, "all", false, "return every match (disables --limit)")
+	cmd.MarkFlagsMutuallyExclusive("limit", "all")
 	addPathFlag(cmd)
 	return cmd
 }

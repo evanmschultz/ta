@@ -34,12 +34,20 @@ func listSectionsTool() mcp.Tool {
 	return mcp.NewTool(
 		"list_sections",
 		mcp.WithDescription(
-			"Enumerate record addresses under a scope. Returns full project-level dotted addresses in file-parse order, ready to pass back to get/update/delete.",
+			"Enumerate record addresses under a scope. Returns full project-level dotted addresses in file-parse order, ready to pass back to get/update/delete. Defaults to 10 addresses; pass all=true or a larger limit to widen.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString(
 			"scope",
 			mcp.Description("Optional: '<db>' | '<db>.<type>' | '<db>.<instance>' | '<db>.<type>.<id-prefix>' | '<db>.<instance>.<type>(.<id-prefix>)?'. Default = whole project."),
+		),
+		mcp.WithNumber(
+			"limit",
+			mcp.Description("Optional cap on returned addresses. Default 10. Mutually exclusive with all=true."),
+		),
+		mcp.WithBoolean(
+			"all",
+			mcp.Description("Optional. When true, return every address in scope; ignores limit."),
 		),
 	)
 }
@@ -97,7 +105,7 @@ func searchTool() mcp.Tool {
 	return mcp.NewTool(
 		"search",
 		mcp.WithDescription(
-			"Structured + regex search across records. Scope narrows traversal to one db, one type, one instance, or one id-prefix. Match applies exact-match filters on typed fields (AND-combined). Query is a Go RE2 regex matched against string fields; Field optionally restricts the regex to one named string field. Returns full record sections in source order.",
+			"Structured + regex search across records. Scope narrows traversal to one db, one type, one instance, or one id-prefix. Match applies exact-match filters on typed fields (AND-combined). Query is a Go RE2 regex matched against string fields; Field optionally restricts the regex to one named string field. Returns full record sections in source order. Defaults to 10 hits; pass all=true or a larger limit to widen.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString(
@@ -116,6 +124,14 @@ func searchTool() mcp.Tool {
 		mcp.WithString(
 			"field",
 			mcp.Description("Optional: restrict `query` to one named string field. Default = every declared string field on the record type."),
+		),
+		mcp.WithNumber(
+			"limit",
+			mcp.Description("Optional cap on returned hits. Default 10. Mutually exclusive with all=true."),
+		),
+		mcp.WithBoolean(
+			"all",
+			mcp.Description("Optional. When true, return every hit in scope; ignores limit."),
 		),
 	)
 }
@@ -232,7 +248,15 @@ func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
 	}
 	scope := req.GetString("scope", "")
-	sections, err := ops.ListSections(path, scope)
+	// limit/all per docs/PLAN.md §3.2 / §12.17.5 [A2.1]. Mutex is
+	// adapter-level — endpoint accepts both; we reject here so MCP
+	// callers see the same UX guard the CLI's cobra mutex provides.
+	limit := req.GetInt("limit", 0)
+	all := req.GetBool("all", false)
+	if limit > 0 && all {
+		return mcp.NewToolResultError("pass either limit or all, not both"), nil
+	}
+	sections, err := ops.ListSections(path, scope, limit, all)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -345,7 +369,15 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		match = m
 	}
 
-	hits, err := ops.Search(path, scope, match, queryStr, field)
+	// limit/all per docs/PLAN.md §3.7 / §12.17.5 [A2.2]. Same adapter-
+	// level mutex shape as list_sections.
+	limit := req.GetInt("limit", 0)
+	all := req.GetBool("all", false)
+	if limit > 0 && all {
+		return mcp.NewToolResultError("pass either limit or all, not both"), nil
+	}
+
+	hits, err := ops.Search(path, scope, match, queryStr, field, limit, all)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
