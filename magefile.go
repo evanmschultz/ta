@@ -20,7 +20,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/evanmschultz/laslig"
+
 	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/render"
 )
 
 const binDir = "bin"
@@ -43,49 +46,98 @@ func Build() error {
 // $HOME/.ta/schema.toml from examples/schema.toml on first install;
 // existing user schemas are never overwritten.
 //
+// User-facing progress and completion output routes through laslig (via
+// internal/render) so `mage install` looks visually consistent with the
+// rest of the ta CLI surface per V2-PLAN §12.17.5 [A3]. Notices and
+// facts go to stderr; the underlying `go build` output stays on the
+// subprocess's inherited stdout/stderr.
+//
 // Dev-only dogfood target. Orchestrator and subagents MUST NOT invoke it.
 func Install() error {
+	rr := render.New(os.Stderr)
+
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("resolve home: %w", err)
+		return installError(rr, "resolve home", err)
 	}
 	installDir := filepath.Join(home, ".local", "bin")
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
-		return fmt.Errorf("create install dir %q: %w", installDir, err)
+		return installError(rr, fmt.Sprintf("create install dir %q", installDir), err)
 	}
 	installedPath := filepath.Join(installDir, "ta")
 	if err := run("go", "build", localBuildVCSFlag, "-o", installedPath, "./cmd/ta"); err != nil {
+		return installError(rr, "build ta", err)
+	}
+	schemaPath, schemaOutcome, err := seedHomeSchema(rr, home)
+	if err != nil {
 		return err
 	}
-	return seedHomeSchema(home)
+	if err := rr.Success("install complete", "ta built from working tree", nil); err != nil {
+		return err
+	}
+	return rr.Facts([]laslig.Field{
+		{Label: "binary", Value: installedPath},
+		{Label: "schema", Value: schemaPath},
+		{Label: "outcome", Value: schemaOutcome},
+	})
 }
 
 // seedHomeSchema creates $HOME/.ta/ if missing and copies
 // examples/schema.toml to $HOME/.ta/schema.toml when no schema file is
 // already present. An existing schema is left untouched so repeated
-// `mage install` runs never clobber user edits.
-func seedHomeSchema(home string) error {
+// `mage install` runs never clobber user edits. Returns the destination
+// path and a short outcome label ("seeded" or "untouched") for the
+// Install target's summary Facts block.
+func seedHomeSchema(rr *render.Renderer, home string) (string, string, error) {
 	taDir := filepath.Join(home, ".ta")
 	if err := os.MkdirAll(taDir, 0o755); err != nil {
-		return fmt.Errorf("create %q: %w", taDir, err)
+		return "", "", installError(rr, fmt.Sprintf("create %q", taDir), err)
 	}
 	dst := filepath.Join(taDir, "schema.toml")
 	if _, err := os.Stat(dst); err == nil {
-		fmt.Printf("ta: leaving existing %s untouched\n", dst)
-		return nil
+		if nerr := rr.Notice(
+			laslig.NoticeInfoLevel,
+			"schema untouched",
+			fmt.Sprintf("%s already present; leaving user edits in place", dst),
+			nil,
+		); nerr != nil {
+			return "", "", nerr
+		}
+		return dst, "untouched", nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("stat %q: %w", dst, err)
+		return "", "", installError(rr, fmt.Sprintf("stat %q", dst), err)
 	}
 	src := filepath.Join("examples", "schema.toml")
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return fmt.Errorf("read %q: %w", src, err)
+		return "", "", installError(rr, fmt.Sprintf("read %q", src), err)
 	}
 	if err := os.WriteFile(dst, data, 0o644); err != nil {
-		return fmt.Errorf("write %q: %w", dst, err)
+		return "", "", installError(rr, fmt.Sprintf("write %q", dst), err)
 	}
-	fmt.Printf("ta: seeded %s\n", dst)
-	return nil
+	if nerr := rr.Notice(
+		laslig.NoticeInfoLevel,
+		"schema seeded",
+		fmt.Sprintf("wrote %s from %s", dst, src),
+		nil,
+	); nerr != nil {
+		return "", "", nerr
+	}
+	return dst, "seeded", nil
+}
+
+// installError renders a laslig error notice for a user-facing Install
+// failure and returns a wrapped Go error so mage still reports a
+// non-zero exit. The wrapped error keeps the stage label and original
+// cause for post-mortem grep; the notice is the pretty surface.
+func installError(rr *render.Renderer, stage string, cause error) error {
+	_ = rr.Notice(
+		laslig.NoticeErrorLevel,
+		"install failed",
+		fmt.Sprintf("%s: %s", stage, cause.Error()),
+		nil,
+	)
+	return fmt.Errorf("%s: %w", stage, cause)
 }
 
 // Dogfood materializes the ta-v2 drop's build+QA lineage into
