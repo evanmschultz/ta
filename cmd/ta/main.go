@@ -41,7 +41,7 @@ const longDescription = "# ta\n\n" +
 	"path-taking command takes `--path` as a flag; default cwd, relative " +
 	"or absolute accepted — V2-PLAN §12.17.5 [A1]):\n\n" +
 	"- `ta get <section>` — read a record; optionally --fields name[,name]\n" +
-	"- `ta list-sections <path>` — enumerate sections in a TOML file\n" +
+	"- `ta list-sections [scope]` — enumerate record addresses under a scope\n" +
 	"- `ta schema [section]` — show the resolved schema\n" +
 	"- `ta create <section> --data <json>` — create a new record\n" +
 	"- `ta update <section> --data <json>` — update an existing record\n" +

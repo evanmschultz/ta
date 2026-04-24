@@ -12,7 +12,6 @@ import (
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
-	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/mcpsrv"
 	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/schema"
@@ -200,43 +199,94 @@ func lookupDBAndType(reg schema.Registry, section string) (schema.DB, schema.Sec
 	return dbDecl, t, nil
 }
 
+// newListSectionsCmd mirrors the MCP tool `list_sections` (V2-PLAN §3.2
+// and §12.17.5 [A2]). The CLI takes a project directory via `--path`
+// (default cwd) plus an optional scope (either `--scope <value>` or a
+// second positional — not both). Output emits full project-level
+// dotted addresses so copy-paste composes with `get` / `update` /
+// `delete` addresses. `--limit <N>` (default 10, `-n` shorthand) and
+// `--all` control the cap; they are mutually exclusive.
 func newListSectionsCmd() *cobra.Command {
 	var asJSON bool
+	var scope string
+	var limit int
+	var all bool
 	cmd := &cobra.Command{
-		Use:   "list-sections <path>",
-		Short: "Enumerate every section in a TOML file, in file order",
-		Long: "Mirrors the MCP tool `list_sections`. When the target file does " +
-			"not exist yet, the list is empty rather than erroring — matches " +
-			"the MCP behavior callers already depend on. With --json the " +
-			"laslig path is bypassed and JSON is written for agent consumption.",
-		Example: "  ta list-sections ./plans.toml\n" +
-			"  ta list-sections ./plans.toml --json",
-		Args:          cobra.ExactArgs(1),
+		Use:   "list-sections [scope]",
+		Short: "Enumerate record addresses under a scope; mirrors MCP tool `list_sections`.",
+		Long: "Mirrors the MCP tool `list_sections` (V2-PLAN §3.2). Walks every " +
+			"record in scope and emits its full project-level dotted " +
+			"address (`<db>.<type>.<id-path>` for single-instance dbs, " +
+			"`<db>.<instance>.<type>.<id-path>` for multi-instance). Scope " +
+			"may be supplied via --scope or as the optional positional; " +
+			"omitted = whole project. --limit caps the list (default 10, " +
+			"-n shorthand); --all returns every match. --path defaults to " +
+			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Example: `  ta list-sections
+  ta list-sections plan_db
+  ta list-sections --scope plan_db.ta-v2
+  ta list-sections --scope plan_db --all --json`,
+		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path := args[0]
-			f, err := toml.Parse(path)
-			if err != nil && !errors.Is(err, toml.ErrNotExist) {
-				return fmt.Errorf("parse %s: %w", path, err)
+			path, err := resolveCLIPath(c)
+			if err != nil {
+				return err
 			}
-			var paths []string
-			if f != nil {
-				paths = f.Paths()
+			resolvedScope, err := resolveListScope(scope, args)
+			if err != nil {
+				return err
+			}
+			sections, err := mcpsrv.ListSections(path, resolvedScope)
+			if err != nil {
+				return err
+			}
+			if !all && limit > 0 && len(sections) > limit {
+				sections = sections[:limit]
 			}
 			if asJSON {
+				if sections == nil {
+					sections = []string{}
+				}
 				enc := json.NewEncoder(c.OutOrStdout())
 				enc.SetIndent("", "  ")
-				if paths == nil {
-					paths = []string{}
-				}
-				return enc.Encode(map[string]any{"sections": paths})
+				return enc.Encode(map[string]any{"sections": sections})
 			}
-			return render.New(c.OutOrStdout()).List(path, paths, "(no sections)")
+			title := path
+			if resolvedScope != "" {
+				title = path + " [scope: " + resolvedScope + "]"
+			}
+			return render.New(c.OutOrStdout()).List(title, sections, "(no sections)")
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
+	cmd.Flags().StringVar(&scope, "scope", "", "<db> | <db>.<type> | <db>.<instance> | <db>.<type>.<id-prefix> | <db>.<instance>.<type>(.<id-prefix>)?")
+	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the list at N addresses (default 10)")
+	cmd.Flags().BoolVar(&all, "all", false, "return every match (disables --limit)")
+	cmd.MarkFlagsMutuallyExclusive("limit", "all")
+	addPathFlag(cmd)
 	return cmd
+}
+
+// resolveListScope reconciles the `--scope` flag with the optional
+// positional scope argument. Per V2-PLAN §12.17.5 [A2] the positional
+// is a convenience for --scope; supplying both forms at once is
+// ambiguous and errors. Empty scope (neither form set) means "whole
+// project" and is returned as "".
+func resolveListScope(flagScope string, args []string) (string, error) {
+	var positional string
+	if len(args) == 1 {
+		positional = args[0]
+	}
+	switch {
+	case flagScope != "" && positional != "":
+		return "", fmt.Errorf("pass scope once: supply either the positional or --scope, not both")
+	case flagScope != "":
+		return flagScope, nil
+	default:
+		return positional, nil
+	}
 }
 
 func newCreateCmd() *cobra.Command {

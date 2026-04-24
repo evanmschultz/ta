@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/db"
 	"github.com/evanmschultz/ta/internal/schema"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -36,9 +35,13 @@ func listSectionsTool() mcp.Tool {
 	return mcp.NewTool(
 		"list_sections",
 		mcp.WithDescription(
-			"Enumerate every section (table and array-of-tables entry) in a TOML file, in file order.",
+			"Enumerate record addresses under a scope. Returns full project-level dotted addresses in file-parse order, ready to pass back to get/update/delete.",
 		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute path to the TOML file.")),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
+		mcp.WithString(
+			"scope",
+			mcp.Description("Optional: '<db>' | '<db>.<type>' | '<db>.<instance>' | '<db>.<type>.<id-prefix>' | '<db>.<instance>.<type>(.<id-prefix>)?'. Default = whole project."),
+		),
 	)
 }
 
@@ -229,14 +232,15 @@ func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
 	}
-	f, err := toml.Parse(path)
+	scope := req.GetString("scope", "")
+	sections, err := ListSections(path, scope)
 	if err != nil {
-		if errors.Is(err, toml.ErrNotExist) {
-			return mcp.NewToolResultJSON(listResult{Path: path, Sections: []string{}})
-		}
-		return mcp.NewToolResultError(fmt.Sprintf("parse %s: %v", path, err)), nil
+		return mcp.NewToolResultError(err.Error()), nil
 	}
-	return mcp.NewToolResultJSON(listResult{Path: path, Sections: f.Paths()})
+	if sections == nil {
+		sections = []string{}
+	}
+	return mcp.NewToolResultJSON(listResult{Path: path, Sections: sections})
 }
 
 func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

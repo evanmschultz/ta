@@ -264,6 +264,30 @@ type SearchHit struct {
 	Fields  map[string]any
 }
 
+// ListSections enumerates every record address reachable under `scope`
+// as full project-level dotted addresses (`<db>.<type>.<id-path>` for
+// single-instance dbs, `<db>.<instance>.<type>.<id-path>` for multi-
+// instance dbs). Scope grammar mirrors search (`<db>` | `<db>.<type>`
+// | `<db>.<instance>` | `<db>.<type>.<id-prefix>` |
+// `<db>.<instance>.<type>(.<id-prefix>)?`); empty scope walks the whole
+// project. Mirrors V2-PLAN §3.2 and the §12.17.5 [A2] CLI rewrite.
+//
+// Implemented as a zero-filter search: the walker in internal/search
+// already produces full addresses in file-parse order, so routing
+// through it keeps the address shape in lockstep with `search` and
+// `get` (§3.1 scope expansion).
+func ListSections(path, scope string) ([]string, error) {
+	results, err := search.Run(search.Query{Path: path, Scope: scope})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(results))
+	for i, r := range results {
+		out[i] = r.Section
+	}
+	return out, nil
+}
+
 // Search executes a ta `search` query. scope, match, queryRegex, and
 // field are optional. queryRegex is compiled with regexp.Compile — pass
 // "" to skip the regex pass. Mirrors V2-PLAN §3.7.

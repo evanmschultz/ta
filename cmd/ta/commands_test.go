@@ -232,36 +232,233 @@ func TestGetCmdFields(t *testing.T) {
 	}
 }
 
-// ---- list-sections CLI ---------------------------------------------
+// ---- list-sections CLI (V2-PLAN §12.17.5 [A2]) ----------------------
 
-func TestListSectionsCmdOnExistingFile(t *testing.T) {
-	root := newSchemaFixture(t)
-	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n[plans.task.t2]\nid = \"T2\"\nstatus = \"todo\"\n"), 0o644); err != nil {
-		t.Fatalf("seed: %v", err)
+// multiInstanceCLISchema mirrors the MCP test fixture at
+// internal/mcpsrv/server_test.go:multiInstanceTOMLSchema. The
+// directory-per-instance shape is the only one that produces the
+// `plan_db.<instance>.<type>.<id>` form that A2 is validating.
+const multiInstanceCLISchema = `
+[plan_db]
+directory = "workflow"
+format = "toml"
+description = "Multi-instance planning db."
+
+[plan_db.build_task]
+description = "A build task."
+
+[plan_db.build_task.fields.id]
+type = "string"
+required = true
+
+[plan_db.build_task.fields.status]
+type = "string"
+required = true
+`
+
+// seedMultiInstancePlanDB writes two drops (drop_a / drop_b) under
+// workflow/ with tasks per drop; returns the seeded project root. Uses
+// canonical `db.toml` per dir-per-instance shape (§5.5.1).
+func seedMultiInstancePlanDB(t *testing.T) string {
+	t.Helper()
+	root := newSchemaFixtureWithBody(t, multiInstanceCLISchema)
+	dropA := filepath.Join(root, "workflow", "drop_a")
+	if err := os.MkdirAll(dropA, 0o755); err != nil {
+		t.Fatalf("mkdir drop_a: %v", err)
 	}
+	dropB := filepath.Join(root, "workflow", "drop_b")
+	if err := os.MkdirAll(dropB, 0o755); err != nil {
+		t.Fatalf("mkdir drop_b: %v", err)
+	}
+	bodyA := "[build_task.task_1]\nid = \"A1\"\nstatus = \"todo\"\n\n" +
+		"[build_task.task_2]\nid = \"A2\"\nstatus = \"doing\"\n\n" +
+		"[build_task.task_3]\nid = \"A3\"\nstatus = \"done\"\n"
+	if err := os.WriteFile(filepath.Join(dropA, "db.toml"), []byte(bodyA), 0o644); err != nil {
+		t.Fatalf("seed drop_a: %v", err)
+	}
+	bodyB := "[build_task.task_1]\nid = \"B1\"\nstatus = \"todo\"\n\n" +
+		"[build_task.task_2]\nid = \"B2\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(filepath.Join(dropB, "db.toml"), []byte(bodyB), 0o644); err != nil {
+		t.Fatalf("seed drop_b: %v", err)
+	}
+	return root
+}
+
+// TestListSectionsCmdProjectLevelAddresses locks in the A2 contract:
+// the CLI emits full project-level dotted addresses
+// (`plan_db.<instance>.<type>.<id>`) not file-local bracket paths.
+func TestListSectionsCmdProjectLevelAddresses(t *testing.T) {
+	root := seedMultiInstancePlanDB(t)
 	cmd := newListSectionsCmd()
-	var out, errOut bytes.Buffer
+	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{dataPath})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "--all", "--json"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+		t.Fatalf("execute: %v", err)
 	}
-	for _, want := range []string{"plans.task.t1", "plans.task.t2"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output missing %q: %s", want, out.String())
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	want := []string{
+		"plan_db.drop_a.build_task.task_1",
+		"plan_db.drop_a.build_task.task_2",
+		"plan_db.drop_a.build_task.task_3",
+		"plan_db.drop_b.build_task.task_1",
+		"plan_db.drop_b.build_task.task_2",
+	}
+	if len(payload.Sections) != len(want) {
+		t.Fatalf("sections = %v, want %v", payload.Sections, want)
+	}
+	for i, w := range want {
+		if payload.Sections[i] != w {
+			t.Errorf("sections[%d] = %q, want %q", i, payload.Sections[i], w)
 		}
 	}
 }
 
-func TestListSectionsCmdOnMissingFile(t *testing.T) {
-	root := newSchemaFixture(t)
+// TestListSectionsCmdScopeFilter proves --scope narrows to one
+// instance. Only drop_a's three records should come back.
+func TestListSectionsCmdScopeFilter(t *testing.T) {
+	root := seedMultiInstancePlanDB(t)
+	cmd := newListSectionsCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plan_db.drop_a", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	for _, s := range payload.Sections {
+		if !strings.HasPrefix(s, "plan_db.drop_a.") {
+			t.Errorf("scope filter leaked %q", s)
+		}
+	}
+	if len(payload.Sections) != 3 {
+		t.Errorf("drop_a should carry 3 records, got %d: %v", len(payload.Sections), payload.Sections)
+	}
+}
+
+// TestListSectionsCmdScopePositional proves the positional form is
+// equivalent to --scope. The positional is a convenience for --scope
+// per V2-PLAN §12.17.5 [A2].
+func TestListSectionsCmdScopePositional(t *testing.T) {
+	root := seedMultiInstancePlanDB(t)
+	// Flag form.
+	flagCmd := newListSectionsCmd()
+	var flagOut bytes.Buffer
+	flagCmd.SetOut(&flagOut)
+	flagCmd.SetErr(&bytes.Buffer{})
+	flagCmd.SetArgs([]string{"--path", root, "--scope", "plan_db.drop_b", "--json"})
+	if err := flagCmd.Execute(); err != nil {
+		t.Fatalf("flag form: %v", err)
+	}
+	// Positional form.
+	posCmd := newListSectionsCmd()
+	var posOut bytes.Buffer
+	posCmd.SetOut(&posOut)
+	posCmd.SetErr(&bytes.Buffer{})
+	posCmd.SetArgs([]string{"--path", root, "plan_db.drop_b", "--json"})
+	if err := posCmd.Execute(); err != nil {
+		t.Fatalf("positional form: %v", err)
+	}
+	if flagOut.String() != posOut.String() {
+		t.Errorf("positional and --scope disagree:\nflag=%s\npos=%s", flagOut.String(), posOut.String())
+	}
+}
+
+// TestListSectionsCmdLimit proves --limit caps the list. drop_a +
+// drop_b carry 5 records total; --limit 3 keeps only the first 3 in
+// walk order.
+func TestListSectionsCmdLimit(t *testing.T) {
+	root := seedMultiInstancePlanDB(t)
+	cmd := newListSectionsCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "--limit", "3", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Sections) != 3 {
+		t.Errorf("--limit 3 should cap at 3, got %d: %v", len(payload.Sections), payload.Sections)
+	}
+}
+
+// TestListSectionsCmdAll proves --all disables the default cap.
+func TestListSectionsCmdAll(t *testing.T) {
+	root := seedMultiInstancePlanDB(t)
+	cmd := newListSectionsCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "--all", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Sections) != 5 {
+		t.Errorf("--all should return all 5 records, got %d: %v", len(payload.Sections), payload.Sections)
+	}
+}
+
+// TestListSectionsCmdMutex proves --limit and --all cannot be passed
+// together (cobra MarkFlagsMutuallyExclusive).
+func TestListSectionsCmdMutex(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, multiInstanceCLISchema)
 	cmd := newListSectionsCmd()
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{filepath.Join(root, "nonexistent.toml")})
+	cmd.SetArgs([]string{"--path", root, "--limit", "5", "--all"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --limit + --all to error")
+	}
+}
+
+// TestListSectionsCmdBothScopeFormsErrors proves supplying the scope
+// via both --scope AND the positional errors loudly.
+func TestListSectionsCmdBothScopeFormsErrors(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, multiInstanceCLISchema)
+	cmd := newListSectionsCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "--scope", "plan_db", "plan_db.drop_a"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected error when --scope and positional both supplied")
+	}
+}
+
+// TestListSectionsCmdEmptyProject proves an empty scope over a project
+// with no data (schema-only) emits the empty-list notice without error.
+func TestListSectionsCmdEmptyProject(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, multiInstanceCLISchema)
+	cmd := newListSectionsCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
@@ -444,7 +641,9 @@ func TestGetCmdJSONFields(t *testing.T) {
 }
 
 // TestListSectionsCmdJSON proves --json on list-sections emits a
-// {"sections": [...]} shape.
+// {"sections": [...]} shape over a single-instance project. Post-A2
+// the addresses are full project-level (`<db>.<type>.<id>`) and the
+// command takes a project dir via --path, not a TOML file path.
 func TestListSectionsCmdJSON(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
@@ -456,7 +655,7 @@ func TestListSectionsCmdJSON(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{dataPath, "--json"})
+	cmd.SetArgs([]string{"--path", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}

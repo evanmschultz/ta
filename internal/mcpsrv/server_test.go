@@ -1109,9 +1109,13 @@ func TestNewRejectsEmptyConfig(t *testing.T) {
 	}
 }
 
-// ---- list_sections preserved ----------------------------------------
+// ---- list_sections (V2-PLAN §3.2 / §12.17.5 [A2]) -------------------
 
-func TestListSectionsStillWorks(t *testing.T) {
+// TestListSectionsProjectDirAndScope covers the post-A2 shape:
+// `list_sections(path, scope)` where path is the project directory
+// (not a TOML file) and scope optionally narrows traversal. Output
+// addresses are full project-level dotted form.
+func TestListSectionsProjectDirAndScope(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
 	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
@@ -1119,7 +1123,7 @@ func TestListSectionsStillWorks(t *testing.T) {
 	if err := os.WriteFile(dataPath, []byte(src), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	res := callTool(t, c, "list_sections", map[string]any{"path": dataPath})
+	res := callTool(t, c, "list_sections", map[string]any{"path": fx.projectRoot})
 	if res.IsError {
 		t.Fatalf("list_sections errored: %s", firstText(t, res))
 	}
@@ -1132,6 +1136,70 @@ func TestListSectionsStillWorks(t *testing.T) {
 	want := []string{"plans.task.first", "plans.task.second"}
 	if len(payload.Sections) != len(want) {
 		t.Fatalf("got %v, want %v", payload.Sections, want)
+	}
+	for i, w := range want {
+		if payload.Sections[i] != w {
+			t.Errorf("sections[%d] = %q, want %q", i, payload.Sections[i], w)
+		}
+	}
+}
+
+// TestListSectionsMultiInstanceAddresses proves the MCP tool emits
+// `<db>.<instance>.<type>.<id>` addresses for multi-instance dbs. This
+// is the exact shape §3.2 calls out as the post-A2 contract.
+func TestListSectionsMultiInstanceAddresses(t *testing.T) {
+	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
+	c := newClient(t)
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plan_db.drop_1.build_task.task_001",
+		"data":    map[string]any{"id": "TASK-001", "status": "todo"},
+	}); res.IsError {
+		t.Fatalf("seed: %s", firstText(t, res))
+	}
+	if res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plan_db.drop_2.build_task.task_001",
+		"data":    map[string]any{"id": "TASK-002", "status": "todo"},
+	}); res.IsError {
+		t.Fatalf("seed: %s", firstText(t, res))
+	}
+	// No scope → both drops visible.
+	res := callTool(t, c, "list_sections", map[string]any{"path": fx.projectRoot})
+	if res.IsError {
+		t.Fatalf("list_sections errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	want := []string{
+		"plan_db.drop_1.build_task.task_001",
+		"plan_db.drop_2.build_task.task_001",
+	}
+	if len(payload.Sections) != len(want) {
+		t.Fatalf("sections = %v, want %v", payload.Sections, want)
+	}
+	for i, w := range want {
+		if payload.Sections[i] != w {
+			t.Errorf("sections[%d] = %q, want %q", i, payload.Sections[i], w)
+		}
+	}
+	// With scope → only drop_1.
+	scoped := callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plan_db.drop_1",
+	})
+	if scoped.IsError {
+		t.Fatalf("scoped list_sections errored: %s", firstText(t, scoped))
+	}
+	if err := json.Unmarshal([]byte(firstText(t, scoped)), &payload); err != nil {
+		t.Fatalf("scoped body not JSON: %v", err)
+	}
+	if len(payload.Sections) != 1 || payload.Sections[0] != "plan_db.drop_1.build_task.task_001" {
+		t.Errorf("scoped sections = %v, want [plan_db.drop_1.build_task.task_001]", payload.Sections)
 	}
 }
 
