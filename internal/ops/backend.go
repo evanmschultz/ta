@@ -1,4 +1,4 @@
-package mcpsrv
+package ops
 
 import (
 	"fmt"

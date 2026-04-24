@@ -12,7 +12,7 @@ import (
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
-	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/schema"
 )
@@ -52,7 +52,7 @@ func newGetCmd() *cobra.Command {
 			}
 			section := args[0]
 			if asJSON {
-				res, err := mcpsrv.Get(path, section, fields)
+				res, err := ops.Get(path, section, fields)
 				if err != nil {
 					return err
 				}
@@ -60,13 +60,13 @@ func newGetCmd() *cobra.Command {
 			}
 			r := render.New(c.OutOrStdout())
 			if len(fields) == 0 {
-				res, typeSt, err := mcpsrv.GetAllFields(path, section)
+				res, typeSt, err := ops.GetAllFields(path, section)
 				if err != nil {
 					return err
 				}
 				return r.Record(section, render.BuildFields(typeSt, res.Fields))
 			}
-			res, err := mcpsrv.Get(path, section, fields)
+			res, err := ops.Get(path, section, fields)
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func emitGetJSON(w io.Writer, section string, raw []byte, fields map[string]any,
 // per V2-PLAN §13.1. Returns any fetch error so the caller can surface
 // it rather than silently skip the echo.
 func renderVerboseRecord(w io.Writer, path, section string) error {
-	res, err := mcpsrv.Get(path, section, nil)
+	res, err := ops.Get(path, section, nil)
 	if err != nil {
 		return fmt.Errorf("verbose echo: %w", err)
 	}
@@ -138,7 +138,7 @@ func renderRawRecord(r *render.Renderer, path, section string, raw []byte) error
 // dbFormatFor looks up the db format for the address's first segment.
 // Used to pick a render branch (TOML fenced vs MD pass-through).
 func dbFormatFor(path, section string) (schema.Format, error) {
-	resolution, err := mcpsrv.ResolveProject(path)
+	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +154,7 @@ func dbFormatFor(path, section string) (schema.Format, error) {
 // schema types so the renderer can dispatch string vs scalar vs
 // structured rendering.
 func buildRenderFields(path, section string, values map[string]any, names []string) ([]render.RenderField, error) {
-	resolution, err := mcpsrv.ResolveProject(path)
+	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve schema: %w", err)
 	}
@@ -246,7 +246,7 @@ func newListSectionsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sections, err := mcpsrv.ListSections(path, resolvedScope)
+			sections, err := ops.ListSections(path, resolvedScope)
 			if err != nil {
 				return err
 			}
@@ -559,7 +559,7 @@ func newSearchCmd() *cobra.Command {
 					return fmt.Errorf("parse --match JSON: %w", err)
 				}
 			}
-			hits, err := mcpsrv.Search(path, scope, match, query, field)
+			hits, err := ops.Search(path, scope, match, query, field)
 			if err != nil {
 				return err
 			}
@@ -580,7 +580,7 @@ func newSearchCmd() *cobra.Command {
 
 // emitSearchJSON writes the --json form of `search`. Shape:
 // {"hits": [{"section": "...", "bytes": "...", "fields": {...}}]}.
-func emitSearchJSON(w io.Writer, hits []mcpsrv.SearchHit) error {
+func emitSearchJSON(w io.Writer, hits []ops.SearchHit) error {
 	out := make([]map[string]any, len(hits))
 	for i, h := range hits {
 		out[i] = map[string]any{
@@ -594,12 +594,12 @@ func emitSearchJSON(w io.Writer, hits []mcpsrv.SearchHit) error {
 	return enc.Encode(map[string]any{"hits": out})
 }
 
-func renderSearchHits(w io.Writer, path string, hits []mcpsrv.SearchHit) error {
+func renderSearchHits(w io.Writer, path string, hits []ops.SearchHit) error {
 	r := render.New(w)
 	if len(hits) == 0 {
 		return r.Notice(laslig.NoticeInfoLevel, "search", "no hits", nil)
 	}
-	resolution, err := mcpsrv.ResolveProject(path)
+	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return fmt.Errorf("resolve schema: %w", err)
 	}
@@ -652,7 +652,7 @@ func runSchemaGet(w io.Writer, path, scope string) error {
 	if scope == schema.MetaSchemaPath {
 		return renderMetaSchema(w)
 	}
-	resolution, err := mcpsrv.ResolveProject(path)
+	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
@@ -689,7 +689,7 @@ func runSchemaGetJSON(w io.Writer, path, scope string) error {
 			"meta_schema_toml": schema.MetaSchemaTOML,
 		})
 	}
-	resolution, err := mcpsrv.ResolveProject(path)
+	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
@@ -869,17 +869,17 @@ func noticeMutation(w io.Writer, action, section, filePath string, sources []str
 // handlers in internal/mcpsrv/tools.go reuse exactly the same paths.
 
 func runCreate(path, section, pathHint string, data map[string]any) (string, []string, error) {
-	return mcpsrv.Create(path, section, pathHint, data)
+	return ops.Create(path, section, pathHint, data)
 }
 
 func runUpdate(path, section string, data map[string]any) (string, []string, error) {
-	return mcpsrv.Update(path, section, data)
+	return ops.Update(path, section, data)
 }
 
 func runDelete(path, section string) (string, []string, error) {
-	return mcpsrv.Delete(path, section)
+	return ops.Delete(path, section)
 }
 
 func runSchemaMutate(path, action, kind, name string, data map[string]any) ([]string, error) {
-	return mcpsrv.MutateSchema(path, action, kind, name, data)
+	return ops.MutateSchema(path, action, kind, name, data)
 }

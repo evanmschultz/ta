@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/evanmschultz/ta/internal/db"
+	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/schema"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -216,7 +215,7 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	if errRes != nil {
 		return errRes, nil
 	}
-	res, err := Get(path, section, fields)
+	res, err := ops.Get(path, section, fields)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -233,7 +232,7 @@ func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
 	}
 	scope := req.GetString("scope", "")
-	sections, err := ListSections(path, scope)
+	sections, err := ops.ListSections(path, scope)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -254,7 +253,7 @@ func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		return errRes, nil
 	}
 	pathHint := req.GetString("path_hint", "")
-	filePath, sources, err := Create(path, section, pathHint, data)
+	filePath, sources, err := ops.Create(path, section, pathHint, data)
 	if err != nil {
 		return validationOrPlainError(err), nil
 	}
@@ -277,7 +276,7 @@ func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if errRes != nil {
 		return errRes, nil
 	}
-	filePath, sources, err := Update(path, section, data)
+	filePath, sources, err := ops.Update(path, section, data)
 	if err != nil {
 		return validationOrPlainError(err), nil
 	}
@@ -296,7 +295,7 @@ func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if errRes != nil {
 		return errRes, nil
 	}
-	targetPath, sources, err := Delete(path, section)
+	targetPath, sources, err := ops.Delete(path, section)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -346,7 +345,7 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		match = m
 	}
 
-	hits, err := Search(path, scope, match, queryStr, field)
+	hits, err := ops.Search(path, scope, match, queryStr, field)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -359,15 +358,6 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		}
 	}
 	return mcp.NewToolResultJSON(searchResult{Path: path, Scope: scope, Hits: jsonHits})
-}
-
-// spliceOut returns buf with the bytes in rng removed. Atomic-write
-// safe: caller writes the returned buffer to disk under WriteAtomic.
-func spliceOut(buf []byte, rng [2]int) []byte {
-	out := make([]byte, 0, len(buf)-(rng[1]-rng[0]))
-	out = append(out, buf[:rng[0]]...)
-	out = append(out, buf[rng[1]:]...)
-	return out
 }
 
 // validationOrPlainError wraps an error into an MCP tool result. If the
@@ -421,7 +411,7 @@ func handleSchemaGet(path, scope string) *mcp.CallToolResult {
 		})
 	}
 
-	resolution, err := resolveFromProjectDir(path)
+	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolve schema for %s: %v", path, err))
 	}
@@ -495,7 +485,7 @@ func handleSchemaMutate(path, action string, req mcp.CallToolRequest) *mcp.CallT
 		data = dm
 	}
 
-	sources, err := MutateSchema(path, action, kind, name, data)
+	sources, err := ops.MutateSchema(path, action, kind, name, data)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error())
 	}
@@ -563,60 +553,6 @@ func optionalStringArray(req mcp.CallToolRequest, name string) ([]string, bool, 
 		out = append(out, s)
 	}
 	return out, true, nil
-}
-
-// readFileIfExists returns the file bytes or nil if the file does not
-// exist. Any other error is returned as-is.
-func readFileIfExists(path string) ([]byte, error) {
-	buf, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	return buf, nil
-}
-
-// validationPath adapts a full address to the "<db>.<type>..." form
-// schema.Validate expects (its signature pre-dates multi-instance).
-// For multi-instance addresses we rebuild "<db>.<type>..." by stripping
-// the <instance> segment.
-func validationPath(reg schema.Registry, section string) string {
-	segs := strings.Split(section, ".")
-	if len(segs) < 2 {
-		return section
-	}
-	dbDecl, ok := reg.DBs[segs[0]]
-	if !ok {
-		return section
-	}
-	if dbDecl.Shape == schema.ShapeFile {
-		return section
-	}
-	if len(segs) < 3 {
-		return section
-	}
-	// drop <instance> — segs[1]
-	rebuilt := make([]string, 0, len(segs)-1)
-	rebuilt = append(rebuilt, segs[0])
-	rebuilt = append(rebuilt, segs[2:]...)
-	return strings.Join(rebuilt, ".")
-}
-
-// tomlRelPathForFields returns the backend-relative record path for
-// use by extractTOMLFields. For single-instance TOML the map key path
-// is "<db>.<type>.<id>"; for multi-instance it is "<type>.<id>" (the
-// file carries only the type and below).
-func tomlRelPathForFields(dbDecl schema.DB, addr db.Address) string {
-	base := addr.Type
-	if addr.ID != "" {
-		base += "." + addr.ID
-	}
-	if dbDecl.Shape == schema.ShapeFile {
-		return dbDecl.Name + "." + base
-	}
-	return base
 }
 
 // ---- schema view helpers (unchanged from pre-refactor) ---------------

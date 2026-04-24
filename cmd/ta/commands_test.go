@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/ops"
 )
 
 const cliTaskSchema = `
@@ -37,8 +37,8 @@ func newSchemaFixture(t *testing.T) string {
 
 func newSchemaFixtureWithBody(t *testing.T, body string) string {
 	t.Helper()
-	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
-	mcpsrv.ResetDefaultCacheForTest()
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
 
 	root := t.TempDir()
 	taDir := filepath.Join(root, ".ta")

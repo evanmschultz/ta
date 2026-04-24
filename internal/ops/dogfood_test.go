@@ -1,4 +1,4 @@
-package mcpsrv_test
+package ops_test
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/ops"
 )
 
 // planDBSchema mirrors the ta-v2 dogfood schema shape at the minimum
@@ -79,8 +79,8 @@ format = "markdown"
 // sound without coupling the unit test to the exact drop lineage.
 func seedDogfoodFixture(t *testing.T) string {
 	t.Helper()
-	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
-	mcpsrv.ResetDefaultCacheForTest()
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
 
 	root := t.TempDir()
 	taDir := filepath.Join(root, ".ta")
@@ -137,7 +137,7 @@ func seedDogfoodFixture(t *testing.T) string {
 		},
 	}
 	for _, r := range records {
-		if _, _, err := mcpsrv.Create(root, r.section, "", r.data); err != nil {
+		if _, _, err := ops.Create(root, r.section, "", r.data); err != nil {
 			t.Fatalf("Create %s: %v", r.section, err)
 		}
 	}
@@ -145,13 +145,13 @@ func seedDogfoodFixture(t *testing.T) string {
 }
 
 // TestDogfoodGetRoundtripsBuildTask proves a record written via
-// mcpsrv.Create comes back identically through mcpsrv.Get on the
+// ops.Create comes back identically through ops.Get on the
 // dogfood plan_db shape. This is the §12.10 verification contract:
 // `ta get <path> plan_db.ta-v2.build_task.task_12_1` must surface the
 // record's bytes.
 func TestDogfoodGetRoundtripsBuildTask(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	res, err := mcpsrv.Get(root, "plan_db.ta-v2.build_task.task_12_1", nil)
+	res, err := ops.Get(root, "plan_db.ta-v2.build_task.task_12_1", nil)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestDogfoodGetRoundtripsBuildTask(t *testing.T) {
 // QA twins (which have a different `status` enum).
 func TestDogfoodSearchFindsDoneBuildTasks(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	hits, err := mcpsrv.Search(root, "plan_db.ta-v2.build_task", map[string]any{"status": "done"}, "", "")
+	hits, err := ops.Search(root, "plan_db.ta-v2.build_task", map[string]any{"status": "done"}, "", "")
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestDogfoodSearchFindsDoneBuildTasks(t *testing.T) {
 // or build_task records.
 func TestDogfoodSearchFindsFalsificationTwins(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	hits, err := mcpsrv.Search(root, "plan_db.ta-v2.qa_task", map[string]any{"kind": "falsification"}, "", "")
+	hits, err := ops.Search(root, "plan_db.ta-v2.qa_task", map[string]any{"kind": "falsification"}, "", "")
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestDogfoodSearchFindsFalsificationTwins(t *testing.T) {
 // silently append or corrupt the db file.
 func TestDogfoodCreateIsIdempotentPerRecord(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	_, _, err := mcpsrv.Create(root, "plan_db.ta-v2.build_task.task_12_1", "", map[string]any{
+	_, _, err := ops.Create(root, "plan_db.ta-v2.build_task.task_12_1", "", map[string]any{
 		"id":     "task_12_1",
 		"status": "done",
 		"title":  "Backend interface extraction",

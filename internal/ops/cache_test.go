@@ -1,4 +1,4 @@
-package mcpsrv_test
+package ops_test
 
 import (
 	"os"
@@ -11,12 +11,13 @@ import (
 
 	"github.com/evanmschultz/ta/internal/config"
 	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/ops"
 )
 
 // seedProject creates <root>/.ta/schema.toml with the given TOML body
 // under a tmpdir and returns the project root. Caller is responsible
 // for cache isolation: either via installCountingLoader (which swaps
-// in a fresh cache) or an explicit mcpsrv.ResetDefaultCacheForTest.
+// in a fresh cache) or an explicit ops.ResetDefaultCacheForTest.
 func seedProject(t *testing.T, body string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -56,7 +57,7 @@ type countingLoader struct {
 
 func (l *countingLoader) load(projectPath string) (config.Resolution, error) {
 	l.count.Add(1)
-	return mcpsrv.DefaultResolveUncachedForTest(projectPath)
+	return ops.DefaultResolveUncachedForTest(projectPath)
 }
 
 // installCountingLoader swaps the package default cache for one backed
@@ -64,7 +65,7 @@ func (l *countingLoader) load(projectPath string) (config.Resolution, error) {
 func installCountingLoader(t *testing.T) *countingLoader {
 	t.Helper()
 	loader := &countingLoader{}
-	restore := mcpsrv.SwapDefaultCacheLoaderForTest(loader.load)
+	restore := ops.SwapDefaultCacheLoaderForTest(loader.load)
 	t.Cleanup(restore)
 	return loader
 }
@@ -76,7 +77,7 @@ func TestCacheServesFromMemoryWhenUnchanged(t *testing.T) {
 	loader := installCountingLoader(t)
 	root := seedProject(t, cacheTestSchema)
 
-	res1, err := mcpsrv.ResolveProject(root)
+	res1, err := ops.ResolveProject(root)
 	if err != nil {
 		t.Fatalf("first resolve: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestCacheServesFromMemoryWhenUnchanged(t *testing.T) {
 		t.Fatalf("plans db missing from first resolution: %+v", res1.Registry.DBs)
 	}
 
-	res2, err := mcpsrv.ResolveProject(root)
+	res2, err := ops.ResolveProject(root)
 	if err != nil {
 		t.Fatalf("second resolve: %v", err)
 	}
@@ -105,7 +106,7 @@ func TestCacheReloadsOnMtimeChange(t *testing.T) {
 	schemaPath := filepath.Join(root, ".ta", "schema.toml")
 
 	// Warm the cache.
-	if _, err := mcpsrv.ResolveProject(root); err != nil {
+	if _, err := ops.ResolveProject(root); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
 	if got := loader.count.Load(); got != 1 {
@@ -127,7 +128,7 @@ type = "string"
 		t.Fatalf("chtimes: %v", err)
 	}
 
-	res, err := mcpsrv.ResolveProject(root)
+	res, err := ops.ResolveProject(root)
 	if err != nil {
 		t.Fatalf("post-change resolve: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestCacheReloadsOnSourceDeletion(t *testing.T) {
 	schemaPath := filepath.Join(root, ".ta", "schema.toml")
 
 	// Warm the cache.
-	if _, err := mcpsrv.ResolveProject(root); err != nil {
+	if _, err := ops.ResolveProject(root); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
 	if got := loader.count.Load(); got != 1 {
@@ -163,7 +164,7 @@ func TestCacheReloadsOnSourceDeletion(t *testing.T) {
 		t.Fatalf("remove schema: %v", err)
 	}
 
-	_, err := mcpsrv.ResolveProject(root)
+	_, err := ops.ResolveProject(root)
 	if err == nil {
 		t.Fatalf("resolve after delete: want error, got nil")
 	}
@@ -180,7 +181,7 @@ func TestCacheInvalidatesAfterSchemaMutation(t *testing.T) {
 	loader := installCountingLoader(t)
 	root := seedProject(t, cacheTestSchema)
 
-	res, err := mcpsrv.ResolveProject(root)
+	res, err := ops.ResolveProject(root)
 	if err != nil {
 		t.Fatalf("warm resolve: %v", err)
 	}
@@ -191,7 +192,7 @@ func TestCacheInvalidatesAfterSchemaMutation(t *testing.T) {
 		t.Fatalf("pre-mutation load count = %d; want 1", got)
 	}
 
-	sources, err := mcpsrv.MutateSchema(root, "create", "field", "plans.task.owner", map[string]any{
+	sources, err := ops.MutateSchema(root, "create", "field", "plans.task.owner", map[string]any{
 		"type":        "string",
 		"description": "owner of the task",
 	})
@@ -207,7 +208,7 @@ func TestCacheInvalidatesAfterSchemaMutation(t *testing.T) {
 		t.Fatalf("post-mutation load count = %d; want 2", got)
 	}
 
-	post, err := mcpsrv.ResolveProject(root)
+	post, err := ops.ResolveProject(root)
 	if err != nil {
 		t.Fatalf("post-mutation resolve: %v", err)
 	}
@@ -227,8 +228,8 @@ func TestCacheInvalidatesAfterSchemaMutation(t *testing.T) {
 // Resolve while a writer periodically re-mutates the schema. Proves
 // the RWMutex + double-checked locking pattern holds under -race.
 func TestCacheConcurrentReadersAreSafe(t *testing.T) {
-	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
-	mcpsrv.ResetDefaultCacheForTest()
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
 	root := seedProject(t, cacheTestSchema)
 
 	const readers = 16
@@ -238,7 +239,7 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 	for range readers {
 		wg.Go(func() {
 			for range iters {
-				if _, err := mcpsrv.ResolveProject(root); err != nil {
+				if _, err := ops.ResolveProject(root); err != nil {
 					t.Errorf("reader resolve: %v", err)
 					return
 				}
@@ -249,7 +250,7 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 	wg.Go(func() {
 		for j := range iters / 5 {
 			fieldName := "tag" + strings.Repeat("x", j+1)
-			_, err := mcpsrv.MutateSchema(root, "create", "field", "plans.task."+fieldName, map[string]any{
+			_, err := ops.MutateSchema(root, "create", "field", "plans.task."+fieldName, map[string]any{
 				"type": "string",
 			})
 			if err != nil {
@@ -267,8 +268,8 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 // malformed returns an error instead of silently constructing a server
 // that will fail per-call.
 func TestStartupRefusesMalformedCascade(t *testing.T) {
-	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
-	mcpsrv.ResetDefaultCacheForTest()
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
 	// Malformed: `format` absent, so the meta-schema loader errors.
 	broken := `
 [plans]
@@ -312,7 +313,7 @@ func TestStartupPreWarmsValidCascade(t *testing.T) {
 		t.Errorf("pre-warm did not load schema exactly once; count=%d", got)
 	}
 
-	if _, err := mcpsrv.ResolveProject(root); err != nil {
+	if _, err := ops.ResolveProject(root); err != nil {
 		t.Fatalf("post-warm resolve: %v", err)
 	}
 	if got := loader.count.Load(); got != 1 {
@@ -325,8 +326,8 @@ func TestStartupPreWarmsValidCascade(t *testing.T) {
 // ErrNoSchema when they try to read — but startup itself must not
 // refuse to boot on an un-initialized directory.
 func TestStartupTolerantOfMissingSchema(t *testing.T) {
-	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
-	mcpsrv.ResetDefaultCacheForTest()
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
 
 	fresh := t.TempDir()
 	srv, err := mcpsrv.New(mcpsrv.Config{

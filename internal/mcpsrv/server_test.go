@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -113,9 +114,9 @@ var lastFixtureRoot string
 
 func newFixtureWithSchema(t *testing.T, schemaBody string) fixture {
 	t.Helper()
-	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
+	t.Cleanup(ops.ResetDefaultCacheForTest)
 	t.Cleanup(func() { lastFixtureRoot = "" })
-	mcpsrv.ResetDefaultCacheForTest()
+	ops.ResetDefaultCacheForTest()
 
 	root := t.TempDir()
 	taDir := filepath.Join(root, ".ta")
@@ -148,8 +149,8 @@ func newClient(t *testing.T) *client.Client {
 
 func newClientWithPath(t *testing.T, projectPath string) *client.Client {
 	t.Helper()
-	t.Cleanup(mcpsrv.ResetDefaultCacheForTest)
-	mcpsrv.ResetDefaultCacheForTest()
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
 	srv, err := mcpsrv.New(mcpsrv.Config{
 		Name:        "ta-test",
 		Version:     "0.0.0",
@@ -1167,7 +1168,7 @@ func TestSchemaUpdateAndDeleteDB(t *testing.T) {
 
 func TestResolveProjectReturnsSources(t *testing.T) {
 	fx := newFixture(t)
-	resolution, err := mcpsrv.ResolveProject(fx.projectRoot)
+	resolution, err := ops.ResolveProject(fx.projectRoot)
 	if err != nil {
 		t.Fatalf("ResolveProject: %v", err)
 	}

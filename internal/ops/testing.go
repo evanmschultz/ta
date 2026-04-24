@@ -1,4 +1,4 @@
-package mcpsrv
+package ops
 
 // ResetDefaultCacheForTest wipes the package-level schema cache so
 // each test case starts with a cold cache. Safe to call from test

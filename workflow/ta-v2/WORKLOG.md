@@ -2311,4 +2311,75 @@ REFUTED — §12.14.5 scan on new prose. New §6a + §14.2.1 + §12.17.5 bullets
 Unknowns.
 - `mage check` not run (sandbox-blocked). Docs-only diff; HEAD green assumed.
 
+---
+
+## 12.17.5 B0 — mcpsrv→ops split
+
+**Status:** BUILD DONE (awaiting orchestrator commit — sandbox blocked `git add`/`git commit`).
+
+Scope per `workflow/ta-v2/IMPACT-B0-A21-A22.md` §1 and `docs/PLAN.md §12.17.5 [B0]`. Pure mechanical package split: `internal/mcpsrv/` → new `internal/ops/` (domain) + trimmed `internal/mcpsrv/` (MCP glue). No semantic changes.
+
+### Build — go-builder-agent
+
+**Moved 10 files** `internal/mcpsrv/` → `internal/ops/` with `package mcpsrv` → `package ops` (or `mcpsrv_test` → `ops_test` for the two test files):
+
+- `ops.go`, `backend.go`, `cache.go`, `errors.go`, `fields.go`, `schema_mutate.go`, `testing.go` (domain, `package ops`).
+- `export_test.go` split: cache hooks (`DefaultCacheLoadCountForTest`, `SwapDefaultCacheLoaderForTest`, `DefaultResolveUncachedForTest`) moved to `internal/ops/export_test.go` (package `ops`); the `(s *Server).MCPServer()` hook stays on mcpsrv as a new `internal/mcpsrv/export_test.go` (package `mcpsrv`) because `Server` does not move.
+- `cache_test.go`, `dogfood_test.go` → `internal/ops/` (package `ops_test`).
+
+**Created:**
+
+- `internal/ops/doc.go` — one-line package doc per IMPACT §1.1 charter.
+- `internal/ops/helpers.go` — the four orphan helpers pulled from `internal/mcpsrv/tools.go` (`spliceOut`, `readFileIfExists`, `validationPath`, `tomlRelPathForFields`). All four are called exclusively from `ops.go` per IMPACT §1.1; stay unexported within `ops`.
+- `internal/mcpsrv/export_test.go` (new, 9 LoC) — isolated hook for `MCPServer()`.
+
+**Modified in place (stays in `internal/mcpsrv/`):**
+
+- `server.go` — added `internal/ops` import; rewrote the single `defaultCache.Resolve(cfg.ProjectPath)` call at line 56 to `ops.ResolveProject(cfg.ProjectPath)` per IMPACT §1.3.
+- `tools.go` — added `internal/ops` import; dropped `os` and `db` imports (no longer referenced after orphan-helper removal); rewired 8 handler call sites (`Get`/`ListSections`/`Create`/`Update`/`Delete`/`Search`/`MutateSchema` plus `handleSchemaGet`'s `resolveFromProjectDir` call) to `ops.*`.
+- `server_test.go` — added `internal/ops` import; rewired 4 refs to `ops.ResetDefaultCacheForTest` + 1 to `ops.ResolveProject` per IMPACT §1.3. `mcpsrv.New`/`Config`/`MCPServer()` refs stay.
+- `doc.go` — docstring tightened from the stale 4-tool / upsert-era description to "MCP protocol glue over `internal/ops`", per IMPACT §1.1.
+
+**Call sites rewired (cross-package):**
+
+- `cmd/ta/commands.go` — dropped `mcpsrv` import, added `ops` import; 16 symbol refs `mcpsrv.*` → `ops.*` (per IMPACT §1.3 enumeration — `Get`/`GetAllFields`/`ResolveProject`/`ListSections`/`Search`/`SearchHit` type/`Create`/`Update`/`Delete`/`MutateSchema`).
+- `cmd/ta/commands_test.go` — swapped `mcpsrv` → `ops` import; 2 refs rewired.
+- `magefile.go` — swapped `mcpsrv` → `ops` import; 1 ref (`Dogfood` target's `ops.Create` call).
+- `cmd/ta/main.go` — **unchanged**, per IMPACT §1.3 (only uses `mcpsrv.New` + `Config`, both retained on `mcpsrv`).
+
+**Verification:**
+
+- `mage check` green (fmtcheck + vet + test -race + tidy): 11 packages OK, including the new `internal/ops` (2.5s) and trimmed `internal/mcpsrv` (3.4s). No skipped tests; zero packages with test failures.
+- `mage dogfood` green (idempotent skip — `workflow/ta-v2/db.toml` already materialized; same behavior as pre-refactor).
+- Post-move import graph matches IMPACT §1.6:
+  - `mcpsrv` still imported by: `cmd/ta/main.go` (for `New`/`Config`), `internal/mcpsrv/server_test.go` (same), `internal/ops/cache_test.go` (for `mcpsrv.New` startup pre-warm tests — these explicitly exercise the MCP-facing surface even though the test file itself is `ops_test`).
+  - `ops` imported by: `cmd/ta/{commands.go, commands_test.go}`, `magefile.go`, `internal/mcpsrv/{server.go, tools.go, server_test.go}`, `internal/ops/{cache_test.go, dogfood_test.go}`.
+  - No `mcpsrv`-internal compile refs; `tools.go` and `server.go` live in package `mcpsrv` so they're self-resolving.
+- No import cycles (confirmed implicitly by `mage check` / `go vet` across `./...`).
+
+**LoC deltas:**
+
+- `internal/ops/`: ~1560 LoC net new (7 moved domain files + `doc.go` 4 LoC + `helpers.go` ~75 LoC + split `export_test.go`).
+- `internal/mcpsrv/`: trimmed to 5 files (`server.go` 82, `tools.go` ~612 after orphan removal, `server_test.go` 1328, `doc.go` 8, `export_test.go` 9) — net ~970 LoC removed from mcpsrv's pre-split footprint.
+- Cross-package edits: ~22 line edits total (imports + call-site renames in `cmd/ta/commands.go`, `commands_test.go`, `magefile.go`, `server.go`, `tools.go`, `server_test.go`).
+
+**Flagged followups (stale mcpsrv mentions in docstrings / comments / string literals — OUT OF SCOPE for mechanical [B0], per IMPACT §1.5's "stale comments" risk bullet):**
+
+1. `internal/search/search.go:111, 237, 347, 490, 547` — comment refs to `mcpsrv.*` now stale.
+2. `internal/search/errors.go:24` — comment ref.
+3. `internal/search/doc.go:10` — package comment.
+4. `internal/backend/md/layout.go:11, 23` — comment refs to `mcpsrv/fields.go` and `internal/mcpsrv/`.
+5. `internal/render/doc.go:9` — firewall comment mentions `internal/mcpsrv` by old boundary framing.
+6. `internal/templates/templates.go:8` — package comment.
+7. `cmd/ta/commands.go:163, 725, 726, 727, 867, 869` — comment refs to `mcpsrv.validationPath`, `internal/mcpsrv/tools.go:toDBsView`, `mcpsrv`-firewall prose, and `mcpsrv.* Ops` wrapper-comment.
+8. `cmd/ta/commands_test.go:216, 330` — docstring refs to `mcpsrv` / `internal/mcpsrv/server_test.go`.
+9. `magefile.go:365, 373, 379, 423, 478` — `mcpsrv` mentions inside dogfood-record body strings (historical prose embedded in `workflow/ta-v2/db.toml`; not live code references).
+10. Error-text prefixes in moved files still read `"mcpsrv: …"` (e.g. `ops/cache.go:82, 90, 104`, `ops/schema_mutate.go:57, 65, 95, 99` and ops error sentinel texts in `ops/errors.go`). Package-renamed prose; mechanically correct to leave untouched for a pure move, but a cleanup pass would re-prefix to `"ops: …"`.
+
+**Not a concern for [B0]; tracked for a follow-up docs/comment sweep (potentially bundled with the [A2.*] slice).**
+
+**Unknowns:**
+
+- Commit step blocked by sandbox (`git add`/`git commit` denied). Worktree is clean other than the B0 diff enumerated above under `git status --short`. Suggested commit message: `refactor(ops): split mcpsrv into ops domain and mcpsrv protocol glue`. Orchestrator to commit on builder's behalf.
+
 

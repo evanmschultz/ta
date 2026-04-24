@@ -22,7 +22,7 @@ import (
 
 	"github.com/evanmschultz/laslig"
 
-	"github.com/evanmschultz/ta/internal/mcpsrv"
+	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/render"
 )
 
@@ -141,7 +141,7 @@ func installError(rr *render.Renderer, stage string, cause error) error {
 }
 
 // Dogfood materializes the ta-v2 drop's build+QA lineage into
-// workflow/ta-v2/db.toml by routing through mcpsrv.Create — the same
+// workflow/ta-v2/db.toml by routing through ops.Create — the same
 // code path the MCP tool uses. Per V2-PLAN §2.7 ("we eat the output")
 // and §12.10 (dogfood migration). Idempotent: if the db file already
 // exists we assume the migration has run and skip to avoid collision
@@ -149,7 +149,7 @@ func installError(rr *render.Renderer, stage string, cause error) error {
 //
 // Post-V2-PLAN §12.11 the runtime reads only <project>/.ta/schema.toml
 // with no home-layer fallback, so the HOME-staging workaround this
-// target used to carry is gone — we invoke mcpsrv.Create directly on
+// target used to carry is gone — we invoke ops.Create directly on
 // the project root.
 func Dogfood() error {
 	root, err := os.Getwd()
@@ -166,7 +166,7 @@ func Dogfood() error {
 
 	records := dogfoodRecords()
 	for _, rec := range records {
-		if _, _, err := mcpsrv.Create(root, rec.Section, "", rec.Data); err != nil {
+		if _, _, err := ops.Create(root, rec.Section, "", rec.Data); err != nil {
 			return fmt.Errorf("create %s: %w", rec.Section, err)
 		}
 	}
@@ -384,7 +384,7 @@ func dogfoodRecords() []dogfoodRecord {
 			id:     "task_12_10",
 			status: "doing",
 			title:  "Dogfood migration",
-			body: "In-progress: this record is itself materialized by the `mage dogfood` target introduced in this slice, which routes through `mcpsrv.Create` to eat the §2.7 dogfood principle end-to-end. " +
+			body: "In-progress: this record is itself materialized by the `mage dogfood` target introduced in this slice, which routes through `ops.Create` to eat the §2.7 dogfood principle end-to-end. " +
 				"Writes `workflow/ta-v2/db.toml` carrying 8 done build_tasks + 16 QA twins + 2 in-flight build_tasks per V2-PLAN §12.10. " +
 				"Idempotent on re-run via existence check; orchestrator retains write ownership of `workflow/ta-v2/WORKLOG.md` which stays in place until §12.11 README collapse.",
 		},

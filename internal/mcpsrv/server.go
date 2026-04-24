@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/evanmschultz/ta/internal/config"
+	"github.com/evanmschultz/ta/internal/ops"
 )
 
 // Config configures the MCP server's runtime behavior.
@@ -53,7 +54,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.ProjectPath == "" {
 		return nil, fmt.Errorf("mcpsrv: Config.ProjectPath is required")
 	}
-	if _, err := defaultCache.Resolve(cfg.ProjectPath); err != nil {
+	if _, err := ops.ResolveProject(cfg.ProjectPath); err != nil {
 		if !errors.Is(err, config.ErrNoSchema) {
 			return nil, fmt.Errorf("mcpsrv: startup schema pre-warm for %s: %w", cfg.ProjectPath, err)
 		}
