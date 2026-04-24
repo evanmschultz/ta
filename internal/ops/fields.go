@@ -56,7 +56,7 @@ func extractFields(fileBuf []byte, sec record.Section, db schema.DB, addrType st
 func extractTOMLFields(fileBuf []byte, relPath string, fields []string) (map[string]any, error) {
 	var root map[string]any
 	if err := toml.Unmarshal(fileBuf, &root); err != nil {
-		return nil, fmt.Errorf("mcpsrv: decode file: %w", err)
+		return nil, fmt.Errorf("ops: decode file: %w", err)
 	}
 	segs := strings.Split(relPath, ".")
 	cursor := root

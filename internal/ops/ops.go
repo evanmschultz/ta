@@ -3,9 +3,11 @@ package ops
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/evanmschultz/ta/internal/backend/toml"
@@ -360,9 +362,7 @@ func loadExistingFields(buf []byte, backend record.Backend, backendSection strin
 // cannot serialize nil and schema.Validate would not run on it).
 func overlayPatch(existing, patch map[string]any, st schema.SectionType) (map[string]any, error) {
 	merged := make(map[string]any, len(existing)+len(patch))
-	for k, v := range existing {
-		merged[k] = v
-	}
+	maps.Copy(merged, existing)
 	for name, val := range patch {
 		if val != nil {
 			merged[name] = val
@@ -435,8 +435,8 @@ func Delete(path, section string) (string, []string, error) {
 	return filePath, resolution.Sources, nil
 }
 
-// SearchHit mirrors search.Result at the mcpsrv boundary so callers
-// (MCP handler, CLI subcommand) can depend on mcpsrv alone.
+// SearchHit mirrors search.Result at the ops boundary so callers
+// (MCP handler, CLI subcommand) can depend on ops alone.
 type SearchHit struct {
 	Section string
 	Bytes   []byte
@@ -542,10 +542,8 @@ func IsScopeAddress(path, section string) (bool, error) {
 		return false, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	parts := strings.Split(section, ".")
-	for _, p := range parts {
-		if p == "" {
-			return false, fmt.Errorf("%w: %q has empty segment", search.ErrInvalidScope, section)
-		}
+	if slices.Contains(parts, "") {
+		return false, fmt.Errorf("%w: %q has empty segment", search.ErrInvalidScope, section)
 	}
 	dbDecl, ok := resolution.Registry.DBs[parts[0]]
 	if !ok {

@@ -54,7 +54,7 @@ func MutateSchema(projectPath, action, kind, name string, data map[string]any) (
 	// 4. Re-serialize.
 	newBuf, err := pelletier.Marshal(root)
 	if err != nil {
-		return nil, fmt.Errorf("mcpsrv: marshal updated schema: %w", err)
+		return nil, fmt.Errorf("ops: marshal updated schema: %w", err)
 	}
 	// 5. Re-validate via schema.LoadBytes. If invalid → rollback (don't write).
 	if _, err := schema.LoadBytes(newBuf); err != nil {
@@ -62,7 +62,7 @@ func MutateSchema(projectPath, action, kind, name string, data map[string]any) (
 	}
 	// 6. Atomic-write.
 	if err := os.MkdirAll(filepath.Dir(schemaPath), 0o755); err != nil {
-		return nil, fmt.Errorf("mcpsrv: mkdir %s: %w", filepath.Dir(schemaPath), err)
+		return nil, fmt.Errorf("ops: mkdir %s: %w", filepath.Dir(schemaPath), err)
 	}
 	if err := toml.WriteAtomic(schemaPath, newBuf); err != nil {
 		return nil, err
@@ -92,11 +92,11 @@ func loadSchemaMap(path string) (map[string]any, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return map[string]any{}, nil
 		}
-		return nil, fmt.Errorf("mcpsrv: read %s: %w", path, err)
+		return nil, fmt.Errorf("ops: read %s: %w", path, err)
 	}
 	var root map[string]any
 	if err := pelletier.Unmarshal(buf, &root); err != nil {
-		return nil, fmt.Errorf("mcpsrv: parse %s: %w", path, err)
+		return nil, fmt.Errorf("ops: parse %s: %w", path, err)
 	}
 	if root == nil {
 		root = map[string]any{}

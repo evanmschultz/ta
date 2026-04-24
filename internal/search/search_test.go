@@ -790,7 +790,7 @@ description = "Subtitle — declared but not backed by body-only layout."
 
 // TestSearchMDNonBodyFieldErrors locks in the §12.7+§12.8 Falsification
 // finding #30 fix. The declared non-body MD field must error loudly on
-// both Match and Field, matching the mcpsrv.extractMDFields contract
+// both Match and Field, matching the ops.extractMDFields contract
 // on the `get` path. Previously the search engine silently returned
 // zero hits, giving callers no signal that the field exists-but-
 // unbacked vs "no records match this value."

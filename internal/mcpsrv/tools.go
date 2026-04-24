@@ -449,8 +449,7 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 // (matching legacy upsert behavior); otherwise the plain Error string
 // is used.
 func validationOrPlainError(err error) *mcp.CallToolResult {
-	var vErr *schema.ValidationError
-	if errors.As(err, &vErr) {
+	if vErr, ok := errors.AsType[*schema.ValidationError](err); ok {
 		raw, jerr := json.Marshal(vErr)
 		if jerr == nil {
 			return mcp.NewToolResultError(string(raw))

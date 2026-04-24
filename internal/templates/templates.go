@@ -5,7 +5,7 @@
 //
 // Per V2-PLAN §14.2 the firewall is strict: templates imports stdlib +
 // internal/schema + internal/fsatomic only. It does NOT import
-// internal/config/Resolve or any internal/mcpsrv/* package. Runtime
+// internal/config/Resolve, internal/ops, or internal/mcpsrv. Runtime
 // consumers never import this package.
 //
 // Public API:

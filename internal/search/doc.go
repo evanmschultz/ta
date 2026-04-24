@@ -7,6 +7,7 @@
 //
 // Layering: this package depends on internal/schema, internal/config,
 // internal/db, internal/record, and the backend packages. Nothing above
-// it in the cascade (cmd/ta, internal/mcpsrv) may depend on per-backend
-// decoding rules directly — they route through search.Run instead.
+// it in the cascade (cmd/ta, internal/ops, internal/mcpsrv) may depend
+// on per-backend decoding rules directly — they route through search.Run
+// instead.
 package search

@@ -45,7 +45,7 @@ func buildBackend(db schema.DB) (record.Backend, error) {
 		}
 		b, err := md.NewBackend(types)
 		if err != nil {
-			return nil, fmt.Errorf("mcpsrv: build MD backend for db %q: %w", db.Name, err)
+			return nil, fmt.Errorf("ops: build MD backend for db %q: %w", db.Name, err)
 		}
 		return b, nil
 	default:

@@ -21,7 +21,7 @@ var (
 	// silently always-false or always-true.
 	ErrUnscalarMatch = errors.New("search: cannot exact-match non-scalar field")
 
-	// ErrUnsupportedFormat mirrors the mcpsrv sentinel; the backend
+	// ErrUnsupportedFormat mirrors the ops sentinel; the backend
 	// factory in this package refuses formats with no decoder.
 	ErrUnsupportedFormat = errors.New("search: unsupported format")
 )

@@ -79,7 +79,7 @@ func newSchemaCacheWithLoader(loader func(string) (config.Resolution, error)) *s
 func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	abs, err := filepath.Abs(projectPath)
 	if err != nil {
-		return config.Resolution{}, fmt.Errorf("mcpsrv: abs path for %q: %w", projectPath, err)
+		return config.Resolution{}, fmt.Errorf("ops: abs path for %q: %w", projectPath, err)
 	}
 
 	c.mu.RLock()
@@ -87,7 +87,7 @@ func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	c.mu.RUnlock()
 	if bound != "" && bound != abs {
 		return config.Resolution{}, fmt.Errorf(
-			"mcpsrv: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
+			"ops: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
 			bound, abs)
 	}
 	if entry != nil && !c.sourceMoved(entry) {
@@ -101,7 +101,7 @@ func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	defer c.mu.Unlock()
 	if c.projectPath != "" && c.projectPath != abs {
 		return config.Resolution{}, fmt.Errorf(
-			"mcpsrv: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
+			"ops: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
 			c.projectPath, abs)
 	}
 	if c.entry != nil && !c.sourceMoved(c.entry) {

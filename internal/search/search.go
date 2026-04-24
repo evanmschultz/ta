@@ -126,8 +126,8 @@ func Run(q Query) ([]Result, error) {
 	return out, nil
 }
 
-// resolve is a local mirror of mcpsrv.ResolveProject so this package
-// does not import mcpsrv. Post-V2-PLAN §12.11 the resolver reads the
+// resolve is a local mirror of ops.ResolveProject so this package
+// does not import ops. Post-V2-PLAN §12.11 the resolver reads the
 // single project-local .ta/schema.toml directly — no sentinel trick.
 func resolve(projectPath string) (config.Resolution, error) {
 	return config.Resolve(projectPath)
@@ -252,7 +252,7 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 		// MD body-only layout (§5.3.3) can only serve the "body" field;
 		// a declared non-body MD field is a typed-contract lie and must
 		// error loudly, not return silent zero-hits. Mirror the get
-		// tool's contract (mcpsrv/fields.go:extractMDFields) via the
+		// tool's contract (ops/fields.go:extractMDFields) via the
 		// shared md.CheckBackableFields helper so the two entry points
 		// cannot drift.
 		if err := mdLayoutCheck(dbDecl, st, q); err != nil {
@@ -362,8 +362,8 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 	return hits, nil
 }
 
-// buildBackend mirrors mcpsrv.buildBackend — duplicated here to keep
-// internal/search independent of internal/mcpsrv.
+// buildBackend mirrors ops.buildBackend — duplicated here to keep
+// internal/search independent of internal/ops.
 func buildBackend(dbDecl schema.DB) (record.Backend, error) {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
@@ -505,7 +505,7 @@ func walkTOMLPath(root map[string]any, backendAddr string) (map[string]any, erro
 
 // stripHeadingLine returns raw with the first line (heading) and at
 // most one directly-following blank line removed. Mirrors the MVP body-
-// only layout in internal/mcpsrv/fields.go.
+// only layout in internal/ops/fields.go.
 func stripHeadingLine(raw []byte) []byte {
 	_, rest, ok := bytes.Cut(raw, []byte{'\n'})
 	if !ok {
@@ -562,7 +562,7 @@ func validateScopeNames(reg schema.Registry, plan searchPlan, q Query) error {
 // body-only layout (§5.3.3) only "body" is readable, so a declared
 // non-body field is a typed-contract lie: the schema claims it exists
 // but the layout has no on-disk representation. Fails loudly to match
-// the contract mcpsrv/fields.go:extractMDFields enforces on the `get`
+// the contract ops/fields.go:extractMDFields enforces on the `get`
 // path — both entry points route through md.CheckBackableFields so
 // they cannot drift (V2-PLAN §12.7 Falsification finding #30).
 //

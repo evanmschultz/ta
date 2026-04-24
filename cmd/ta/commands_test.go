@@ -337,7 +337,7 @@ type = "string"
 	}
 }
 
-// TestUpdateCmdEmptyDataIsNoOp proves the CLI wraps the mcpsrv
+// TestUpdateCmdEmptyDataIsNoOp proves the CLI wraps the ops
 // empty-data short-circuit: `ta update --data '{}'` returns success
 // and leaves the backing file byte-identical.
 func TestUpdateCmdEmptyDataIsNoOp(t *testing.T) {

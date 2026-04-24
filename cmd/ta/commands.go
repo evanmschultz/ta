@@ -240,7 +240,7 @@ func buildRenderFields(path, section string, values map[string]any, names []stri
 	}
 	// Resolve type for the address. We need <db>.<type> — for multi-
 	// instance addresses strip the <instance> segment; mirrors
-	// mcpsrv.validationPath.
+	// ops.validationPath.
 	dbDecl, typeSt, err := lookupDBAndType(resolution.Registry, section)
 	if err != nil {
 		return nil, err
@@ -882,8 +882,8 @@ func runSchemaGetJSON(w io.Writer, path, scope string) error {
 // schemaDBsToJSON converts the registry DB map to a plain JSON-friendly
 // shape. Mirrors internal/mcpsrv/tools.go:toDBsView but lives here to
 // keep the CLI self-sufficient — §13.3 firewall says mcpsrv must not
-// import render, and the symmetric "render must not import mcpsrv
-// internals" applies by analogy.
+// import render, and the symmetric rule ("render must not import mcpsrv
+// internals") applies by analogy.
 func schemaDBsToJSON(dbs map[string]schema.DB) map[string]any {
 	out := make(map[string]any, len(dbs))
 	for name, db := range dbs {
@@ -955,7 +955,7 @@ func noticeMutation(w io.Writer, action, section, filePath string, sources []str
 }
 
 // runCreate / runUpdate / runDelete / runSchemaMutate are thin
-// wrappers over the shared mcpsrv.* Ops. Keeping them here means the
+// wrappers over the shared ops.* endpoints. Keeping them here means the
 // CLI's error surface is pure-Go (no MCP envelope) while the MCP
 // handlers in internal/mcpsrv/tools.go reuse exactly the same paths.
 
