@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/evanmschultz/laslig"
@@ -760,7 +759,7 @@ func runSchemaGet(w io.Writer, path, scope string) error {
 			return fmt.Errorf("no schema registered for section %q in %s", scope, path)
 		}
 	}
-	return renderSchemaMarkdown(w, path, scope, resolution.Sources, dbs)
+	return render.New(w).SchemaFlow(path, scope, resolution.Sources, dbs)
 }
 
 // runSchemaGetJSON mirrors runSchemaGet but writes JSON for agent
@@ -874,73 +873,6 @@ func schemaTypesToJSON(types map[string]schema.SectionType) map[string]any {
 func renderMetaSchema(w io.Writer) error {
 	body := "# ta_schema — embedded meta-schema\n\n```toml\n" + schema.MetaSchemaTOML + "```\n"
 	return render.New(w).Markdown(body)
-}
-
-func renderSchemaMarkdown(w io.Writer, path, section string, sources []string, dbs map[string]schema.DB) error {
-	var sb strings.Builder
-	if section != "" {
-		fmt.Fprintf(&sb, "# Schema for `%s` (section `%s`)\n\n", path, section)
-	} else {
-		fmt.Fprintf(&sb, "# Schema for `%s`\n\n", path)
-	}
-	if len(sources) > 0 {
-		sb.WriteString("**Resolved from:**\n\n")
-		for _, s := range sources {
-			fmt.Fprintf(&sb, "- `%s`\n", s)
-		}
-		sb.WriteString("\n")
-	}
-	dbNames := make([]string, 0, len(dbs))
-	for n := range dbs {
-		dbNames = append(dbNames, n)
-	}
-	sort.Strings(dbNames)
-	for _, dbName := range dbNames {
-		dbDecl := dbs[dbName]
-		fmt.Fprintf(&sb, "## `%s`\n\n", dbName)
-		fmt.Fprintf(&sb, "- **shape**: `%s`\n- **path**: `%s`\n- **format**: `%s`\n\n",
-			dbDecl.Shape, dbDecl.Path, dbDecl.Format)
-		if dbDecl.Description != "" {
-			sb.WriteString(dbDecl.Description + "\n\n")
-		}
-		typeNames := make([]string, 0, len(dbDecl.Types))
-		for n := range dbDecl.Types {
-			typeNames = append(typeNames, n)
-		}
-		sort.Strings(typeNames)
-		for _, tname := range typeNames {
-			t := dbDecl.Types[tname]
-			fmt.Fprintf(&sb, "### `%s.%s`\n\n", dbName, tname)
-			if t.Heading != 0 {
-				fmt.Fprintf(&sb, "- **heading**: `%d`\n\n", t.Heading)
-			}
-			if t.Description != "" {
-				sb.WriteString(t.Description + "\n\n")
-			}
-			sb.WriteString("| field | type | required | default | description |\n")
-			sb.WriteString("|---|---|---|---|---|\n")
-			fieldNames := make([]string, 0, len(t.Fields))
-			for fn := range t.Fields {
-				fieldNames = append(fieldNames, fn)
-			}
-			sort.Strings(fieldNames)
-			for _, fn := range fieldNames {
-				f := t.Fields[fn]
-				req := ""
-				if f.Required {
-					req = "yes"
-				}
-				def := ""
-				if f.Default != nil {
-					def = fmt.Sprintf("`%v`", f.Default)
-				}
-				desc := strings.ReplaceAll(f.Description, "|", `\|`)
-				fmt.Fprintf(&sb, "| `%s` | `%s` | %s | %s | %s |\n", fn, f.Type, req, def, desc)
-			}
-			sb.WriteString("\n")
-		}
-	}
-	return render.New(w).Markdown(sb.String())
 }
 
 func noticeMutation(w io.Writer, action, section, filePath string, sources []string) error {

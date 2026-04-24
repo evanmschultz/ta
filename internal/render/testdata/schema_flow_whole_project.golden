@@ -1,0 +1,64 @@
+
+# Schema for `/project`
+
+**Resolved from:**
+
+- `/project/.ta/schema.toml`
+
+
+docs
+
+    shape   collection
+    path    docs
+    format  md
+
+  Long-form documentation set.
+
+
+docs.note
+
+    heading  1
+
+  One markdown note per file.
+
+  body
+    type      string
+    required  yes
+    format    markdown
+
+  The document body. Whole-file content goes here.
+
+
+plans
+
+    shape   file
+    path    plans.toml
+    format  toml
+
+  Project planning db.
+
+
+plans.task
+
+  A unit of work in the plan.
+
+  id
+    type      string
+    required  yes
+
+  Stable identifier for the task. Matches the file-atom prefix so `ta get plans.task.t1` locates this record independent of heading edits.
+
+  priority
+    type      integer
+    required  no
+    default   3
+
+  Lower numbers sort earlier. Callers may omit; default is 3 (normal).
+
+  status
+    type      string
+    required  yes
+    default   todo
+    enum      [todo, doing, done, blocked]
+
+  Lifecycle state of the task.

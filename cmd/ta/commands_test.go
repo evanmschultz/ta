@@ -94,6 +94,68 @@ func TestSchemaCmdRendersResolvedSchema(t *testing.T) {
 	}
 }
 
+// TestSchemaCmdFlowOutputIsPerFieldNotTable is the §12.17.5 [C1]
+// end-to-end regression gate. `ta schema` must render per-field flow
+// blocks via the SchemaFlow helper, not the pre-[C1] Markdown table
+// whose description column wrapped mid-word under narrow terminals.
+// Assertions: the Section headers (db + db.type) are present, each
+// declared field's labels (type / required) land as KV rows, and the
+// pipe-delimited table row the old renderer emitted is gone.
+func TestSchemaCmdFlowOutputIsPerFieldNotTable(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v; stdout=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	got := out.String()
+	mustContain := []string{
+		// Flow Section headers (db + db.type).
+		"plans",
+		"plans.task",
+		// Every declared field name from cliTaskSchema.
+		"id",
+		"status",
+		// KV-row labels — `required` is the load-bearing proof that
+		// declared metadata lands as aligned KV rows, not table cells.
+		"type",
+		"required",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(got, want) {
+			t.Errorf("stdout missing %q:\n%s", want, got)
+		}
+	}
+	// Pre-[C1] Markdown-table separator row must NOT appear.
+	if strings.Contains(got, "|---|") {
+		t.Errorf("stdout contains pre-[C1] Markdown-table separator:\n%s", got)
+	}
+}
+
+// TestSchemaCmdFlowGolden locks the CLI-level byte shape of `ta schema
+// --path <root>` against a checked-in fixture. Mirrors the B2
+// get_single.golden pattern so any drift on the laslig-rendered flow
+// output fails loudly.
+func TestSchemaCmdFlowGolden(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+	}
+	// The path under --path is a t.TempDir() and therefore not
+	// byte-stable across runs. Normalise it (and the schema source
+	// path derived from it) to a fixed token before comparing.
+	normalised := strings.ReplaceAll(out.String(), root, "<root>")
+	assertGolden(t, filepath.Join("testdata", "schema_flow.golden"), []byte(normalised))
+}
+
 func TestSchemaCmdMetaSchemaScope(t *testing.T) {
 	root := t.TempDir()
 	cmd := newSchemaCmd()

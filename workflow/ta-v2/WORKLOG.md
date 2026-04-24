@@ -2906,3 +2906,226 @@ N/A — task touched Go code actively under uncommitted edit. Hylla's committed 
 
 N/A — task touched Go code actively under uncommitted edit; Hylla's committed index would not reflect the B2 diff. All evidence flowed via `Read`, `git diff HEAD`, `git status`, `rg` for WORKLOG-integrity and Section-0-pollution sweeps, and direct source-line citation.
 
+## 12.17.5 C1 — `ta schema get` flow-per-field render
+
+**HEAD at start:** `437e377` on `main` (B2 just landed).
+
+## 1. Scope
+
+- 1.1 Replaced the Markdown-table CLI render in `ta schema get` with a FLOW layout built from laslig primitives (V2-PLAN §12.17.5 [C1]). Pre-C1 output piped every db+type+field triple through a fixed-column Markdown table whose description cell wrapped word-by-word under narrow terminals — unreadable in editor panes and at 80-col baseline. Post-C1 output is one Section header per db and per type, one titled KV block per field, with field descriptions rendered as `laslig.Paragraph` bodies so laslig's own wrapping handles narrow-terminal flow rather than cell fragmentation.
+- 1.2 JSON (`--json`) path, MCP `schema` tool response, `renderMetaSchema` (the `ta_schema` scope short-circuit), and every mutating action path are UNCHANGED by construction. Only the laslig-rendered CLI path for `schema` action=get was touched.
+
+## 2. Helper location and laslig primitives
+
+- 2.1 New file `internal/render/schema_flow.go` — exports `Renderer.SchemaFlow(path, scope string, sources []string, dbs map[string]schema.DB) error` + three unexported helpers (`renderDB`, `renderType`, `renderSchemaField`) + two pure helpers (`schemaFlowHeader`, `formatEnum`, `sortedKeys`). Method style chosen over free function to match `Renderer.Record` / `Renderer.Facts` / `Renderer.List` precedent.
+- 2.2 Primitives used: `Printer.Markdown` for the top-of-output glamour block ("# Schema for <path>" + "Resolved from" source list); `Printer.Section` for db and db.type headers; `Printer.KV{Title, Pairs}` for db-meta (shape/path/format) and per-field labeled metadata (type/required/default/enum/format); `Printer.Paragraph{Body}` for db description, type description, and field description. Paragraph is the load-bearing primitive — its soft-wrap keeps prose readable at any width, which was the fundamental failure mode of the old table.
+- 2.3 KV row conditional rendering: `required` always emitted (yes/no); `default`, `enum`, `format` only when non-zero. Prevents noise on minimal field declarations while preserving full disclosure when the schema carries the metadata. `enum` formatted as `[a, b, c]` via `formatEnum` rather than Go's default `[a b c]` %v verbatim.
+
+## 3. Wire-up change
+
+- 3.1 `cmd/ta/commands.go:runSchemaGet` — one-line edit: `renderSchemaMarkdown(w, path, scope, resolution.Sources, dbs)` → `render.New(w).SchemaFlow(path, scope, resolution.Sources, dbs)`. All scope-narrowing logic (single-db vs single-type vs whole-registry) unchanged. Meta-schema short-circuit unchanged.
+- 3.2 Deleted `renderSchemaMarkdown` (previously 66 LoC in `cmd/ta/commands.go`). `rg 'renderSchemaMarkdown'` pre-delete = 1 caller (runSchemaGet:763); post-delete = 0 hits. No dead-reference cleanup needed elsewhere.
+- 3.3 Dropped `"sort"` import from `cmd/ta/commands.go` — the only caller was the deleted `renderSchemaMarkdown`. `"strings"` and `"schema"` retained (used by `lookupDBAndType`, `dbFormatFor`, `runSchemaGet/GetJSON` scope-narrowing, etc.).
+- 3.4 `runSchemaGetJSON` NOT touched (§3.3 JSON-response contract). `renderMetaSchema` NOT touched (non-negotiable #5).
+
+## 4. Tests
+
+- 4.1 `internal/render/schema_flow_test.go` (NEW) — six tests total. Three golden-locked: `TestSchemaFlowWholeProjectGolden` (two-db fixture, no scope), `TestSchemaFlowSingleDBGolden` (scope=`plans`), `TestSchemaFlowSingleTypeGolden` (scope=`plans.task`, mirrors CLI narrowing of db.Types). Three substantive: `TestSchemaFlowNoCellBreaking` (negative assertion — output must not contain `|---|` separator row or the pre-C1 5-column header), `TestSchemaFlowDescriptionsPresentAsProse` (positive assertion — every description sentence lands verbatim, every declared label present), `TestSchemaFlowEnumOnlyWhenPresent` (conditional-row suppression contract).
+- 4.2 `internal/render/testdata/schema_flow_whole_project.golden` (NEW, 65 lines) — two-db fixture rendering with description paragraphs, heading KV rows, enum rendering. `schema_flow_single_db.golden` (NEW, 42 lines), `schema_flow_single_type.golden` (NEW, 42 lines) — narrowed-scope equivalents.
+- 4.3 `cmd/ta/commands_test.go` — two new tests added. `TestSchemaCmdFlowOutputIsPerFieldNotTable` asserts end-to-end through the cobra RunE path that the new render shape lands (Section headers `plans` and `plans.task`, field names `id`/`status`, KV-row labels `type`/`required`) and the pre-C1 `|---|` separator is gone. `TestSchemaCmdFlowGolden` byte-locks `ta schema --path <tmp>` output after normalising the TempDir path (tmpdir not stable across runs) to `<root>`. `cmd/ta/testdata/schema_flow.golden` (NEW, 28 lines).
+- 4.4 Existing schema-get tests NOT updated because none asserted Markdown-table substrings: `TestSchemaCmdRendersResolvedSchema` asserts `"plans"` (still satisfied by Section header); `TestSchemaCmdMetaSchemaScope` asserts `"[ta_schema]"` (unchanged path); `TestSchemaCmdGetJSON` / `TestSchemaCmdGetJSONMetaSchema` cover the JSON path (untouched); `TestSchemaCmdDottedTypoDoesNotFallBackToDB` asserts error text (unchanged error path); `TestSchemaCmdRelativePathResolves` asserts `"plans"` substring (still satisfied). No regressions to patch.
+
+## 5. Before-vs-after sample
+
+- 5.1 BEFORE (pre-C1, `renderSchemaMarkdown` via glamour table render — excerpt from a single type with one long description field):
+
+```
+| field | type | required | default | description |
+|---|---|---|---|---|
+| `id` | `string` | yes |  | Stable identifier for the task. Matches the file-atom prefix so `ta get plans.task.t1` locates this record independent of heading edits. |
+```
+
+At 60 cols the description column wraps word-by-word inside the cell, producing 6+ cramped lines with broken code-span formatting.
+
+- 5.2 AFTER (post-C1, SchemaFlow with Section + KV + Paragraph — exact output from `schema_flow_single_type.golden`):
+
+```
+plans.task
+
+  A unit of work in the plan.
+
+  id
+    type      string
+    required  yes
+
+  Stable identifier for the task. Matches the file-atom prefix so `ta get plans.task.t1` locates this record independent of heading edits.
+
+  priority
+    type      integer
+    required  no
+    default   3
+
+  Lower numbers sort earlier. Callers may omit; default is 3 (normal).
+
+  status
+    type      string
+    required  yes
+    default   todo
+    enum      [todo, doing, done, blocked]
+
+  Lifecycle state of the task.
+```
+
+Labels aligned at a consistent left margin via laslig's KV alignment; description is full-width prose; enum is `[value, value]` formatted (not Go's verbose `[a b c]`); scalar default preserved. This shape scales to any terminal width — laslig's Paragraph soft-wrap replaces the table's cell fragmentation.
+
+## 6. Verification gates
+
+- 6.1 `mage build` → **exit 0.** Compile clean after the `sort` import drop and `renderSchemaMarkdown` delete.
+- 6.2 `mage check` → **exit 0.** All 12 test packages green under `-race` (fmtcheck + vet + test + tidy). No new test-package count (`internal/render` still one test binary; `cmd/ta` still one test binary). Exit code captured from sequential run.
+- 6.3 `mage dogfood` → **exit 0.** Idempotent skip (`workflow/ta-v2/db.toml already exists; dogfood migration already materialized. Skipping.`).
+- 6.4 `go doc github.com/evanmschultz/ta/internal/render.Renderer.SchemaFlow` confirms the new public surface lands with full docstring (method signature + structured doc block describing primitive composition + parameter contract + iteration-order guarantee).
+- 6.5 Manual `COLUMNS=60 ./bin/ta schema --path <root>` visual check — blocked by sandbox (binary exec denied). Golden tests under `plainPolicy()` lock the byte-exact shape; narrow-terminal wrap is laslig's documented Paragraph contract (`go doc github.com/evanmschultz/laslig.Paragraph` — "one wrapped long-form text block") and not reproducible under `FormatPlain` (which explicitly bypasses terminal-capability detection).
+
+## 7. Context7 / laslig quirks
+
+- 7.1 Context7 does not index the `github.com/evanmschultz/laslig` module (`resolve-library-id` and `query-docs` both returned "not found"). `go doc github.com/evanmschultz/laslig` was the authoritative surface discovery path. No API quirks surfaced: `Paragraph`, `KV`, `Markdown`, `Section` all work via the existing `*Printer` exposed by `Renderer`. `KV{Title}` optionally titles the block (used for the field name), `KV{Pairs: []Field}` carries the metadata rows. `Field.Label` + `Field.Value` are string-only — scalar default values coerced via `fmt.Sprintf("%v", f.Default)`.
+- 7.2 Layout tuning not needed — the default `HumanPolicy()` laslig spacing already produces the readable per-field rhythm shown in 5.2. No `WithBlockGap` / `WithSectionGap` overrides introduced.
+
+## 8. File inventory
+
+- 8.1 `internal/render/schema_flow.go` — NEW, 190 LoC (6 funcs: `SchemaFlow` + 3 render helpers + 2 pure helpers).
+- 8.2 `internal/render/schema_flow_test.go` — NEW, 238 LoC (6 tests + 2 fixture builders + 1 golden helper).
+- 8.3 `internal/render/testdata/schema_flow_whole_project.golden` — NEW, 65 lines.
+- 8.4 `internal/render/testdata/schema_flow_single_db.golden` — NEW, 42 lines.
+- 8.5 `internal/render/testdata/schema_flow_single_type.golden` — NEW, 42 lines.
+- 8.6 `cmd/ta/commands.go` — modified: +1 line (`render.New(w).SchemaFlow(...)`), −67 lines (`renderSchemaMarkdown` body), −1 line (`"sort"` import). Net −67.
+- 8.7 `cmd/ta/commands_test.go` — modified: +62 lines (two new tests).
+- 8.8 `cmd/ta/testdata/schema_flow.golden` — NEW, 28 lines.
+
+## 9. Spec gaps / unknowns
+
+- 9.1 Commit blocked — sandbox denies `git add` / `git commit`. Orchestrator commits after QA PASS per prompt policy. Suggested subject: `feat(schema): flow-per-field render for ta schema get`.
+- 9.2 No downstream consumers of `renderSchemaMarkdown` found. No release-note needed beyond "`ta schema` output is now per-field flow blocks instead of a Markdown table; the description is now full-width prose. `--json` shape unchanged."
+
+## TL;DR
+
+- T1: Scope is CLI-only — laslig-rendered `ta schema get` switches from a Markdown table to a per-field flow layout; JSON / MCP / meta-schema paths unchanged.
+- T2: New helper `Renderer.SchemaFlow` composes `Section` + `KV{Title, Pairs}` + `Paragraph{Body}` so descriptions render as prose soft-wrapped by laslig rather than fragmented in table cells.
+- T3: Wire-up is a one-line edit in `runSchemaGet`; `renderSchemaMarkdown` deleted (no remaining references); `"sort"` import dropped from `cmd/ta/commands.go`.
+- T4: Six new tests — three golden-locked at the render-package level (whole-project / single-db / single-type fixtures), one no-cell-breaking negative assertion, one description-prose positive assertion, one enum-conditional-row assertion — plus two CLI-level tests (end-to-end flow assertion + CLI-level golden).
+- T5: Before/after sample shows labels aligned via KV, descriptions as full-width prose, enum rendered as `[a, b, c]`; pre-C1 output was a 5-column pipe table with word-wrapped description cells.
+- T6: `mage build` + `mage check` (12 packages) + `mage dogfood` all green; `go doc` confirms the new public surface; manual binary width-check blocked by sandbox but laslig Paragraph wrap is the documented contract.
+- T7: Context7 does not index `evanmschultz/laslig`; `go doc` was the canonical API surface; no laslig quirks surfaced, no Layout tuning needed.
+- T8: File inventory — 3 new golden fixtures under `internal/render/testdata/`, 1 new golden under `cmd/ta/testdata/`, 1 new `.go` helper, 1 new `_test.go`, 2 modified existing files.
+- T9: Commit blocked by sandbox — orchestrator commits after QA PASS; suggested subject `feat(schema): flow-per-field render for ta schema get`.
+
+### Hylla Feedback
+
+N/A — task touched Go code actively under uncommitted edit and non-Go golden fixture files; Hylla's committed index would not reflect the C1 diff. All evidence flowed via `Read` / `Write` / `Edit`, `git diff`, `git status`, `rg` sweeps for caller identification, and `go doc` for the external laslig module surface (Context7 does not index evanmschultz/laslig).
+
+## 12.17.5 C1 — PROOF REVIEW
+
+**HEAD at review:** `437e377` on `main`. Uncommitted working tree — builder's C1 diff in place, orchestrator yet to commit.
+
+## 1. Findings
+
+- 1.1 NEW `internal/render/schema_flow.go` confirmed. `(r *Renderer) SchemaFlow(path, scope string, sources []string, dbs map[string]schema.DB) error` exports exactly the signature the scope prompt specifies. Dispatch uses `r.p.Markdown` for the top Markdown header block, then `r.p.Section` + `r.p.KV(laslig.KV{Pairs})` (db-meta) + `r.p.Paragraph(laslig.Paragraph{Body})` (db description), recurses into `renderType` (Section + optional heading KV + Paragraph) and `renderSchemaField` (titled `KV{Title: f.Name, Pairs}` + Paragraph). Zero Markdown-table emission in the hot path. `go doc github.com/evanmschultz/laslig.{KV,Paragraph,Field,Section}` confirms the primitive signatures match the builder's usage verbatim (`KV.Title`/`KV.Pairs`, `Paragraph.Body`, `Field.Label`/`Field.Value`).
+- 1.2 Deterministic iteration verified. `sortedKeys(dbs)` fans out db names via `sort.Strings`; `renderDB` builds `typeNames` and sorts; `renderType` builds `fieldNames` and sorts. Three independent alphabetical passes cover the three nested map iterations — no Go map-iteration nondeterminism reaches the output.
+- 1.3 NEW `internal/render/schema_flow_test.go` ships **6** tests per the prompt: `TestSchemaFlowWholeProjectGolden`, `TestSchemaFlowSingleDBGolden`, `TestSchemaFlowSingleTypeGolden` (the 3 golden-locked scope-shape tests), `TestSchemaFlowNoCellBreaking`, `TestSchemaFlowDescriptionsPresentAsProse`, `TestSchemaFlowEnumOnlyWhenPresent` (3 substantive). `assertSchemaFlowGolden` helper handles `-update` regeneration and first-run materialisation the same way `TestRendererRecordSearchGolden` does — pattern continuity with B3.
+- 1.4 NEW goldens materialised at all 4 paths from the prompt: `internal/render/testdata/schema_flow_{whole_project,single_db,single_type}.golden` + `cmd/ta/testdata/schema_flow.golden`. Bytes spot-checked against the rendered shape — leading blank line is laslig's top margin on a `Markdown` block (identical to the pre-C1 `Markdown(sb.String())` emission, so not a regression). Field labels align at 2-space indent; enum renders as `[todo, doing, done, blocked]` per `formatEnum`; descriptions land as full-width prose rather than cell-fragmented.
+- 1.5 MODIFIED `cmd/ta/commands.go` diff: `runSchemaGet` now calls `render.New(w).SchemaFlow(path, scope, resolution.Sources, dbs)`. `renderSchemaMarkdown` function body deleted — confirmed via `rg 'renderSchemaMarkdown' --type go`: zero hits in compiled Go sources (only WORKLOG historical narrative + in-source docstring comments referencing the pre-C1 name). `"sort"` import dropped; `"strings"` retained (still used at lines 210/225/265/752/789). No other caller of `renderSchemaMarkdown` survived (only `runSchemaGet` called it pre-diff — confirmed against the deleted hunk).
+- 1.6 MODIFIED `cmd/ta/commands_test.go` adds exactly 2 tests per the prompt: `TestSchemaCmdFlowOutputIsPerFieldNotTable` (asserts `plans`, `plans.task`, `id`, `status`, `type`, `required` present; `|---|` absent) + `TestSchemaCmdFlowGolden` (normalises `t.TempDir()` path to `<root>` before golden comparison, then routes through the shared `assertGolden` helper from line 1534). Both tests exercise the cobra RunE path end-to-end via `newSchemaCmd()`, so the SchemaFlow wire-up is covered at the CLI surface, not just the render-package surface.
+- 1.7 CLI-only contract HOLDS. `git diff HEAD -- internal/mcpsrv/ internal/render/policy.go internal/render/doc.go` reports zero bytes changed. `runSchemaGetJSON` body unchanged (inspected at commands.go:770-809 — still emits the same `{schema_paths, dbs, scope?}` envelope). `renderMetaSchema` unchanged (commands.go:873-876 — still prints the meta-schema TOML literal through `render.New(w).Markdown`). MCP `handleSchemaGet` unchanged (`internal/mcpsrv/tools.go:485-…` untouched by the diff).
+- 1.8 Mutating action paths confirmed unaffected. `newSchemaCmd` routes `action != "get"` through `runSchemaMutate` + `noticeMutation` exactly as before; `--verbose` post-mutation echo still calls `runSchemaGet(c.OutOrStdout(), path, "")` which is the refactored path — but that *is* the new SchemaFlow path and is exactly the advertised refactor. No create/update/delete-specific logic touched.
+- 1.9 WORKLOG integrity holds. `git diff HEAD -- workflow/ta-v2/WORKLOG.md` shows a pure append beginning at line 2907 with `## 12.17.5 C1 — \`ta schema get\` flow-per-field render`. Prior entries through line 2906 unchanged. No collision with earlier section anchors.
+- 1.10 File-count claim: builder's §8 inventory enumerates 8 in-scope files (8.1-8.8). `git status --porcelain` shows 9 entries, the extra being `workflow/ta-v2/WORKLOG.md` — which is always the bookkeeping drop-off and is not a C1-code file. Inventory reconciles against working-tree status: 2 modified Go files, 4 new goldens, 2 new Go files — 8 files of C1 scope.
+- 1.11 `mage check` green across all 12 packages (`cmd/ta`, `internal/backend/md`, `internal/backend/toml`, `internal/config`, `internal/db`, `internal/fsatomic`, `internal/mcpsrv`, `internal/ops`, `internal/render`, `internal/schema`, `internal/search`, `internal/templates`). `mage dogfood` ran twice — both runs reported `db.toml already exists; dogfood migration already materialized. Skipping.`, idempotent per prompt gate. MAGEFILE_JSON=1 blocked by sandbox on my run; falling back to plain `mage check` confirms the pass; JSON routing is a surface detail on the test-runner step and doesn't change test outcomes.
+- 1.12 Acceptance-criterion cross-check against prompt §2 end-state:
+  - §2.1 FLOW render via laslig primitives — PASS (1.1).
+  - §2.2 Six render-package tests with 3 goldens — PASS (1.3, 1.4).
+  - §2.3 4 golden paths — PASS (1.4).
+  - §2.4 `runSchemaGet` rewired; `renderSchemaMarkdown` deleted; `sort` import dropped — PASS (1.5).
+  - §2.5 2 new CLI tests — PASS (1.6).
+  - §2.6 JSON shape / meta-schema / MCP unchanged — PASS (1.7).
+  - §2.7 Mutating paths unaffected — PASS (1.8).
+  - §2.8 WORKLOG integrity — PASS (1.9).
+  - Verification gates (§2 end): `mage check` green, `mage dogfood` idempotent, diff stat matches, `rg 'renderSchemaMarkdown'` zero hits in live code, `rg 'SchemaFlow'` shows exactly helper + caller + tests — all PASS (1.5, 1.11).
+
+## 2. Missing Evidence
+
+- 2.1 None for the PASS conclusion. The proof certificate's premises are all backed by directly-cited evidence (file-line spans in the diff, golden byte-inspection, `mage check` green, `go doc` on laslig primitives, `rg` sweeps for the negative-existence claims). No premise relies on implicit background.
+- 2.2 Minor observation not blocking PASS: MAGEFILE_JSON=1 couldn't be exercised under this sandbox session, but the prompt's gate is "all packages green" — plain `mage check` already satisfies that. The JSON switch only changes the test-runner emission shape, not test outcomes (per project `CLAUDE.md` / magefile docstring).
+
+## 3. Summary
+
+- 3.1 **Verdict: PASS.** §12.17.5 [C1] is correctly implemented. `ta schema get` renders per-field flow blocks via `Renderer.SchemaFlow` built on `laslig.Section` + `KV{Title, Pairs}` + `Paragraph{Body}`. The pre-C1 `renderSchemaMarkdown` Markdown-table path is fully excised from live Go code. JSON / MCP / meta-schema / mutation paths are byte-unchanged. Eight-file scope reconciles; WORKLOG appended cleanly; `mage check` + `mage dogfood` green. No unmitigated counterexample surfaced; no blockers for commit.
+
+## TL;DR
+
+- T1: PASS. C1 wires `runSchemaGet` to a new `Renderer.SchemaFlow` built on laslig Section/KV/Paragraph primitives; `renderSchemaMarkdown` deleted; `"sort"` import dropped; 6 render-package tests + 2 CLI tests + 4 goldens added; JSON/MCP/meta-schema/mutation paths byte-unchanged; `mage check` + `mage dogfood` green; WORKLOG appended without clobber.
+- T2: No missing evidence for the PASS. Every premise is backed by file-line citation or a grounded negative-existence `rg` sweep. MAGEFILE_JSON=1 was sandbox-blocked but plain `mage check` satisfies the "all packages green" gate.
+- T3: Verdict stands: PASS. Orchestrator cleared to commit; suggested subject `feat(schema): flow-per-field render for ta schema get` (per builder's §9.1 note) or equivalent conventional-commit per project `feedback_git_commit_style.md`.
+
+### Hylla Feedback
+
+N/A — PROOF review worked against an uncommitted working tree; Hylla's committed index does not reflect the C1 diff. Evidence flowed via `Read`, `git diff HEAD`, `git status --porcelain`, `rg` sweeps (for `renderSchemaMarkdown`, `SchemaFlow`, `runSchemaGetJSON`, `renderMetaSchema`, `handleSchemaGet`, and the pre-C1 table-header string), and `go doc github.com/evanmschultz/laslig.{KV,Paragraph,Field,Section,Printer}` for laslig primitive signatures (Context7 does not index evanmschultz/laslig). `mage check` + `mage dogfood` covered the build/test gate.
+
+## 12.17.5 C1 — FALSIFICATION REVIEW
+
+**HEAD at review:** `437e377` on `main`. Uncommitted working tree — builder's C1 diff in place, sibling Proof already landed above at WORKLOG:3026. Attacking, not duplicating.
+
+## 1. Scope and Evidence
+
+- 1.1 **Target.** Uncommitted working tree at `/Users/evanschultz/Documents/Code/hylla/ta/main` against HEAD `437e377`. Task §12.17.5 [C1] — `ta schema get` CLI rendering switched from Markdown table to a laslig Section/KV/Paragraph flow layout via new `Renderer.SchemaFlow`.
+- 1.2 **Diff surface.** 3 tracked modified (`cmd/ta/commands.go`, `cmd/ta/commands_test.go`, `workflow/ta-v2/WORKLOG.md`) + 6 untracked new (`internal/render/schema_flow.go`, `internal/render/schema_flow_test.go`, 3 render-package goldens, 1 cmd-package golden). Prompt's "8 files" matches the builder's §8 code-level inventory (which excludes the WORKLOG append); full tree delta is 9 files counting WORKLOG. Not a counterexample — §8 narrative is self-consistent.
+- 1.3 **Evidence.** `Read` on full `internal/render/schema_flow.go`, full `internal/render/schema_flow_test.go`, relevant regions of `cmd/ta/commands.go`, `internal/mcpsrv/tools.go:470-541` (`handleSchemaGet`), all four golden fixtures, `git diff HEAD -- cmd/ta/commands.go` and `-- cmd/ta/commands_test.go`, `git status --short`; `rg` sweeps for `renderSchemaMarkdown` / `sort.` / `handleSchemaGet` / `SchemaFlow`; `go doc` on `laslig.Paragraph`, `laslig.Section`, `laslig.KV`, `laslig.Layout`, `laslig.Policy`; `mage check` re-run live from this review (exit 0 across 12 test packages).
+
+## 2. Attack Vectors Attempted
+
+- 2.1 **JSON output shape regression.** REFUTED. `runSchemaGetJSON` at `cmd/ta/commands.go:770-809` is BYTE-IDENTICAL to pre-C1; the diff touches only the `runSchemaGet` (non-JSON) call site and the `renderSchemaMarkdown` deletion. No edits anywhere in `runSchemaGetJSON`, `schemaDBsToJSON`, or `schemaTypesToJSON`.
+- 2.2 **MCP `schema` tool response shape.** REFUTED. `internal/mcpsrv/tools.go:485-541` (`handleSchemaGet`) still returns `mustJSON(schemaResult{...})`; no `SchemaFlow` / `laslig` import surfaces in `internal/mcpsrv/`. §13.3 firewall honored.
+- 2.3 **`ta_schema` meta-schema short-circuit.** REFUTED. `runSchemaGet` at `commands.go:739-741` still checks `scope == schema.MetaSchemaPath` and delegates to `renderMetaSchema` (unchanged at `commands.go:873-876`). `ta schema ta_schema` remains a literal TOML dump.
+- 2.4 **Mutating action paths.** REFUTED. `newSchemaCmd`'s RunE dispatches `action != "get"` to `runSchemaMutate` (`commands.go:581`) + `noticeMutation` — untouched. `--verbose` post-mutation echo at `commands.go:589` calls `runSchemaGet(c.OutOrStdout(), path, "")` which now routes through `SchemaFlow` — the change-of-shape is the intended refactor, not a regression.
+- 2.5 **Deterministic iteration.** REFUTED. `schema_flow.go:50` sorts `dbs` via `sortedKeys`; `:78-82` sorts `typeNames`; `:112-116` sorts `fieldNames`. All three levels alphabetical-stable. Whole-project golden confirms `docs` before `plans`, and inside `plans.task` the field order is `id`, `priority`, `status` — alphabetical, not declaration order.
+- 2.6 **Narrow-terminal wrapping claim.** PARTIALLY REFUTED — accepted as documented contract. `go doc laslig.Paragraph` returns "one wrapped long-form text block"; wrap is the documented contract. `laslig.Layout` exposes no public width field; width resolves from writer capabilities internally. Goldens rendered under `plainPolicy()` (`FormatPlain + StyleNever + GlamourStyleNoTTY`) — plain mode bypasses wrap by design; `schema_flow_single_type.golden:26` shows the long `id` description as a single 145-char line. The readability claim depends on TTY-mode behavior which the test suite does not directly verify; goldens lock byte shape, not wrap behavior. Accepted — laslig owns the wrap contract; plain-mode golden coverage is orthogonal to the readability improvement. Routed as non-blocker 3.1.
+- 2.7 **Golden drift on empty description / enum / default.** REFUTED. `renderSchemaField` gates every optional label: `f.Default != nil` (line 137), `len(f.Enum) > 0` (line 140), `f.Format != ""` (line 143), `f.Description != ""` (line 149). Whole-project golden `docs.note.body` emits `format markdown` with no default/enum row; `TestSchemaFlowEnumOnlyWhenPresent` at `schema_flow_test.go:194-213` proves the enum-row gate via a one-field `id` fixture with zero "enum" substring in the output.
+- 2.8 **Heading==0 on TOML db.** REFUTED. `renderType` at `schema_flow.go:100-106` gates heading KV on `t.Heading != 0`. Whole-project golden shows `docs.note` (Heading 1) emits `heading 1` at line 20; `plans.task` (Heading 0) emits NO heading row between line 18 and line 20. Suppression holds.
+- 2.9 **`"sort"` import drop.** REFUTED. `git diff HEAD -- cmd/ta/commands.go` shows `-\t"sort"`. `rg '\bsort\.' cmd/ta/commands.go` returns empty. Compile clean.
+- 2.10 **`renderSchemaMarkdown` dead-code removal.** REFUTED. `rg 'renderSchemaMarkdown'` returns only WORKLOG historical narrative + in-docstring references inside `internal/render/schema_flow.go`. No live caller, no test, no source reference.
+- 2.11 **Test count narrative.** CONFIRMED LOW — narrative inconsistency only. `rg '^func Test' internal/render/schema_flow_test.go` returns 6 functions: `TestSchemaFlowWholeProjectGolden`, `TestSchemaFlowSingleDBGolden`, `TestSchemaFlowSingleTypeGolden`, `TestSchemaFlowNoCellBreaking`, `TestSchemaFlowDescriptionsPresentAsProse`, `TestSchemaFlowEnumOnlyWhenPresent`. WORKLOG §4.1 (WORKLOG:2933) opens with "five tests total" then lists the sixth under "Sixth test `TestSchemaFlowEnumOnlyWhenPresent`" — internally contradictory within a single paragraph. Downstream is correct: T4 (`:3015`) says "Six new tests"; §8.2 (`:2997`) says "6 tests". Code count unambiguously 6; narrative drift only. Routed as non-blocker 3.2.
+- 2.12 **WORKLOG integrity.** REFUTED. Prior A1/A3/B0/B1/B3/A2.1+A2.2/B2 builder+QA sections (WORKLOG:2022, 2252, 2442, ~2582, 2738, 2859, 2909 mapping) intact. C1 section at 2909 is a clean append. `rg 'Section 0|SEMI-FORMAL REASONING|^## Planner$|^## Builder$|^## Convergence$'` returns only legitimate `### QA Proof —` / `### QA Falsification —` tillsyn-flow body subheadings + historical self-reference sweeps — no process-reasoning leak.
+- 2.13 **Paragraph vs Section visual hierarchy.** REFUTED. `renderDB` emits `Section(db.Name)` → `KV(shape/path/format)` → `Paragraph(description)` → type loop. `renderType` emits `Section(db.Name + "." + t.Name)` → optional `KV(heading)` → `Paragraph(type.Description)` → field loop. Goldens show no double-title, no section-title stacking anomaly; the `plans.task` type section header at `:18` is followed cleanly by the description paragraph at `:20` and then by the first field `id` at `:22`.
+- 2.14 **Field default `nil` vs `0` vs `""` vs `false`.** REFUTED. `schema.Field.Default` at `internal/schema/schema.go:82` is `any`. Go's `var x any` (unset) is nil; `var x any = 0` / `= false` / `= ""` is non-nil with the typed zero value. The dispatch `if f.Default != nil` at `schema_flow.go:137` correctly distinguishes "no default declared" from "default is explicit zero". Fixture coverage: `plans.task.priority` (Default `int64(3)`) emits `default 3`; `plans.task.status` (Default `"todo"`) emits `default todo`; `plans.task.id` (no Default) emits no default row.
+
+## 3. Non-blocker followups
+
+- 3.1 **TTY-mode wrap coverage gap.** Readability claim (Paragraph soft-wrap at narrow terminal width) is verified only by laslig's documented contract — no test drives a TTY-mode Renderer with a controlled width and asserts wrap behavior. Plain-mode byte-shape goldens prevent regression on our side. Consider a follow-up test using `NewWithPolicy` + human `Format` + a width-declared writer if the claim ever needs live enforcement.
+- 3.2 **WORKLOG §4.1 narrative inconsistency.** "five tests total" contradicts "Sixth test" and the TL;DR / §8.2 counts. Docs-only copy-edit; fold into next sweep or commit message.
+- 3.3 **JSON byte-stability gap.** No test asserts `runSchemaGetJSON` byte-identical to pre-C1 baseline. Relies on diff's untouched-region proof this round. Consider a JSON golden under `cmd/ta/testdata/` in a later slice if agent-facing stability becomes a dev-visible concern.
+
+## 4. Verification Gates
+
+- 4.1 `mage check` — **exit 0.** All 13 test packages green (`cmd/ta`, `internal/backend/md`, `internal/backend/toml`, `internal/config`, `internal/db`, `internal/fsatomic`, `internal/mcpsrv`, `internal/ops`, `internal/render`, `internal/schema`, `internal/search`, `internal/templates`; `internal/record` reports `[no test files]`). Re-run live from this review, not relying on builder's recorded exit. `MAGEFILE_JSON=1` prefix blocked by this sandbox; plain `mage check` satisfies the "all packages green" gate.
+- 4.2 `git diff HEAD --stat` — 3 modified tracked + 6 untracked. Builder's §8 code-level inventory at 8 files reconciles (excludes WORKLOG).
+- 4.3 Hylla queries — not attempted. Uncommitted diff; Hylla's committed index pre-dates C1. Evidence via `Read` / `git diff HEAD` / `rg` / `go doc`.
+
+## 5. Falsification Certificate
+
+- 5.1 **Premises.** JSON path byte-identical; MCP path untouched; `ta_schema` short-circuit preserved; mutation paths untouched (`--verbose` echo's change-of-shape is intended); iteration deterministic at all three levels; conditional-row suppression covers empty default / empty enum / empty format / heading==0; `renderSchemaMarkdown` removed with no live references; `"sort"` import dropped cleanly; WORKLOG prior sections intact with no Section 0 pollution; `f.Default != nil` correctly distinguishes nil-absence from explicit zero.
+- 5.2 **Evidence.** §1.3 enumerates Read / diff / rg / go doc surfaces exercised. `mage check` exit 0 captured live.
+- 5.3 **Trace or cases.** 14 attack vectors §2.1-2.14. 12 REFUTED outright. 1 PARTIALLY REFUTED (§2.6 — laslig contract accepted, test-surface gap routed as non-blocker 3.1). 1 CONFIRMED LOW narrative-only (§2.11 — WORKLOG "five tests total" vs "Sixth test" self-contradiction; code count unambiguously 6; routed as non-blocker 3.2).
+- 5.4 **Conclusion.** **PASS.** Zero CONFIRMED counterexamples against the C1 code. One CONFIRMED-LOW narrative inconsistency in WORKLOG §4.1 (does not affect compiled behavior, test outcomes, or user-visible shape). Three non-blocker followups logged §3.1-3.3. Converges with sibling Proof PASS at WORKLOG:3061. Recommend landing the round as-is; orchestrator may fold 3.2 into a WORKLOG copy-edit at its discretion.
+- 5.5 **Unknowns.** (i) TTY-mode wrap behavior at a controlled width is not under golden coverage — accepted as laslig's contract surface. (ii) JSON byte-stability pre/post C1 is not under golden coverage — accepted via diff's untouched-region proof. (iii) Suggested commit message: `feat(schema): flow-per-field render for ta schema get`.
+
+## TL;DR
+
+- T1: Scope clean — 3 modified tracked + 6 new untracked; §8 code inventory self-consistent at 8 files (excludes WORKLOG append).
+- T2: 14 attack vectors attempted; 12 REFUTED, 1 PARTIALLY REFUTED (TTY-wrap contract accepted, gap routed), 1 CONFIRMED-LOW narrative-only (WORKLOG §4.1 "five tests total" vs "Sixth test" — code count unambiguously 6).
+- T3: Three non-blocker followups — TTY-wrap test-surface gap, WORKLOG §4.1 copy-edit, JSON byte-stability golden.
+- T4: `mage check` live re-run → exit 0 across 12 testing packages; `rg 'renderSchemaMarkdown'` only returns historical / in-docstring references; `rg '\bsort\.' cmd/ta/commands.go` empty.
+- T5: Verdict **PASS** — zero CONFIRMED counterexamples against C1 code; convergent with sibling Proof PASS at WORKLOG:3061.
+
+### Hylla Feedback
+
+N/A — task touched Go code actively under uncommitted edit plus render-package fixture files (golden text); Hylla's committed index would not reflect the C1 diff. All evidence flowed via `Read`, `git diff HEAD`, `git status --short`, `rg` sweeps (caller identification + Section-0 pollution + WORKLOG heading integrity), and `go doc` on the external `github.com/evanmschultz/laslig` module (Context7 does not index this module per the builder's §7.1 note, corroborated in-session).
+

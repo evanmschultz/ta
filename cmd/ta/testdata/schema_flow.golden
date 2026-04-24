@@ -1,0 +1,28 @@
+
+# Schema for `<root>`
+
+**Resolved from:**
+
+- `<root>/.ta/schema.toml`
+
+
+plans
+
+    shape   file
+    path    plans.toml
+    format  toml
+
+  Test planning db.
+
+
+plans.task
+
+  A unit of work.
+
+  id
+    type      string
+    required  yes
+
+  status
+    type      string
+    required  yes
