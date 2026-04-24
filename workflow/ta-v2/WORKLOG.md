@@ -1928,3 +1928,145 @@ Status: BUILD DONE 2026-04-22. Commit SHA pending push; see closing report.
 - `FmtCheck` writes raw gofmt output to stderr (`fmt.Fprint(os.Stderr, string(out))`) then returns a plain-fmt error. Agent-parseable plain surface is probably intentional (agents parse the gofmt list), but worth confirming.
 - No other mage targets carry user-facing prose worth restyling.
 
+### QA Proof — go-qa-proof-agent (A1 --path refactor)
+
+Verdict: **PASS-WITH-FOLLOWUPS** (commit `4b3c46a`; diff only, A3 excluded).
+
+Acceptance checks — all green:
+
+- `newListSectionsCmd` untouched in the diff; still uses positional `<path>` at `cmd/ta/commands.go:203-240`. No `addPathFlag` / `resolveCLIPath` call in its body — correct, A2 owns the rewrite.
+- `internal/mcpsrv/*` absent from `git show --stat 4b3c46a` — MCP server-side absolute-path guard unchanged.
+- All 7 rewired CLI commands wire `addPathFlag(cmd)` + call `resolveCLIPath(c)` from RunE: `newGetCmd`, `newCreateCmd`, `newUpdateCmd`, `newDeleteCmd`, `newSchemaCmd`, `newSearchCmd` (commands.go), plus `newInitCmd` (init_cmd.go) and `newTemplateApplyCmd` (template_cmd.go). 9 `addPathFlag` hits (includes the defining site in path.go), 9 `resolveCLIPath` hits (includes definition).
+- `resolveInitPath` / `resolveApplyPath` deleted cleanly — `rg` returns zero hits under `cmd/ta/`.
+- `longDescription` mentions `--path` convention at `cmd/ta/main.go:41`; root `Example` uses `ta init --path /abs/...` at `main.go:75`.
+- Regression tests present and semantically correct: `TestPathFlagAcceptedAcrossCommands` (6 × ok/bad subtests proving both positive wiring and rejection of pre-[A1] positional shape), `TestGetCmdDefaultsPathToCwd`, `TestSearchCmdDefaultsPathToCwd`, `TestSchemaCmdRelativePathResolves`, `TestInitCmdRelativePathResolvesAgainstCwd`, `TestTemplateApplyRelativePathResolvesAgainstCwd`. Inverted-semantics tests (relative now resolves, previously errored) correctly rewrite the prior absolute-only assertions. 29 existing test call sites retrofit to `--path <root>` form — spot-checked across commands_test.go / init_cmd_test.go / template_cmd_test.go diffs.
+- `mage check` — green under `-race` from `main/`: all 11 test packages OK; fmtcheck / vet / tidy clean.
+- §12.14.5 stdlib scan: A1-introduced code is clean. Pre-existing `os.IsNotExist(err)` at `template_cmd.go:183` could modernize to `errors.Is(err, fs.ErrNotExist)` but is not introduced by this commit — out of scope. No unused imports; `fmt` / `os` / `path/filepath` in init_cmd.go and template_cmd.go all remain referenced by surviving call sites.
+
+Followup (non-blocking): `cobra.NoArgs` on `newSearchCmd` is a prose call the spec did not explicitly state; correct per flag-only shape and covered by `TestPathFlagAcceptedAcrossCommands/search_bad`. Dev visual gate for `--help` output across rewired commands is deferred to human confirmation (agent sandbox blocks `./bin/ta` exec); regression tests cover the functional paths.
+
+### QA Proof — go-qa-proof-agent (A3 mage laslig)
+
+Verdict: **PASS**.
+
+Commit `a307207 chore(mage): route install output through laslig` — `magefile.go` +65/-13.
+
+Acceptance verified.
+
+- `rg 'fmt\.(Printf|Println|Print)' magefile.go` → hits limited to `Dogfood` lines 161 + 173 (out of A3 scope, builder already flagged for follow-up). Zero surviving plain-text prints in `Install` or `seedHomeSchema`.
+- `installError(rr, stage, cause)` helper present at line 133; used by all seven error paths — three in `Install` (lines 61, 65, 69) and four in `seedHomeSchema` (lines 94, 108, 113, 116). Emits `laslig.NoticeErrorLevel` banner **and** returns `fmt.Errorf("%s: %w", stage, cause)` — both surfaces keep evidence; mage exit stays non-zero via `%w`.
+- Happy path closes with `rr.Success("install complete", ...)` (line 75) then `rr.Facts([]laslig.Field{binary, schema, outcome})` (line 78). `schemaOutcome` is `"untouched"` or `"seeded"` from `seedHomeSchema` — meaningful label, not cosmetic padding.
+- Renderer API calls match live signatures at `internal/render/renderer.go:36,46,70` (Notice `level, title, body, detail`; Success `title, body, detail`; Facts `[]laslig.Field`).
+- `mage vet` exit 0. `mage build` exit 0. `mage -l` parses. Compilation confirmed.
+- `Dogfood` / other targets untouched by this diff — idempotency preserved by construction.
+
+Standing scan. Diff is tight. No dead imports, no unused params, no shadowed errors. `_ = rr.Notice(...)` on line 134 is deliberate — the wrapped Go error carries the real signal, and render failure on the banner should not override the original cause. Modernization clean.
+
+Trace. Stage `"build ta"` subprocess fails → `installError` emits banner + returns `fmt.Errorf("build ta: %w", cause)` → mage surfaces non-zero. Happy: `seedHomeSchema` returns `(dst, "seeded", nil)` → Success → Facts. Both paths grounded in evidence.
+
+Follow-up (cosmetic, non-blocking). `Install` docstring line 55 reads "Dev-only dogfood target. Orchestrator and subagents MUST NOT invoke it." — the "dogfood" wording is stray copy-paste; `Install` is not the dogfood target. Function body + outward behavior are correct; only the comment drifts. Route to the orchestrator as a docstring tidy, not a rebuild.
+
+Unknowns. Visual spot-check of rendered output not runnable in sandbox; builder flagged this and the dev's `mage install` gate closes it.
+
+### QA Falsification — go-qa-falsification-agent (A1 --path refactor)
+
+Verdict: **PASS** (no unmitigated counterexample; one non-blocking UX followup).
+
+Commit `4b3c46a refactor(cli): replace positional path with --path flag` against HEAD `a307207`. Diff: +548/-161 across `cmd/ta/{commands,commands_test,init_cmd,init_cmd_test,main,path,template_cmd,template_cmd_test}.go` + `workflow/ta-v2/WORKLOG.md`. No `internal/mcpsrv/` touches.
+
+Attacks attempted. All **REFUTED** unless marked.
+
+- **Scope boundary** (listSections untouched; MCP untouched). `git show 4b3c46a | rg 'newListSectionsCmd'` → WORKLOG mentions only. `git show 4b3c46a | rg 'mcpsrv/'` → WORKLOG mentions only. `rg 'absolute' internal/mcpsrv/tools.go` → 6 unchanged "Project directory (absolute)." tool descriptions. `resolveFromProjectDirUncached` untouched. Scope boundary holds.
+- **Edge cases `--path ''` / `--path .` / non-existent dir.** `raw == ""` shortcut → `os.Getwd()`; `filepath.Abs("")` per Go stdlib behaves identically (joins `""` with cwd → cwd). `--path .` → `filepath.Abs(".")` → cwd → `filepath.Clean` → cwd. Non-existent: `resolveCLIPath` doesn't stat, so `ta init` creates via `MkdirAll` (expected) and `ta get` fails downstream at `mcpsrv.Get` schema read (expected). No silent mis-routing.
+- **`ta schema` with no positional.** `MaximumNArgs(1)` + `if len(args) == 1 { scope = args[0] }` → empty scope when omitted → `runSchemaGet(out, path, "")` → full schema. Covered by `TestSchemaCmdRendersResolvedSchema` + `TestSchemaCmdGetJSON` (both use `--path root` with no scope positional).
+- **`ta search` with `NoArgs`.** `--scope` remains a flag; `TestSearchCLIRenders` and `TestSearchCmdDefaultsPathToCwd` both exercise `--scope plans.task` without positional. Flag plumbing preserved.
+- **Dead helpers.** `rg 'resolveInitPath|resolveApplyPath' .` → zero matches outside WORKLOG. Fully removed.
+- **Signature reshape `runTemplateApply`.** Only one caller (`template_cmd.go:291`) now passes resolved `target` directly. Old in-helper `resolveApplyPath` deleted. No orphaned callers.
+- **Regression-test rejection half.** `TestPathFlagAcceptedAcrossCommands` tests `badArgs` = pre-[A1] `[root, section]` double-positional shape across 6 subcommands — expected to error. Locks in the removal, not just the addition.
+- **`cmd/ta/path.go` standing scan.** 45 lines; only `fmt`/`os`/`path/filepath`/`cobra` imports, all used. No idiom modernization available at this surface.
+- **`mage check` / `mage build` / `mage dogfood`.** All green from `/Users/evanschultz/Documents/Code/hylla/ta/main`. 11/11 packages ok under `-race`; dogfood skips as already-materialized.
+
+Followup (non-blocking UX). Users typing pre-[A1] `ta get . plans.task.t1` hit cobra's stock `Error: accepts 1 arg(s), received 2` — no hint "--path is a flag now". Mitigation: `longDescription` at `main.go:41` carries "every path-taking command takes `--path` as a flag". Acceptable as a follow-up.
+
+Counterexamples. None CONFIRMED.
+
+Unknowns. Binary exec blocked by sandbox, so `--help` grammar and the stock cobra error-UX on pre-[A1] shape not empirically rendered; closed by reading cobra's Args enforcement path. Dev visual gate closes the rest.
+
+### QA Falsification — go-qa-falsification-agent (A3 mage laslig)
+
+Verdict: **PASS-WITH-FOLLOWUPS**.
+
+Commit `a307207 chore(mage): route install output through laslig` — `magefile.go` only, +65/-13.
+
+Attacks attempted (all REFUTED unless noted).
+
+- **#1 `installError` double-reports.** REFUTED. Laslig banner on stderr + `fmt.Errorf("%s: %w", ...)` returned to mage, which per `/magefile/mage` docs "will print that error to stdout and return with an exit code of 1." Banner = pretty stderr surface; mage's error line = terse stdout post-mortem grep. Deliberate per `installError` docstring; `_ = rr.Notice(...)` at line 134 correctly prefers the wrapped cause when the banner write itself fails.
+- **#2 `go build` passthrough leaks.** REFUTED. `run("go", "build", ...)` at line 68 inherits subprocess stdout/stderr via the `run` helper at lines 267-272. Docstring explicitly scopes this as "tool passthrough, not ta-owned user-facing prose." Wrapping tool output was never A3 scope and would actively break pipe/JSON consumers.
+- **#3 Happy-path shape vs `emitInitReport`.** REFUTED. `emitInitReport` at `cmd/ta/init_cmd.go:730` uses `rr.Notice(SuccessLevel, title, body, nil)` + `rr.Facts([]laslig.Field{...})`. Install uses `rr.Success(title, body, nil)` + `rr.Facts([]laslig.Field{...})` where `Success` at `internal/render/renderer.go:46` is the Notice-SuccessLevel convenience wrapper. Semantically identical.
+- **#4 Untouched path Info notice.** REFUTED. `seedHomeSchema` lines 97-106: `os.Stat(dst) == nil` → `rr.Notice(InfoLevel, "schema untouched", ...)` → `return dst, "untouched", nil`. Label reaches the Facts block as `outcome=untouched`.
+- **#5 Seeded path Info notice.** REFUTED. Lines 110-126: `ReadFile(src)` → `WriteFile(dst)` → `rr.Notice(InfoLevel, "schema seeded", ...)` → `return dst, "seeded", nil`. Both success subpaths end identically in Success + Facts.
+- **#6 `Dogfood` + `FmtCheck` survive with `fmt.Printf` / `fmt.Fprint`.** Out-of-scope (not a counterexample against A3). `rg 'fmt\.(Printf|Println|Print|Fprint)' magefile.go` → lines 161, 173 (`Dogfood`), 227 (`FmtCheck`). Zero hits in `Install` or `seedHomeSchema`. A3 charter is Install-only; builder already flagged follow-ups.
+- **#7 `mage check` green.** CONFIRMED. All 11 test packages OK under `-race`; fmtcheck / vet / tidy clean post-A1 land. (Builder reported `mage check` failing at A3-author time due to A1's uncommitted diff; resolved by `4b3c46a`.)
+- **#8 §12.14.5 standing scan.** Clean. A3 diff uses `errors.Is(err, fs.ErrNotExist)` and `fmt.Errorf(%w)` — already idiomatic. None of the §12.14.5 list (CutSuffix / SplitSeq / maps.Copy / bytes.Cut / range-over-int / WaitGroup.Go / strings.Cut) apply. No unused imports.
+
+Follow-ups (non-blocking; inherit from builder + Proof sibling).
+
+- `Dogfood` lines 161 + 173 — same `fmt.Printf("ta: ...")` pattern Install just retired.
+- `FmtCheck` line 227 — raw gofmt output to stderr; probably intentional agent-parseable surface.
+- `Install` docstring line 55 — stray "Dev-only dogfood target" wording (Proof flagged); copy-paste drift, not a rebuild.
+
+Counterexamples. None CONFIRMED.
+
+Unknowns. Rendered stderr visual confirmation deferred to dev `mage install` gate — same unknown as Proof sibling.
+
+### Builder worklog — go-builder-agent (A2 list-sections rewrite)
+
+Scope: V2-PLAN §12.17.5 [A2]. Rewrite `ta list-sections` CLI and the MCP `list_sections` tool so both match the §3.2 shape: project dir (via `--path`, default cwd) + optional scope + full project-level dotted addresses. A1's `resolveCLIPath` / `addPathFlag` reused verbatim.
+
+Changes.
+
+- `internal/mcpsrv/ops.go` — new exported `ListSections(path, scope) ([]string, error)` that routes through `search.Run({Path, Scope})` with no match/regex/field. Reusing the search walker keeps `list_sections` and `search` in lockstep on scope grammar, instance-qualified addresses, and file-parse ordering.
+- `internal/mcpsrv/tools.go` — `listSectionsTool()` declaration now takes `path` (project directory) + optional `scope` with the same grammar `search` accepts. `handleListSections` delegates to `ListSections`; absent scope → empty-string default → whole-project walk. Removed dead `toml` import.
+- `cmd/ta/commands.go` — `newListSectionsCmd` rewritten. `Use: "list-sections [scope]"` with `cobra.MaximumNArgs(1)`. Flags: `--path` (via `addPathFlag`), `--scope <value>`, `--limit <N>` with `-n` shorthand (default 10), `--all` (bool), `--json`. `cmd.MarkFlagsMutuallyExclusive("limit", "all")`. Both `--scope` and the positional are valid scope surfaces; passing both at once errors with "pass scope once: supply either the positional or --scope, not both". Scope resolution lives in a small `resolveListScope` helper so the rule is unit-visible. Removed dead `toml` / `errors` imports (errors.go helper site still uses `errors.New` elsewhere).
+- `cmd/ta/main.go` — `longDescription` bullet updated: `ta list-sections [scope]` (was `<path>`).
+- `cmd/ta/commands_test.go` — deleted the two pre-A2 tests (`TestListSectionsCmdOnExistingFile`, `TestListSectionsCmdOnMissingFile`) that exercised the old file-path shape. Added 8 tests locking in the new contract:
+  - `TestListSectionsCmdProjectLevelAddresses` — seeds a two-drop `plan_db` (dir-per-instance) and asserts emitted addresses are full `plan_db.<drop>.build_task.<id>`.
+  - `TestListSectionsCmdScopeFilter` — `--scope plan_db.drop_a` returns only drop_a's records.
+  - `TestListSectionsCmdScopePositional` — positional form is byte-identical to `--scope` form.
+  - `TestListSectionsCmdLimit` — `--limit 3` caps at 3.
+  - `TestListSectionsCmdAll` — `--all` returns all 5 records.
+  - `TestListSectionsCmdMutex` — `--limit 5 --all` errors.
+  - `TestListSectionsCmdBothScopeFormsErrors` — passing `--scope X Y` errors.
+  - `TestListSectionsCmdEmptyProject` — empty scope over a data-free project emits "no sections" without error.
+  - Retained `TestListSectionsCmdJSON` (retrofit to the new `--path <root>` shape).
+  - New helpers `multiInstanceCLISchema` + `seedMultiInstancePlanDB` mirror `internal/mcpsrv/server_test.go`'s multi-instance fixture.
+- `internal/mcpsrv/server_test.go` — renamed `TestListSectionsStillWorks` → `TestListSectionsProjectDirAndScope` (retrofit to pass the project root, not a TOML file path). Added `TestListSectionsMultiInstanceAddresses` that creates records in two drops of `plan_db` and asserts the emitted addresses are `plan_db.drop_1.build_task.task_001` (instance-qualified); also verifies `scope=plan_db.drop_1` narrows correctly.
+
+Verification.
+
+- `mage check` green across all 10 test packages under `-race`; fmtcheck / vet / tidy clean.
+- `mage dogfood` green (idempotent skip — `workflow/ta-v2/db.toml` already present).
+- Manual binary verification on `plan_db.ta-v2` deferred — sandbox blocks `./bin/ta` exec. Test output covers the contract.
+
+Sample output (from `TestListSectionsCmdProjectLevelAddresses`, JSON mode):
+
+```json
+{
+  "sections": [
+    "plan_db.drop_a.build_task.task_1",
+    "plan_db.drop_a.build_task.task_2",
+    "plan_db.drop_a.build_task.task_3",
+    "plan_db.drop_b.build_task.task_1",
+    "plan_db.drop_b.build_task.task_2"
+  ]
+}
+```
+
+Spec-gap / unknowns.
+
+- None. Scope grammar for `list_sections` inherits from search (§3.7 / §5.5.3); §3.2 confirms instance-qualified addresses; §12.17.5 [A2] is unambiguous.
+
+Followups (non-blocking).
+
+- Laslig `List` title carries `"<path> [scope: <s>]"` on scoped calls — the title format is cosmetic, subject to §13.1 visual-group follow-ups already tracked.
+
