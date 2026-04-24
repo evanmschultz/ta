@@ -93,13 +93,19 @@ If `fields` is supplied, the returned object carries only those named fields; un
 Enumerate records. Requires a db path (per §7.5's decision). Scope can narrow to a type, a record prefix, or a single instance of a multi-instance db.
 
 ```
-list_sections(path, scope)
+list_sections(path, [scope], [limit], [all])
   path   — project directory
-  scope  — "<db>" | "<db>.<instance>" | "<db>.<type>" | "<db>.<type>.<id-prefix>"
-           (wildcard prefix also accepted: "<db>.reference-*")
+  scope  — optional: "<db>" | "<db>.<instance>" | "<db>.<type>" | "<db>.<type>.<id-prefix>"
+           (wildcard prefix also accepted: "<db>.reference-*"); default = whole project
+  limit  — optional: int, default 10. Caps the returned address count. Endpoint-enforced
+           (per §6a.1 parity rule); early-exits the scan once the cap is reached.
+  all    — optional: bool, default false. When true, returns every matching address;
+           mutually exclusive with `limit` (passing both is rejected by the endpoint).
 ```
 
 Returns the ordered list of full section addresses under that scope. Multi-instance dbs return instance-qualified addresses (`<db>.<instance>.<type>.<id-path>`).
+
+**§12.17.5 [A2.1] amendment.** `limit` / `all` are endpoint params (not CLI-only post-slice) per §6a.1. Both CLI (`--limit N` / `-n N` / `--all`) and MCP tool accept them; both pass through to the endpoint. Early-exit implementation required — do not materialize the full address set then slice.
 
 ### 3.3 `schema`
 
@@ -207,17 +213,23 @@ All deletes are atomic. The schema entry is untouched in every case — drop the
 Structured + full-text search across records. No MCP piping, so this is the native search primitive.
 
 ```
-search(path, [scope], [match], [query], [field])
+search(path, [scope], [match], [query], [field], [limit], [all])
   path   — project directory
   scope  — optional: "<db>" | "<db>.<type>" | "<db>.<type>.<id-prefix>"; default = whole project
   match  — optional: { field-name: exact-value, ... } exact-match on typed fields (enum, string, bool, int)
   query  — optional: Go regexp (RE2) matched against string fields (including body)
   field  — optional: restrict `query` to one named field; default = all string fields
+  limit  — optional: int, default 10. Caps the returned hit count. Endpoint-enforced
+           (per §6a.1 parity rule); early-exits the scan once the cap is reached.
+  all    — optional: bool, default false. When true, returns every matching record;
+           mutually exclusive with `limit` (passing both is rejected by the endpoint).
 ```
 
 Returns full matching records. No byte ranges, no snippets — whole sections come back so the caller can read verbatim. (YAGNI: we may add ranges/snippets post-MVP if agents want narrower context.)
 
 For multi-instance dbs, `scope = "<db>"` searches across **all instances** (union); narrow with `scope = "<db>.<instance>"` to restrict to one.
+
+**§12.17.5 [A2.1] amendment.** `limit` / `all` are endpoint params (not CLI-only post-slice) per §6a.1. Both CLI (`--limit N` / `-n N` / `--all`) and MCP tool accept them; both pass through to the endpoint. Early-exit implementation required — do not materialize the full hit set then slice.
 
 Worked example in §7.2.
 
@@ -653,6 +665,40 @@ main/
 ```
 
 Dependency direction: `cmd/ta` → `mcpsrv` → `{config, schema, db, search, backend/*, fsatomic}`. Backends depend on nothing except `schema` and `record`. Zero cycles.
+
+**Post-[B0] layout.** §12.17.5 [B0] splits `internal/mcpsrv/` into two packages: `internal/ops/` (domain endpoints — plain Go functions with no MCP dep; the shared surface both CLI and MCP call into) and `internal/mcpsrv/` (trimmed to MCP protocol glue only — `Server` struct, stdio run loop, tool declarations, tool handlers that call `internal/ops.*`). Post-[B0] dependency chain: `cmd/ta` → `internal/ops` and `internal/mcpsrv` → `internal/ops`. Both adapters over one endpoint layer. See §6a for the full decoupling principle.
+
+---
+
+## 6a. CLI/MCP decoupling principle
+
+The CLI (`cmd/ta/`) and MCP tool handlers (`internal/mcpsrv/tools.go`) are both **presentation adapters** over a shared endpoint layer (`internal/ops/` post-[B0]; `internal/mcpsrv/*.go` pre-[B0]). The endpoint layer owns all semantics: path resolution, scope walking, filters, limits, validation, splice, write. The adapters add nothing beyond I/O marshaling.
+
+- **CLI adapter** (`cmd/ta/`) — parses flags via cobra, calls the endpoint, renders the result through laslig (or JSON when `--json` is set).
+- **MCP adapter** (`internal/mcpsrv/tools.go`) — parses tool params from the MCP protocol JSON, calls the endpoint, wraps the result in MCP content.
+
+### 6a.1 Parity rule
+
+Any capability on one adapter is presumed to exist on the other. Asymmetries are documented with explicit justification. Acceptable asymmetries today:
+
+- **TTY-only UX** — huh interactive forms on `ta create` / `ta update` / `ta init` picker; `ta` bare command's huh subcommand menu. MCP agents send JSON directly; they don't have a TTY.
+- **Render polish** — CLI uses laslig + glamour for markdown fields; MCP returns raw structured data (§13.3). Rendering is strictly a presentation concern.
+- **Template library management** — `ta template list | show | save | apply | delete` is CLI-only per §14.2's four-boundary justification (scope / agency / temporal / trust).
+
+### 6a.2 Endpoint package — `internal/ops/`
+
+Plain Go functions. No dependency on cobra, fang, huh, or mark3labs/mcp-go. Takes basic types (`string`, `int`, `bool`, `[]byte`, `map[string]any`, typed struct params). Returns plain data + `error`. Unit-testable without protocol plumbing.
+
+Every data/schema/search/list endpoint lives here. When adding a new parameter (e.g. `limit int, all bool` for [A2.1] / [B2]), add it to the endpoint signature; both adapters pass it through. Never apply filters at the adapter level.
+
+### 6a.3 MCP package — `internal/mcpsrv/`
+
+Strictly the MCP protocol glue after [B0]:
+
+- `server.go` — `Server` struct, `New(Config) (*Server, error)`, `Run(ctx) error` (stdio transport).
+- `tools.go` — tool declarations for mark3labs/mcp-go + handlers that parse tool params, call `internal/ops.*`, and marshal the result into MCP content. Handlers are thin: one function call per tool in the ideal case.
+
+No domain logic. If you're writing something that isn't "parse MCP params / call ops / marshal back", it belongs in `internal/ops/`.
 
 ---
 
@@ -1139,6 +1185,14 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 
     - **[A3] `mage install` output styling.** `mage install` currently prints plain text ("current schema.toml untouched" etc.). Route through laslig so install output is visually consistent with the rest of the CLI surface.
 
+    - **[B0] Split `internal/mcpsrv/` into `internal/ops/` + `internal/mcpsrv/` per §6a.** Mechanical refactor, no semantic changes. Move `ops.go` (Get / Update / Create / Delete / ListSections / GetAllFields), `fields.go` (field extraction), `cache.go` (schema cache), `schema_mutate.go` (schema CRUD), `errors.go` (sentinels), `backend.go` (backend dispatch) into a new `internal/ops/` package. `internal/mcpsrv/` shrinks to `server.go` (Server type + stdio run loop) and `tools.go` (tool declarations + handlers calling `internal/ops.*`). Every caller rewires imports: `cmd/ta/*` changes `"…/internal/mcpsrv"` → `"…/internal/ops"` and updates call sites from `mcpsrv.Get` → `ops.Get` etc.; `internal/mcpsrv/tools.go` does the same. [B1] and [B3] already committed against `internal/mcpsrv/`; [B0] rewires them as part of the move. After [B0], [A2.1] / [B2] / [D1] / [D2] land against `internal/ops/` naturally. **Must land before [A2.1] / [B2] / [D1].**
+
+    - **[A2.1] Move `list-sections` `limit`/`all` into the endpoint.** Today `mcpsrv.ListSections(path, scope)` walks every record in scope; the CLI slices `[:limit]` after. Per §6a.1 the endpoint owns filtering: post-[B0] becomes `ops.ListSections(path, scope string, limit int, all bool) ([]string, error)` and early-exits the scan once the cap is reached. MCP tool gains matching `limit` / `all` params. CLI passes its flag values through. Fixes the F1 MCP asymmetry + the post-fetch-slice perf gap. **Endpoint default semantics:** when `limit <= 0 && all == false` the endpoint substitutes default 10 (do NOT error on missing limit). Depends on [B0]. Bundled with [A2.2] because both edit `search.Query` + `search.Run`.
+
+    - **[A2.2] Add `limit` / `all` to `search` endpoint + MCP tool for parity.** §3.7 spec already amended with the new signature. Per §6a.1 the endpoint enforces the cap; MCP tool declaration gains matching params; CLI `ta search` gains `--limit <N>` (default 10, `-n` shorthand) + `--all`. Early-exit implementation required. Same endpoint-default semantics as [A2.1]. Bundled with [A2.1] under one builder — the shared `search.Query` + `search.Run` edits preclude parallel builders. Depends on [B0].
+
+    - **[A2.3] Release-note items surfaced by [A2.1]/[A2.2].** MCP `list_sections` + `search` gain a default-10 cap where they were previously uncapped. Document in §12.19 release notes under "breaking changes": agents currently relying on full uncapped results must pass `all=true` or an explicit `limit`. Not a code item — planning surface only.
+
     - **[B1] `update` PATCH semantics (MCP + CLI).** Implement the spec already amended into §3.5: provided fields overlay the stored record; unspecified fields retain their values. Null-clears non-required; null on required-no-default errors; null on required-with-default resets to the schema default (literal write at update time; later schema default-value edits don't retroactively update records). **Empty `data` (`{}`)** short-circuits before overlay: no-op success, no re-validation of the existing record, no disk write. If the stored record is already invalid on disk that's surfaced on the next read; `update` is not a validator. After non-empty overlay, merged record is validated against the type schema atomically (reject the whole update on any field failure; on-disk bytes unchanged).
 
     - **[B2] `ta get` scope-address expansion.** Today `ta get` requires a fully-qualified single-record address. Allow it to accept prefix/scope addresses matching the same grammar `search` / `list_sections` use: `<db>`, `<db>.<instance>`, `<db>.<type>` across instances, `<db>.<instance>.<type>` within instance, `<db>.<instance>.<type>.<id>` = single record (current behavior). When the address resolves to multiple records, return each — human render: one record per laslig Section block, ordered by file-parse order. JSON: `{"records": [{section, fields}, ...]}`. `--limit <N>` (default 10, `-n` shorthand) + `--all` boolean, mutex-exclusive. Single-record gets silently ignore `--limit` / `--all`. `--all` is the self-documenting escape for "no cap"; there is no `--limit 0` semantic. §3.1 amendment note already added 2026-04-23.
@@ -1155,17 +1209,26 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 
     - **Additional items.** Dev is compiling the full list; more entries land here as they surface.
 
-    **12.17.5.1 Execution schedule — parallel and sequential phases.** Built from the `[A1]`..`[E1]` phase labels above. Each phase spawns one or more `go-builder-agent`s and each build commit gates through a `go-qa-proof-agent` + `go-qa-falsification-agent` pair before advancing.
+    **12.17.5.1 Execution schedule — parallel and sequential phases.** Built from the phase labels above. Each phase spawns one or more `go-builder-agent`s and each build commit gates through a `go-qa-proof-agent` + `go-qa-falsification-agent` pair before advancing.
 
-    - **Round 1 — Phase A (parallel, 3 builders).** A1 + A2 + A3 together. Touches: A1 edits `cmd/ta/commands.go` broadly + `init_cmd.go` + `template_cmd.go` but leaves `newListSectionsCmd` to A2; A2 owns the `newListSectionsCmd` rewrite + MCP list-sections handler; A3 edits `magefile.go`. Scope boundary on `commands.go` keeps merge-conflict risk at zero; A3 is fully independent.
+    **Landed rounds** (Phase A + parts of Phase B already on `main`):
 
-    - **Round 2 — Phase B (parallel, 3 builders).** B1 + B2 + B3 together, starting after Round 1 merges so the new `--path` pattern is in place. B1 edits PATCH handling (`mcpsrv/ops.go` + `commands.go:newUpdateCmd` + possibly splice logic); B2 edits address parsing (`internal/db/`) + get dispatch; B3 refactors `internal/render/renderer.go` + rewires call sites. B2 and B3 interact — B2's multi-record output should flow through B3's new helper. Either B3 lands first and B2 builds on it, or they coordinate in the same spawn with explicit scope boundaries.
+    - **Round 1 — Phase A landed.** A1 (`4b3c46a` --path flag) + A3 (`a307207` mage install laslig) + A2 (`99b5bff` list-sections rewrite). All three + their QA passes on origin.
+    - **Round 2 — Phase B partial landed.** B1 (PATCH semantics) + B3 (unified render helper) bundled into `5369aaf`. QA pending in subsequent rounds (superseded by [B0] refactor — B1/B3 code gets rewired during [B0] move, then QA'd in the new shape).
 
-    - **Round 3 — Phase C (solo).** C1 alone, building on B3's render helper. Can't parallelize with B.
+    **Remaining rounds:**
 
-    - **Round 4 — Phase D (parallel, 2 builders).** D1 + D2 together; fully independent of one another. Can overlap with Phase C if desired.
+    - **Round 3 — [B0] solo (mechanical package split).** Move `mcpsrv/*` domain files into `internal/ops/`; leave `server.go` + `tools.go` in `internal/mcpsrv/`; rewire every `cmd/ta/*` import + `internal/mcpsrv/tools.go` handlers. Single builder, no parallelism — the move touches nearly every file and must land atomically. `mage check` green after each incremental move if broken into sub-steps; ideally one commit for the full shift. QA pair verifies no semantic drift.
 
-    - **Round 5 — Phase E.** E1 dogfood pass (no builder — human walkthrough). Closes §12.17.5.
+    - **Round 4 — [A2.1+A2.2] bundled solo.** [A2.1] and [A2.2] SHARE edits in `internal/search/search.go` — both add `Limit`/`All` fields to `search.Query` and an early-exit in `search.Run`'s outer loop. That shared surface forbids naive parallelism. Bundle them under one builder: "A2.1+A2.2 limit/all into list-sections and search endpoints." Planning evidence: `workflow/ta-v2/IMPACT-B0-A21-A22.md §4.2`.
+
+    - **Round 5 — [B2] solo.** [B2] (`ta get` scope expansion) runs after Round 4. Rationale: [B2]'s multi-record `ta get` with `--limit`/`--all` routes through the same `search.Run` walker that [A2.1] / [A2.2] edit. Running [B2] in parallel with Round 4 would create a second contender for `search.Query.Limit/All`. Serializing keeps the search.go surface owned by one builder at a time. Falsification evidence: round-2 QA on the decoupling plan.
+
+    - **Round 6 — Phase C (solo).** C1 — `ta schema get` flow-per-field render. Depends on B3's shared helper (already committed in `5369aaf`; survives [B0] as part of the move).
+
+    - **Round 7 — Phase D (parallel, 2 builders).** D1 huh form per field + D2 default embedded schema. Independent of each other; D1 touches `cmd/ta/commands.go` (create/update), D2 adds an embedded asset + rewires `ta init --blank`. Can overlap with Phase C.
+
+    - **Round 8 — Phase E.** E1 dogfood pass (no builder — human walkthrough). Closes §12.17.5.
 
 After §12.17.5 closes: §12.18 README collapse + §12.19 release tag.
 20. **12.18 README collapse.** Compose final `README.md` from existing doc content (`docs/ta.md` + consolidated plan spec). Delete `docs/` and the MVP-era `examples/schema.toml` if superseded.
@@ -1243,6 +1306,17 @@ More fundamentally, the cascade couples every project to per-user home state, wh
 - **Runtime.** `<project>/.ta/schema.toml` is the ONLY schema file the MCP server or CLI data tools consult. No home layer, no ancestor walk. Resolvable with one `os.ReadFile`.
 - **Templates.** `~/.ta/` becomes a pure template library — a directory of schema files named `~/.ta/<name>.toml` users pick from when bootstrapping a project. The library is NEVER read at runtime. Only `ta init` and `ta template *` touch it.
 - **Firewall.** `internal/templates/` depends on stdlib + `internal/schema/` only. It does not import `internal/config/Resolve`. Runtime consumers never import `internal/templates/`.
+
+### 14.2.1 Why template management is CLI-only (parity asymmetry per §6a.1)
+
+`ta template list | show | save | apply | delete` are CLI-only — no matching MCP tools today. Four independent boundaries justify the asymmetry:
+
+- **Scope boundary.** MCP sessions are project-scoped (one `cwd` per stdio handshake). Templates live at `~/.ta/`, which is user-global. Managing global state from inside a project session crosses the session's natural scope.
+- **Agency boundary.** Agents operate within a project. Templates are the user's personal starter-schema collection — dev ergonomics, not project artifacts. Agents shouldn't manage the user's global dev config any more than they should edit `~/.bashrc` or `~/.gitconfig`.
+- **Temporal boundary.** Templates get consumed during bootstrap (`ta init` pulls from them to seed a new project). The MCP server for that new project doesn't exist yet. Once a server is up, templates are out of scope — the agent is operating on the project, not creating new ones.
+- **Trust boundary.** `~/.ta/` is shared across ALL the user's projects. An agent in project X deleting a template that project Y relies on would be a cross-project side effect waiting to happen. CLI has an explicit human running it; MCP doesn't.
+
+Where the boundary is weaker: **read-only** `list` / `show` arguably violate none of the four hard boundaries. Worth revisiting if/when an agent-in-the-loop new-project bootstrap workflow surfaces. Write-side (`save` / `apply` / `delete`) stays CLI-only.
 
 ### 14.3 CLI shape after this drop
 

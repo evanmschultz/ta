@@ -2249,4 +2249,66 @@ Followups (non-blocking).
 - `renderRawRecord` kept only for `renderVerboseRecord` (create/update --verbose). If a future phase unifies verbose echo through the per-field helper, `renderRawRecord` + `dbFormatFor` can be retired. Left as-is because the verbose contract ("echo exactly what was written to disk") is arguably distinct from read-render.
 - `mage test` does not forward `-update` to `go test`. The golden auto-materializes on first run then enforces byte-identity. A future target `mage Golden` that forwards `-update` would be ergonomic but isn't blocking.
 
+### QA Proof — go-qa-proof-agent (decoupling plan + IMPACT)
+
+Scope: uncommitted `docs/PLAN.md` diff (new §6a, §6 post-[B0] para, §3.7 limit/all, §14.2.1 four-boundary, §12.17.5 [B0]/[A2.1]/[A2.2]/[A2.3], §12.17.5.1 Round-schedule rewrite) plus new `workflow/ta-v2/IMPACT-B0-A21-A22.md`. HEAD `5369aaf`.
+
+Verdict: **PASS-WITH-FOLLOWUPS**.
+
+Acceptance — all met.
+- §6a decoupling principle with parity rule + endpoint charter (§6a.2) + MCP charter (§6a.3). Present.
+- Acceptable-asymmetry list covers TTY-UX, render polish, templates. Present.
+- §3.7 signature now carries `limit` + `all` with endpoint-enforced semantics + §12.17.5 [A2.1] amendment note. Present.
+- §14.2.1 four-boundary justification (scope / agency / temporal / trust) all present, plus read-only caveat.
+- §12.17.5 adds [B0] + [A2.1] + [A2.2] + [A2.3]; [A2.3] is planning-only (release-note bullet for §12.19), not a code slice. Correct.
+- §12.17.5.1 Round 4 correctly bundles A2.1+A2.2 under one builder with [B2] in parallel — matches IMPACT §4.2's shared `search.Query`/`search.Run` finding.
+- IMPACT cites `path:line` on every concrete claim; spot-verified against tree:
+  - File sizes match to ±1 LoC (IMPACT cites 563/110/215/69/155/412/670/82; tree shows 562/109/214/68/155/411/669/81 — doc cites include trailing newline or are off-by-one, immaterial).
+  - Symbol locations verified: `ops.ResolveProject:37`, `Get:53`, `Create:152`, `Update:247`, `Delete:390`, `ListSections:458`, `Search:473`, `MutateSchema:35`. All match.
+  - Orphan helpers (`spliceOut:366`, `readFileIfExists:570`, `validationPath:585`, `tomlRelPathForFields:611`) in tools.go and their ops.go callers (`ops.go:87, 140, 157, 173, 303, 333, 431`). All match.
+  - cmd/ta/commands.go rewire list (16 `mcpsrv.*` refs) verified against `rg`; matches IMPACT §1.3 enumeration.
+  - server_test.go cache-reset refs (`:116, :118, :151, :152`) and `ResolveProject:1170`. All match.
+- Standing §12.14.5 concern: §6a + IMPACT introduce zero new modernization hooks and zero unused-identifier claims. IMPACT §1.5 last bullet flags `resolveFromProjectDir` as a potential inline-delete — that is a builder micro-decision, not a modernization candidate. Clean.
+
+Followups (non-blocking).
+- IMPACT §1.5 enumerates stale `mcpsrv`-mentioning comments in `internal/search/{search.go:111,237,347,490,547, errors.go:24, doc.go:10}`, `internal/backend/md/layout.go:11,23`, `internal/render/doc.go:9`, `internal/templates/templates.go:8`, `cmd/ta/commands.go:163, 725`. All confirmed present. Scoped out-of-band per IMPACT — fine, but recommend a follow-up comment-cleanup bullet under §12.17.5 or §12.14.5 so it does not drift indefinitely.
+- IMPACT §2.4 flags an SDK-API assumption: `req.GetFloat` / `req.GetBool` helpers used by the new limit/all parsing. The existing `tools.go:335-337` uses `req.GetString` — numeric/boolean accessors need confirmation against mark3labs/mcp-go before builder ships [A2.1]. Builder gate, already flagged.
+- IMPACT §4.2 mitigation-path recommendation (serialize A2.1→A2.2 OR pre-commit shared search.go shape OR single builder owns both) matches plan's Round-4 bundling. Plan and IMPACT are in sync; no action.
+
+Unknowns.
+- `mage check` not run (sandbox-blocked for Bash in this role, per spawn prompt). Diff is docs-only (`docs/PLAN.md` + new `.md`) — no Go surface changes, so `mage check` green state from HEAD `5369aaf` remains the baseline. Orchestrator should confirm green before committing if any concern.
+
+### QA Falsification — go-qa-falsification-agent (decoupling plan + IMPACT)
+
+Scope: uncommitted `docs/PLAN.md` diff + new `workflow/ta-v2/IMPACT-B0-A21-A22.md`. HEAD `5369aaf`. Attempted nine attacks; two CONFIRMED, seven REFUTED.
+
+Verdict: **PASS-WITH-FOLLOWUPS** (no FAIL-grade counterexample; two fixable spec gaps).
+
+CONFIRMED — SPEC-DRIFT (MED). §3.2 `list_sections` block (`docs/PLAN.md:91-100`) still shows the pre-[A2.1] two-arg signature `list_sections(path, scope)`. §3.7 `search` got amended with `limit`/`all` in the same diff; §3.2 did not. [A2.1] changes §3.2's contract just as much as [A2.2] changes §3.7 — agents reading the spec will see incoherent `list_sections` shapes. Plan needs the same code-fence rewrite + "§12.17.5 [A2.1] amendment" footnote under §3.2 that §3.7 now carries. One-paragraph edit.
+
+CONFIRMED — PLANNING GAP (MED). Round 4 says "[B2] runs in parallel with the [A2.1+A2.2] bundle; no overlap with search.go." But [B2] gives `ta get` a scope address that resolves to MULTIPLE records, with `--limit`/`--all` flags (§3.1 para at `docs/PLAN.md:89` already spec'd this). The natural implementation routes through `search.Run` (same walker `ListSections` uses — `ops.go:459`) which means [B2] ALSO shares the `search.Query.Limit`/`All` fields the bundle adds. Three escape hatches: (a) [B2] reuses the bundle's shared search.go shape → [B2] is `blocked_by` the bundle, not parallel. (b) [B2] duplicates a parallel walker → ugly. (c) [B2] enforces limit/all CLI-side → violates §6a.1. Plan should reconcile — either serialize or pre-commit the `search.Query.Limit/All` shape as a Round-3 coda before Round-4 fans out.
+
+REFUTED — [B0] blast radius complete. `rg -l '"github.com/evanmschultz/ta/internal/mcpsrv"'` → 7 files; IMPACT §1.1+§1.3+§1.6 enumerates all 7 (`cmd/ta/{main.go, commands.go, commands_test.go}`, `magefile.go`, `internal/mcpsrv/{server_test.go, cache_test.go, dogfood_test.go}`). Zero unacknowledged importers.
+
+REFUTED — parity rule leaks (`ta init`). The `ta init` command is CLI-only overall, not just its TTY picker. IMPACT §4.1 routes `ta init`'s MCP-absence through §14.2.1's temporal boundary ("templates consumed during bootstrap; MCP server doesn't exist yet"). §6a.1 lists `ta init picker` under TTY-UX and `ta template *` under template-library — between them the whole `ta init` surface is covered. Wording is tight enough.
+
+REFUTED (with caveat) — §14.2.1 four-boundary independence. The four boundaries are NOT all fully independent: agency substantially overlaps trust (both reduce to "cross-project side-effect hazard"), and temporal only binds the `apply`-at-bootstrap case. The closing paragraph's read-only-list/show carve-out already admits the set isn't a hard AND gate. But "four justifications at least one of which applies" is still load-bearing — no template op escapes all four. Justification holds; "independent" is slightly overstated. Cosmetic.
+
+REFUTED — Round 4 bundling sequencing. Spec doesn't tell the builder to do search.go→ops.go→tools.go→commands.go in order, but the compile graph forces it: `ops.go` imports `search`, `tools.go` calls `ops`, `commands.go` calls `ops`. Any bottom-up build order works. Builder-obvious.
+
+REFUTED — MCP default-cap behavior change escape hatch. [A2.3] flags the release note. A compat-flag grace period (MCP defaults `all=true` for one release then flips) is possible but not required — pre-1.0 (§2.6), clean-break is the plan's stance, and the spec already documents `all=true` as the user-facing escape. Acceptable release-note framing.
+
+REFUTED — `limit < 0` semantics. Plan says `limit <= 0 && all == false → default 10`. IMPACT §2.2 bullet 3 makes this explicit ("`limit <= 0` substitutes default"). No separate "invalid: must be positive" error needed — `<= 0` collapses to "caller didn't provide a limit" uniformly. Tight.
+
+REFUTED — `search.Query{}` zero-value regression. `ListSections`/`Search` currently build `search.Query{Path, Scope, ...}` directly (`ops.go:459, 473-479`); only two literal constructions exist in tree. Both migrate with the ops rewrite. Zero-value `All=false, Limit=0` → endpoint substitutes 10 — which is what the plan explicitly spec's for missing-limit. No regression.
+
+REFUTED — IMPACT doc accuracy spot-checks. `ops.go:53` → `func Get(path, section string, fields []string)`. `errors.go:67` → `ErrCannotClearRequired = errors.New(...)`. `testing.go:12` → `func ResetDefaultCacheForTest()`. All three cited locations correct. Sampled four orphan-helper line numbers (`tools.go:366, 570, 585, 611`) — all lowercase, all unexported, exact match. Sampled 12 of 13 error sentinels by line — all exact match. IMPACT's file-line citations are precise.
+
+REFUTED — four orphan helpers exported-ness. `spliceOut`, `readFileIfExists`, `validationPath`, `tomlRelPathForFields` all lowercase. Move to `ops/` stays internal; no rename needed; no external break. Confirmed via `rg '^func (spliceOut|readFileIfExists|validationPath|tomlRelPathForFields)\b' internal/mcpsrv/tools.go`.
+
+REFUTED — §12.14.5 scan on new prose. New §6a + §14.2.1 + §12.17.5 bullets introduce zero modernization hooks, zero unused-identifier claims, zero dead-code gestures. Clean.
+
+Unknowns.
+- `mage check` not run (sandbox-blocked). Docs-only diff; HEAD green assumed.
+
 
