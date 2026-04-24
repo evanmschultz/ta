@@ -1708,3 +1708,111 @@ Two LOW; zero MEDIUM; zero blockers. All four round-1 MEDIUMs (A1/A2/A8/A9) land
 
 **Verdict.** **PASS.** All 9 r1 findings addressed with correct scope and phrasing. `mage check` green. Safe to commit.
 
+### QA Proof — go-qa-proof-agent (phased plan rollup)
+
+**Scope.** Proof-review of the uncommitted §12.17.5 rewrite in `docs/PLAN.md` (59-line diff, docs-only, HEAD `1465bb8`). Acceptance matrix: phase labels `[A1]..[E1]`, `--path` subsumption explicit, `--limit`/`--all`/`-n`/mutex documented on A2+B2, `--limit 0` rejection documented, B2->B3 + C1->B3 dependencies explicit, Round 1-5 schedule matches labels, no stale "default path to cwd" bullet, markdown integrity.
+
+**Premises.** (P1) Every discussion decision captured under the right label. (P2) A1 supersedes the prior two bullets in-text. (P3) A2 + B2 both carry the limit/all/mutex contract. (P4) `--limit 0` rejected, not unlimited. (P5) B2's multi-record output wires through B3. (P6) C1 depends on B3. (P7) §12.17.5.1 rounds align with phase labels. (P8) No stale bullet remains. (P9) Markdown structure stays parseable.
+
+**Evidence.**
+- P1,P2,P8 — `git diff HEAD -- docs/PLAN.md` shows the two old bullets deleted; A1 body contains the literal sentence "This supersedes the prior 'default path to cwd' + 'accept relative paths' bullets." `rg "default path to cwd|Accept relative paths"` returns only the A1 reference.
+- P3 partial — A2 (line 1136) states "`--limit <N>` (default 10) + `--all` boolean; mutex-exclusive." B2 (line 1142) states "`--limit <N>` (default 10, `-n` shorthand) + `--all` boolean, mutex-exclusive."
+- P4 partial — Line 1142 (B2) "`--limit 0` is rejected (confusing — SQL means zero rows); `--all` is the escape." A2 line has no `--limit 0` statement.
+- P5 — B3 (line 1144): "Multi-record outputs (from B2) reuse the same helper per record with Section boundaries between." Round-2 bullet (line 1162) reiterates the interaction.
+- P6 — C1 (line 1146): "Depends on B3 landing first." Round-3 bullet confirms.
+- P7 — Phase labels `[A1][A2][A3][B1][B2][B3][C1][D1][D2][E1]` present at lines 1134,1136,1138,1140,1142,1144,1146,1148,1150,1152. Rounds 1-5 (lines 1160-1168) enumerate A1+A2+A3 / B1+B2+B3 / C1 / D1+D2 / E1 — exact 1:1 mapping.
+- P9 caveat — `### 12.17.5.1` (line 1156) is an H3 heading sandwiched between ordered-list items `19.` (§12.17.5) and `20.` (§12.18) under the H2 `## 12. Execution plan`. `rg "^### 12\."` shows this is the only H3 placed mid-numbered-list in §12.
+
+**Trace / cases.**
+1. Each acceptance bullet mapped to a diff line above.
+2. Phase-label grep confirms 10 labels appear exactly once each.
+3. Round schedule enumerated against labels — no orphans, no duplicates.
+4. Supersession sentence located in A1 body — explicit, not implied.
+5. Stale-bullet scan negative (only the meta-reference remains).
+6. Standing QA concern (modernization / unused) — N/A, docs-only; the prose `filepath.Abs`, `json.Unmarshal`, `huh.Form` references are correct stdlib/library citations.
+
+**Findings.**
+- **LOW-1 — A2 missing `-n` shorthand.** Acceptance criteria from the spawn prompt state "`--limit` default 10, `-n` shorthand, `--all` boolean, mutex — documented on both A2 (list-sections) and B2 (get)." A2 (line 1136) omits `-n`. B2 (line 1142) has it. Either add `-n` to A2 for parity, or accept the asymmetry as intentional (list-sections `-n` may not be worth the flag budget).
+- **LOW-2 — A2 missing `--limit 0` rejection.** Same acceptance criterion. B2 documents "`--limit 0` is rejected"; A2 does not. If `--limit`/`--all` have uniform semantics across A2 and B2, A2 should mirror the rejection clause (or a one-sentence "same `--limit 0` rejection as B2" pointer).
+- **LOW-3 — Markdown structure risk at §12.17.5.1.** Placing an H3 heading (`### 12.17.5.1`) between items `19.` and `20.` of an ordered list under `## 12.` may terminate the outer list in strict CommonMark renderers, causing item `20.` (§12.18) to render as a fresh list starting at `20` (cosmetic OK in most renderers) or restart at `1` (bad). Other `§12.x` subitems stay inline as nested bullets under their parent list item — this is the first H3 pattern in §12. Mitigation: either promote §12.17.5 to its own H3 up-front and nest 12.17.5.1 under it, or replace the H3 with a bolded inline subsection header so the ordered list continuity is preserved. Renderer-dependent; inspect on the intended render target (GitHub, local glamour, etc.) before release. Not a blocker for agent-consumed MD.
+
+**Conclusion.** PASS-WITH-FOLLOWUPS. Every phase label is present and accounted for, phase-to-round mapping is exact, A1 supersedes the two prior bullets with an in-doc callout, all B2/C1 dependencies are explicit in both the work-item prose and the schedule prose, `--limit 0` rejection is captured on B2. Three LOW findings ride along: A2 lacks `-n` shorthand and `--limit 0` rejection (acceptance-criteria deltas from the prompt, not design flaws), and §12.17.5.1's H3 inside a numbered list is a markdown-integrity risk worth eyeballing in the target renderer.
+
+**Unknowns.** None material. LOW-3 hinges on renderer behavior which the dev can confirm in-browser.
+
+**Hylla Feedback.** N/A — docs-only diff, no Go symbols queried; evidence gathered via `git diff`, `Read`, `rg` on plan-doc and source tree.
+
+**Verdict.** **PASS-WITH-FOLLOWUPS.** Safe to commit; three LOW items land as a follow-up bullet for the next plan-doc pass or a squash-in before commit, at dev's discretion. Do NOT block round.
+
+### QA Falsification — go-qa-falsification-agent (phased plan rollup)
+
+Attacked A1..A10 against `docs/PLAN.md` uncommitted diff at HEAD `1465bb8`. `mage check` green (docs-only; no code regression surface). Diff spans lines 1128–1170 (§12.17.5 rewrite + new §12.17.5.1).
+
+**Findings (severest first):**
+
+- **MED-1 — A1 does not amend §14.3's positional CLI shape.** §14.3 lines 1252 (`ta init [path]`) and 1259 (`ta template apply <name> [path]`) still describe positional-path syntax; the 2026-04-23 amendment notes on lines 1253/1262 only soften absolute-path enforcement, they do not switch the shape to `--path`. A1 changes the shape across `init` + `template apply` + six data commands but carries no "also updates §14.3 wording" rider. When A1 lands, §14.3 becomes stale. Fix: either squash a §14.3 shape-update into the same amendment now, or add an explicit rider on A1: *"Also updates §14.3 lines 1252 + 1259 + §12.14 line 1114 to the `--path` form."* This is the sharpest hygiene gap in the diff — A1 subsumes the prior two bullets but not the older §14.3/§12.14 language.
+- **MED-2 — B2 re-shapes §3.1 `get` contract without an amendment note.** §3.1 (lines 66–87) describes `get(path, section, [fields])` as a single-record read — `section` = `<db>.<type>.<id-path>`. B2 expands that grammar to prefix/scope addresses with `--limit`/`--all` multi-record returns. §3.5 already models the pattern correctly — line 171 carries `"PATCH semantics (§12.17.5 decision)"` as an inline amendment pointer. §3.1 needs the same: add a `"Scope-address expansion (§12.17.5 decision)"` subsection or footnote so a reader of §3.1 sees the contract change.
+- **LOW-A — A7 "different functions" claim is slightly optimistic.** A1 "edits `cmd/ta/commands.go` broadly" — every command constructor (`newGetCmd`, `newCreateCmd`, `newUpdateCmd`, `newDeleteCmd`, `newSchemaCmd`, `newSearchCmd`, `newListSectionsCmd`) switches from positional `Args: cobra.ExactArgs(N)` to `--path` flag registration. A2 rewrites `newListSectionsCmd` from scratch. Both touch the SAME function `newListSectionsCmd`, not "different functions" as the schedule claims. Mitigation options: (a) serialize A1 → A2 (A2 rebases on A1's merged branch), or (b) explicit scope split in the spawn prompt ("A1 leaves `newListSectionsCmd` untouched; A2 owns it entirely"). Rebase-is-cheap is still defensible but the schedule wording should reflect reality.
+- **LOW-B — A10 `--limit` consistency across A2/B2.** B2 explicitly states `--limit 0` rejected; A2 is silent. Cross-reference A2 to B2's `--limit` semantics (one sentence: *"`--limit` semantics match B2: default 10, `--all` escape, `--limit 0` rejected."*) — mirrors the §3.5 pattern of one spec point owning the definitive behavior.
+- **LOW-C — B3 missing "search output is byte-identical" regression-lock.** B3 extracts the `Renderer.Record` inner dispatch into a shared helper. `Renderer.Record` is search's CURRENT render path (verified at `internal/render/renderer.go:93`). The refactor is believable, but B3 has no acceptance criterion forcing byte-identical search output. Add: *"Acceptance: existing search-output golden tests stay green byte-for-byte; any intentional output change requires an explicit callout in the build report."*
+- **LOW-D — B1 empty-data no-op vs "atomic validation" phrasing.** B1 says "Empty `data` ({}) is a no-op success" AND "After overlay, merged record is validated against the type schema atomically." §3.5 line 173 clarifies no-op touches no bytes, which implicitly skips validation. Under current §3.5 this is consistent (nothing to validate), but a reader of B1 alone might expect `{}` to trigger a full re-validate of the existing bytes — which would actually be a useful "is this record still valid under current schema?" primitive. Clarify B1: either *"no-op path skips validation (record unchanged, no overlay to check)"* or *"no-op path re-validates the existing record against current schema"* — call the behavior out, don't leave it to §3.5 inference.
+
+**Attempted and refuted:**
+
+- **A2 (list-sections code characterization).** CONFIRMED accurate: `cmd/ta/commands.go:213` uses `toml.Parse(path)` on a file path; output emits bracket paths from Paths(). A2's "today the CLI takes a TOML file path" claim is factual.
+- **A6 (C1 → B3 round ordering).** Phase B is Round 2, C1 is Round 3. Dependency arrow matches round ordering. No counterexample.
+- **A8 (D1/D2 file overlap).** D1 touches `cmd/ta/commands.go` (huh form wiring on `newCreateCmd`/`newUpdateCmd`); D2 touches `cmd/ta/init_cmd.go` (`--blank` default-payload swap) + an embed target (likely `internal/templates/` or new package). No file overlap. Fully-parallel claim holds.
+- **A9 (residual "default path to cwd" bullets).** `rg` shows 4 hits — line 1114 (§12.14, unchanged), 1134 (A1 itself), 1253/1262 (§14.3 amendment notes). The two old §12.17.5 bullets are deleted in the diff. No literal duplication survives; the §12.14 hit is covered under MED-1's recommended rider.
+
+**Unknowns.** §3.2 / §7 MCP scope-address grammar referenced by A2/B2 was not re-inspected in depth — A2's claim "full project-level addresses (`plan_db.ta-v2.build_task.task_12_1`)" assumes the current `list_sections` MCP tool returns instance-qualified addresses per §3.2. §3.2 lines 89–100 confirm the shape is `<db>.<instance>.<type>.<id-path>`, so the claim holds. No residual unknowns material to the verdict.
+
+**Hylla Feedback.** N/A — task touched non-Go files only (docs diff). Evidence came from `git diff`, `Read`, `rg`, and targeted reads of `cmd/ta/commands.go` + `internal/render/renderer.go`.
+
+**Verdict.** **PASS-WITH-FOLLOWUPS.** No CONFIRMED counterexample blocks the plan change. Two MED findings (A1's §14.3 rider, B2's §3.1 amendment pointer) are spec-hygiene gaps that will cause reader confusion once the phased work starts landing — squash into the current amendment cycle rather than deferring. Four LOW findings (A7 merge-conflict wording, A10 `--limit` parity, B3 search-output lock, B1 no-op validation phrasing) are spawn-prompt-fixable at build time. None require re-opening the diff as a blocker. Do NOT commit per directive.
+
+### QA Proof — go-qa-proof-agent (plan r2 amendments)
+
+**Scope.** Verify round-2 batched amendments to `docs/PLAN.md` §12.17.5 + §14.3 + §12.14 + §3.1 address the round-1 proof LOW findings and falsification MED/LOW findings, with the user's `--limit 0` reversal held.
+
+**Acceptance-criterion trace.**
+
+- `--limit 0` rejection language removed from B2 — PASS. `rg 'limit 0'` returns only one hit (line 1144): the negative assertion `"there is no '--limit 0' semantic"`. No rejection rule.
+- `-n` shorthand present on A2 and B2 — PASS. `rg 'shorthand'` returns three hits: §3.1 (line 89), A2 (1138), B2 (1144). A2 has `--limit <N>` (default 10, `-n` shorthand).
+- §14.3 + §12.14 + §3.1 cross-reference [A1] / [B2] — PASS. §3.1 (89) carries the B2 scope-expansion note; §12.14 (1116) carries the amendment trajectory parenthetical; §14.3 (1249) opens with the `§12.17.5 [A1] amendment` callout; `ta init` line (1254) and `ta template apply` line (1264 from diff) carry per-bullet `(Pre-[A1] shape. Post-[A1]: ...)` callouts.
+- B1 empty-data short-circuit, no-validation, no-disk-write — PASS. Line 1142 carries `short-circuits before overlay: no-op success, no re-validation of the existing record, no disk write` verbatim, plus `update is not a validator` reinforcement.
+- B3 golden-file regression-lock — PASS. Line 1146: `Regression-lock: capture search's current stdout as a golden-file fixture BEFORE the extraction; post-refactor, byte-identical output`.
+- A2 scope-boundary vs A1 — PASS. Line 1138: `Scope boundary with [A1]: A1 leaves newListSectionsCmd alone; A2 owns the rewrite`. Cross-checked against §12.17.5.1 Round 1 (1160) — matching language on `newListSectionsCmd`.
+- `### 12.17.5.1` → bold-inline header, numbered list unbroken — PASS. Line 1158 is `**12.17.5.1 Execution schedule — ...**` at 4-space indent inside list item 19. No `###` header breaks the outer numbered list.
+- `mage check` green — PASS. All 11 packages pass; 1 no-test package.
+
+**Hylla Feedback.** N/A — task touched non-Go files only (plan diff).
+
+**Verdict.** **PASS.** All acceptance criteria met. The user's `--limit 0` reversal is cleanly held — no rejection language survives; `--all` is the self-documenting no-cap escape. Each round-1 MED/LOW is addressed at the cited line. No new findings introduced by the amendments. Do NOT commit per directive.
+
+### QA Falsification — go-qa-falsification-agent (plan r2 amendments)
+
+**Target.** Round-2 amendments to `docs/PLAN.md` against HEAD `1465bb8` (UNCOMMITTED). 8 focused attacks (A1–A8) on the r2 delta. Verification: `git diff HEAD -- docs/PLAN.md`, targeted reads, `rg` scans, `mage check`.
+
+**Attempts.**
+
+- **A1 (§14.3 banner + per-bullet parentheticals cover [A1] trajectory).** REFUTED. Line 1249 carries a dedicated `**§12.17.5 [A1] amendment.**` banner paragraph at section top explicitly labeling the prose below as "pre-amendment shape preserved as historical context." Line 1254 (`ta init [path]`) carries `(Pre-[A1] shape. Post-[A1]: ta init --path <value> default cwd.)` and line 1262 (`ta template`) carries `(Post-[A1]: ta template apply <name> [--path <value>].)`. Reader entering §14.3 cold cannot miss the trajectory callout; MED-1 closed.
+- **A2 (§3.1 scope-expansion callout matches §3.5 PATCH callout style).** REFUTED. §3.5 (line 173) uses `**PATCH semantics (§12.17.5 decision).**` — bold-phrase + dotted-parenthetical-citation + terminal-period. §3.1 (line 89) uses `**Scope expansion (§12.17.5 [B2] decision).**` — identical shape with phase label added. Consistent; MED-2 closed.
+- **A3 (bold-inline `12.17.5.1` header inside numbered list item 19 renders correctly).** REFUTED-WITH-CAVEAT. Line 1158 is a 4-space-indented paragraph `**12.17.5.1 Execution schedule — ...**` inside list-item-19 continuation scope. Line 1170 (`After §12.17.5 closes: §12.18 README collapse + §12.19 release tag.`) is a column-0 paragraph that closes the list. Line 1171 restarts the ordered list at `20. **12.18 README collapse.**`. GitHub-flavored Markdown honors the explicit `20.` start and visually continues 19→20→21; strict-CommonMark may renumber to 1→2. Acceptable risk; GitHub is the rendering surface. LOW severity, file-as-followup only if strict-CommonMark rendering becomes a target.
+- **A4 (golden-file fixture precedent in repo).** CONFIRMED as first-time pattern. `rg 'golden|\.golden' --type go` returns zero hits; no `testdata/` directories under any package. B3's regression-lock (line 1146) introduces a pattern the repo has never used. Not a counterexample against the plan (the clause is explicit) but flag for builder spawn-prompt: builder must pick a convention (e.g. `testdata/search_before_b3.golden` + `-update` flag via `flag.Bool("update", ...)`) and justify in commit. LOW severity.
+- **A5 (`--limit 0` reversal fully propagated).** REFUTED. `rg '\-\-limit 0' docs/PLAN.md` returns exactly one hit at line 1144, in the negation clause `"there is no --limit 0 semantic"`. No normative acceptance or rejection language survives. Clean reversal.
+- **A6 (Round-1 `commands.go` merge-conflict language updated).** REFUTED. Line 1160 reads: `"A1 edits cmd/ta/commands.go broadly + init_cmd.go + template_cmd.go but leaves newListSectionsCmd to A2; A2 owns the newListSectionsCmd rewrite ... Scope boundary on commands.go keeps merge-conflict risk at zero"`. The old "both touch, rebase is cheap" framing is gone; replaced with a symbol-level scope boundary that matches A2's scope-boundary clause (line 1138). Consistent across both sites.
+- **A7 (§12.14 parenthetical — is `filepath.Abs` relative-acceptance committed today?).** CONFIRMED prose is consistent with code. `cmd/ta/init_cmd.go:129-130` still contains `if !filepath.IsAbs(p) { return "", fmt.Errorf("init: path must be absolute; got %q", p) }` — relative paths are rejected today. §12.14 parenthetical (line 1116) explicitly labels the relative-accept as an amendment not yet landed ("§12.17.5 [A1] further shifts this..."), and §14.3 line 1255 says `"live code still enforces that until §12.17.5 lands"`. Prose accurately describes the spec/code gap; no counterexample.
+- **A8 (code-snippet drift on new prose).** REFUTED. Diff is prose-only (97 lines; all sentences, no new code fences). `filepath.Abs`, `json.Unmarshal`, `huh.Form`, `huh.Text`, `huh.Select`, `huh.Input`, `huh.Confirm` references are all current idiomatic Go / library API. No drift.
+
+**Supporting checks.**
+
+- `mage check` — PASS. All 11 packages green.
+- `rg '\-\-limit 0' docs/PLAN.md` — 1 hit, negation-only.
+- `rg '§12\.17\.5|12\.17\.5\.1' docs/PLAN.md` — 11 hits, all load-bearing references.
+
+**Unknowns.** A3's strict-CommonMark-vs-GFM ordered-list-restart behavior was not empirically rendered. If the repo ever adopts a non-GFM renderer (e.g. for a doc site), item 20 may restart at 1; trivially fixed by indenting line 1170 by 4 spaces to keep it inside list item 19, or by converting `**12.17.5.1 ...**` to `### 12.17.5.1` once §12.18 is written (at which point outer list is gone). Route as followup, not a blocker.
+
+**Hylla Feedback.** N/A — task touched non-Go files only (plan diff).
+
+**Verdict.** **PASS.** No CONFIRMED counterexample. All Round-1 MED and LOW findings are properly closed. A3 and A4 are LOW-severity followup surfaces (GFM rendering assumption; first-time golden-file convention) that can be resolved at build time — neither blocks the amendment. The `--limit 0` reversal is clean. Do NOT commit per directive.
+
