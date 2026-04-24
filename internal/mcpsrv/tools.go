@@ -18,14 +18,22 @@ func getTool() mcp.Tool {
 	return mcp.NewTool(
 		"get",
 		mcp.WithDescription(
-			"Read one record. Default returns the raw on-disk bytes of the record (header + body, including any descendant records). Optional 'fields' narrows the response to declared field values as a JSON object.",
+			"Read one record or every record under a scope prefix. A fully-qualified address ('<db>.<type>.<id-path>' or '<db>.<instance>.<type>.<id-path>') returns one record — raw bytes by default, or a {fields} object when 'fields' is set. A scope-prefix address ('<db>', '<db>.<type>', '<db>.<instance>', or '<db>.<instance>.<type>') returns {records: [{section, fields}, ...]} in file-parse order; pass 'limit' (default 10) or 'all=true' to widen. 'limit' and 'all' are ignored for single-record addresses.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("section", mcp.Required(), mcp.Description("Record address: '<db>.<type>.<id-path>' or '<db>.<instance>.<type>.<id-path>'.")),
+		mcp.WithString("section", mcp.Required(), mcp.Description("Record address ('<db>.<type>.<id-path>' or '<db>.<instance>.<type>.<id-path>') OR scope prefix ('<db>', '<db>.<type>', '<db>.<instance>', '<db>.<instance>.<type>').")),
 		mcp.WithArray(
 			"fields",
-			mcp.Description("Optional array of declared field names. Unknown names error; absent returns raw bytes."),
+			mcp.Description("Optional array of declared field names. Single-record: narrows the response to a {fields} object (unknown names error; absent returns raw bytes). Scope-prefix: narrows each record's fields map; absent returns every declared field."),
 			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithNumber(
+			"limit",
+			mcp.Description("Optional cap on returned records when 'section' is a scope prefix. Default 10. Mutually exclusive with all=true. Ignored for single-record addresses."),
+		),
+		mcp.WithBoolean(
+			"all",
+			mcp.Description("Optional. When true and 'section' is a scope prefix, return every record in scope; ignores limit. Ignored for single-record addresses."),
 		),
 	)
 }
@@ -179,6 +187,26 @@ type fieldsResult struct {
 	Fields  map[string]any `json:"fields"`
 }
 
+// scopeRecord is one entry in a scope-prefix `get` response.
+// Section is the full dotted address; Fields is the decoded field map
+// (filtered by the caller's optional fields list). Bytes are
+// intentionally omitted — multi-record raw-bytes would be ambiguous
+// across heterogeneous record types.
+type scopeRecord struct {
+	Section string         `json:"section"`
+	Fields  map[string]any `json:"fields"`
+}
+
+// scopeResult is the MCP response shape for a scope-prefix `get` call.
+// Records is the file-parse-order list of records the scope expanded
+// to; the top-level envelope uses the plural shape even when only one
+// record matched (§12.17.5 [B2]).
+type scopeResult struct {
+	Path    string        `json:"path"`
+	Section string        `json:"section"`
+	Records []scopeRecord `json:"records"`
+}
+
 // schemaResult is the JSON body returned by handleSchema. Exactly one of
 // Type, DB, or DBs is populated per call. MetaSchemaTOML is populated iff
 // the caller passed scope = "ta_schema".
@@ -230,6 +258,30 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	fields, hasFields, errRes := optionalStringArray(req, "fields")
 	if errRes != nil {
 		return errRes, nil
+	}
+	// limit/all per docs/PLAN.md §3.1 / §12.17.5 [B2]. Strict mutex at
+	// the adapter — endpoint is permissive (all wins). limit/all are
+	// only meaningful for scope-prefix addresses; single-record
+	// addresses silently ignore them.
+	limit := req.GetInt("limit", 0)
+	all := req.GetBool("all", false)
+	if limit > 0 && all {
+		return mcp.NewToolResultError("pass either limit or all, not both"), nil
+	}
+	isScope, err := ops.IsScopeAddress(path, section)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if isScope {
+		records, err := ops.GetScope(path, section, fields, limit, all)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		out := make([]scopeRecord, len(records))
+		for i, r := range records {
+			out[i] = scopeRecord{Section: r.Section, Fields: r.Fields}
+		}
+		return mcp.NewToolResultJSON(scopeResult{Path: path, Section: section, Records: out})
 	}
 	res, err := ops.Get(path, section, fields)
 	if err != nil {

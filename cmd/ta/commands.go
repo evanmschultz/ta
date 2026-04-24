@@ -24,24 +24,42 @@ import (
 // uses (V2-PLAN §12.17.5 [B3]). With --fields the named field values
 // are rendered per type. With --json the laslig path is bypassed;
 // structured JSON is written for agent consumption (V2-PLAN §14.3).
+//
+// A scope-prefix `<section>` (e.g. `<db>`, `<db>.<type>`,
+// `<db>.<instance>`, `<db>.<instance>.<type>`) returns every matching
+// record in file-parse order; --limit (default 10, -n shorthand) and
+// --all control the cap. Single-record addresses (fully qualified)
+// silently ignore --limit / --all (V2-PLAN §12.17.5 [B2]).
 func newGetCmd() *cobra.Command {
 	var fields []string
 	var asJSON bool
+	var limit int
+	var all bool
 	cmd := &cobra.Command{
 		Use:   "get <section>",
-		Short: "Read one record; optionally extract declared field values",
-		Long: "Mirrors the MCP tool `get`. Without --fields every declared " +
-			"field on the record is rendered through the shared per-field " +
-			"helper: string fields as markdown, scalars as label:value, " +
-			"arrays/tables as fenced JSON (V2-PLAN §12.17.5 [B3]). With " +
-			"--fields name[,name...] or repeated --field <name> the named " +
-			"fields are rendered the same way, just filtered. With --json " +
-			"the laslig path is bypassed and JSON is written for agent " +
-			"consumption. --path defaults to cwd; relative or absolute " +
-			"accepted (V2-PLAN §12.17.5 [A1]).",
+		Short: "Read one record or every record under a scope prefix; optionally extract declared field values",
+		Long: "Mirrors the MCP tool `get`. A fully-qualified address " +
+			"('<db>.<type>.<id-path>' or '<db>.<instance>.<type>.<id-path>') " +
+			"returns one record; without --fields every declared field is " +
+			"rendered through the shared per-field helper (string fields as " +
+			"markdown, scalars as label:value, arrays/tables as fenced JSON " +
+			"— V2-PLAN §12.17.5 [B3]); with --fields name[,name...] the " +
+			"named subset is rendered. A scope-prefix address ('<db>', " +
+			"'<db>.<type>', '<db>.<instance>', '<db>.<instance>.<type>') " +
+			"returns every matching record in file-parse order as a " +
+			"sequence of laslig Section blocks, or --json " +
+			"{\"records\":[{section, fields}, ...]}. --limit (default 10, " +
+			"-n shorthand) and --all control the cap for scope-prefix " +
+			"addresses; both are silently ignored for fully-qualified " +
+			"single-record addresses and are mutually exclusive (V2-PLAN " +
+			"§12.17.5 [B2]). With --json the laslig path is bypassed and " +
+			"JSON is written for agent consumption. --path defaults to " +
+			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
 		Example: "  ta get plans.task.task-001\n" +
 			"  ta get --path /abs/proj plans.task.task-001 --fields status,body\n" +
-			"  ta get plans.task.task-001 --json",
+			"  ta get plans.task.task-001 --json\n" +
+			"  ta get plans.task --all --json\n" +
+			"  ta get plan_db.drop_a --limit 5",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -51,6 +69,13 @@ func newGetCmd() *cobra.Command {
 				return err
 			}
 			section := args[0]
+			isScope, err := ops.IsScopeAddress(path, section)
+			if err != nil {
+				return err
+			}
+			if isScope {
+				return runGetScope(c, path, section, fields, limit, all, asJSON)
+			}
 			if asJSON {
 				res, err := ops.Get(path, section, fields)
 				if err != nil {
@@ -80,8 +105,64 @@ func newGetCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated declared field names to extract")
 	cmd.Flags().StringSliceVar(&fields, "field", nil, "declared field name to extract (repeatable)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
+	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the record count at N when <section> is a scope prefix (default 10; ignored for single-record addresses; mutually exclusive with --all)")
+	cmd.Flags().BoolVar(&all, "all", false, "return every record when <section> is a scope prefix (ignored for single-record addresses; mutually exclusive with --limit)")
+	cmd.MarkFlagsMutuallyExclusive("limit", "all")
 	addPathFlag(cmd)
 	return cmd
+}
+
+// runGetScope is the scope-prefix branch of `ta get`. Walks every
+// record in scope via ops.GetScope and emits either a sequence of
+// laslig Section blocks (default) or a {"records": [...]} JSON
+// envelope (--json). Matches the MCP `get` scope-prefix response
+// shape so CLI and MCP stay in lockstep (§12.17.5 [B2]).
+func runGetScope(c *cobra.Command, path, section string, fields []string, limit int, all bool, asJSON bool) error {
+	records, err := ops.GetScope(path, section, fields, limit, all)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return emitGetScopeJSON(c.OutOrStdout(), records)
+	}
+	r := render.New(c.OutOrStdout())
+	if len(records) == 0 {
+		return r.Notice(laslig.NoticeInfoLevel, "get", "no records in scope: "+section, nil)
+	}
+	resolution, err := ops.ResolveProject(path)
+	if err != nil {
+		return fmt.Errorf("resolve schema: %w", err)
+	}
+	for _, rec := range records {
+		_, typeSt, err := lookupDBAndType(resolution.Registry, rec.Section)
+		if err != nil {
+			// Best-effort: render without typed fields.
+			if err := r.Record(rec.Section, nil); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := r.Record(rec.Section, render.BuildFields(typeSt, rec.Fields)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// emitGetScopeJSON writes the --json form of a scope-prefix `ta get`.
+// Shape mirrors the MCP tool's scopeResult: {"records": [{section,
+// fields}, ...]}. Always plural, even when len(records) == 1.
+func emitGetScopeJSON(w io.Writer, records []ops.ScopeRecord) error {
+	out := make([]map[string]any, len(records))
+	for i, r := range records {
+		out[i] = map[string]any{
+			"section": r.Section,
+			"fields":  r.Fields,
+		}
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(map[string]any{"records": out})
 }
 
 // emitGetJSON writes the --json form of `get`. Two shapes: raw-bytes

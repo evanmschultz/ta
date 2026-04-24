@@ -1834,3 +1834,220 @@ func TestSearchLimitAllMutex(t *testing.T) {
 		t.Errorf("error text missing mutex hint: %s", firstText(t, res))
 	}
 }
+
+// ---- §12.17.5 [B2] get scope-expansion ------------------------------
+
+// TestGetSingleRecordResponseShapeUnchanged locks the pre-B2 single-
+// record response shape on the MCP surface: a fully-qualified address
+// still returns the raw bytes as mcp.NewToolResultText (plain text,
+// not a JSON envelope).
+func TestGetSingleRecordResponseShapeUnchanged(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 1)
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t01",
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	// seedNTOMLTasks terminates every record with "\n\n" so the trailing
+	// blank line is part of the record's byte range.
+	want := "[plans.task.t01]\nid = \"T01\"\nstatus = \"todo\"\n\n"
+	if body != want {
+		t.Errorf("single-record MCP shape drifted:\ngot  %q\nwant %q", body, want)
+	}
+}
+
+// TestGetSingleRecordWithFieldsUnchanged locks the pre-B2 --fields
+// response shape: fully-qualified address + fields returns the
+// {path, section, fields} envelope, not the new plural
+// {records: [...]} envelope.
+func TestGetSingleRecordWithFieldsUnchanged(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 1)
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t01",
+		"fields":  []any{"id", "status"},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Path    string         `json:"path"`
+		Section string         `json:"section"`
+		Fields  map[string]any `json:"fields"`
+		Records any            `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if payload.Section != "plans.task.t01" {
+		t.Errorf("section = %q, want plans.task.t01", payload.Section)
+	}
+	if payload.Fields["id"] != "T01" {
+		t.Errorf("fields.id = %v, want T01", payload.Fields["id"])
+	}
+	if payload.Records != nil {
+		t.Errorf("single-record response leaked into records envelope: %+v", payload.Records)
+	}
+}
+
+// TestGetScopeDBReturnsRecordsEnvelope proves a `<db>` scope on MCP
+// returns the {records: [...]} envelope with every declared field per
+// record.
+func TestGetScopeDBReturnsRecordsEnvelope(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 3)
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans",
+		"all":     true,
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Path    string `json:"path"`
+		Section string `json:"section"`
+		Records []struct {
+			Section string         `json:"section"`
+			Fields  map[string]any `json:"fields"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Records) != 3 {
+		t.Fatalf("records = %d, want 3: %+v", len(payload.Records), payload.Records)
+	}
+	want := []string{"plans.task.t01", "plans.task.t02", "plans.task.t03"}
+	for i, w := range want {
+		if payload.Records[i].Section != w {
+			t.Errorf("records[%d].Section = %q, want %q", i, payload.Records[i].Section, w)
+		}
+	}
+	if payload.Records[0].Fields["id"] != "T01" {
+		t.Errorf("records[0].fields.id = %v, want T01", payload.Records[0].Fields["id"])
+	}
+}
+
+// TestGetScopeDefaultLimitOfTen proves the MCP scope-expansion `get`
+// caps at 10 by default. Parity with list_sections / search.
+func TestGetScopeDefaultLimitOfTen(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task",
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Records []map[string]any `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Records) != 10 {
+		t.Errorf("default limit should cap at 10, got %d", len(payload.Records))
+	}
+}
+
+// TestGetScopeAllReturnsEveryRecord proves passing all=true disables
+// the default cap.
+func TestGetScopeAllReturnsEveryRecord(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task",
+		"all":     true,
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Records []map[string]any `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Records) != 15 {
+		t.Errorf("all=true should return every record, got %d", len(payload.Records))
+	}
+}
+
+// TestGetScopeExplicitLimit proves limit=N caps at N.
+func TestGetScopeExplicitLimit(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 15)
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task",
+		"limit":   4,
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Records []map[string]any `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if len(payload.Records) != 4 {
+		t.Errorf("limit=4 should cap at 4, got %d", len(payload.Records))
+	}
+}
+
+// TestGetScopeLimitAllMutex proves the MCP handler rejects both
+// params together — parity with the CLI cobra mutex.
+func TestGetScopeLimitAllMutex(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 5)
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task",
+		"limit":   3,
+		"all":     true,
+	})
+	if !res.IsError {
+		t.Fatalf("expected error when limit + all passed together")
+	}
+	if !strings.Contains(firstText(t, res), "pass either limit or all") {
+		t.Errorf("error text missing mutex hint: %s", firstText(t, res))
+	}
+}
+
+// TestGetSingleRecordIgnoresLimitAll proves a fully-qualified address
+// silently ignores limit/all (they are scope-only knobs). The
+// response must still be the pre-B2 single-record shape.
+func TestGetSingleRecordIgnoresLimitAll(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	seedNTOMLTasks(t, fx.projectRoot, 1)
+	// limit on single-record: response is still plain-text raw bytes.
+	res := callTool(t, c, "get", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t01",
+		"limit":   5,
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, "[plans.task.t01]") {
+		t.Errorf("single-record + limit response lost raw-bytes shape: %q", body)
+	}
+}

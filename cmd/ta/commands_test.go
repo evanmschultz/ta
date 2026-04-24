@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,11 @@ import (
 
 	"github.com/evanmschultz/ta/internal/ops"
 )
+
+// updateCLIGolden lets the dev regenerate golden fixtures under
+// cmd/ta/testdata/ via `go test ./cmd/ta -update`. Default false —
+// the goldens are regression locks once materialized.
+var updateCLIGolden = flag.Bool("update", false, "regenerate golden fixtures in cmd/ta/testdata/")
 
 const cliTaskSchema = `
 [plans]
@@ -1178,5 +1184,317 @@ func TestSearchCmdJSON(t *testing.T) {
 	}
 	if payload.Hits[0].Fields["status"] != "todo" {
 		t.Errorf("fields.status = %v, want todo", payload.Hits[0].Fields["status"])
+	}
+}
+
+// ---- §12.17.5 [B2] get scope-expansion ------------------------------
+
+// TestGetCmdSingleRecordGolden is the §12.17.5 [B2] regression lock:
+// the representative `ta get plans.task.t1` laslig output MUST stay
+// byte-identical across the scope-expansion refactor. A legitimate
+// diff must be justified in the commit and the golden regenerated via
+// `go test ./cmd/ta -update`.
+func TestGetCmdSingleRecordGolden(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "plans.task.t1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	assertGolden(t, filepath.Join("testdata", "get_single.golden"), out.Bytes())
+}
+
+// TestGetCmdSingleRecordJSONGolden locks the single-record --json shape
+// (no "records" envelope, keeps the pre-B2 {"section","bytes"} shape)
+// byte-for-byte.
+func TestGetCmdSingleRecordJSONGolden(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	assertGolden(t, filepath.Join("testdata", "get_single_json.golden"), out.Bytes())
+}
+
+// TestGetCmdScopeMultipleRecords proves a <db>.<type> scope returns
+// every record under the type in separate laslig Section blocks.
+func TestGetCmdScopeMultipleRecords(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
+		"[plans.task.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
+	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "plans.task"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	s := out.String()
+	for _, want := range []string{"plans.task.t1", "plans.task.t2", "T1", "T2", "todo", "doing"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("scope output missing %q:\n%s", want, s)
+		}
+	}
+}
+
+// TestGetCmdScopeJSONRecords proves a scope-prefix --json call emits
+// the {"records":[{section,fields},...]} envelope (plural, not
+// {"section","bytes"}).
+func TestGetCmdScopeJSONRecords(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
+		"[plans.task.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
+	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "plans.task", "--json", "--all"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Records []struct {
+			Section string         `json:"section"`
+			Fields  map[string]any `json:"fields"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Records) != 2 {
+		t.Fatalf("records = %d, want 2: %+v", len(payload.Records), payload.Records)
+	}
+	want := []string{"plans.task.t1", "plans.task.t2"}
+	for i, w := range want {
+		if payload.Records[i].Section != w {
+			t.Errorf("records[%d].Section = %q, want %q", i, payload.Records[i].Section, w)
+		}
+	}
+	if payload.Records[0].Fields["id"] != "T1" {
+		t.Errorf("records[0].fields.id = %v, want T1", payload.Records[0].Fields["id"])
+	}
+}
+
+// TestGetCmdScopeDefaultLimit proves the default 10-record cap fires
+// on scope-prefix addresses.
+func TestGetCmdScopeDefaultLimit(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	var body bytes.Buffer
+	for i := 1; i <= 15; i++ {
+		body.WriteString("[plans.task.t")
+		body.WriteString(pad2(i))
+		body.WriteString("]\nid = \"T")
+		body.WriteString(pad2(i))
+		body.WriteString("\"\nstatus = \"todo\"\n\n")
+	}
+	if err := os.WriteFile(dataPath, body.Bytes(), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "plans.task", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Records []map[string]any `json:"records"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Records) != 10 {
+		t.Errorf("default limit should cap at 10, got %d", len(payload.Records))
+	}
+}
+
+// TestGetCmdScopeLimitFlag proves --limit N on a scope-prefix address
+// caps at N.
+func TestGetCmdScopeLimitFlag(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	var body bytes.Buffer
+	for i := 1; i <= 15; i++ {
+		body.WriteString("[plans.task.t")
+		body.WriteString(pad2(i))
+		body.WriteString("]\nid = \"T")
+		body.WriteString(pad2(i))
+		body.WriteString("\"\nstatus = \"todo\"\n\n")
+	}
+	if err := os.WriteFile(dataPath, body.Bytes(), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "plans.task", "--json", "--limit", "4"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Records []map[string]any `json:"records"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Records) != 4 {
+		t.Errorf("--limit 4 should cap at 4, got %d", len(payload.Records))
+	}
+}
+
+// TestGetCmdScopeAllFlag proves --all returns every record, ignoring
+// the default cap.
+func TestGetCmdScopeAllFlag(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	var body bytes.Buffer
+	for i := 1; i <= 15; i++ {
+		body.WriteString("[plans.task.t")
+		body.WriteString(pad2(i))
+		body.WriteString("]\nid = \"T")
+		body.WriteString(pad2(i))
+		body.WriteString("\"\nstatus = \"todo\"\n\n")
+	}
+	if err := os.WriteFile(dataPath, body.Bytes(), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "plans.task", "--json", "--all"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Records []map[string]any `json:"records"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Records) != 15 {
+		t.Errorf("--all should return every record, got %d", len(payload.Records))
+	}
+}
+
+// TestGetCmdScopeMutex proves --limit and --all are mutually exclusive.
+func TestGetCmdScopeMutex(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newGetCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "plans.task", "--limit", "5", "--all"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --limit + --all to error")
+	}
+}
+
+// TestGetCmdSingleRecordIgnoresLimitAll proves a fully-qualified
+// single-record address silently ignores --limit / --all. The
+// response must still be the pre-B2 single-record shape.
+func TestGetCmdSingleRecordIgnoresLimitAll(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// --all on a single-record address must not error and must emit
+	// the single-record JSON shape (no "records" envelope).
+	cmd := newGetCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--json", "--all"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var payload struct {
+		Section string `json:"section"`
+		Bytes   string `json:"bytes"`
+		Records any    `json:"records"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if payload.Section != "plans.task.t1" {
+		t.Errorf("single-record --all leaked into scope shape; section = %q", payload.Section)
+	}
+	if payload.Records != nil {
+		t.Errorf("single-record --all should NOT emit records envelope: %+v", payload.Records)
+	}
+}
+
+// pad2 is a tiny zero-padded int→string helper for the scope test
+// seeders. Keeps the seed body deterministic without pulling fmt into
+// the hot path of the test file where bytes.Buffer already does the
+// heavy lifting.
+func pad2(i int) string {
+	if i < 10 {
+		return "0" + string(rune('0'+i))
+	}
+	hi := i / 10
+	lo := i % 10
+	return string(rune('0'+hi)) + string(rune('0'+lo))
+}
+
+// assertGolden compares got against the bytes stored at goldenPath. On
+// -update the golden is regenerated; on first run (file missing) the
+// golden is materialized and the test fails loudly so the dev reviews
+// the diff. Subsequent runs enforce byte-identity.
+func assertGolden(t *testing.T, goldenPath string, got []byte) {
+	t.Helper()
+	if *updateCLIGolden {
+		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
+			t.Fatalf("mkdir testdata: %v", err)
+		}
+		if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+		return
+	}
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if mkErr := os.MkdirAll(filepath.Dir(goldenPath), 0o755); mkErr != nil {
+				t.Fatalf("mkdir testdata: %v", mkErr)
+			}
+			if wErr := os.WriteFile(goldenPath, got, 0o644); wErr != nil {
+				t.Fatalf("materialize golden: %v", wErr)
+			}
+			t.Fatalf("materialized golden at %s from current output; review the bytes, then re-run to lock the regression", goldenPath)
+		}
+		t.Fatalf("read golden (run with -update to regenerate): %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("output drift from golden %s.\n-- got --\n%q\n-- want --\n%q",
+			goldenPath, got, want)
 	}
 }

@@ -186,3 +186,290 @@ func TestSearchAllBeatsLimit(t *testing.T) {
 		t.Errorf("all=true must beat limit=3, got %d", len(hits))
 	}
 }
+
+// ---- §12.17.5 [B2] GetScope / IsScopeAddress ------------------------
+
+// multiInstanceOpsSchema declares a dir-per-instance TOML db so the
+// four-segment IsScopeAddress cases (<db>, <db>.<instance>,
+// <db>.<instance>.<type>, <db>.<instance>.<type>.<id>) exercise the
+// multi-instance branch.
+const multiInstanceOpsSchema = `
+[plan_db]
+directory = "workflow"
+format = "toml"
+description = "Multi-instance planning db."
+
+[plan_db.build_task]
+description = "A build task."
+
+[plan_db.build_task.fields.id]
+type = "string"
+required = true
+
+[plan_db.build_task.fields.status]
+type = "string"
+required = true
+`
+
+// seedMultiInstancePlans stands up a dir-per-instance project with two
+// drops carrying 3 and 2 build_tasks. Returns the project root.
+func seedMultiInstancePlans(t *testing.T) string {
+	t.Helper()
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
+
+	root := t.TempDir()
+	taDir := filepath.Join(root, ".ta")
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
+		t.Fatalf("mkdir .ta: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(multiInstanceOpsSchema), 0o644); err != nil {
+		t.Fatalf("write schema: %v", err)
+	}
+	dropA := filepath.Join(root, "workflow", "drop_a")
+	if err := os.MkdirAll(dropA, 0o755); err != nil {
+		t.Fatalf("mkdir drop_a: %v", err)
+	}
+	dropB := filepath.Join(root, "workflow", "drop_b")
+	if err := os.MkdirAll(dropB, 0o755); err != nil {
+		t.Fatalf("mkdir drop_b: %v", err)
+	}
+	bodyA := "[build_task.task_1]\nid = \"A1\"\nstatus = \"todo\"\n\n" +
+		"[build_task.task_2]\nid = \"A2\"\nstatus = \"doing\"\n\n" +
+		"[build_task.task_3]\nid = \"A3\"\nstatus = \"done\"\n"
+	if err := os.WriteFile(filepath.Join(dropA, "db.toml"), []byte(bodyA), 0o644); err != nil {
+		t.Fatalf("seed drop_a: %v", err)
+	}
+	bodyB := "[build_task.task_1]\nid = \"B1\"\nstatus = \"todo\"\n\n" +
+		"[build_task.task_2]\nid = \"B2\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(filepath.Join(dropB, "db.toml"), []byte(bodyB), 0o644); err != nil {
+		t.Fatalf("seed drop_b: %v", err)
+	}
+	return root
+}
+
+// TestIsScopeAddressSingleInstance enumerates every segment-count case
+// on a single-instance db. 1-2 segs = scope; 3+ segs = single-record.
+func TestIsScopeAddressSingleInstance(t *testing.T) {
+	root := seedNTasks(t, 1)
+	cases := []struct {
+		section string
+		want    bool
+	}{
+		{"plans", true},           // <db>
+		{"plans.task", true},      // <db>.<type>
+		{"plans.task.t01", false}, // <db>.<type>.<id>
+		{"plans.task.deep.id", false},
+	}
+	for _, tc := range cases {
+		got, err := ops.IsScopeAddress(root, tc.section)
+		if err != nil {
+			t.Fatalf("IsScopeAddress(%q): %v", tc.section, err)
+		}
+		if got != tc.want {
+			t.Errorf("IsScopeAddress(%q) = %v, want %v", tc.section, got, tc.want)
+		}
+	}
+}
+
+// TestIsScopeAddressMultiInstance enumerates every segment-count case
+// on a multi-instance db. 1-3 segs = scope; 4+ segs = single-record.
+func TestIsScopeAddressMultiInstance(t *testing.T) {
+	root := seedMultiInstancePlans(t)
+	cases := []struct {
+		section string
+		want    bool
+	}{
+		{"plan_db", true},                           // <db>
+		{"plan_db.drop_a", true},                    // <db>.<instance>
+		{"plan_db.drop_a.build_task", true},         // <db>.<instance>.<type>
+		{"plan_db.drop_a.build_task.task_1", false}, // <db>.<instance>.<type>.<id>
+	}
+	for _, tc := range cases {
+		got, err := ops.IsScopeAddress(root, tc.section)
+		if err != nil {
+			t.Fatalf("IsScopeAddress(%q): %v", tc.section, err)
+		}
+		if got != tc.want {
+			t.Errorf("IsScopeAddress(%q) = %v, want %v", tc.section, got, tc.want)
+		}
+	}
+}
+
+// TestIsScopeAddressUnknownDBErrors proves a typo in the db segment
+// fails loudly rather than falling back to "well, it's a scope".
+func TestIsScopeAddressUnknownDBErrors(t *testing.T) {
+	root := seedNTasks(t, 1)
+	if _, err := ops.IsScopeAddress(root, "nope"); err == nil {
+		t.Fatal("expected unknown-db error, got nil")
+	}
+}
+
+// TestIsScopeAddressEmptySectionErrors proves the empty-string guard
+// fires before any I/O.
+func TestIsScopeAddressEmptySectionErrors(t *testing.T) {
+	root := seedNTasks(t, 1)
+	if _, err := ops.IsScopeAddress(root, ""); err == nil {
+		t.Fatal("expected empty-section error, got nil")
+	}
+}
+
+// TestGetScopeDB returns every record under <db>.
+func TestGetScopeDB(t *testing.T) {
+	root := seedNTasks(t, 5)
+	records, err := ops.GetScope(root, "plans", nil, 0, true)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 5 {
+		t.Fatalf("GetScope(plans) len = %d, want 5", len(records))
+	}
+	want := []string{
+		"plans.task.t01", "plans.task.t02", "plans.task.t03",
+		"plans.task.t04", "plans.task.t05",
+	}
+	for i, w := range want {
+		if records[i].Section != w {
+			t.Errorf("records[%d].Section = %q, want %q", i, records[i].Section, w)
+		}
+	}
+}
+
+// TestGetScopeDBType returns every record of a given type across
+// single-instance (db.type collapses to "every record of that type").
+func TestGetScopeDBType(t *testing.T) {
+	root := seedNTasks(t, 3)
+	records, err := ops.GetScope(root, "plans.task", nil, 0, true)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("GetScope(plans.task) len = %d, want 3", len(records))
+	}
+}
+
+// TestGetScopeDBInstance returns every record in one instance of a
+// multi-instance db.
+func TestGetScopeDBInstance(t *testing.T) {
+	root := seedMultiInstancePlans(t)
+	records, err := ops.GetScope(root, "plan_db.drop_a", nil, 0, true)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("GetScope(plan_db.drop_a) len = %d, want 3: %+v", len(records), records)
+	}
+	for _, r := range records {
+		if !strings.HasPrefix(r.Section, "plan_db.drop_a.") {
+			t.Errorf("leaked record from another instance: %q", r.Section)
+		}
+	}
+}
+
+// TestGetScopeDBInstanceType returns every record in one instance-type
+// pair.
+func TestGetScopeDBInstanceType(t *testing.T) {
+	root := seedMultiInstancePlans(t)
+	records, err := ops.GetScope(root, "plan_db.drop_b.build_task", nil, 0, true)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("GetScope(plan_db.drop_b.build_task) len = %d, want 2", len(records))
+	}
+}
+
+// TestGetScopeDefaultLimit proves the endpoint default-10 applies when
+// the caller passes limit <= 0 && all == false (§6a.1 / §12.17.5 [B2]).
+func TestGetScopeDefaultLimit(t *testing.T) {
+	root := seedNTasks(t, 15)
+	records, err := ops.GetScope(root, "plans.task", nil, 0, false)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 10 {
+		t.Errorf("default limit should cap at 10, got %d", len(records))
+	}
+}
+
+// TestGetScopeExplicitLimit proves a non-zero limit caps at N.
+func TestGetScopeExplicitLimit(t *testing.T) {
+	root := seedNTasks(t, 15)
+	records, err := ops.GetScope(root, "plans.task", nil, 4, false)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 4 {
+		t.Errorf("limit=4 should cap at 4, got %d", len(records))
+	}
+}
+
+// TestGetScopeAll proves all=true returns every record.
+func TestGetScopeAll(t *testing.T) {
+	root := seedNTasks(t, 15)
+	records, err := ops.GetScope(root, "plans.task", nil, 0, true)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 15 {
+		t.Errorf("all=true should return every record, got %d", len(records))
+	}
+}
+
+// TestGetScopeAllBeatsLimit parity with the other scope endpoints —
+// all wins at the endpoint even when limit is also non-zero.
+func TestGetScopeAllBeatsLimit(t *testing.T) {
+	root := seedNTasks(t, 12)
+	records, err := ops.GetScope(root, "plans.task", nil, 3, true)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 12 {
+		t.Errorf("all=true must beat limit=3, got %d", len(records))
+	}
+}
+
+// TestGetScopeFieldsFilter proves the fields parameter narrows the
+// returned Fields map. Names not declared on the type are silently
+// omitted (mirrors search's optional-field contract).
+func TestGetScopeFieldsFilter(t *testing.T) {
+	root := seedNTasks(t, 2)
+	records, err := ops.GetScope(root, "plans.task", []string{"status"}, 0, true)
+	if err != nil {
+		t.Fatalf("GetScope: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("len = %d, want 2", len(records))
+	}
+	for _, r := range records {
+		if _, ok := r.Fields["status"]; !ok {
+			t.Errorf("record %q missing status: %+v", r.Section, r.Fields)
+		}
+		if _, ok := r.Fields["id"]; ok {
+			t.Errorf("record %q should not carry id under fields=[status]: %+v", r.Section, r.Fields)
+		}
+	}
+}
+
+// TestGetSingleRecordUnchanged locks in the §12.17.5 [B2]
+// backwards-compat guarantee: ops.Get on a fully-qualified address
+// returns the pre-B2 GetResult shape byte-for-byte (raw bytes mode).
+// Test is framed at the endpoint so both the CLI and MCP adapters
+// inherit the byte-equivalence proof.
+func TestGetSingleRecordUnchanged(t *testing.T) {
+	root := seedNTasks(t, 1)
+	res, err := ops.Get(root, "plans.task.t01", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	got := string(res.Bytes)
+	// seedNTasks terminates every record with "\n\n" so the trailing
+	// blank line is part of the record's byte range.
+	want := "[plans.task.t01]\nid = \"T01\"\nstatus = \"todo\"\n\n"
+	if got != want {
+		t.Errorf("single-record bytes drifted:\ngot  %q\nwant %q", got, want)
+	}
+	if res.Fields != nil {
+		t.Errorf("Fields should be nil when fields=nil: %+v", res.Fields)
+	}
+}

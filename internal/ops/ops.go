@@ -502,6 +502,117 @@ func ListSections(path, scope string, limit int, all bool) ([]string, error) {
 	return out, nil
 }
 
+// ScopeRecord is one record returned by GetScope. Mirrors SearchHit's
+// shape — full dotted address, raw on-disk bytes, and the decoded field
+// map for every declared field on the record type. Section is the
+// caller-visible address; Fields reflects the ops.GetScope `fields`
+// filter (nil = every declared field; non-nil = named subset with any
+// absent names silently omitted, matching search's optional-field
+// contract).
+//
+// GetScope is the multi-record half of §12.17.5 [B2]. Single-record
+// `ta get` callers continue to route through ops.Get and see the
+// unchanged GetResult shape (§12.17.5 [B2] backwards-compat lock).
+type ScopeRecord struct {
+	Section string
+	Bytes   []byte
+	Fields  map[string]any
+}
+
+// IsScopeAddress reports whether section is a scope-prefix address
+// (<db>, <db>.<type> single-instance, <db>.<instance>, or
+// <db>.<instance>.<type> multi-instance) rather than a fully-qualified
+// single-record address (<db>.<type>.<id> single-instance,
+// <db>.<instance>.<type>.<id> multi-instance).
+//
+// Detection is segment-count + db-shape only — no I/O beyond the
+// schema-resolve the caller already does for the routing decision. An
+// unknown db returns an error so the caller surfaces a loud typo
+// failure rather than pretending the address was "just a scope we
+// couldn't walk".
+//
+// Mirrors the grammar search.parseScope / list_sections already accept
+// (V2-PLAN §3.1 amendment 2026-04-23 / §12.17.5 [B2]).
+func IsScopeAddress(path, section string) (bool, error) {
+	if section == "" {
+		return false, fmt.Errorf("%w: empty section", search.ErrInvalidScope)
+	}
+	resolution, err := resolveFromProjectDir(path)
+	if err != nil {
+		return false, fmt.Errorf("resolve schema for %s: %w", path, err)
+	}
+	parts := strings.Split(section, ".")
+	for _, p := range parts {
+		if p == "" {
+			return false, fmt.Errorf("%w: %q has empty segment", search.ErrInvalidScope, section)
+		}
+	}
+	dbDecl, ok := resolution.Registry.DBs[parts[0]]
+	if !ok {
+		return false, fmt.Errorf("%w: unknown db %q", search.ErrInvalidScope, parts[0])
+	}
+	switch dbDecl.Shape {
+	case schema.ShapeFile:
+		// single-instance: 1 seg (<db>) and 2 segs (<db>.<type>) are
+		// scopes; 3+ segs (<db>.<type>.<id-path>) is single-record.
+		return len(parts) < 3, nil
+	default:
+		// multi-instance: 1 seg (<db>), 2 segs (<db>.<instance>), and
+		// 3 segs (<db>.<instance>.<type>) are scopes; 4+ segs
+		// (<db>.<instance>.<type>.<id-path>) is single-record.
+		return len(parts) < 4, nil
+	}
+}
+
+// GetScope enumerates every record under a scope-prefix section and
+// returns them in file-parse order. Fields filters the returned Fields
+// map per record (nil = every declared field). Limit caps the record
+// count with the same default-10 / all-wins contract as Search /
+// ListSections (see resolveLimit). Mirrors §12.17.5 [B2].
+//
+// Routes through search.Run with zero match/query/field filters so the
+// walker reuses one code path for every scope-expansion endpoint. The
+// CLI/MCP adapters enforce the `limit`/`all` mutex; the endpoint stays
+// permissive (all-wins) for library-caller determinism.
+func GetScope(path, section string, fields []string, limit int, all bool) ([]ScopeRecord, error) {
+	results, err := search.Run(search.Query{
+		Path:  path,
+		Scope: section,
+		Limit: resolveLimit(limit, all),
+		All:   all,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ScopeRecord, len(results))
+	for i, r := range results {
+		out[i] = ScopeRecord{
+			Section: r.Section,
+			Bytes:   r.Bytes,
+			Fields:  filterFields(r.Fields, fields),
+		}
+	}
+	return out, nil
+}
+
+// filterFields narrows values to the names subset. Empty names passes
+// through every decoded field; unknown names in `names` are simply
+// absent from the output (mirrors search's optional-field contract —
+// a named field that does not appear on the record type is not an
+// error at the scope-expansion level, it just doesn't materialize).
+func filterFields(values map[string]any, names []string) map[string]any {
+	if len(names) == 0 {
+		return values
+	}
+	out := make(map[string]any, len(names))
+	for _, n := range names {
+		if v, ok := values[n]; ok {
+			out[n] = v
+		}
+	}
+	return out
+}
+
 // Search executes a ta `search` query. scope, match, queryRegex, and
 // field are optional. queryRegex is compiled with regexp.Compile — pass
 // "" to skip the regex pass. `limit` caps the returned hit count;

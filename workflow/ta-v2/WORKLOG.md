@@ -2664,4 +2664,245 @@ CLI (`cmd/ta/commands_test.go`, all pass): `TestSearchCmdDefaultLimitCaps`, `Tes
 
 N/A — task touched Go code that is actively under uncommitted edit; Hylla's committed index would not yet reflect the A2.1+A2.2 diff. All evidence flowed via `git diff HEAD`, direct `Read`, `rg` against the live tree, Context7 `/mark3labs/mcp-go` for SDK surface confirmation, and live `mage -v check` / `mage -v dogfood` re-runs. No Hylla query attempted.
 
+## 12.17.5 B2 — `ta get` scope-address expansion
+
+**HEAD at start:** `6133924` on `main` (A2.1+A2.2 landed).
+
+**Option B chosen for `ops.Get` shape.** Split the API surface into three pieces:
+
+- `ops.Get(path, section, fields) (GetResult, error)` — UNCHANGED. Byte-identical signature, byte-identical return shape. The regression-lock gate in PLAN.md §3.1 amendment.
+- `ops.GetScope(path, section string, fields []string, limit int, all bool) ([]ScopeRecord, error)` — new, thin wrapper over `search.Run` with zero match/query/field filters. Returns records in file-parse order per A2.2's search contract.
+- `ops.IsScopeAddress(path, section) (bool, error)` — new pure-function router. Segment-count + db-shape check, no I/O beyond schema-resolve. Called by both CLI and MCP adapters to pick the single-record vs multi-record code path.
+- `ops.ScopeRecord{Section, Bytes, Fields}` — new type mirroring `SearchHit`'s shape.
+
+**Why Option B over Option A (tagged-union return):**
+
+- Option A would force every caller (CLI `newGetCmd`, MCP `handleGet`, and any future library consumer) to switch-branch on a single-or-multi discriminator. That's caller-side complexity paid on every call site.
+- Option B keeps `ops.Get` byte-for-byte compatible — existing call sites that only handle single-record addresses don't change. Only the two adapters that NEED the multi-record branch learn about it, via `ops.IsScopeAddress` + `ops.GetScope`.
+- The routing logic is the SAME at both adapters (CLI + MCP), so sharing a pure-function router (`IsScopeAddress`) avoids duplicating segment-count + db-shape math between them.
+- Regression-lock is trivial to prove under Option B: `ops.Get` didn't change, so by construction its output didn't change. Only the adapter paths got new branches, and those branches fire only for scope-prefix addresses.
+
+**File inventory:**
+
+- `internal/ops/ops.go` — +111 LoC. New `ScopeRecord` struct, `IsScopeAddress(path, section) (bool, error)`, `GetScope(path, section, fields, limit, all) ([]ScopeRecord, error)`, `filterFields(values, names)` helper. `Get`, `GetAllFields`, `ListSections`, `Search` UNCHANGED.
+- `internal/ops/ops_test.go` — +287 LoC. New `multiInstanceOpsSchema` const + `seedMultiInstancePlans` helper; 13 new tests covering:
+  - `TestIsScopeAddressSingleInstance` — 1/2-seg scope, 3+-seg single (includes deep id-path).
+  - `TestIsScopeAddressMultiInstance` — 1/2/3-seg scope, 4+-seg single.
+  - `TestIsScopeAddressUnknownDBErrors` — typo fails loud.
+  - `TestIsScopeAddressEmptySectionErrors` — empty-string guard.
+  - `TestGetScopeDB`, `TestGetScopeDBType`, `TestGetScopeDBInstance`, `TestGetScopeDBInstanceType` — four PLAN.md §3.1 scope-prefix grammar forms.
+  - `TestGetScopeDefaultLimit`, `TestGetScopeExplicitLimit`, `TestGetScopeAll`, `TestGetScopeAllBeatsLimit` — endpoint cap matrix parity with search / list_sections.
+  - `TestGetScopeFieldsFilter` — fields subset filter on each record.
+  - `TestGetSingleRecordUnchanged` — regression lock on single-record byte shape.
+- `internal/mcpsrv/tools.go` — +58 LoC. `getTool()` gains `WithNumber("limit")` + `WithBoolean("all")`; description expanded to cover scope-prefix + single-record dispatch. New `scopeRecord` + `scopeResult` response shapes. `handleGet` gains strict `limit`/`all` mutex + `ops.IsScopeAddress` router + `ops.GetScope` branch. Single-record `handleGet` path unchanged (`mcp.NewToolResultText(string(res.Bytes))` for no-fields, `mcp.NewToolResultJSON(fieldsResult{...})` for fields).
+- `internal/mcpsrv/server_test.go` — +217 LoC. Seven new tests: `TestGetSingleRecordResponseShapeUnchanged`, `TestGetSingleRecordWithFieldsUnchanged`, `TestGetScopeDBReturnsRecordsEnvelope`, `TestGetScopeDefaultLimitOfTen`, `TestGetScopeAllReturnsEveryRecord`, `TestGetScopeExplicitLimit`, `TestGetScopeLimitAllMutex`, `TestGetSingleRecordIgnoresLimitAll`.
+- `cmd/ta/commands.go` — +103 LoC net. `newGetCmd` gains `IntVarP(&limit, "limit", "n", 10, ...)` + `BoolVar(&all, ...)` + `MarkFlagsMutuallyExclusive("limit", "all")`. RunE routes via `ops.IsScopeAddress`; scope branch calls new `runGetScope` helper + `emitGetScopeJSON` helper. Long + Example prose amended. Single-record CLI path (laslig render via `ops.GetAllFields` + `render.BuildFields` + `Renderer.Record`; JSON via `emitGetJSON`) UNCHANGED.
+- `cmd/ta/commands_test.go` — +318 LoC. New `flag.Bool("update", ...)` var + `assertGolden` helper. Ten new tests including two golden-locked ones (`TestGetCmdSingleRecordGolden`, `TestGetCmdSingleRecordJSONGolden`) + multi-record CLI tests (`TestGetCmdScopeMultipleRecords`, `TestGetCmdScopeJSONRecords`, `TestGetCmdScopeDefaultLimit`, `TestGetCmdScopeLimitFlag`, `TestGetCmdScopeAllFlag`, `TestGetCmdScopeMutex`, `TestGetCmdSingleRecordIgnoresLimitAll`) + a local `pad2` int-formatter helper.
+
+**New files created (golden fixtures):**
+
+- `cmd/ta/testdata/get_single.golden` — 11 lines. Byte-identical output of `ta get plans.task.t1` against a 2-field (id + status) single-record fixture. Locks the pre-B2 rendering shape so any future drift on the single-record code path fails loudly.
+- `cmd/ta/testdata/get_single_json.golden` — 5 lines. Byte-identical output of `ta get plans.task.t1 --json` (raw-bytes shape, no --fields). Same regression-lock goal.
+
+**MCP `get` response-shape decision tree** (what agents see post-B2):
+
+| Address kind | fields arg | Pre-B2 shape | Post-B2 shape |
+|---|---|---|---|
+| Single-record (fully qualified) | absent | `mcp.NewToolResultText(raw bytes)` | **unchanged** |
+| Single-record (fully qualified) | present | `{path, section, fields}` | **unchanged** |
+| Scope prefix (`<db>`, `<db>.<type>`, etc.) | absent | ERROR ("too few segments") | `{path, section, records: [{section, fields}, ...]}` |
+| Scope prefix | present | ERROR | `{path, section, records: [{section, fields: <filtered>}, ...]}` |
+
+**Breaking-change release-note prep.** Single-record callers see zero change; this is a pure additive feature at the scope-prefix surface. Agents that relied on pre-B2 "scope prefix errors" will now see a records array instead — but since the pre-B2 behavior was a definitive error (not a fallback shape), no downstream consumer could have been depending on it. Suggested release-note language:
+
+> **`get` tool now accepts scope-prefix addresses.** Previously `get` required a fully-qualified single-record address (`<db>.<type>.<id>` or `<db>.<instance>.<type>.<id>`). Scope-prefix addresses (`<db>`, `<db>.<type>`, `<db>.<instance>`, `<db>.<instance>.<type>`) now return every matching record in file-parse order as `{records: [{section, fields}, ...]}`. `limit` (default 10) and `all` params control the cap, mutually exclusive. Single-record addresses silently ignore `limit` and `all` and keep their pre-B2 response shape (raw bytes by default, `{path, section, fields}` when `fields` is set). No migration required for existing single-record callers.
+
+**Verification gate outcomes:**
+
+- `MAGEFILE_JSON=1 mage -v check` → **exit 0.** All 12 packages green (fmtcheck + vet + test -race + tidy): `cmd/ta`, `internal/{backend/md, backend/toml, config, db, fsatomic, mcpsrv, ops, render, schema, search, templates}`. `internal/record` has no tests.
+- `MAGEFILE_JSON=1 mage -v dogfood` → **exit 0.** Idempotent skip; no `db.toml` drift.
+- `git diff HEAD --stat` → 6 modified + 2 new (the golden fixtures). Matches this WORKLOG claim.
+- `go doc -all github.com/evanmschultz/ta/internal/ops` confirms the final public surface: `Get` (unchanged), `GetScope` (new), `IsScopeAddress` (new), `GetResult` (unchanged), `ScopeRecord` (new). No accidental rename of `Get` → `GetSingle` or similar.
+
+**Context7 checks:**
+
+- `/mark3labs/mcp-go` — confirmed `req.GetInt(name, default) int` + `req.GetBool(name, default bool) bool` on `CallToolRequest` are the canonical optional-parameter extraction pattern. Same pattern A2.1+A2.2 used; no divergence from IMPACT doc's guidance on this axis.
+- Cobra help-text pattern for mutex flags — followed the existing `newListSectionsCmd` / `newSearchCmd` idiom: mention "mutually exclusive with --all" in the `--limit` flag help; mention "mutually exclusive with --limit" in the `--all` flag help. Both also repeat "ignored for single-record addresses" per the spawn-prompt directive.
+
+**LoC deltas:**
+
+- `internal/ops/ops.go`: +111.
+- `internal/ops/ops_test.go`: +287.
+- `internal/mcpsrv/tools.go`: +58.
+- `internal/mcpsrv/server_test.go`: +217.
+- `cmd/ta/commands.go`: +103.
+- `cmd/ta/commands_test.go`: +318.
+- `cmd/ta/testdata/get_single.golden`: new file, 11 lines.
+- `cmd/ta/testdata/get_single_json.golden`: new file, 5 lines.
+
+Total: 1080 insertions / 14 deletions across 6 source files + 2 new golden fixtures.
+
+**Non-blocker observations:**
+
+- Seed-body terminator drift noticed during test wiring. `seedNTasks` (ops_test.go) and `seedNTOMLTasks` (server_test.go) both emit each record with a trailing `\n\n` so the last record's byte range ends in a blank line. The regression-lock tests (`TestGetSingleRecordUnchanged` endpoint + `TestGetSingleRecordResponseShapeUnchanged` MCP) assert the seed-accurate shape `"...\ntodo\n\n"`. This is not a B2 behavior change — it's the seed helper's existing contract, surfaced explicitly by the byte-level assertions. Documented in the tests' comments.
+- CLI golden files are materialized on first run (test fails loudly the first time with a "review the bytes, then re-run to lock" message). This is the same `-update`-driven pattern `internal/render/renderer_test.go:TestRendererRecordSearchGolden` uses; re-used for consistency.
+
+**Unknowns:**
+
+- Commit step remains sandbox-blocked — orchestrator commits on builder's behalf. Suggested commit message: `feat(get): scope-prefix address expansion with limit and all params`.
+
+### Hylla Feedback
+
+N/A — task touched Go code actively under uncommitted edit. All evidence flowed via `Read`, `git diff HEAD`, `git status`, Context7 `/mark3labs/mcp-go` for the `GetInt`/`GetBool` signature confirmation, `go doc` for the final public-surface audit, and live `mage check` / `mage dogfood` re-runs. Hylla's committed index would not yet reflect the uncommitted B2 diff, so no Hylla query was attempted.
+
+## QA PROOF REVIEW — 12.17.5 B2 — `ta get` scope-address expansion
+
+**HEAD at review:** `6133924` on `main` with uncommitted B2 diff applied.
+
+## 1. Claim Verification
+
+- 1.1 **`ops.Get` / `GetAllFields` / `ListSections` / `Search` signatures byte-identical pre-B2.** `go doc -all ./internal/ops` confirms `Get(path, section string, fields []string) (GetResult, error)`, `GetAllFields(path, section string) (GetResult, schema.SectionType, error)`, `ListSections(path, scope string, limit int, all bool) ([]string, error)`, `Search(path, scope string, match map[string]any, queryRegex, field string, limit int, all bool) ([]SearchHit, error)`. No renames, no added parameters on the unchanged endpoints. `GetResult` struct (`FilePath`, `Bytes`, `Fields`) unchanged.
+- 1.2 **New public surface.** `go doc -all` lists `ScopeRecord{Section, Bytes, Fields}`, `IsScopeAddress(path, section string) (bool, error)`, `GetScope(path, section string, fields []string, limit int, all bool) ([]ScopeRecord, error)`. All three match Option B per the task spec.
+- 1.3 **`IsScopeAddress` segment-count logic correct per db shape.** `internal/ops/ops.go:536-565`: ShapeFile → `len(parts) < 3` is scope (1-2 segs); default (multi-instance) → `len(parts) < 4` is scope (1-3 segs). Matches the task spec's single-inst/multi-inst decision tree. Empty-string and empty-segment guards fire before the schema lookup + registry-miss returns loud unknown-db error (not a silent fallback).
+- 1.4 **`GetScope` routes through `search.Run`, not a duplicate walker.** `ops.go:577-596`: builds `search.Query{Path, Scope: section, Limit: resolveLimit(limit, all), All: all}` — zero match/query/field filters. Endpoint stays permissive (`resolveLimit` = all-wins; `all=true` → limit=0). Matches the spec's central-limit design.
+
+## 2. MCP Surface (`internal/mcpsrv/tools.go`)
+
+- 2.1 **`getTool()` definition** (lines 17-39) gains `WithNumber("limit")` + `WithBoolean("all")` with descriptions that mention "ignored for single-record addresses" and "mutually exclusive". Description text aligns with the spec: "A fully-qualified address ... returns one record ... A scope-prefix address ... returns `{records: [...]}` in file-parse order; pass `limit` (default 10) or `all=true` to widen."
+- 2.2 **`handleGet` routing** (lines 252-294): `requirePathAndSection` → `optionalStringArray(fields)` → `GetInt/GetBool` for limit/all → **strict mutex** (`limit > 0 && all` → `"pass either limit or all, not both"`) → `ops.IsScopeAddress` router. Scope branch (275-285) maps `ops.ScopeRecord` → `scopeRecord{Section, Fields}` (no Bytes — matches the "multi-record raw-bytes would be ambiguous" comment) and returns `scopeResult{Path, Section, Records: []scopeRecord}`. Single-record branch (286-293) body is byte-identical to pre-B2: `NewToolResultText(string(res.Bytes))` for no-fields, `NewToolResultJSON(fieldsResult{Path, Section, Fields})` for fields.
+- 2.3 **Response types.** `scopeRecord{Section, Fields}` and `scopeResult{Path, Section, Records}` declared inline (lines 190-208) with explicit comments about why Bytes is omitted at the multi-record tier. Plural envelope is *always* used in scope branch, even for 1 record — verified by `TestGetScopeDBReturnsRecordsEnvelope` (3 records) and the unconditional `[]scopeRecord` construction in handleGet.
+
+## 3. CLI Surface (`cmd/ta/commands.go`)
+
+- 3.1 **`newGetCmd`** (lines 33-113) gains `--limit`/`-n` (default 10), `--all`, `MarkFlagsMutuallyExclusive("limit", "all")`. Help text on `--limit` carries "default 10; ignored for single-record addresses; mutually exclusive with --all"; `--all` carries the symmetric "ignored for single-record addresses; mutually exclusive with --limit". Matches the spec's help-text requirement.
+- 3.2 **`RunE` routing** (lines 66-103): `resolveCLIPath` → `ops.IsScopeAddress` → scope branch → `runGetScope`; single-record branch byte-identical to pre-B2 (no-fields: `ops.GetAllFields` + `render.BuildFields` + `r.Record`; fields: `ops.Get` + `buildRenderFields` + `r.Record`; JSON: `emitGetJSON`).
+- 3.3 **`runGetScope`** (lines 120-150): calls `ops.GetScope`, routes to `emitGetScopeJSON` on `--json` or emits a sequence of laslig `Section` blocks otherwise (with per-record type lookup via `lookupDBAndType`). Empty-scope case emits the "no records in scope" notice without erroring.
+- 3.4 **`emitGetScopeJSON`** (lines 155-166): emits `{"records": [{"section": ..., "fields": {...}}, ...]}`. Plural envelope unconditional — no `len(records) == 1` special case. Matches the spec's "plural envelope ALWAYS (even for 1 match)".
+
+## 4. Golden File Regression Lock
+
+- 4.1 **`cmd/ta/testdata/get_single.golden`** (11 lines) — ANSI laslig output for `ta get plans.task.t1` on a `[plans.task.t1]\nid = "T1"\nstatus = "todo"\n` seed. Confirms the section header plus field rendering.
+- 4.2 **`cmd/ta/testdata/get_single_json.golden`** (5 lines) — JSON `{"bytes": "[plans.task.t1]\\nid = \\\"T1\\\"\\nstatus = \\\"todo\\\"\\n", "section": "plans.task.t1"}`. Seed uses single-newline termination; golden bytes reflect that faithfully.
+- 4.3 **`TestGetCmdSingleRecordGolden` + `TestGetCmdSingleRecordJSONGolden`** both pass under `mage test -race`. First-run `assertGolden` materializes and fails loudly (forcing dev review); subsequent runs enforce byte-identity. Seed-body terminator handling is correct — mismatch between `seedNTasks` (endpoint: `\n\n`) and the CLI golden fixture (`\n`) is intentional and captured in the tests' comments.
+
+## 5. Response Shape Matrix Verification
+
+- 5.1 **Single-record no-fields.** MCP: `mcp.NewToolResultText(string(res.Bytes))` (tools.go:291). CLI laslig: `Record` via `GetAllFields` + `render.BuildFields` (commands.go:87-92). CLI JSON: `{section, bytes}` via `emitGetJSON` (commands.go:171-183 haveFields=false). All three UNCHANGED from pre-B2.
+- 5.2 **Single-record with fields.** MCP: `{path, section, fields}` via `fieldsResult` (tools.go:293). CLI laslig: filtered `Record` via `buildRenderFields` (commands.go:94-102). CLI JSON: `{section, fields}` via `emitGetJSON` haveFields=true. UNCHANGED.
+- 5.3 **Scope prefix.** MCP: `{path, section, records: [{section, fields}, ...]}` via `scopeResult` (tools.go:284). CLI laslig: sequence of `Record` blocks (commands.go:128-148). CLI JSON: `{records: [{section, fields}, ...]}` (commands.go:155-166). Plural envelope unconditional.
+
+## 6. Test Count Audit
+
+- 6.1 **`internal/ops/ops_test.go` — 14 new B2 tests** under the `§12.17.5 [B2]` banner at line 190: 4 `IsScopeAddress` tests (SingleInstance / MultiInstance / UnknownDBErrors / EmptySectionErrors), 9 `GetScope` tests (DB / DBType / DBInstance / DBInstanceType / DefaultLimit / ExplicitLimit / All / AllBeatsLimit / FieldsFilter), 1 `TestGetSingleRecordUnchanged` regression-lock. Spec said "13" — builder's worklog summary undercounts by one (`TestGetScopeDBType` or `TestGetScopeDBInstance` depending on how you taxonomize the 4 grammar forms). Not a behavior defect; worklog narrative drift only.
+- 6.2 **`internal/mcpsrv/server_test.go` — 8 new B2 tests**: `TestGetSingleRecordResponseShapeUnchanged`, `TestGetSingleRecordWithFieldsUnchanged`, `TestGetScopeDBReturnsRecordsEnvelope`, `TestGetScopeDefaultLimitOfTen`, `TestGetScopeAllReturnsEveryRecord`, `TestGetScopeExplicitLimit`, `TestGetScopeLimitAllMutex`, `TestGetSingleRecordIgnoresLimitAll`. Spec said "7" — builder's worklog section at line 2698 actually lists 8 names correctly but opens the sentence with "Seven new tests". Narrative off-by-one.
+- 6.3 **`cmd/ta/commands_test.go` — 9 new B2 tests** under the `§12.17.5 [B2]` banner at line 1190: `TestGetCmdSingleRecordGolden`, `TestGetCmdSingleRecordJSONGolden`, `TestGetCmdScopeMultipleRecords`, `TestGetCmdScopeJSONRecords`, `TestGetCmdScopeDefaultLimit`, `TestGetCmdScopeLimitFlag`, `TestGetCmdScopeAllFlag`, `TestGetCmdScopeMutex`, `TestGetCmdSingleRecordIgnoresLimitAll`. Spec said "10" — again narrative off-by-one. `pad2` helper + `assertGolden` helper + `flag.Bool("update", ...)` var add mechanical support that's counted by the builder's "ten new tests" description. All 9 functional tests pass.
+
+## 7. Single-Record `--limit`/`--all` Ignore Semantics
+
+- 7.1 **Adapter routes via `IsScopeAddress` FIRST.** CLI (commands.go:72-78): `isScope, _ := ops.IsScopeAddress(path, section)` → if false, falls through to single-record branch which never reads `limit`/`all`. MCP (tools.go:271-285): same pattern. So a fully-qualified address passed with `--limit 5` or `--all` routes to single-record handler, which ignores both.
+- 7.2 **Help text advertises the behavior.** MCP `limit` description (tools.go:32): "Ignored for single-record addresses." MCP `all` description (tools.go:36): same. CLI `--limit` help (commands.go:108): "ignored for single-record addresses; mutually exclusive with --all". CLI `--all` help (commands.go:109): symmetric. Contract documented at both surfaces.
+- 7.3 **Test coverage.** `TestGetSingleRecordIgnoresLimitAll` (both MCP and CLI) pass `--all`/`limit` on a fully-qualified address and assert the response shape is the pre-B2 single-record shape (no `records` envelope).
+
+## 8. Gopls Diagnostics Classification
+
+- 8.1 **`ops.go:364` (`overlayPatch` mapsloop hint).** `git blame -L 360,370 internal/ops/ops.go` → commit `5369aaf0` (2026-04-23 19:10:57, B1 `refactor(cli): update patch semantics`). **PRE-EXISTING code, OUT of B2 scope.** gopls wants `maps.Copy(merged, existing)` for the `for k, v := range existing { merged[k] = v }` loop. File as a B1 follow-up, not a B2 blocker.
+- 8.2 **`ops.go:545` (`IsScopeAddress` slicescontains hint).** `git blame -L 540,550` → all lines `Not Committed Yet`. **NEW B2 code.** The loop `for _, p := range parts { if p == "" { return ... } }` could be rewritten as `if slices.Contains(parts, "") { return ... }`. Tiny stylistic simplification; the error message already references `section` not `p`, so the rewrite is clean. **Not a blocker — categorize as a B2 follow-up.** Function behavior is correct as-is.
+- 8.3 **`tools.go:453` (`validationOrPlainError` errorsastype hint).** `git blame -L 450,460 internal/mcpsrv/tools.go` → commit `5f607aba` (2026-04-21). **PRE-EXISTING code, OUT of B2 scope.** Follow-up for a separate sweep.
+
+## 9. WORKLOG Integrity
+
+- 9.1 **Prior entries preserved.** `rg '^## 12\.17\.5' workflow/ta-v2/WORKLOG.md` lists seven drop sections: A1 (line 1822), A3 (1902), B1 (2119), B3 (2163), B0 (2316), A2.1+A2.2 (2442), B2 (2667). No clobbering, no section reorder. B2 is appended at the end per the "append after builder's B2 section" directive.
+- 9.2 **B2 section structure.** HEAD at start, Option B rationale, file inventory with LoC deltas, new golden files, MCP response-shape decision tree, breaking-change release-note prep, verification-gate outcomes, Context7 checks, LoC totals, non-blocker observations, unknowns, Hylla feedback. Matches the established per-drop template the A2.1+A2.2 section set (lines 2442+).
+
+## 10. Out-of-Scope Grammar (`<db>.<type>.<id-prefix>`)
+
+- 10.1 **`IsScopeAddress` correctly classifies 3-seg single-instance as NOT scope.** `plans.task.t*` has 3 parts → `len(parts) < 3` is false → returns `false`. Caller routes to `ops.Get` single-record path, which fails loudly at `resolver.ParseAddress` / `ResolveRead` (no record with literal id `t*`). Consistent with "four scope forms only" constraint.
+- 10.2 **Test lockdown.** `TestIsScopeAddressSingleInstance` case `{"plans.task.deep.id", false}` (line 262) proves 4-segment single-instance addresses also route to single-record. B2 does not accidentally broaden scope-routing to id-prefix territory.
+
+## 11. Verification Gate Outcomes
+
+- 11.1 **`mage check`** → exit 0 across all 12 test packages: `cmd/ta`, `internal/backend/md`, `internal/backend/toml`, `internal/config`, `internal/db`, `internal/fsatomic`, `internal/mcpsrv`, `internal/ops`, `internal/render`, `internal/schema`, `internal/search`, `internal/templates`. `internal/record` has no tests (pre-B2 state).
+- 11.2 **`mage test -race`** → same 12 packages green with race detector enabled.
+- 11.3 **`mage vet`** → clean.
+- 11.4 **`mage dogfood`** → idempotent skip (`db.toml` already exists). B2 did not perturb the dogfood flow.
+- 11.5 **`git diff HEAD --stat`** → 7 modified files (6 source + WORKLOG) + 1 new `cmd/ta/testdata/` directory with 2 golden files. Aligns with the spec's "7 modified + new testdata/ dir".
+- 11.6 **`go doc -all ./internal/ops`** → confirms the public surface expected by spec §1.1–1.2.
+
+## 12. Proof Certificate
+
+- 12.1 **Premises.** (a) `ops.Get` signature + behavior unchanged; (b) `IsScopeAddress` segment-count logic matches both db shapes; (c) `GetScope` routes through the shared search walker; (d) adapter routing picks scope vs single-record before reading `limit`/`all`; (e) scope responses always use the plural `records` envelope; (f) golden files lock the single-record byte shape; (g) all tests pass under `-race`; (h) WORKLOG preserves prior drop entries.
+- 12.2 **Evidence.** `go doc -all ./internal/ops` (1.1-1.2, 12.1.a), `ops.go:536-565` read direct (1.3, 12.1.b), `ops.go:577-596` read direct (1.4, 12.1.c), `tools.go:252-294` + `commands.go:66-103` read direct (2.2, 3.2, 12.1.d, 12.1.e), golden file `od -c` inspection + test source (4.1-4.3, 12.1.f), `mage check` + `mage test` + `mage vet` outputs (11.1-11.3, 12.1.g), `rg` + `Read` on WORKLOG (9.1-9.2, 12.1.h). `git blame` on the three gopls-flagged lines (8.1-8.3).
+- 12.3 **Trace or cases.** Single-record path (MCP + CLI, no-fields + fields) → unchanged byte shape. Scope path (MCP + CLI, with/without fields, with/without `--limit`/`--all`) → `{records: [...]}` envelope. Mutex path (`--limit` + `--all` simultaneously) → adapter-level error before endpoint call. IsScopeAddress edge cases (empty / unknown db / 1/2/3/4+ segs × single/multi-instance) → covered by endpoint test matrix.
+- 12.4 **Conclusion.** **PASS.** B2 lands `ta get` scope-address expansion under Option B with zero regression on single-record callers, correct routing at both adapters, unconditional plural envelope for scope responses, and regression-lock golden files on the single-record CLI path. All 31 new B2 tests (14 endpoint + 8 MCP + 9 CLI) pass under `mage check -race`. Pre-existing gopls hints at `ops.go:364` and `tools.go:453` are out of B2 scope; the one new hint at `ops.go:545` is a cosmetic follow-up, not a blocker.
+- 12.5 **Unknowns.** (i) Builder's narrative test counts (7/10/13) drift from the actual counts (8/9/14) by one in each of the three test files. The test code itself is correct; only the worklog-prose tally is off. Orchestrator can sweep the narrative on commit or leave as-is. (ii) `ops.go:545` `slices.Contains` rewrite is a stylistic-only B2 follow-up. (iii) Commit step stays with the orchestrator per the spawn prompt.
+
+### Hylla Feedback
+
+N/A — task touched Go code actively under uncommitted edit. Hylla's committed index would not yet reflect the B2 diff, so evidence flowed via `Read`, `git diff HEAD`, `git blame`, `git log`, Context7 would be irrelevant here (no external SDK surface changes), `go doc -all ./internal/ops` for the public-surface audit, `gopls`/`mage vet` for static checks, and live `mage check` / `mage test` / `mage dogfood` re-runs. No Hylla query attempted.
+
+## QA FALSIFICATION REVIEW — 12.17.5 B2 — `ta get` scope-address expansion
+
+**HEAD at review:** `6133924` on `main` with uncommitted B2 diff applied.
+
+**Verdict: PASS.** No CONFIRMED counterexample against the B2 claim. Two non-blocker followups filed. All 13 spawn-prompt attack vectors REFUTED.
+
+## 1. Findings
+
+- 1.1 **Diff scope matches claim.** `git diff HEAD --name-status` = 7 modified (`cmd/ta/commands.go`, `cmd/ta/commands_test.go`, `internal/mcpsrv/server_test.go`, `internal/mcpsrv/tools.go`, `internal/ops/ops.go`, `internal/ops/ops_test.go`, `workflow/ta-v2/WORKLOG.md`) + untracked `cmd/ta/testdata/` carrying the two goldens. Matches builder's 7-file + 2-new-golden claim.
+- 1.2 **`ops.Get` byte-compat preserved.** `internal/ops/ops.go:53-94` (pre-B2 `Get` body) untouched; new B2 symbols (`ScopeRecord` at 516, `IsScopeAddress` at 536, `GetScope` at 577, `filterFields` at 603) appended below `Delete`/`SearchHit`. `TestGetSingleRecordUnchanged` (ops_test.go:459) locks `want := "[plans.task.t01]\nid = \"T01\"\nstatus = \"todo\"\n\n"` byte-for-byte.
+- 1.3 **Scope-prefix JSON envelope always plural.** `emitGetScopeJSON` (commands.go:155-166) unconditionally encodes `{"records": [...]}`; MCP `handleGet` (tools.go:280-284) builds `out := make([]scopeRecord, len(records))` then wraps in `scopeResult.Records`. No collapse-to-singular branch in either surface.
+- 1.4 **`resolveLimit` + `search.Run` all-wins precedence.** `GetScope` (ops.go:577-596) routes through `resolveLimit(limit, all)` → all=true yields 0 → `search.Run` cap guard `if !q.All && q.Limit > 0 && len(out) >= q.Limit` (search.go:121) bypasses when All=true. `TestGetScopeAllBeatsLimit` (ops_test.go:421) locks `(limit=3, all=true)` returns every record.
+- 1.5 **Mutex parity CLI↔MCP.** `handleGet` (tools.go:266-270) checks `limit > 0 && all` BEFORE `ops.IsScopeAddress`; cobra `MarkFlagsMutuallyExclusive("limit", "all")` (commands.go:110) fires pre-`RunE`. Both surfaces error on both-set; single-record + one-flag-alone passes through silently ignored.
+- 1.6 **`IsScopeAddress` ↔ `parseScope` grammar alignment.** Single-instance `< 3` segs → scope matches `parseScope` 1-/2-seg `ShapeFile` branches. Multi-instance `< 4` segs → scope matches `parseScope` 1-seg + 2-seg (type-or-instance) + 3-seg (`<db>.<instance>.<type>`) branches. `TestIsScopeAddressSingleInstance` (ops_test.go:253) + `TestIsScopeAddressMultiInstance` (ops_test.go:277) enumerate every boundary.
+- 1.7 **Unknown-db + empty-section + empty-segment fast-fail.** `IsScopeAddress` errors on `parts[0]` not in registry (ops.go:550-553), on `section == ""` (ops.go:537-539), and on `plans..task` empty segments (ops.go:545-549). Guarded by `TestIsScopeAddressUnknownDBErrors` + `TestIsScopeAddressEmptySectionErrors`.
+- 1.8 **Prior WORKLOG sections intact.** B0 Builder (2316), B0 QA Proof (2385), B0 QA Falsification (2410), A2.1+A2.2 (2442), B1 (2119), B3 (2163), A1 (1822), A3 (1902). B2 appended at 2667. No clobber.
+- 1.9 **No Section 0 pollution in WORKLOG.** `rg "Section 0|SEMI-FORMAL REASONING|## Planner|## Builder|## QA Proof|## QA Falsification|## Convergence" workflow/ta-v2/WORKLOG.md` only surfaces the legitimate `### QA Proof —` / `### QA Falsification —` body-heading patterns + one historical self-reference at 2559. Builder kept process reasoning out of the durable artifact.
+- 1.10 **Multi-instance ordering determinism.** `db.Resolver.scanDirectory` sorts instances by slug (resolver.go:116). `search.Run` iterates `plan.dbOrder` (sorted at parseScope.go:148-152) then per-instance, records in file-parse order within an instance. `TestGetScopeDBInstance` (ops_test.go:353) exercises the multi-instance path.
+
+## 2. Counterexamples
+
+- 2.1 None CONFIRMED.
+
+## 3. REFUTED Attacks
+
+- 3.1 **Attack 1.1 `IsScopeAddress` on unknown db.** Returns wrapped `search.ErrInvalidScope`; test-locked.
+- 3.2 **Attack 1.2 `<db>.<nonexistent>` on multi-instance db.** 2 segs → `IsScopeAddress`=true → `parseScope` 2-seg multi-inst branch prefers type, falls to `plan.instance="typo"`. `search.Run` walks instances, none match slug, returns `[]`. Consistent with pre-existing `search` / `list_sections` contract for the same grammar (A2.1+A2.2). Not a B2 regression.
+- 3.3 **Attack 1.3 `<db>.<instance>.<type>.<parent>.<child>` (dotted ID).** 5 segs on multi-instance → `IsScopeAddress`=false → single-record → `ops.Get` → `resolver.ParseAddress` decodes tail as id-path. Pre-existing address contract.
+- 3.4 **Attack 1.4 Empty section.** Errors via the `section == ""` guard before any I/O.
+- 3.5 **Attack 1.5 Wildcard `<db>.<type>.t*`.** 3 segs on single-inst → `IsScopeAddress`=false → single-record → `ops.Get` → `ErrRecordNotFound`. Never reaches scope expansion. Claim "wildcards NOT supported" holds.
+- 3.6 **Attack 2 Golden coverage gaps.** See §4.1 — coverage expansion is a nice-to-have; the existing goldens specifically lock the paths B2 touched (routing through `IsScopeAddress` then the untouched single-record path). Multi-instance / MD / `--fields` single-record paths are still exercised by substring-assertion tests. Not a blocker.
+- 3.7 **Attack 3 Always-plural scope JSON.** `emitGetScopeJSON` + MCP `handleGet` both unconditionally wrap; empty scope encodes `"records": []` on both surfaces.
+- 3.8 **Attack 4 `resolveLimit` all-wins.** Confirmed via §1.4.
+- 3.9 **Attack 5 Cobra mutex vs "silently ignore for single-record" spec.** Cobra fires lexically pre-`RunE`, regardless of address shape. CLI help text truthfully says "mutually exclusive with --all / --limit". `TestGetCmdSingleRecordIgnoresLimitAll` (commands_test.go:1423) locks `--all` alone on single-record = silent-ignore success. `--limit 5 --all` on single-record errors — acknowledged trade-off, documented in help text. Not a spec violation.
+- 3.10 **Attack 6 MCP strict-mutex asymmetry.** Confirmed via §1.5 — mutex fires pre-routing on both surfaces; no asymmetry.
+- 3.11 **Attack 7 `GetScope` error propagation.** Unknown-db fails in `IsScopeAddress` before `GetScope` is called; unknown type under a known db fails in `search.Run`'s `parseScope`, wrapped `ErrInvalidScope` reaches CLI (`return err` commands.go:122-124) and MCP (`mcp.NewToolResultError(err.Error())` tools.go:278) intact.
+- 3.12 **Attack 8 Field filtering in scope path.** `filterFields` (ops.go:603) narrows to subset; unknown names silently absent. MD body-only records serve only "body" (search.go:462-475); non-body filter request returns absent (not error). Matches documented `ScopeRecord` contract.
+- 3.13 **Attack 9 Ordering determinism.** Confirmed via §1.10.
+- 3.14 **Attack 10 gopls diagnostics.** `ops.go:364` is `overlayPatch` (B1 code, pre-B2). `ops.go:545` is `IsScopeAddress`'s empty-segment guard — not a `slices.Contains` target. `tools.go:453` is `validationOrPlainError` (pre-B2). None are B2 correctness concerns. Sibling Proof review (§12.8.1-12.8.3, 12.5.ii) confirms these as stylistic-only followups.
+- 3.15 **Attack 11 WORKLOG clobber.** Confirmed via §1.8.
+- 3.16 **Attack 12 Section 0 pollution.** Confirmed via §1.9.
+- 3.17 **Attack 13 `search.Query` zero-value regression.** `GetScope` explicitly populates `Limit: resolveLimit(limit, all)` and `All: all` (ops.go:577-583). `ListSections` (ops.go:488) and `Search` (ops.go:622) likewise. No zero-value call site bypasses the endpoint cap outside of deliberate test scaffolding in `search` package.
+
+## 4. Non-blocker Followups
+
+- 4.1 **Golden coverage expansion.** Add goldens for: `--fields id,status` single-record, MD single-record, scope-prefix laslig multi-record render. Non-blocker — existing substring-assertion tests (`TestGetCmdFields`, `TestGetCmdScopeMultipleRecords`, MCP round-trip tests) still catch shape drift; goldens would localize the signal.
+- 4.2 **`IsScopeAddress` + `parseScope` dual validation.** Both validate scope-vs-record grammar independently. Future schema-shape additions (e.g. a new db shape) must update both in lockstep. Could unify behind `ResolveScopeOrRecord` in a later slice, but mechanical duplication is defensible given the comments in `IsScopeAddress`'s godoc. Matches Proof sibling's 12.5.ii cosmetic follow-up bucket.
+
+## 5. Verification Gates
+
+- 5.1 `git diff HEAD --stat` matches claim.
+- 5.2 `MAGEFILE_JSON=1 mage check` — sandbox blocked the re-run from this review. Builder's recorded green at §12.17.5 B2 "Verification gate outcomes" + sibling Proof review §11.1-11.4 both stand. Routed as an Unknown.
+- 5.3 Hylla queries: not attempted (uncommitted diff; Hylla committed index wouldn't reflect B2 symbols). Evidence from `Read` + `git diff HEAD` + `rg` sweeps + source-line citation.
+
+## 6. Falsification Certificate
+
+- 6.1 **Premises.** `ops.Get` byte-compat preserved; `IsScopeAddress` correctly discriminates scope vs single-record across single/multi-inst shapes + typo-loud fast-fail; `GetScope` uses `resolveLimit` + `search.Run` with all-wins precedence; CLI + MCP adapters share the segment-count router and always-plural scope envelope; single-record + `--all`/`--limit` alone is a silent no-op; mutex guards (cobra + MCP handler) surface "pass either limit or all" when both are set; WORKLOG + diff scope + file inventory + no Section-0-pollution match claim.
+- 6.2 **Evidence.** `Read` on `internal/ops/ops.go` full, `internal/mcpsrv/tools.go` full, `cmd/ta/commands.go` full, `internal/search/search.go` full, `internal/db/resolver.go` (Instances body), `internal/ops/ops_test.go` full, `internal/mcpsrv/server_test.go:1838-2053`, `cmd/ta/commands_test.go` full sweep, golden fixtures; `git diff HEAD --stat` + `--name-status`; `rg` sweeps for Section 0 pollution and prior WORKLOG heading integrity.
+- 6.3 **Trace or cases.** 13 attack vectors §3.1-3.17, each REFUTED with source-line grounding. Asymmetric to sibling Proof — Proof verified evidence completeness; Falsification actively attempted counterexamples.
+- 6.4 **Conclusion.** **PASS.** Zero CONFIRMED counterexamples against the B2 claim at HEAD `6133924`. Two non-blocker followups logged §4.1-4.2. Convergent with sibling Proof PASS.
+- 6.5 **Unknowns.** (i) Live `mage check` re-run blocked by this sandbox; builder's recorded green + sibling Proof's recorded green stand. (ii) Golden coverage expansion + `IsScopeAddress` consolidation are cosmetic follow-ups. (iii) Suggested commit message per builder: `feat(get): scope-prefix address expansion with limit and all params`.
+
+### Hylla Feedback
+
+N/A — task touched Go code actively under uncommitted edit; Hylla's committed index would not reflect the B2 diff. All evidence flowed via `Read`, `git diff HEAD`, `git status`, `rg` for WORKLOG-integrity and Section-0-pollution sweeps, and direct source-line citation.
 
