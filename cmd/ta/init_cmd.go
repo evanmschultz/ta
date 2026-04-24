@@ -21,14 +21,6 @@ import (
 	"github.com/evanmschultz/ta/internal/templates"
 )
 
-// blankSchemaBody is the one-comment header written for `--blank`.
-// Minimal but non-empty so `ta schema get` can open it cleanly.
-const blankSchemaBody = "# ta schema — ready for declarations\n"
-
-// blankTemplateChoice is the sentinel value the huh picker uses for
-// the "start from scratch" option; it maps to the --blank flag path.
-const blankTemplateChoice = "<blank>"
-
 // claudeMCPFileName is the canonical `.mcp.json` filename Claude Code
 // reads from the project root (V2-PLAN §14.4).
 const claudeMCPFileName = ".mcp.json"
@@ -44,7 +36,6 @@ const (
 // so the bootstrap logic does not need seven positional arguments.
 type initFlags struct {
 	template   string
-	blank      bool
 	noClaude   bool
 	noCodex    bool
 	force      bool
@@ -56,7 +47,7 @@ type initFlags struct {
 // shape mirrors it verbatim (V2-PLAN §14 bootstrap contract).
 type initReport struct {
 	Path          string `json:"path"`
-	SchemaSource  string `json:"schema_source"` // "<template-name>" or "blank"
+	SchemaSource  string `json:"schema_source"` // "<template-name>"
 	ClaudeWritten bool   `json:"claude_written"`
 	CodexWritten  bool   `json:"codex_written"`
 }
@@ -79,9 +70,9 @@ func newInitCmd() *cobra.Command {
 		Long: "Bootstrap a project directory from the `~/.ta/` template " +
 			"library. With a TTY and no flags, runs an interactive huh " +
 			"picker; with flags, runs non-interactively. Writes " +
-			"`<path>/.ta/schema.toml` from the chosen template (or an empty " +
-			"header for --blank), and by default writes `<path>/.mcp.json` " +
-			"(Claude Code) and `<path>/.codex/config.toml` (Codex). Per-path " +
+			"`<path>/.ta/schema.toml` from the chosen template, and by " +
+			"default writes `<path>/.mcp.json` (Claude Code) and " +
+			"`<path>/.codex/config.toml` (Codex). Per-path " +
 			"defaults can be set in `<path>/.ta/config.toml` (V2-PLAN §14.5); " +
 			"`ta init` does NOT create that file itself — edit it by hand to " +
 			"tune future `ta init` runs on the same path. --path defaults to " +
@@ -98,19 +89,17 @@ func newInitCmd() *cobra.Command {
 			// a huh form. Without this, `ta init --json` from a TTY
 			// would block on the picker then emit JSON afterward (QA
 			// falsification §12.14 LOW-2 finding).
-			f.nonInterRq = f.template != "" || f.blank || f.asJSON
+			f.nonInterRq = f.template != "" || f.asJSON
 			return runInit(c.OutOrStdout(), c.ErrOrStderr(), c.InOrStdin(), target, f)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	cmd.Flags().StringVar(&f.template, "template", "", "name of a template under ~/.ta/ (skips huh picker)")
-	cmd.Flags().BoolVar(&f.blank, "blank", false, "write an empty schema (skips huh picker; mutually exclusive with --template)")
 	cmd.Flags().BoolVar(&f.noClaude, "no-claude", false, "skip .mcp.json generation")
 	cmd.Flags().BoolVar(&f.noCodex, "no-codex", false, "skip .codex/config.toml generation")
 	cmd.Flags().BoolVar(&f.force, "force", false, "overwrite an existing .ta/schema.toml without prompting")
 	cmd.Flags().BoolVar(&f.asJSON, "json", false, "emit JSON instead of laslig-rendered notices")
-	cmd.MarkFlagsMutuallyExclusive("template", "blank")
 	addPathFlag(cmd)
 	return cmd
 }
@@ -173,23 +162,42 @@ func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) er
 	return emitInitReport(out, report, f.asJSON)
 }
 
-// chooseSchema resolves which schema bytes to write: explicit flag
-// (--template / --blank), bootstrap default, or huh picker on TTY.
-// Returns the source label used for the report ("<name>" or "blank").
-// `errOut` receives per-template warnings when the picker path encounters
-// a malformed entry (typical case: legacy pre-v2 `~/.ta/schema.toml`);
+// chooseSchema resolves which schema bytes to write: explicit
+// --template flag, bootstrap default, or huh picker on TTY. Returns the
+// source label used for the report ("<template-name>"). `errOut`
+// receives per-template warnings when the picker path encounters a
+// malformed entry (typical case: legacy pre-v2 `~/.ta/schema.toml`);
 // the malformed template is filtered out of the picker, the user sees
 // the warning on stderr, and the rest of the library still shows up.
+//
+// When no `--template` flag is passed, the home library must contain
+// at least one `.toml` template. Per V2-PLAN §12.17.5 [D2]
+// (2026-04-24 amendment), a home with zero templates raises a
+// laslig-structured "home library is empty" notice pointing at
+// `examples/` + `mage install` so the user has a clear next step.
 func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstrapConfig) (string, []byte, error) {
-	if f.blank {
-		return "blank", []byte(blankSchemaBody), nil
-	}
 	if f.template != "" {
 		data, err := loadTemplate(f.template)
 		if err != nil {
 			return "", nil, err
 		}
 		return f.template, data, nil
+	}
+
+	// No explicit --template flag. Before asking the user anything,
+	// confirm the home library has at least one template — picking
+	// from an empty picker (or silently falling through to the
+	// non-interactive error) is worse UX than naming the problem.
+	root, err := templates.Root()
+	if err != nil {
+		return "", nil, err
+	}
+	names, err := templates.List(root)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(names) == 0 {
+		return "", nil, emptyHomeError(errOut, root)
 	}
 
 	// No explicit flag. On a TTY run the picker; off-TTY honor bootstrap
@@ -203,16 +211,7 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 			}
 			return cfg.Bootstrap.DefaultTemplate, data, nil
 		}
-		return "", nil, errors.New("init: no template selected; pass --template <name>, --blank, or run on a TTY for the picker")
-	}
-
-	root, err := templates.Root()
-	if err != nil {
-		return "", nil, err
-	}
-	names, err := templates.List(root)
-	if err != nil {
-		return "", nil, err
+		return "", nil, errors.New("init: no template selected. Pass --template <name> after seeding ~/.ta/ (see examples/ and `mage install`), or run on a TTY for the picker.")
 	}
 
 	// Validate each candidate once. A template that fails schema
@@ -260,9 +259,6 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 	if err != nil {
 		return "", nil, err
 	}
-	if choice == blankTemplateChoice {
-		return "blank", []byte(blankSchemaBody), nil
-	}
 	if data, ok := cache[choice]; ok {
 		return choice, data, nil
 	}
@@ -283,14 +279,39 @@ func loadTemplate(name string) ([]byte, error) {
 	return templates.Load(root, name)
 }
 
-// pickTemplate runs the huh single-select over the library names plus
-// the <blank> option. Pre-selects the bootstrap-config default if set.
+// emptyHomeError emits a laslig-structured "home library is empty"
+// notice to errOut and returns a Go error carrying the same pointers
+// (examples/ + mage install) so non-laslig surfaces — fang's error
+// printer, piped stderr, test buffers — still expose the remediation
+// path. Notice-on-stderr + error-return mirrors the idiom in
+// summarizeMalformedDelete: the visual banner is for humans, the
+// returned error keeps mage / scripted callers aware that ta exited
+// non-zero. Per V2-PLAN §12.17.5 [D2] (2026-04-24 amendment).
+func emptyHomeError(errOut io.Writer, root string) error {
+	rr := render.New(errOut)
+	_ = rr.Notice(
+		laslig.NoticeErrorLevel,
+		"home library is empty",
+		fmt.Sprintf("ta init needs at least one schema source but %s is empty. "+
+			"See the examples/ directory in the ta repo for sample schemas you "+
+			"can copy in, or run `mage install` to seed %s/schema.toml from "+
+			"examples/schema.toml.", root, root),
+		[]string{
+			"Run: mage install",
+			"Or: cp examples/<name>.toml " + filepath.Join(root, "schema.toml"),
+			"Or: pass --template <name> after populating " + root,
+		},
+	)
+	return fmt.Errorf("init: home library is empty at %s; see examples/ and `mage install`", root)
+}
+
+// pickTemplate runs the huh single-select over the library names.
+// Pre-selects the bootstrap-config default if set.
 func pickTemplate(names []string, def string) (string, error) {
-	opts := make([]huh.Option[string], 0, len(names)+1)
+	opts := make([]huh.Option[string], 0, len(names))
 	for _, n := range names {
 		opts = append(opts, huh.NewOption(n, n))
 	}
-	opts = append(opts, huh.NewOption(blankTemplateChoice, blankTemplateChoice))
 
 	var choice string
 	if def != "" && slices.Contains(names, def) {
@@ -517,7 +538,7 @@ func effectiveMCPToggles(f initFlags, cfg bootstrapConfig) (claude, codex bool) 
 }
 
 // interactive returns true when the caller is attached to a TTY AND
-// no non-interactive flag (--template / --blank) was set, so the
+// no non-interactive flag (--template / --json) was set, so the
 // picker is both possible and wanted.
 func interactive(_ io.Reader, _ io.Writer, f initFlags) bool {
 	return ttyInteractive(f.nonInterRq)
@@ -527,7 +548,7 @@ func interactive(_ io.Reader, _ io.Writer, f initFlags) bool {
 // every `ta template *` write subcommand. Returns true only when both
 // stdin AND stdout are TTYs AND the caller has NOT forced a
 // non-interactive path via flags (e.g. `--force`, `--json`,
-// `--template`, `--blank`). Matching `os.Stdin` / `os.Stdout` keeps
+// `--template`). Matching `os.Stdin` / `os.Stdout` keeps
 // behavior consistent across commands: cobra's per-cmd io.Reader /
 // io.Writer are test buffers that cannot report TTY-ness, so the
 // process-level descriptors are the real signal.

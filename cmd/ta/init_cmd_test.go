@@ -26,8 +26,8 @@ func seedTemplateLibrary(t *testing.T) string {
 
 // runInitCmd is a test helper that invokes newInitCmd with args and
 // captured stdio. It sets up a stdin that is NOT a TTY so huh pickers
-// never fire — tests must pass --template or --blank to exercise
-// non-interactive paths.
+// never fire — tests must pass --template to exercise non-interactive
+// paths.
 func runInitCmd(t *testing.T, args ...string) (stdout string, stderr string, err error) {
 	t.Helper()
 	cmd := newInitCmd()
@@ -121,32 +121,6 @@ func TestInitCmdTemplateWritesBothMCPConfigs(t *testing.T) {
 	wantCodex := "[mcp_servers.ta]\ncommand = \"ta\"\nargs = []\n"
 	if string(gotCodex) != wantCodex {
 		t.Errorf("codex config mismatch\ngot:\n%q\nwant:\n%q", gotCodex, wantCodex)
-	}
-}
-
-func TestInitCmdBlankWritesHeader(t *testing.T) {
-	seedTemplateLibrary(t)
-	target := t.TempDir()
-
-	out, errOut, err := runInitCmd(t, "--path", target, "--blank", "--no-claude", "--no-codex", "--json")
-	if err != nil {
-		t.Fatalf("execute: %v stderr=%s", err, errOut)
-	}
-	var report struct {
-		SchemaSource string `json:"schema_source"`
-	}
-	if err := json.Unmarshal([]byte(out), &report); err != nil {
-		t.Fatalf("stdout not JSON: %v\n%s", err, out)
-	}
-	if report.SchemaSource != "blank" {
-		t.Errorf("schema_source = %q, want blank", report.SchemaSource)
-	}
-	data, err := os.ReadFile(filepath.Join(target, ".ta", "schema.toml"))
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if !strings.Contains(string(data), "ta schema") {
-		t.Errorf("blank schema missing header: %q", data)
 	}
 }
 
@@ -263,10 +237,96 @@ func TestInitCmdMissingTemplateErrors(t *testing.T) {
 func TestInitCmdNonInteractiveWithoutTemplateErrors(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
-	// No --template, no --blank; stdin is not a TTY (test context).
+	// No --template; stdin is not a TTY (test context). Library has
+	// templates so the empty-home guard does not fire — the test
+	// exercises the off-TTY ambiguous-selection error instead.
 	_, _, err := runInitCmd(t, "--path", target, "--no-claude", "--no-codex")
 	if err == nil {
-		t.Fatal("expected error running non-interactive without --template or --blank")
+		t.Fatal("expected error running non-interactive without --template")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "--blank") {
+		t.Errorf("error still mentions --blank: %v", err)
+	}
+	if !strings.Contains(msg, "examples/") {
+		t.Errorf("error missing examples/ pointer: %v", err)
+	}
+	if !strings.Contains(msg, "mage install") {
+		t.Errorf("error missing `mage install` pointer: %v", err)
+	}
+}
+
+// TestInitErrorsWhenHomeEmpty locks in the V2-PLAN §12.17.5 [D2]
+// 2026-04-24 amendment: when `~/.ta/` is empty (no schema.toml and no
+// other templates), `ta init` without `--template` errors with a
+// laslig-structured notice pointing at `examples/` and `mage install`
+// instead of silently falling through to the picker.
+func TestInitErrorsWhenHomeEmpty(t *testing.T) {
+	// Empty template library: use SetRootForTest directly instead of
+	// seedTemplateLibrary so the root has zero .toml files.
+	emptyRoot := t.TempDir()
+	restore := templates.SetRootForTest(emptyRoot)
+	t.Cleanup(restore)
+
+	target := t.TempDir()
+	_, errOut, err := runInitCmd(t, "--path", target, "--no-claude", "--no-codex")
+	if err == nil {
+		t.Fatalf("expected error when home is empty; stderr=%s", errOut)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "empty") {
+		t.Errorf("error missing 'empty': %v", err)
+	}
+	if !strings.Contains(msg, "examples/") {
+		t.Errorf("error missing 'examples/' pointer: %v", err)
+	}
+	if !strings.Contains(msg, "mage install") {
+		t.Errorf("error missing 'mage install' pointer: %v", err)
+	}
+	// The laslig Notice emitted to stderr must also carry the key
+	// remediation pointers so a human reader sees them in the banner.
+	if !strings.Contains(errOut, "home library is empty") {
+		t.Errorf("stderr missing laslig notice title: %s", errOut)
+	}
+	if !strings.Contains(errOut, "examples/") {
+		t.Errorf("stderr notice missing examples/ pointer: %s", errOut)
+	}
+	if !strings.Contains(errOut, "mage install") {
+		t.Errorf("stderr notice missing mage install pointer: %s", errOut)
+	}
+	// No schema file should land in the target when the guard fires.
+	if _, err := os.Stat(filepath.Join(target, ".ta", "schema.toml")); !os.IsNotExist(err) {
+		t.Errorf("schema.toml written despite empty-home guard firing: %v", err)
+	}
+}
+
+// TestInitSucceedsWhenHomeHasSchema is the positive counterpart to
+// TestInitErrorsWhenHomeEmpty: when `~/.ta/schema.toml` exists (the
+// `mage install` output), `ta init --template schema` succeeds and the
+// guard does not fire. Verifies that a populated home + explicit
+// template resolves normally after the [D2] changes.
+func TestInitSucceedsWhenHomeHasSchema(t *testing.T) {
+	// Seed ~/.ta/schema.toml via SetRootForTest — mimics what a user
+	// would have after running `mage install`.
+	homeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(cliTaskSchema), 0o644); err != nil {
+		t.Fatalf("seed home schema: %v", err)
+	}
+	restore := templates.SetRootForTest(homeRoot)
+	t.Cleanup(restore)
+
+	target := t.TempDir()
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	schemaPath := filepath.Join(target, ".ta", "schema.toml")
+	data, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read project schema: %v", err)
+	}
+	if !strings.Contains(string(data), "[plans.task]") {
+		t.Errorf("schema body not carried from home template: %s", data)
 	}
 }
 
@@ -460,20 +520,20 @@ func TestInitCmdCodexWhitespaceVariantNotDuplicated(t *testing.T) {
 
 // TestInitCmdJSONImpliesNonInteractive locks in the §12.14 LOW-2 fix:
 // --json on a stdin-less runner must not fall into a missing-template
-// error. Before the fix, nonInterRq was set only by --template/--blank
-// so --json alone dropped into pickTemplate's missing-template branch.
-// After the fix, --json satisfies nonInterRq on its own — and without
-// --template, the command errors loudly with the same "missing
-// template" diagnostic the no-flag-no-tty path uses. The assertion
-// here is that --json does not SILENTLY do something surprising (like
-// write a blank schema or hang); a loud error is the correct non-
-// interactive behaviour.
+// error via a picker that cannot complete. Before the fix, nonInterRq
+// was set only by --template so --json alone dropped into
+// pickTemplate's missing-template branch. After the fix, --json
+// satisfies nonInterRq on its own — and without --template, the
+// command errors loudly with the same "missing template" diagnostic
+// the no-flag-no-tty path uses. The assertion here is that --json does
+// not SILENTLY do something surprising (like hang on an unrunnable
+// picker); a loud error is the correct non-interactive behaviour.
 func TestInitCmdJSONImpliesNonInteractive(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
 	_, _, err := runInitCmd(t, "--path", target, "--json", "--no-claude", "--no-codex")
 	if err == nil {
-		t.Fatalf("expected error (non-interactive without --template / --blank); got nil")
+		t.Fatalf("expected error (non-interactive without --template); got nil")
 	}
 	if !strings.Contains(err.Error(), "template") {
 		t.Errorf("expected 'template' in error; got: %v", err)
