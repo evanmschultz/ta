@@ -47,6 +47,7 @@ const longDescription = "# ta\n\n" +
 	"- `ta update <section> --data <json>` — update an existing record\n" +
 	"- `ta delete <section>` — remove a record, file, or instance dir\n" +
 	"- `ta init` — bootstrap a project directory (schema + MCP configs)\n" +
+	"- `ta index rebuild` — regenerate the runtime record-type index at .ta/index.toml\n" +
 	"- `ta template (list|show|save|apply|delete)` — manage the ~/.ta library\n\n" +
 	"Each project has a self-contained schema at `<project>/.ta/schema.toml`. " +
 	"The runtime reads exactly that one file — no home-layer cascade, no " +
@@ -93,6 +94,7 @@ func newRootCmd() *cobra.Command {
 		newSearchCmd(),
 		newTemplateCmd(),
 		newInitCmd(),
+		newIndexCmd(),
 	)
 	// Custom help command so `ta h` and `ta h <cmd>` work in addition
 	// to cobra's default `ta help [cmd]`. Mirrors cobra's default help

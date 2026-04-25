@@ -4680,3 +4680,275 @@ N/A — task touched only Go and Markdown files; verification was
 deferred and no Hylla queries were issued during the round. All
 evidence came from `Read` of the local working tree (load.go,
 load_test.go, address.go, schema.go, PLAN.md, WORKLOG.md).
+
+## 12.17.9 Phase 9.3 — `.ta/index.toml` runtime record-type index (2026-04-24)
+
+PLAN §12.17.9 Phase 9.3 introduces a NEW package and a new CLI verb.
+Phase 9.3 is functionally complete + tested as a standalone unit;
+ops CRUD wiring is deferred to Phase 9.4. Read/Edit/Write only;
+orchestrator owns `mage fmt` + `mage check` verification.
+
+### 1. Locked design (per planner spec + PLAN §12.17.9)
+
+- 1.1 **`.ta/index.toml`** lives sibling to `.ta/schema.toml`. Top-
+  level `format_version = 1` scalar; one bracket-table per record
+  keyed by canonical address `<file-relpath>.<type>.<id-tail>` with
+  `type`, `created`, `updated` (RFC3339).
+- 1.2 **Trust-and-fail-loud.** No mtime caching, no auto-rebuild.
+  Mismatches surface a loud error pointing at `ta index rebuild`.
+- 1.3 **Atomic writes** via `internal/fsatomic.Write`. No `.lock`
+  sentinel — fsatomic's tmp-file-rename idiom is sufficient under
+  the single-project-per-process MCP cache model already in use.
+- 1.4 **Manual rebuild only.** Orchestrator-driven CLI command; no
+  MCP equivalent. Created/Updated stamped at rebuild time because
+  historical timestamps are not recoverable from disk.
+
+### 2. New package `internal/index/`
+
+- 2.1 `internal/index/doc.go` — package overview citing PLAN §12.17.9
+  Phase 9.3, allowed-dependency list (db, schema, config, backend/md,
+  backend/toml, record, fsatomic), and the no-internal-ops rule that
+  preserves the Phase 9.4 import direction (ops → index, never the
+  reverse).
+- 2.2 `internal/index/index.go` — public API:
+  - `IndexFileName = "index.toml"`, `FormatVersion = 1`,
+    `ErrUnknownFormatVersion`.
+  - `type Entry struct { Type string; Created, Updated time.Time }`.
+  - `type Index struct { FormatVersion int; Records map[string]Entry }`.
+  - `Path(projectRoot string) string` returns
+    `<projectRoot>/.ta/index.toml` via `config.SchemaDirName`.
+  - `Load(projectRoot)` — missing file returns empty Index seeded with
+    current FormatVersion; parse errors and unknown
+    `format_version` values surface wrapped errors. Walks the parsed
+    map recursively, flattening Entry-shaped leaf tables (detected by
+    presence of a `type` string key) into the flat `Records` map keyed
+    by the dotted canonical address.
+  - `(idx *Index) Save(projectRoot)` — atomic write through
+    fsatomic.Write; mkdir's `.ta/` when missing; serializes records
+    in canonical-address order (sorted keys) so two consecutive Saves
+    of unchanged data produce byte-identical output. Expands each flat
+    key back into nested maps so go-toml/v2 emits natural-form
+    bracket headers (`[phase_1.db.t1]`).
+  - `(idx *Index) Get(canonical)` / `Put` / `Delete` / `Walk(fn)`.
+    `Put` defaults Created/Updated to `time.Now().UTC()` on insert
+    when zero; PRESERVES Created across updates regardless of caller-
+    supplied value (Created is monotone over a record's lifetime);
+    defaults zero Updated on update; normalizes both timestamps to
+    UTC for byte-identical Save output.
+- 2.3 `internal/index/rebuild.go` — `Rebuild(projectRoot string)
+  (*RebuildResult, error)`. Walks every declared db's mounts via
+  `db.Resolver.Instances`, reads each backing file, enumerates
+  declared records via the per-format backend, and regenerates the
+  index from on-disk truth. Missing files / directories are skipped
+  silently — rebuild reflects what is on disk, not what the schema
+  declares should be there. Returns `RebuildResult{RecordsIndexed,
+  IndexPath, Index}` for the CLI's notice/JSON payload.
+  - `tomlDeclaredTypes(dbDecl)` mirrors
+    `internal/ops.buildBackend`'s TOML branch (single-file dbs use
+    `<db>.<type>` prefixes; multi-file dbs use bare `<type>` names) —
+    replicated rather than imported because ops will import index in
+    Phase 9.4 and the reverse direction would cycle.
+  - `canonicalForBracket(slug, bracket, dbName, singleFile)` strips
+    the db-name prefix from single-file brackets before re-prepending
+    the slug, so the canonical address aligns with
+    `db.Address.Canonical()` in both single-file (slug == db-name in
+    the common case but not required to be) and multi-file shapes.
+- 2.4 `internal/index/index_test.go` — round-trip Save/Load,
+  missing-file Load returns empty Index, format_version-at-top of
+  encoded output, missing/unknown format_version rejection,
+  nested-table parsing on Load, Put insert-vs-update timestamp
+  semantics, Get/Delete edge cases, Walk sort order + early exit,
+  no-temp-file-on-success, concurrent-Save best-effort smoke.
+- 2.5 `internal/index/rebuild_test.go` — empty project produces
+  empty index file, single-file TOML rebuild, multi-file TOML
+  rebuild across two drops, MD collection rebuild, missing-mount
+  silent skip, persists-to-disk verification, overwrites-stale-
+  entries on rebuild, missing-schema rejection, empty-project-root
+  rejection.
+
+### 3. New CLI command `ta index rebuild`
+
+- 3.1 `cmd/ta/index_cmd.go` — `newIndexCmd()` parent + `newIndexRebuildCmd()`
+  child. `--path <project>` (default cwd via `resolveCLIPath`),
+  `--json` toggle. Default surface is a laslig success notice with
+  `records indexed: N` + output path body. `--json` shape:
+  `{"records_indexed": N, "path": "..."}`. NoArgs.
+- 3.2 `cmd/ta/main.go` — registered the new index parent in the
+  `cmd.AddCommand(...)` block (next to `newInitCmd`). `longDescription`
+  bullet list updated to mention `ta index rebuild`.
+
+### 4. Files NOT touched (Phase 9.3 scope)
+
+- 4.1 `internal/ops/*` — Phase 9.4 wires CRUD to the index.
+- 4.2 `internal/schema/*`, `internal/db/*`, `internal/search/*` —
+  unrelated to Phase 9.3.
+- 4.3 `magefile.go`, `examples/`, `.ta/` — unrelated.
+
+### 5. Verification
+
+- 5.1 Bash denied this round. `mage fmt` + `mage check` deferred to
+  the orchestrator. QA twins (proof + falsification) follow per the
+  cascade tree.
+
+### 6. Hylla Feedback
+
+N/A — task touched Go + Markdown only and Hylla is Go-only today;
+all evidence came from `Read` of the live working tree (`magefile.go`,
+`internal/{schema,db,backend/{md,toml},record,fsatomic,config,ops}`,
+`cmd/ta/{main.go,commands.go,path.go,template_cmd.go}`,
+`workflow/ta/{db.toml,WORKLOG.md}`, `examples/schema.toml`,
+`.ta/schema.toml`) plus Context7 attempts that did not answer the
+go-toml/v2 nested-marshal question (the tool returned a misroute to
+`/burntsushi/toml` instead of `/pelletier/go-toml/v2`).
+
+## 12.17.9 Phase 9.3 — QA FALSIFICATION REVIEW (2026-04-24)
+
+PASS. Twenty attack vectors plus the falsification-spawn corner cases
+(B–Z, see Section 0 in agent response) all REFUTED. No counterexamples
+constructed. Verdict: no unmitigated counterexample → PASS.
+
+### 1. Findings
+
+- 1.1 **No `internal/ops` import sneak.** `internal/index/{doc,index,
+  rebuild}.go` imports only `errors`, `fmt`, `io/fs`, `os`,
+  `path/filepath`, `sort`, `strings`, `time`,
+  `github.com/pelletier/go-toml/v2`, plus the allow-listed local
+  `internal/{config,fsatomic,db,schema,record,backend/md,backend/toml}`.
+  `cmd/ta/index_cmd.go` imports `internal/{index,render}` only. Hard
+  guarantee from the doc.go contract holds.
+- 1.2 **`format_version` validation comprehensive.** Load rejects
+  missing scalar (line 102 explicit check before type-switch);
+  rejects non-int via type-switch default (line 111); rejects any
+  value != 1 via `ErrUnknownFormatVersion` (line 115). Save rejects
+  any non-zero non-1 value (line 242); zero is tolerated and
+  defaulted (line 237). All four paths covered by tests
+  `TestLoadRejectsMissingFormatVersion`,
+  `TestLoadRejectsUnknownFormatVersion`,
+  `TestSaveRejectsUnknownFormatVersion`,
+  `TestSaveZeroFormatVersionDefaultsToCurrent`.
+- 1.3 **Atomic write integrity verified.** `Save` calls
+  `fsatomic.Write` (line 257), no `os.WriteFile` bypass.
+  `TestSaveLeavesNoTempFile` (the actual name; spawn description
+  said `TestSaveLeavesNoTmpLeftover`) reads `.ta/` and asserts
+  exactly one entry with `Name() == "index.toml"`. fsatomic's tmp
+  filename `."+base+".*.tmp"` would surface as a separate dir entry
+  if not cleaned up — the assertion fires correctly.
+- 1.4 **Concurrent Save assertion is best-effort but adequate.**
+  16 goroutines all save the SAME idx (no diverging payloads), so
+  the test only proves no half-written file survives the rename
+  race — not multi-writer divergence. The post-Load assertion
+  validates `format_version` integrity implicitly (Load errors on
+  missing/wrong version) and entry survival explicitly. The test
+  comment acknowledges "best-effort smoke." Acceptable per locked
+  design — strong concurrent-divergence semantics are out of scope
+  for this phase.
+- 1.5 **`Put` Created/Updated semantics correct.** Insert with
+  zero-Created defaults to `time.Now().UTC()`; insert with
+  caller-supplied non-zero Created keeps the caller's value.
+  Update preserves prior.Created regardless of caller's input
+  (line 372–374). UTC normalization fires unconditionally on both
+  fields after the branch (lines 381–382). Tests
+  `TestPutInsertsNewEntryStampingTimestamps`,
+  `TestPutPreservesCreatedOnUpdate`,
+  `TestPutNormalizesTimestampsToUTC` cover these paths.
+- 1.6 **Canonical address calculation correct in all three forms.**
+  - Single-file (`paths=["plans"]`, dbName=`plans`,
+    bracket=`plans.task.t1`): canonicalForBracket strips `plans.`
+    prefix → rest=`task.t1`; slug=`plans` → result
+    `plans.task.t1`. No double-prefix, no missing-prefix bug.
+    Locked by `TestRebuildSingleFileTOML`.
+  - Multi-file (`paths=["workflow/*/db"]`, dbName=`plan_db`,
+    file=`workflow/drop_a/db.toml`, bracket=`build_task.task_001`):
+    singleFile=false → no prefix-strip; slug=`drop_a.db` →
+    `drop_a.db.build_task.task_001`. Locked by
+    `TestRebuildMultiFileTOML`.
+  - MD (`paths=["docs/"]`, file=`docs/guide.md`,
+    address=`section.installation`): joinSlugAddr prepends slug
+    `guide` → `guide.section.installation`. Locked by
+    `TestRebuildMD`.
+- 1.7 **Empty / missing project paths handled.** Empty projectRoot →
+  explicit error (`TestRebuildEmptyProjectRootErrors`). Missing
+  `.ta/schema.toml` → `config.Resolve` error wrapped
+  (`TestRebuildMissingSchemaErrors`). Missing mount dirs →
+  expandMount returns empty (`TestRebuildSkipsMissingMounts`).
+  Empty records → file with `format_version = 1` only
+  (`TestRebuildEmptyProjectProducesEmptyIndex`).
+- 1.8 **Rebuild overwrite semantics correct.** Rebuild constructs a
+  fresh `Index{Records: map[string]Entry{}}` and Saves it after
+  walking on-disk truth. Stale entries from prior runs do not
+  survive. Locked by `TestRebuildOverwritesExistingIndex`.
+  Created/Updated are stamped fresh (`now := time.Now().UTC()`)
+  because historical timestamps are not recoverable from disk —
+  PLAN-acknowledged tradeoff.
+- 1.9 **`format_version` byte-position guarantee.**
+  `TestSaveEmitsFormatVersionAtTop` reads back the encoded file
+  and asserts `strings.Index("format_version") < strings.Index("[")`.
+  Concrete byte-position check, not a format-fragility shortcut.
+  go-toml/v2's emitter always writes top-level scalars before
+  table headers, so the assertion is structurally robust.
+- 1.10 **CLI command tree correct.** `newIndexCmd()` registered in
+  `cmd/ta/main.go` line 97 (resolves the early `newIndexCmd
+  unused` diagnostic). `newIndexCmd` is the parent (no Run); the
+  only child is `newIndexRebuildCmd`. `--path` reuses
+  `addPathFlag` / `resolveCLIPath` from `path.go` (lines 60, 74).
+  `--json` toggles `emitIndexRebuildJSON` vs
+  `emitIndexRebuildNotice`. JSON shape matches the planner spec
+  exactly: `{"records_indexed": N, "path": "..."}`.
+- 1.11 **WORKLOG entry placement clean.** Phase 9.3 builder entry
+  at line 4684 follows immediately after Phase 9.2 fixup-round-3
+  (ending line 4682). No clobber; pure append.
+
+### 2. Counterexamples
+
+- 2.1 **None.** All twenty attack vectors and additional probes
+  (B–Z) refuted.
+
+### 3. Coverage gaps (not counterexamples)
+
+- 3.1 **`cmd/ta/main_test.go` does not name `index` in
+  `TestSubcommandsRegistered` or `TestMenuItemsSkipsHelpAndCompletion`.**
+  Both tests use soft-membership semantics (only check listed
+  names; don't assert the full set). The new `index` subcommand
+  IS registered (line 97 of main.go) and IS picked up by
+  `TestEveryCommandHasExample`'s walker, which would catch a
+  missing Example field on either `index` or `index rebuild`.
+  This is a coverage gap, not a regression — adding `"index"` to
+  the want lists would tighten the lock without changing build
+  state. Recommend Phase 9.4 fold in.
+- 3.2 **No dedicated rebuild test for MD `*` glob mount
+  (`paths=["docs/*"]`).** The resolver code path is exercised by
+  `internal/db` tests; `internal/index/rebuild_test.go` covers
+  collection (`docs/`) and bare-file MD only. Coverage gap, not
+  a bug — the rebuild walker delegates to `resolver.Instances`
+  which is shared with ops and well-tested upstream.
+- 3.3 **Test name in spawn description vs reality.** Spawn said
+  `TestSaveLeavesNoTmpLeftover`; actual is `TestSaveLeavesNoTempFile`.
+  Cosmetic; the assertion is real and correct.
+
+### 4. Verdict
+
+PASS. Phase 9.3 implementation matches the locked design (PLAN
+§12.17.9). No `internal/ops` import. `format_version` validation
+loud at every entry point. Atomic writes via fsatomic. Canonical
+address computation correct across single-file TOML, multi-file
+TOML, and MD collection mount shapes. Rebuild overwrites stale
+entries. CLI tree (`ta index` parent + `ta index rebuild` child)
+wires correctly through the existing `addPathFlag` /
+`resolveCLIPath` helpers and emits both laslig + JSON output as
+specified. Concurrent Save test is best-effort by design and the
+locked spec accepts that limitation. Three coverage gaps named
+above are all soft (no behavior failure, only suggestion to
+tighten future locks). Both QA twins (this falsification + the
+proof sibling) clear → orchestrator may proceed with commit.
+
+### 5. Hylla Feedback
+
+N/A — review touched Go files only. Hylla is Go-only today; all
+evidence came from `Read` of the live working tree
+(`internal/index/{doc,index,index_test,rebuild,rebuild_test}.go`,
+`internal/{fsatomic,db/{resolver,address,slug},schema/schema,
+backend/{toml,md}/backend}.go`, `cmd/ta/{main,index_cmd,
+path,main_test}.go`, `workflow/ta/WORKLOG.md`). No Hylla queries
+were issued; the working tree is uncommitted, so Hylla's index
+would not yet reflect the new `internal/index/` package even if
+queried.
