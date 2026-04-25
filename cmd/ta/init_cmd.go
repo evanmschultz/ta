@@ -211,7 +211,7 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 			}
 			return cfg.Bootstrap.DefaultTemplate, data, nil
 		}
-		return "", nil, errors.New("init: no template selected. Pass --template <name> after seeding ~/.ta/ (see examples/ and `mage install`), or run on a TTY for the picker.")
+		return "", nil, errors.New("init: no template selected. Populate ~/.ta/ first (see examples/ in the ta repo, or build a schema with `ta schema --action=create`), or run on a TTY for the picker.")
 	}
 
 	// Validate each candidate once. A template that fails schema
@@ -255,6 +255,14 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 		}
 	}
 
+	// After malformed-skip, every remaining candidate is a real schema.
+	// If none survived (e.g. fresh `mage install` left an empty
+	// schema.toml as the only candidate), surface the same empty-home
+	// guidance instead of opening an empty picker.
+	if len(validNames) == 0 {
+		return "", nil, emptyHomeError(errOut, root)
+	}
+
 	choice, err := pickTemplate(validNames, cfg.Bootstrap.DefaultTemplate)
 	if err != nil {
 		return "", nil, err
@@ -289,20 +297,23 @@ func loadTemplate(name string) ([]byte, error) {
 // non-zero. Per V2-PLAN §12.17.5 [D2] (2026-04-24 amendment).
 func emptyHomeError(errOut io.Writer, root string) error {
 	rr := render.New(errOut)
+	schemaPath := filepath.Join(root, "schema.toml")
 	_ = rr.Notice(
 		laslig.NoticeErrorLevel,
 		"home library is empty",
-		fmt.Sprintf("ta init needs at least one schema source but %s is empty. "+
-			"See the examples/ directory in the ta repo for sample schemas you "+
-			"can copy in, or run `mage install` to seed %s/schema.toml from "+
-			"examples/schema.toml.", root, root),
+		fmt.Sprintf("ta init needs at least one schema source but %s has no usable "+
+			"schema or templates. Sample schemas live in the ta repo under "+
+			"examples/ — copy one in, or build a schema with the CLI and "+
+			"promote it via `ta template save`.", root),
 		[]string{
-			"Run: mage install",
-			"Or: cp examples/<name>.toml " + filepath.Join(root, "schema.toml"),
-			"Or: pass --template <name> after populating " + root,
+			"Copy a sample: cp examples/schema.toml " + schemaPath,
+			"Or hand-edit: $EDITOR " + schemaPath,
+			"Or build via CLI: ta schema --action=create --kind=db --name=<name> --data='{...}'",
+			"Or promote from a project: ta template save (after building schema in a project)",
+			"Sample schemas live in the ta repo under examples/",
 		},
 	)
-	return fmt.Errorf("init: home library is empty at %s; see examples/ and `mage install`", root)
+	return fmt.Errorf("init: home library is empty at %s; see examples/ in the ta repo", root)
 }
 
 // pickTemplate runs the huh single-select over the library names.

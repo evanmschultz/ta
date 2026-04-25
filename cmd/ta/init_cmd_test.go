@@ -251,16 +251,16 @@ func TestInitCmdNonInteractiveWithoutTemplateErrors(t *testing.T) {
 	if !strings.Contains(msg, "examples/") {
 		t.Errorf("error missing examples/ pointer: %v", err)
 	}
-	if !strings.Contains(msg, "mage install") {
-		t.Errorf("error missing `mage install` pointer: %v", err)
+	if !strings.Contains(msg, "ta schema --action=create") {
+		t.Errorf("error missing CLI-build pointer: %v", err)
 	}
 }
 
 // TestInitErrorsWhenHomeEmpty locks in the V2-PLAN §12.17.5 [D2]
 // 2026-04-24 amendment: when `~/.ta/` is empty (no schema.toml and no
 // other templates), `ta init` without `--template` errors with a
-// laslig-structured notice pointing at `examples/` and `mage install`
-// instead of silently falling through to the picker.
+// laslig-structured notice pointing at `examples/` instead of silently
+// falling through to the picker.
 func TestInitErrorsWhenHomeEmpty(t *testing.T) {
 	// Empty template library: use SetRootForTest directly instead of
 	// seedTemplateLibrary so the root has zero .toml files.
@@ -280,9 +280,6 @@ func TestInitErrorsWhenHomeEmpty(t *testing.T) {
 	if !strings.Contains(msg, "examples/") {
 		t.Errorf("error missing 'examples/' pointer: %v", err)
 	}
-	if !strings.Contains(msg, "mage install") {
-		t.Errorf("error missing 'mage install' pointer: %v", err)
-	}
 	// The laslig Notice emitted to stderr must also carry the key
 	// remediation pointers so a human reader sees them in the banner.
 	if !strings.Contains(errOut, "home library is empty") {
@@ -291,8 +288,8 @@ func TestInitErrorsWhenHomeEmpty(t *testing.T) {
 	if !strings.Contains(errOut, "examples/") {
 		t.Errorf("stderr notice missing examples/ pointer: %s", errOut)
 	}
-	if !strings.Contains(errOut, "mage install") {
-		t.Errorf("stderr notice missing mage install pointer: %s", errOut)
+	if !strings.Contains(errOut, "ta template save") {
+		t.Errorf("stderr notice missing template-save remediation: %s", errOut)
 	}
 	// No schema file should land in the target when the guard fires.
 	if _, err := os.Stat(filepath.Join(target, ".ta", "schema.toml")); !os.IsNotExist(err) {

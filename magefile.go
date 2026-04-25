@@ -42,9 +42,12 @@ func Build() error {
 
 // Install builds ta from the current working tree and drops the binary at
 // $HOME/.local/bin/ta so MCP clients can invoke it by bare name without
-// requiring a Go toolchain on the end user's machine. Also seeds
-// $HOME/.ta/schema.toml from examples/schema.toml on first install;
-// existing user schemas are never overwritten.
+// requiring a Go toolchain on the end user's machine. Also creates
+// $HOME/.ta/schema.toml as an EMPTY file on first install (per 2026-04-24
+// amendment — no embedded default; user populates it from `examples/`,
+// from CLI `ta schema --action=create ...`, or by promoting a project's
+// `.ta/schema.toml` via `ta template save`). Existing user schemas are
+// never overwritten.
 //
 // User-facing progress and completion output routes through laslig (via
 // internal/render) so `mage install` looks visually consistent with the
@@ -82,12 +85,20 @@ func Install() error {
 	})
 }
 
-// seedHomeSchema creates $HOME/.ta/ if missing and copies
-// examples/schema.toml to $HOME/.ta/schema.toml when no schema file is
-// already present. An existing schema is left untouched so repeated
-// `mage install` runs never clobber user edits. Returns the destination
-// path and a short outcome label ("seeded" or "untouched") for the
-// Install target's summary Facts block.
+// seedHomeSchema creates $HOME/.ta/ if missing and writes an EMPTY
+// $HOME/.ta/schema.toml on first install. Per 2026-04-24 amendment, no
+// default schema is embedded in the binary or copied from examples/.
+// The user populates the file via one of:
+//
+//   - copy a sample from `examples/` in the ta repo (e.g.
+//     `cp examples/schema.toml ~/.ta/schema.toml`),
+//   - build a schema in a project (`ta schema --action=create ...`)
+//     and promote it via `ta template save`, or
+//   - hand-edit the file directly.
+//
+// An existing schema is left untouched so repeated `mage install` runs
+// never clobber user edits. Returns the destination path and a short
+// outcome label ("created" or "untouched") for the Install summary.
 func seedHomeSchema(rr *render.Renderer, home string) (string, string, error) {
 	taDir := filepath.Join(home, ".ta")
 	if err := os.MkdirAll(taDir, 0o755); err != nil {
@@ -107,23 +118,23 @@ func seedHomeSchema(rr *render.Renderer, home string) (string, string, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return "", "", installError(rr, fmt.Sprintf("stat %q", dst), err)
 	}
-	src := filepath.Join("examples", "schema.toml")
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return "", "", installError(rr, fmt.Sprintf("read %q", src), err)
-	}
-	if err := os.WriteFile(dst, data, 0o644); err != nil {
+	if err := os.WriteFile(dst, nil, 0o644); err != nil {
 		return "", "", installError(rr, fmt.Sprintf("write %q", dst), err)
 	}
 	if nerr := rr.Notice(
 		laslig.NoticeInfoLevel,
-		"schema seeded",
-		fmt.Sprintf("wrote %s from %s", dst, src),
-		nil,
+		"empty schema created",
+		fmt.Sprintf("wrote empty %s — populate it before running `ta init` in projects", dst),
+		[]string{
+			"Copy a sample: cp examples/schema.toml ~/.ta/schema.toml (see the ta repo)",
+			"Or build via CLI: ta schema --action=create --kind=db --name=<name> --data='{...}'",
+			"Or promote from a project: ta template save (after building schema in a project)",
+			"Sample schemas live in the ta repo under examples/",
+		},
 	); nerr != nil {
 		return "", "", nerr
 	}
-	return dst, "seeded", nil
+	return dst, "created", nil
 }
 
 // installError renders a laslig error notice for a user-facing Install
