@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -267,8 +268,8 @@ func TestCreateCmdRejectsTypeMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected --type ghost to error against plans.task.t1")
 	}
-	if !strings.Contains(err.Error(), "type mismatch") {
-		t.Errorf("error should mention type mismatch: %v", err)
+	if !errors.Is(err, ops.ErrTypeMismatch) {
+		t.Errorf("error should wrap ops.ErrTypeMismatch: %v", err)
 	}
 	dataPath := filepath.Join(root, "plans.toml")
 	if _, statErr := os.Stat(dataPath); statErr == nil {
@@ -299,8 +300,8 @@ func TestUpdateCmdRejectsTypeMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected --type ghost to error against plans.task.t1")
 	}
-	if !strings.Contains(err.Error(), "type mismatch") {
-		t.Errorf("error should mention type mismatch: %v", err)
+	if !errors.Is(err, ops.ErrTypeMismatch) {
+		t.Errorf("error should wrap ops.ErrTypeMismatch: %v", err)
 	}
 	after, _ := os.ReadFile(dataPath)
 	if !bytes.Equal(after, initial) {
@@ -329,8 +330,8 @@ func TestDeleteCmdRejectsTypeMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected --type ghost to error against plans.task.t1")
 	}
-	if !strings.Contains(err.Error(), "type mismatch") {
-		t.Errorf("error should mention type mismatch: %v", err)
+	if !errors.Is(err, ops.ErrTypeMismatch) {
+		t.Errorf("error should wrap ops.ErrTypeMismatch: %v", err)
 	}
 	after, _ := os.ReadFile(dataPath)
 	if !bytes.Equal(after, initial) {
