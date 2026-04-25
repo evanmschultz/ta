@@ -657,26 +657,255 @@ func TestLoadRejectsNonTableTopLevel(t *testing.T) {
 	}
 }
 
-func TestIsSingleFile(t *testing.T) {
+func TestLoadRejectsGlobOverlapWithLiteral(t *testing.T) {
+	// `["workflow/*/db"]` overlaps with `["workflow/foo/db"]` because the
+	// glob covers the literal expansion. Phase 9.2 must catch this.
+	src := `
+[a]
+paths = ["workflow/*/db"]
+format = "toml"
+
+[a.task]
+description = "A"
+
+[a.task.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["workflow/foo/db"]
+format = "toml"
+
+[b.task]
+description = "B"
+
+[b.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if !errors.Is(err, ErrOverlappingPaths) {
+		t.Fatalf("expected ErrOverlappingPaths, got %v", err)
+	}
+}
+
+func TestLoadRejectsCollectionOverlapWithDescendant(t *testing.T) {
+	// `["docs/"]` (collection root) overlaps with `["docs/foo"]`
+	// because the collection root mounts every descendant file.
+	src := `
+[a]
+paths = ["docs/"]
+format = "md"
+
+[a.section]
+description = "A"
+heading = 2
+
+[a.section.fields.body]
+type = "string"
+
+[b]
+paths = ["docs/foo"]
+format = "md"
+
+[b.section]
+description = "B"
+heading = 2
+
+[b.section.fields.body]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if !errors.Is(err, ErrOverlappingPaths) {
+		t.Fatalf("expected ErrOverlappingPaths, got %v", err)
+	}
+}
+
+func TestSingleFileMount(t *testing.T) {
 	cases := []struct {
-		name  string
-		paths []string
+		mount string
 		want  bool
 	}{
-		{"single .toml", []string{"plans.toml"}, true},
-		{"single .md", []string{"README.md"}, true},
-		{"single dir-like (no ext)", []string{"workflow"}, false},
-		{"glob entry", []string{"workflow/*/db"}, false},
-		{"trailing slash", []string{"docs/"}, false},
-		{"two entries", []string{"a.toml", "b.toml"}, false},
-		{"empty", nil, false},
+		// Single-file (no glob, no trailing slash, not the project-root
+		// collection sentinel).
+		{"plans", true},
+		{"plans.toml", true},
+		{"README", true},
+		{"docs/api", true},
+		{"~/.ta/db", true},
+
+		// Multi-file: glob.
+		{"workflow/*/db", false},
+		{"docs/*", false},
+
+		// Multi-file: trailing-slash collection.
+		{"docs/", false},
+
+		// Multi-file: project-root collection. PLAN §12.17.9 Phase 9.2
+		// treats `.` as a collection mount across address.go,
+		// resolver.go, and search.go; SingleFileMount must agree, or
+		// bracket-form selection diverges (Create writes db-prefixed,
+		// search and schema_mutate look for bare).
+		{".", false},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := IsSingleFile(DB{Paths: c.paths})
-			if got != c.want {
-				t.Errorf("IsSingleFile(%v) = %v, want %v", c.paths, got, c.want)
-			}
-		})
+	for _, tc := range cases {
+		if got := SingleFileMount(tc.mount); got != tc.want {
+			t.Errorf("SingleFileMount(%q) = %v, want %v", tc.mount, got, tc.want)
+		}
+	}
+}
+
+func TestIsSingleFileDBProjectRootCollectionIsNotSingle(t *testing.T) {
+	// Cross-check the project-root collection case at the DB level —
+	// IsSingleFileDB delegates to SingleFileMount when len(Paths)==1,
+	// so the `.` mount must pass through as multi-file.
+	db := DB{Paths: []string{"."}, Format: FormatTOML}
+	if IsSingleFileDB(db) {
+		t.Errorf("IsSingleFileDB(Paths=[\".\"]) = true; want false " +
+			"(`.` is the project-root collection per PLAN §12.17.9)")
+	}
+}
+
+func TestLoadRejectsExtEquivalentOverlap(t *testing.T) {
+	// PLAN §12.17.9 Phase 9.2: a single-file mount may be declared
+	// with or without the format extension; both forms resolve to the
+	// same on-disk file. Two dbs declaring the same file via these
+	// equivalent forms must overlap.
+	src := `
+[a]
+paths = ["plans"]
+format = "toml"
+
+[a.task]
+description = "A"
+
+[a.task.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["plans.toml"]
+format = "toml"
+
+[b.task]
+description = "B"
+
+[b.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for ext-equivalent overlap " +
+			"(\"plans\" vs \"plans.toml\" with format=toml)")
+	}
+	if !errors.Is(err, ErrOverlappingPaths) {
+		t.Errorf("errors.Is ErrOverlappingPaths = false, err = %v", err)
+	}
+}
+
+func TestLoadAcceptsDisjointGlobs(t *testing.T) {
+	// `["workflow/*/db"]` and `["plans"]` are disjoint — different roots.
+	src := `
+[a]
+paths = ["workflow/*/db"]
+format = "toml"
+
+[a.task]
+description = "A"
+
+[a.task.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["plans"]
+format = "toml"
+
+[b.task]
+description = "B"
+
+[b.task.fields.id]
+type = "string"
+required = true
+`
+	if _, err := Load(strings.NewReader(src)); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+}
+
+func TestLoadRejectsCrossFormatSameMount(t *testing.T) {
+	// PLAN §12.17.9 lock (2026-04-25): mount-string equality is the
+	// overlap test, regardless of format. The address grammar
+	// `<file-relpath>.<type>.<id-tail>` carries no db prefix, so two
+	// dbs with the same `paths` entry — even if they declare different
+	// formats and resolve to physically distinct files (`plans.toml`
+	// vs `plans.md`) — cannot be disambiguated at lookup time. Reject
+	// at load.
+	src := `
+[a]
+paths = ["plans"]
+format = "toml"
+
+[a.task]
+description = "A"
+
+[a.task.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["plans"]
+format = "md"
+
+[b.section]
+description = "B"
+heading = 2
+
+[b.section.fields.body]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for cross-format same-mount overlap " +
+			"(\"plans\" toml vs \"plans\" md)")
+	}
+	if !errors.Is(err, ErrOverlappingPaths) {
+		t.Errorf("errors.Is ErrOverlappingPaths = false, err = %v", err)
+	}
+}
+
+func TestLoadAcceptsCollectionVsSiblingFile(t *testing.T) {
+	// PLAN §12.17.9 lock (2026-04-25) [B2]: a collection mount and a
+	// sibling file with a similar prefix are NOT overlapping. `["docs/"]`
+	// (md collection) walks files inside `<root>/docs/`; `["docs.md"]`
+	// (md single file) is the literal `<root>/docs.md` — physically
+	// distinct (dir vs file) AND syntactically distinct mount strings.
+	// Load must accept this pair.
+	src := `
+[a]
+paths = ["docs/"]
+format = "md"
+
+[a.section]
+description = "A"
+heading = 2
+
+[a.section.fields.body]
+type = "string"
+
+[b]
+paths = ["docs.md"]
+format = "md"
+
+[b.section]
+description = "B"
+heading = 2
+
+[b.section.fields.body]
+type = "string"
+`
+	if _, err := Load(strings.NewReader(src)); err != nil {
+		t.Fatalf("Load: %v", err)
 	}
 }

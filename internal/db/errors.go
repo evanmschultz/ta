@@ -19,9 +19,12 @@ var (
 	ErrBadAddress = errors.New("db: malformed address")
 
 	// ErrInstanceNotFound is returned by ResolveRead when the named
-	// instance does not exist on disk (no canonical db file in the
-	// dir-per-instance case; no matching file in the collection case).
-	ErrInstanceNotFound = errors.New("db: instance not found")
+	// file does not exist on disk (no matching backing file under any
+	// of the db's mounts). Phase 9.2 (PLAN §12.17.9) deprecated the
+	// term "instance" in favor of "file"; the user-visible message
+	// reads "file not found" while the sentinel name is retained for
+	// backwards compatibility with existing callers that branch on it.
+	ErrInstanceNotFound = errors.New("db: file not found")
 
 	// ErrSlugCollision is returned when two distinct filesystem paths
 	// produce the same slug for a file-per-instance db. The wrapping

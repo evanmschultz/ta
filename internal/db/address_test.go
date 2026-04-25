@@ -2,27 +2,28 @@ package db
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
-// testRegistry builds a Phase 9.1-shaped registry that exercises all
-// three legacy-shape branches via the IsSingleFile / IsLegacyDirectory /
-// IsLegacyCollection heuristics:
+// testRegistry builds a Phase 9.2-shaped registry exercising all three
+// new mount shapes per the locked design (PLAN §12.17.9):
 //
-//   - readme: Paths=["README.md"] → IsSingleFile (single .md entry).
-//   - plan_db: Paths=["workflow"] → IsLegacyDirectory (no ext, no
-//     trailing slash, no glob).
-//   - docs: Paths=["docs/"] → IsLegacyCollection (trailing slash).
+//   - readme: Paths=["README"]             → single-file mount.
+//   - plan_db: Paths=["workflow/*/db"]     → glob (one file per drop).
+//   - docs:    Paths=["docs/"]             → collection root.
 //
-// Phase 9.2 rewrites every consumer of this registry against the new
-// paths-glob grammar; this fixture is transitional.
+// Address grammar is `<file-relpath>.<type>.<id-tail>` — no leading
+// db-name segment. The mount-static-prefix is stripped from the on-disk
+// path; the residual is dot-joined to produce file-relpath.
 func testRegistry() schema.Registry {
 	return schema.Registry{DBs: map[string]schema.DB{
 		"readme": {
 			Name:   "readme",
-			Paths:  []string{"README.md"},
+			Paths:  []string{"README"},
 			Format: schema.FormatMD,
 			Types: map[string]schema.SectionType{
 				"title":   {Name: "title", Heading: 1},
@@ -31,7 +32,7 @@ func testRegistry() schema.Registry {
 		},
 		"plan_db": {
 			Name:   "plan_db",
-			Paths:  []string{"workflow"},
+			Paths:  []string{"workflow/*/db"},
 			Format: schema.FormatTOML,
 			Types: map[string]schema.SectionType{
 				"build_task": {Name: "build_task"},
@@ -50,89 +51,92 @@ func testRegistry() schema.Registry {
 	}}
 }
 
-func TestParseAddressSingleInstance(t *testing.T) {
+func TestParseAddressSingleFile(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 
-	addr, db, err := r.ParseAddress("readme.section.installation")
+	addr, db, err := r.ParseAddress("README.section.installation")
 	if err != nil {
 		t.Fatalf("ParseAddress: %v", err)
 	}
 	if db.Name != "readme" {
 		t.Errorf("db.Name = %q, want readme", db.Name)
 	}
-	if addr.DB != "readme" || addr.Instance != "" || addr.Type != "section" || addr.ID != "installation" {
+	if addr.DBName != "readme" {
+		t.Errorf("addr.DBName = %q, want readme", addr.DBName)
+	}
+	if addr.FileRelPath != "README" {
+		t.Errorf("addr.FileRelPath = %q, want README", addr.FileRelPath)
+	}
+	if addr.Type != "section" || addr.ID != "installation" {
 		t.Errorf("addr = %+v", addr)
+	}
+	if !addr.SingleFileMount {
+		t.Errorf("addr.SingleFileMount = false; want true for ['README']")
+	}
+	if want := filepath.Join("/proj", "README.md"); addr.FilePath != want {
+		t.Errorf("addr.FilePath = %q, want %q", addr.FilePath, want)
 	}
 }
 
-func TestParseAddressDirPerInstance(t *testing.T) {
+func TestParseAddressGlobMount(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 
-	addr, db, err := r.ParseAddress("plan_db.drop_1.build_task.task_001")
+	addr, db, err := r.ParseAddress("ta.db.build_task.task_001")
 	if err != nil {
 		t.Fatalf("ParseAddress: %v", err)
 	}
 	if db.Name != "plan_db" {
 		t.Errorf("db.Name = %q, want plan_db", db.Name)
 	}
-	if addr.DB != "plan_db" || addr.Instance != "drop_1" || addr.Type != "build_task" || addr.ID != "task_001" {
+	if addr.DBName != "plan_db" {
+		t.Errorf("addr.DBName = %q", addr.DBName)
+	}
+	if addr.FileRelPath != "ta.db" || addr.Type != "build_task" || addr.ID != "task_001" {
 		t.Errorf("addr = %+v", addr)
+	}
+	if addr.SingleFileMount {
+		t.Errorf("addr.SingleFileMount = true; want false for glob mount")
+	}
+	if want := filepath.Join("/proj", "workflow", "ta", "db.toml"); addr.FilePath != want {
+		t.Errorf("addr.FilePath = %q, want %q", addr.FilePath, want)
 	}
 }
 
-func TestParseAddressFilePerInstance(t *testing.T) {
+func TestParseAddressCollectionMount(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 
-	addr, _, err := r.ParseAddress("docs.reference-api.section.endpoints")
+	addr, db, err := r.ParseAddress("install.prereqs.section.title")
 	if err != nil {
 		t.Fatalf("ParseAddress: %v", err)
 	}
-	if addr.Instance != "reference-api" || addr.Type != "section" || addr.ID != "endpoints" {
+	if db.Name != "docs" {
+		t.Errorf("db.Name = %q, want docs", db.Name)
+	}
+	if addr.FileRelPath != "install.prereqs" || addr.Type != "section" || addr.ID != "title" {
 		t.Errorf("addr = %+v", addr)
 	}
-}
-
-func TestParseAddressTooFewSegments(t *testing.T) {
-	r := NewResolver("/proj", testRegistry())
-
-	// Single-instance: need <db>.<type>.<id> (3 segments). Just 2 errs.
-	if _, _, err := r.ParseAddress("readme.section"); err == nil {
-		t.Error("expected error for readme.section (too few)")
-	}
-	// Multi-instance dir: need <db>.<instance>.<type>.<id> (4). 3 errs.
-	if _, _, err := r.ParseAddress("plan_db.drop_1.build_task"); err == nil {
-		t.Error("expected error for plan_db.drop_1.build_task (too few)")
-	}
-	// Multi-instance collection: same.
-	if _, _, err := r.ParseAddress("docs.reference-api.section"); err == nil {
-		t.Error("expected error for docs.reference-api.section (too few)")
+	if want := filepath.Join("/proj", "docs", "install", "prereqs.md"); addr.FilePath != want {
+		t.Errorf("addr.FilePath = %q, want %q", addr.FilePath, want)
 	}
 }
 
-// TestParseAddressUniformDottedIDsAccepted locks in the V2-PLAN §2.9 /
-// §11.D uniform grammar: <id-path> is 1+ dot-separated segments, joined
-// with '.' into addr.ID. Single-instance accepts any 3+; multi-instance
-// accepts any 4+. No "too many segments" reject on single-instance.
-func TestParseAddressUniformDottedIDsAccepted(t *testing.T) {
+func TestParseAddressDottedIDsAccepted(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 
 	cases := []struct {
-		section  string
-		wantInst string
-		wantType string
-		wantID   string
+		section     string
+		wantRelPath string
+		wantType    string
+		wantID      string
 	}{
-		// Single-instance with dotted IDs.
-		{"readme.section.install", "", "section", "install"},
-		{"readme.section.install.sub", "", "section", "install.sub"},
-		{"readme.section.a.b.c.d", "", "section", "a.b.c.d"},
-		// Multi-instance with dotted IDs.
-		{"plan_db.drop_1.build_task.task_001", "drop_1", "build_task", "task_001"},
-		{"plan_db.drop_1.build_task.t1.subtask", "drop_1", "build_task", "t1.subtask"},
-		{"plan_db.drop_1.build_task.a.b.c", "drop_1", "build_task", "a.b.c"},
-		// File-per-instance with dotted IDs.
-		{"docs.reference-api.section.endpoints", "reference-api", "section", "endpoints"},
-		{"docs.reference-api.section.endpoints.sub", "reference-api", "section", "endpoints.sub"},
+		{"README.section.install", "README", "section", "install"},
+		{"README.section.install.sub", "README", "section", "install.sub"},
+		{"README.section.a.b.c.d", "README", "section", "a.b.c.d"},
+		{"ta.db.build_task.task_001", "ta.db", "build_task", "task_001"},
+		{"ta.db.build_task.t1.subtask", "ta.db", "build_task", "t1.subtask"},
+		{"ta.db.build_task.a.b.c", "ta.db", "build_task", "a.b.c"},
+		{"install.prereqs.section.title", "install.prereqs", "section", "title"},
+		{"install.prereqs.section.title.sub", "install.prereqs", "section", "title.sub"},
 	}
 	for _, tc := range cases {
 		addr, _, err := r.ParseAddress(tc.section)
@@ -140,40 +144,38 @@ func TestParseAddressUniformDottedIDsAccepted(t *testing.T) {
 			t.Errorf("ParseAddress(%q): unexpected error %v", tc.section, err)
 			continue
 		}
-		if addr.Instance != tc.wantInst || addr.Type != tc.wantType || addr.ID != tc.wantID {
-			t.Errorf("ParseAddress(%q) = %+v, want Instance=%q Type=%q ID=%q",
-				tc.section, addr, tc.wantInst, tc.wantType, tc.wantID)
+		if addr.FileRelPath != tc.wantRelPath || addr.Type != tc.wantType || addr.ID != tc.wantID {
+			t.Errorf("ParseAddress(%q) = %+v, want FileRelPath=%q Type=%q ID=%q",
+				tc.section, addr, tc.wantRelPath, tc.wantType, tc.wantID)
 		}
-		// Round-trip through Canonical.
 		if got := addr.Canonical(); got != tc.section {
 			t.Errorf("Canonical(%+v) = %q, want %q", addr, got, tc.section)
 		}
 	}
 }
 
-func TestParseAddressWrongShapeMultiInstance(t *testing.T) {
+func TestParseAddressTooFewSegments(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 
-	// Multi-instance dir with only 3 segments (looks like single-instance).
-	_, _, err := r.ParseAddress("plan_db.build_task.task_001")
-	if err == nil {
-		t.Fatal("expected error for 3-segment address on multi-instance db")
+	// Single-file: need <file-relpath>.<type>.<id> (3 segments). Just 2 errs.
+	if _, _, err := r.ParseAddress("README.section"); err == nil {
+		t.Error("expected error for README.section (too few)")
+	}
+	// Glob: need <file-relpath...>.<type>.<id> (4+ for ta.db.X.Y).
+	if _, _, err := r.ParseAddress("ta.db.build_task"); err == nil {
+		t.Error("expected error for ta.db.build_task (no id)")
 	}
 }
 
-// TestParseAddressRejectsEmptySegments guards the "no leading/trailing
-// or interior empty segment" rule that came in with the uniform grammar:
-// strings.Split(".foo.bar", ".") returns ["", "foo", "bar"] and we must
-// not silently accept that as the db "". Same for "a..b" and "a.b.".
 func TestParseAddressRejectsEmptySegments(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 
 	cases := []string{
-		".readme.section.install",  // leading dot
-		"readme.section.install.",  // trailing dot
-		"readme..section.install",  // double dot
-		"plan_db.drop_1..task_001", // double dot mid-address
-		"plan_db..build_task.task_001",
+		".README.section.install",
+		"README.section.install.",
+		"README..section.install",
+		"ta.db..build_task.task_001",
+		"ta..db.build_task.task_001",
 	}
 	for _, s := range cases {
 		if _, _, err := r.ParseAddress(s); err == nil {
@@ -185,11 +187,25 @@ func TestParseAddressRejectsEmptySegments(t *testing.T) {
 }
 
 func TestParseAddressUnknownDB(t *testing.T) {
-	r := NewResolver("/proj", testRegistry())
+	// Use a registry that has only a non-collection mount so "unknown
+	// file-relpath" actually surfaces. With a collection mount in the
+	// registry, almost any well-formed address resolves under the
+	// catch-all rule (Phase 9.2 PLAN §12.17.9).
+	reg := schema.Registry{DBs: map[string]schema.DB{
+		"plan_db": {
+			Name:   "plan_db",
+			Paths:  []string{"workflow/*/db"},
+			Format: schema.FormatTOML,
+			Types: map[string]schema.SectionType{
+				"build_task": {Name: "build_task"},
+			},
+		},
+	}}
+	r := NewResolver("/proj", reg)
 
 	_, _, err := r.ParseAddress("nope.section.x")
 	if err == nil {
-		t.Fatal("expected error for unknown db")
+		t.Fatal("expected error for unknown file-relpath")
 	}
 	if !errors.Is(err, ErrUnknownDB) {
 		t.Errorf("expected ErrUnknownDB, got %v", err)
@@ -199,7 +215,8 @@ func TestParseAddressUnknownDB(t *testing.T) {
 func TestParseAddressUnknownType(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 
-	_, _, err := r.ParseAddress("readme.nosuchtype.x")
+	// README mount matches; but `nosuchtype` is not declared on readme.
+	_, _, err := r.ParseAddress("README.nosuchtype.x")
 	if err == nil {
 		t.Fatal("expected error for unknown type")
 	}
@@ -215,14 +232,67 @@ func TestParseAddressEmpty(t *testing.T) {
 	}
 }
 
+func TestParseAddressHomeRelativeMount(t *testing.T) {
+	// PLAN §12.17.9 Phase 9.2 lets a mount declare a `~/...` prefix.
+	// resolver.expandMount expands `~/` against the user's home dir
+	// before walking; the address parser must do the same so the
+	// FilePath returned by ParseAddress (and consumed by ResolveRead /
+	// ResolveWrite) lands on disk under $HOME instead of under the
+	// project root with a literal `~` segment.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("os.UserHomeDir: %v", err)
+	}
+
+	reg := schema.Registry{DBs: map[string]schema.DB{
+		"home_db": {
+			Name:   "home_db",
+			Paths:  []string{"~/.ta/projects/foo/db"},
+			Format: schema.FormatTOML,
+			Types: map[string]schema.SectionType{
+				"task": {Name: "task"},
+			},
+		},
+	}}
+	r := NewResolver("/proj", reg)
+
+	// Address grammar for non-collection mounts: file-relpath equals
+	// the residual segs after the static prefix. splitMountSegments on
+	// `~/.ta/projects/foo/db` (post home-expansion) yields static-prefix
+	// `.ta/projects/foo/` and residual `[db]`, so the address is
+	// `db.task.t1` — same shape as for the bare `["plans"]` single-file
+	// mount.
+	addr, db, err := r.ParseAddress("db.task.t1")
+	if err != nil {
+		t.Fatalf("ParseAddress: %v", err)
+	}
+	if db.Name != "home_db" {
+		t.Errorf("db.Name = %q, want home_db", db.Name)
+	}
+	if addr.Type != "task" || addr.ID != "t1" {
+		t.Errorf("addr = %+v", addr)
+	}
+	want := filepath.Join(home, ".ta", "projects", "foo", "db.toml")
+	if addr.FilePath != want {
+		t.Errorf("addr.FilePath = %q, want %q (must expand ~/ to $HOME, "+
+			"not literal %q segment under project root)",
+			addr.FilePath, want, "~")
+	}
+	// Also confirm the path does NOT contain a literal `~` segment
+	// joined under /proj — that would corrupt the on-disk tree.
+	if got := filepath.Join("/proj", "~", ".ta", "projects", "foo", "db.toml"); addr.FilePath == got {
+		t.Errorf("addr.FilePath = %q is the unexpanded form (project-root/~/...)", addr.FilePath)
+	}
+}
+
 func TestAddressCanonical(t *testing.T) {
 	cases := []struct {
 		addr Address
 		want string
 	}{
-		{Address{DB: "readme", Type: "section", ID: "installation"}, "readme.section.installation"},
-		{Address{DB: "plan_db", Instance: "drop_1", Type: "build_task", ID: "task_001"}, "plan_db.drop_1.build_task.task_001"},
-		{Address{DB: "docs", Instance: "ref-api", Type: "section", ID: "endpoints"}, "docs.ref-api.section.endpoints"},
+		{Address{FileRelPath: "README", Type: "section", ID: "installation"}, "README.section.installation"},
+		{Address{FileRelPath: "ta.db", Type: "build_task", ID: "task_001"}, "ta.db.build_task.task_001"},
+		{Address{FileRelPath: "install.prereqs", Type: "section", ID: "title"}, "install.prereqs.section.title"},
 	}
 	for _, tc := range cases {
 		if got := tc.addr.Canonical(); got != tc.want {

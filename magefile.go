@@ -297,7 +297,7 @@ func snapshot(paths ...string) (string, error) {
 	return b.String(), nil
 }
 
-// dogfoodRecord is one row to materialize under plan_db.ta.
+// dogfoodRecord is one row to materialize under ta.db.
 // Section is the full dotted address the MCP tool expects; Data is
 // the field map validated against .ta/schema.toml's plan_db types.
 type dogfoodRecord struct {
@@ -509,7 +509,7 @@ func dogfoodRecords() []dogfoodRecord {
 	out := make([]dogfoodRecord, 0, len(builds)+len(qaTwins))
 	for _, b := range builds {
 		out = append(out, dogfoodRecord{
-			Section: "plan_db.ta.build_task." + b.id,
+			Section: "ta.db.build_task." + b.id,
 			Data: map[string]any{
 				"id":     b.id,
 				"status": b.status,
@@ -521,7 +521,7 @@ func dogfoodRecords() []dogfoodRecord {
 	}
 	for _, q := range qaTwins {
 		out = append(out, dogfoodRecord{
-			Section: "plan_db.ta.qa_task." + q.id,
+			Section: "ta.db.qa_task." + q.id,
 			Data: map[string]any{
 				"id":                q.id,
 				"parent_build_task": q.parent,

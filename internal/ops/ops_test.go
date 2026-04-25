@@ -189,15 +189,14 @@ func TestSearchAllBeatsLimit(t *testing.T) {
 
 // ---- §12.17.5 [B2] GetScope / IsScopeAddress ------------------------
 
-// multiInstanceOpsSchema declares a dir-per-instance TOML db so the
-// four-segment IsScopeAddress cases (<db>, <db>.<instance>,
-// <db>.<instance>.<type>, <db>.<instance>.<type>.<id>) exercise the
-// multi-instance branch.
+// multiInstanceOpsSchema declares a glob-mount TOML db so the
+// scope-vs-record-address cases exercise the multi-file branch under
+// the Phase 9.2 file-relpath grammar (PLAN §12.17.9).
 const multiInstanceOpsSchema = `
 [plan_db]
-paths = ["workflow"]
+paths = ["workflow/*/db"]
 format = "toml"
-description = "Multi-instance planning db."
+description = "Multi-file planning db."
 
 [plan_db.build_task]
 description = "A build task."
@@ -248,17 +247,18 @@ func seedMultiInstancePlans(t *testing.T) string {
 	return root
 }
 
-// TestIsScopeAddressSingleInstance enumerates every segment-count case
-// on a single-instance db. 1-2 segs = scope; 3+ segs = single-record.
-func TestIsScopeAddressSingleInstance(t *testing.T) {
+// TestIsScopeAddressSingleFile enumerates scope-vs-record cases under
+// the Phase 9.2 grammar. <file-relpath> alone and <file-relpath>.<type>
+// are scopes; <file-relpath>.<type>.<id> is a single record.
+func TestIsScopeAddressSingleFile(t *testing.T) {
 	root := seedNTasks(t, 1)
 	cases := []struct {
 		section string
 		want    bool
 	}{
-		{"plans", true},           // <db>
-		{"plans.task", true},      // <db>.<type>
-		{"plans.task.t01", false}, // <db>.<type>.<id>
+		{"plans", true},           // <file-relpath>
+		{"plans.task", true},      // <file-relpath>.<type>
+		{"plans.task.t01", false}, // full record
 		{"plans.task.deep.id", false},
 	}
 	for _, tc := range cases {
@@ -272,18 +272,17 @@ func TestIsScopeAddressSingleInstance(t *testing.T) {
 	}
 }
 
-// TestIsScopeAddressMultiInstance enumerates every segment-count case
-// on a multi-instance db. 1-3 segs = scope; 4+ segs = single-record.
-func TestIsScopeAddressMultiInstance(t *testing.T) {
+// TestIsScopeAddressGlobMount enumerates scope-vs-record cases on a
+// glob-mounted db (file-relpath has multi-segment shape `<drop>.db`).
+func TestIsScopeAddressGlobMount(t *testing.T) {
 	root := seedMultiInstancePlans(t)
 	cases := []struct {
 		section string
 		want    bool
 	}{
-		{"plan_db", true},                           // <db>
-		{"plan_db.drop_a", true},                    // <db>.<instance>
-		{"plan_db.drop_a.build_task", true},         // <db>.<instance>.<type>
-		{"plan_db.drop_a.build_task.task_1", false}, // <db>.<instance>.<type>.<id>
+		{"drop_a.db", true},                    // <file-relpath>
+		{"drop_a.db.build_task", true},         // <file-relpath>.<type>
+		{"drop_a.db.build_task.task_1", false}, // full record
 	}
 	for _, tc := range cases {
 		got, err := ops.IsScopeAddress(root, tc.section)
@@ -296,8 +295,8 @@ func TestIsScopeAddressMultiInstance(t *testing.T) {
 	}
 }
 
-// TestIsScopeAddressUnknownDBErrors proves a typo in the db segment
-// fails loudly rather than falling back to "well, it's a scope".
+// TestIsScopeAddressUnknownDBErrors proves a typo in the file-relpath
+// segment fails loudly rather than falling back to "well, it's a scope".
 func TestIsScopeAddressUnknownDBErrors(t *testing.T) {
 	root := seedNTasks(t, 1)
 	if _, err := ops.IsScopeAddress(root, "nope"); err == nil {
@@ -348,20 +347,20 @@ func TestGetScopeDBType(t *testing.T) {
 	}
 }
 
-// TestGetScopeDBInstance returns every record in one instance of a
-// multi-instance db.
+// TestGetScopeDBInstance returns every record in one file of a
+// glob-mounted db.
 func TestGetScopeDBInstance(t *testing.T) {
 	root := seedMultiInstancePlans(t)
-	records, err := ops.GetScope(root, "plan_db.drop_a", nil, 0, true)
+	records, err := ops.GetScope(root, "drop_a.db", nil, 0, true)
 	if err != nil {
 		t.Fatalf("GetScope: %v", err)
 	}
 	if len(records) != 3 {
-		t.Fatalf("GetScope(plan_db.drop_a) len = %d, want 3: %+v", len(records), records)
+		t.Fatalf("GetScope(drop_a.db) len = %d, want 3: %+v", len(records), records)
 	}
 	for _, r := range records {
-		if !strings.HasPrefix(r.Section, "plan_db.drop_a.") {
-			t.Errorf("leaked record from another instance: %q", r.Section)
+		if !strings.HasPrefix(r.Section, "drop_a.db.") {
+			t.Errorf("leaked record from another file: %q", r.Section)
 		}
 	}
 }
@@ -370,12 +369,12 @@ func TestGetScopeDBInstance(t *testing.T) {
 // pair.
 func TestGetScopeDBInstanceType(t *testing.T) {
 	root := seedMultiInstancePlans(t)
-	records, err := ops.GetScope(root, "plan_db.drop_b.build_task", nil, 0, true)
+	records, err := ops.GetScope(root, "drop_b.db.build_task", nil, 0, true)
 	if err != nil {
 		t.Fatalf("GetScope: %v", err)
 	}
 	if len(records) != 2 {
-		t.Fatalf("GetScope(plan_db.drop_b.build_task) len = %d, want 2", len(records))
+		t.Fatalf("GetScope(drop_b.db.build_task) len = %d, want 2", len(records))
 	}
 }
 

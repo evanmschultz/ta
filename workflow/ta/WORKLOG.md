@@ -3806,3 +3806,877 @@ the §12.17.9 paths-shape model migration.
   — Phase 9.2 (resolver concern).
 
 - 4.4 Glob `*` matching dot-files — Phase 9.2 (resolver concern).
+
+## 12.17.9 Phase 9.2
+
+### 1. What landed
+
+- 1.1 New address grammar `<file-relpath>.<type>.<id-tail>` — db
+  prefix dropped from the on-the-wire address. `internal/db/address.go`
+  rewritten end-to-end. The `Address` struct adds `FileRelPath`,
+  `FilePath`, `Mount`, `SingleFileMount` fields; renames `DB → DBName`;
+  drops `Instance`. `Type` and `ID` retained (Phase 9.4 moves `Type`
+  to a `--type` flag).
+
+- 1.2 Mount matcher: `splitMountSegments` extracts (staticPrefix,
+  residualSegs); `tryParseAgainstMount` walks address parts against
+  residuals (`*` matches one segment; literal requires equality, with
+  format-extension tolerance via `stripFormatExt`). Two-phase match
+  prefers non-collection mounts over collection mounts so a single-file
+  `["README"]` always wins over a sibling `["docs/"]` for an address
+  like `README.section.installation`.
+
+- 1.3 Collection mount handling: `tryParseAgainstMount`'s collection
+  branch uses `lastDeclaredTypeIndex(parts, dbDecl)` to find the
+  rightmost declared-type segment, treating everything to its left as
+  the file-relpath. Handles arbitrary depth (`docs/install/prereqs.md`
+  → `install.prereqs.section.title`).
+
+- 1.4 `internal/db/resolver.go` rewritten on the paths-glob expander.
+  `Instances(dbName)` iterates every mount entry, expands globs
+  segment-by-segment via `expandGlobs`/`matchSegment`, and walks
+  collection roots via `walkCollection`. `~/...` mounts expand against
+  `os.UserHomeDir`. Slug = dotted file-relpath (matches `Address.FileRelPath`).
+  `ResolveRead` stats the parsed file path; `ResolveWrite` rejects
+  `pathHint` (Phase 9.4 may revisit) and derives target path from the
+  address alone.
+
+- 1.5 `internal/schema/schema.go`: deleted the three transitional
+  helpers (`IsSingleFile`, `IsLegacyDirectory`, `IsLegacyCollection`)
+  and added two non-transitional ones — `SingleFileMount(mount)` and
+  `IsSingleFileDB(db)` — to drive the bracket-form choice (db-prefixed
+  vs bare) which still matters for legacy single-file TOML payloads
+  (e.g. `[plans.task.t1]`).
+
+- 1.6 `internal/schema/load.go`: `checkPathsOverlap` is now glob-aware.
+  Each mount compiles to a regex (`*` → `[^/]+`; trailing `/` →
+  `(/.+)?$`). Two mounts overlap when either regex matches a synthetic
+  expansion of the other. `mountsOverlap` is symmetric. New tests in
+  `load_test.go` cover the glob-vs-literal and collection-vs-descendant
+  cases; `TestIsSingleFile` deleted.
+
+- 1.7 `internal/db/address_test.go` rewritten for the new grammar.
+  Three fixtures: `["README"]` (single-file), `["workflow/*/db"]`
+  (glob), `["docs/"]` (collection). Locked-design examples from the
+  prompt (`README.section.installation`, `ta.db.build_task.task_001`,
+  `install.prereqs.section.title`) are the round-trip cases.
+
+- 1.8 `internal/db/instance_test.go` rewritten. `TestInstancesGlob`
+  asserts file-relpath slugs are dotted (`drop_1.db`, `drop_2.db`).
+  `TestInstancesCollection` expects dotted multi-segment slugs
+  (`reference.api`, `tutorial.first-steps`, `a.b.c.d`). The legacy
+  slug-collision test relaxes — kebab-from-path collisions are rare
+  under the dot-segment slug; the test now asserts both files surface
+  with distinct dotted slugs.
+
+- 1.9 `internal/db/doc.go`: rewritten to describe the Phase 9.2 model
+  end-to-end. The pre-9.1 trichotomy explanation is gone.
+
+- 1.10 `internal/ops/{ops,helpers,backend,schema_mutate}.go`: every
+  `schema.IsSingleFile` branch removed. `buildBackend` now takes a
+  `singleFile bool` (callers pass `addr.SingleFileMount` or
+  `schema.IsSingleFileDB(db)`); `backendSectionPath(dbDecl, addr)`
+  takes the resolved Address; `tomlRelPathForFields(addr)` and
+  `validationPath(addr)` likewise. `deleteAtLevel` deleted (whole-db /
+  whole-instance delete is Phase 9.4 territory under the new grammar);
+  `Delete` now goes straight to record-level. `IsScopeAddress`
+  re-implemented via `ParseAddress`: success = record-level, ErrBadAddress =
+  scope, ErrUnknownDB / ErrUnknownType = loud failure.
+
+- 1.11 `internal/search/search.go`: `parseScope` rewritten resolver-aware.
+  Iterates dbs and their concrete file-relpaths (instance slugs +
+  fixed-mount-derived slugs) to find the longest slug-prefix match;
+  remainder is `[<type>(.<id-prefix>)?]`. `searchPlan.instance` →
+  `searchPlan.fileRelPath`. `tomlDeclaredName`, `backendTypeScope`,
+  `fullAddress`, `typeAndID`, `buildBackend` all take a `singleFile`
+  bool. `fullAddress` rewrites the leading db-prefix segment of TOML
+  single-file backend addresses to the file-relpath so callers see the
+  Phase 9.2 caller-visible form.
+
+- 1.12 `cmd/ta/commands.go`: `lookupDBAndType` now takes the project
+  path and routes through `db.NewResolver(...).ParseAddress`; same for
+  `dbFormatFor`. Three call sites updated.
+
+- 1.13 `magefile.go:300/512/524`: `plan_db.ta.<type>.<id>` literals
+  rewired to `ta.db.<type>.<id>` per the file-relpath grammar.
+
+- 1.14 `internal/ops/dogfood_test.go`: test schema migrated to
+  `paths = ["workflow/*/db"]`; ten `plan_db.ta.X.Y` literals rewired
+  to `ta.db.X.Y`; search-scope addresses likewise.
+
+- 1.15 `internal/ops/ops_test.go`: `multiInstanceOpsSchema` migrated
+  from `paths = ["workflow"]` to `paths = ["workflow/*/db"]`;
+  `IsScopeAddress` and `GetScope` test addresses rewired from
+  `plan_db.drop_a.X` to `drop_a.db.X`. Test names renamed
+  (SingleInstance → SingleFile, MultiInstance → GlobMount) to match
+  the Phase 9.2 vocabulary.
+
+### 2. Verification
+
+- 2.1 Verification deferred to the orchestrator (`mage check`,
+  `mage dogfood`, ripgrep sweeps). Bash was denied for this round —
+  edits made in a single pass via Read/Edit/Write only; orchestrator
+  runs the gates and relays output if any failures need fixing.
+
+### 3. Decisions made under the locked design
+
+- 3.1 **`Address.SingleFileMount` field** — the locked design lists
+  `DBName / FileRelPath / Type / ID / FilePath` as the new Address
+  fields but doesn't say where the bracket-form policy lives. Added
+  `Mount` (matched mount string) and `SingleFileMount` (cached
+  `schema.SingleFileMount(Mount)`) so callers route bracket-form
+  decisions through the Address rather than re-deriving from
+  `dbDecl.Paths` at every call site. Rationale: the bracket form is a
+  property of the matched mount, not of the db's first path entry, so
+  expressing it on the Address is semantically tighter.
+
+- 3.2 **Two-phase mount matching** — non-collection mounts beat
+  collection mounts as a tiebreaker. Without this rule, an address
+  like `README.section.installation` could bind to either `["README"]`
+  or `["docs/"]` (where docs/README.md exists), and "first matching
+  db wins" would non-deterministically pick the alphabetical-first.
+  Documented at the iteration site in `address.go`. The schema-load
+  overlap-check rejects truly-overlapping mounts up front; this rule
+  only resolves cases the overlap-check considers disjoint.
+
+- 3.3 **Format-extension tolerance on mount leaves** — `["plans.toml"]`
+  and `["plans"]` both resolve to `plans.toml` and yield file-relpath
+  `plans`. `stripFormatExt` strips a trailing `.<format>` from the
+  mount's leaf segment before matching address parts. Necessary for
+  the existing test fixtures (Phase 9.1 era) that explicitly carry the
+  extension.
+
+- 3.4 **`Delete` narrowed to record-level** — under the new grammar,
+  whole-db / whole-instance deletes don't have a clean address form
+  (`<file-relpath>` alone is ambiguous between "delete this file" and
+  "scope-level delete"). Phase 9.2 narrows `Delete` to record-level
+  only and removes `deleteAtLevel`. Phase 9.4 will revisit when the
+  `--type` flag and the file-deletion semantics land. `ErrAmbiguousDelete`
+  retained in the package (no callers, but exported sentinel may have
+  external consumers).
+
+- 3.5 **`pathHint` rejection in `ResolveWrite`** — under file-relpath
+  grammar the target path is fully derivable from the address, so the
+  hint is redundant. Non-empty hints return `ErrPathHintMismatch`
+  pointing at PLAN §12.17.9. Phase 9.4 may re-purpose the parameter.
+
+- 3.6 **Collection slugs are dotted, not kebab** — under Phase 9.1
+  the collection slug used kebab-case across path separators
+  (`reference-api`, `a-b-c-d`). Under Phase 9.2 the slug equals the
+  dotted file-relpath (`reference.api`, `a.b.c.d`) so the address
+  round-trips without an extra slug-encoding hop. The legacy
+  kebab-collision test (`TestInstancesSlugCollision`) is no longer
+  reachable in its old form — distinct path shapes now produce
+  distinct slugs. Replaced with `TestResolveReadCollisionPropagates`
+  that documents the relaxed contract.
+
+### 4. Out-of-scope items observed
+
+- 4.1 The schema-mutate `applyDBMutation` meta-key strip list still
+  uses string literals `{"paths","format","description"}`. No drift
+  vs the new model — Phase 9.2 doesn't add new meta-keys. Flagged for
+  awareness only.
+
+- 4.2 `Lookup` / `LookupDB` on `schema.Registry` still operate on the
+  legacy `<db>.<type>.<id>` validation form. They feed `Validate` and
+  CLI `ta schema get` introspection, which are independent of the
+  address grammar. Out of scope; Phase 9.4 may revisit if the
+  validation form is harmonised with the address form.
+
+- 4.3 `internal/render/schema_flow.go` and golden files unchanged. No
+  shape drift in this phase.
+
+---
+
+## 12.17.9 Phase 9.2 — fixup round (2026-04-24)
+
+Three categories of `mage check` failures from the prior 9.2 round, fixed
+in a Read/Edit/Write-only pass; orchestrator owns verification.
+
+### 1. Edits
+
+- 1.1 **Collection-mount parser: rightmost → LEFTMOST declared-type**.
+  `internal/db/address.go` `lastDeclaredTypeIndex` renamed to
+  `firstDeclaredTypeIndex` and rewritten to scan parts left-to-right
+  starting at index 1; the first segment whose value matches a declared
+  type name on the db is the type segment. Fixes
+  `TestParseAddressCollectionMount`,
+  `TestParseAddressDottedIDsAccepted`, and
+  `TestResolveWriteCollectionDerivesPath`. Concrete impact:
+  `install.prereqs.section.title` now resolves
+  file-relpath=`install.prereqs`, type=`section`, id=`title`,
+  filepath=`docs/install/prereqs.md` (was: file-relpath=
+  `install.prereqs.section`, type=`title`, id=`""`,
+  filepath=`docs/install/prereqs/section.md`).
+
+- 1.2 **Sister fix in search**. `internal/search/search.go`
+  `lastDeclaredTypeIndexHere` renamed to `firstDeclaredTypeIndexHere`
+  and rewritten with the same left-to-right scan. Two call sites
+  updated (`matchCollectionScope`, the file-relpath-only catch-all in
+  `parseScope`).
+
+- 1.3 **`ErrInstanceNotFound` message: `"instance not found"` →
+  `"file not found"`**. `internal/db/errors.go` updates the sentinel
+  message text only; sentinel name retained for backwards compat with
+  `internal/db/instance_test.go`'s `errors.Is(err, ErrInstanceNotFound)`
+  assertion. Fixes `TestUpdateFailsOnMissingFile` and
+  `TestDeleteRecordMissingFileReturnsErrFileNotFound` which assert
+  `strings.Contains(err.Error(), "file not found")`. The wrapped
+  `fmt.Errorf("%w: db %q ...")` in `resolver.go` carries the new
+  sentinel text, so the substring check passes.
+
+- 1.4 **MD test fixtures: `readme.*` → `README.*`**.
+  `internal/mcpsrv/server_test.go`:
+  `TestMDCreateGetUpdateDeleteRoundTrip` migrates `readme.title.ta`
+  → `README.title.ta` and `readme.section.ta.install` →
+  `README.section.ta.install`. `TestGetFieldsMDNonBodyErrors`
+  migrates `readme.section.hello` → `README.section.hello`. Both
+  schemas declare `paths = ["README.md"]` so the `.md` is stripped
+  from the residual leaf and the file-relpath is exactly `README`.
+
+- 1.5 **Cross-instance search scope: `plan_db` → `""`**.
+  `internal/mcpsrv/server_test.go` `TestSearchCrossInstanceUnion`
+  switches scope from `plan_db` (db-name, retired by Phase 9.2) to
+  empty (whole-project union). With `paths = ["workflow/*/db"]`
+  declaring only `plan_db`, the empty scope walks every db's
+  instances and produces the same two-hit cross-file union the test
+  asserts.
+
+### 2. Verification
+
+- 2.1 Bash denied this round. `mage fmt` + `mage check` deferred to
+  the orchestrator.
+
+### 3. Decisions
+
+- 3.1 **Sentinel rename declined**. Task allowed renaming
+  `ErrInstanceNotFound` → `ErrFileNotFound` but kept the existing
+  sentinel name. Rationale: the in-package
+  `TestResolveReadFileMissing` and several mcpsrv tests already
+  branch on `errors.Is(err, ErrInstanceNotFound)`; renaming would
+  require chasing every caller. Editing only the message text gives
+  the same observable behavior (the test asserts
+  `strings.Contains(err.Error(), "file not found")`) with the
+  smallest possible diff. The doc comment now flags the
+  sentinel-vs-message split for the next reader.
+
+- 3.2 **Empty scope chosen for cross-file union**. Task offered both
+  the empty-scope and per-file-relpath options. Empty scope matches
+  the original test's intent (cross-file union across every backing
+  file) more directly than enumerating each file-relpath; under the
+  current schema `multiInstanceTOMLSchema` declares only `plan_db`,
+  so the empty scope walks exactly that db's instances.
+
+### 4. Hylla Feedback
+
+N/A — task touched only Go files but verification was deferred and
+no Hylla queries were issued during the round; all evidence came
+from `Read` of the local working tree.
+
+## 12.17.9 Phase 9.2 — QA PROOF REVIEW (2026-04-24)
+
+**Verdict: PASS** against working-tree HEAD `719504b` + 1864/-1315 over
+24 files. Orchestrator-relayed gates clean (`mage fmt` no-op; `mage
+check` 12 packages green; `mage dogfood` idempotent skip). Bash denied;
+review by `Read` over the working tree.
+
+### 1. Findings
+
+- 1.1 Address grammar landed end-to-end. `internal/db/address.go`
+  defines `Address{DBName, FileRelPath, Type, ID, FilePath, Mount,
+  SingleFileMount}` exactly as specified. `ParseAddress` does the
+  documented two-phase walk (non-collection mounts first, collection
+  second; stable name order within each phase). `tryParseAgainstMount`
+  splits via `splitMountSegments` and `stripFormatExt`, applying the
+  glob-match-one-segment rule. Each prompt-locked example round-trips:
+  `README.section.installation` (single-file, ext-stripped),
+  `ta.db.build_task.task_001` (glob, dotted file-relpath), and
+  `install.prereqs.section.title` (collection, LEFTMOST type rule
+  picks `section` at idx=2 over `title` deeper). Round-trip evidence:
+  `internal/db/address_test.go::TestParseAddressDottedIDsAccepted`
+  exercises all three exemplars + dotted-id-tail variants, asserting
+  `Canonical()` is the input string.
+
+- 1.2 LEFTMOST declared-type rule correct in both packages. `address.go`
+  `firstDeclaredTypeIndex` (lines 318–325) scans `for i := 1; i <
+  len(parts); i++` and returns the first match. Sister helper
+  `firstDeclaredTypeIndexHere` in `internal/search/search.go` (lines
+  369–376) is a verbatim local mirror — same start index, same return
+  shape. Both helpers honor the locked `install.prereqs.section.title`
+  example: scan starts at i=1 (`prereqs` not declared), i=2 (`section`
+  declared) → idx=2 → file-relpath = `install.prereqs`, type =
+  `section`, id = `title`. The `address.go` doc comment names the
+  Phase 9.2 lock and contrasts with the rejected greedy-rightmost
+  variant.
+
+- 1.3 Resolver path expansion handles every documented mount shape.
+  `Instances` in `internal/db/resolver.go` walks every mount, dispatches
+  to `walkCollection` for trailing-slash mounts and `expandGlobs` for
+  glob/literal. `~/...` mounts route through `resolveHome` (returns
+  `os.UserHomeDir` and the post-`~/` mount). Dotfiles excluded
+  consistently (collection branch line 180 + 185; glob branch line 263).
+  `expandGlobs` handles the empty-segs case (returns just `[base]`) so
+  collection-rooted Instances() doesn't double-walk. Slug uniqueness via
+  the `bySlug` map + `ErrSlugCollision` on multi-path collisions. Tests
+  in `internal/db/instance_test.go` cover single-file, glob, collection,
+  missing-root, and unknown-db cases — every assertion matches the
+  worklog claims.
+
+- 1.4 `Address.SingleFileMount` propagates correctly. Set at parse time
+  via `schema.SingleFileMount(Mount)` (address.go:237). Threaded through
+  every TOML-bracket-form decision: `ops.buildBackend(dbDecl,
+  singleFile)` (backend.go:33) takes the bool explicitly; `ops.Get`
+  passes `addr.SingleFileMount` (ops.go:73); `ops.Update`,
+  `ops.Create`, `ops.Delete` likewise. `tomlBracketPath(addr)`
+  (helpers.go:106) and `tomlRelPathForFields(addr)` (helpers.go:50)
+  branch on `addr.SingleFileMount` to emit the legacy db-prefixed form
+  for single-file mounts and bare `<type>.<id>` otherwise. The
+  `qa_12_3_proof`-style invariant — TOML on-disk bracket form
+  unchanged — holds: `plans.toml` keeps `[plans.task.t1]`,
+  `workflow/ta/db.toml` keeps `[build_task.task_001]`. Confirmed in
+  `internal/ops/dogfood_test.go::TestDogfoodGetRoundtripsBuildTask`
+  asserting `[build_task.task_12_1]` is the on-disk anchor for a
+  glob-mount file.
+
+- 1.5 Three transitional helpers truly deleted. `internal/schema/schema.go`
+  carries only `SingleFileMount(mount)` (lines 24–32) and
+  `IsSingleFileDB(db)` (lines 45–50). No `IsSingleFile`,
+  `IsLegacyDirectory`, `IsLegacyCollection` definitions remain.
+  `mage check` green is the conclusive proof — any leftover non-comment
+  reference would not compile. Slug helpers similarly retired:
+  `internal/db/slug.go` is just a Phase 9.2 deletion note; the
+  `kebabCase` / `slugFromCollectionPath` symbols are gone (the file is a
+  tombstone).
+
+- 1.6 Glob-aware overlap detection works. `internal/schema/load.go`
+  `mountsOverlap` compiles each mount to a regex (`*` → `[^/]+`;
+  trailing `/` → `(/.+)?$` for collection roots) and cross-checks each
+  side's pattern against the other's `mountSample` expansion (sentinel
+  segment for `*`, sentinel filename for trailing `/`). Trace for the
+  promoted exemplar `["workflow/*/db"]` vs `["workflow/foo/db"]`:
+  `reA = ^workflow/[^/]+/db$`, `mountSample(b) = workflow/foo/db`,
+  reA.MatchString → true → overlap reported. Test
+  `TestLoadRejectsGlobOverlapWithLiteral` asserts that exact
+  `errors.Is(err, ErrOverlappingPaths)`. Collection-vs-descendant case
+  similarly covered by `TestLoadRejectsCollectionOverlapWithDescendant`
+  (`["docs/"]` vs `["docs/foo"]`). Disjoint mounts (
+  `["workflow/*/db"]` + `["plans"]`) accepted by
+  `TestLoadAcceptsDisjointGlobs`. The check is symmetric, deterministic
+  (sorted flat list before pairwise scan), and runs at every Load.
+
+- 1.7 `ErrInstanceNotFound` text migration is the minimal surgical
+  edit. `internal/db/errors.go:27` reads `errors.New("db: file not
+  found")`; sentinel name retained so `errors.Is(err,
+  ErrInstanceNotFound)` continues to work in `instance_test.go` and
+  mcpsrv tests. The `resolver.go:308` wrap (`fmt.Errorf("%w: db %q
+  file-relpath %q (%s)", ErrInstanceNotFound, ...)`) carries the new
+  sentinel text into the user-visible message. `TestUpdateFailsOnMissingFile`
+  asserts `strings.Contains(err.Error(), "file not found")` — passes.
+
+- 1.8 `Delete` correctly narrowed to record-level. `internal/ops/ops.go`
+  `Delete` (lines 394–448) does:
+  1. `ParseAddress` first; ErrUnknownType → re-raise (loud type-typo);
+     other parse errors → `ErrAmbiguousDelete` wrap.
+  2. Post-parse guard `if addr.Type == "" || addr.ID == ""` →
+     `ErrAmbiguousDelete`. This catches the collection-mount edge case
+     where ParseAddress can return a partial address with empty ID
+     (e.g. `install.prereqs.section` parses with `Type=section, ID=""`
+     because `firstDeclaredTypeIndex` finds `section` at idx=2 and
+     `idx+1==len(parts)` keeps the id-tail empty).
+  3. Then proceeds to ResolveRead + record splice.
+  Tests `TestDeleteWholeFileErrorsUnderPhase9_2`,
+  `TestDeleteWholeInstanceErrorsUnderPhase9_2`,
+  `TestDeleteCollectionPageErrorsUnderPhase9_2`, and
+  `TestDeleteWholeMultiInstanceDBErrors` lock in the Phase 9.2 contract.
+  Per-record delete paths still work — `TestUpdateReplacesExistingRecord`
+  + standard delete tests pass.
+
+- 1.9 `IsScopeAddress` rewrite is tight and correct. The three-branch
+  contract documented in the Phase 9.2 doc comment (success →
+  record/false; ErrBadAddress → scope/true; other parse errors → probe)
+  matches the implementation. The probe extends with synthetic
+  `<type>.<id>` per declared type per db; if any extension parses
+  cleanly, returns scope=true. Empty section + empty-segment guards
+  fire up front. Trace verification: `"plans"` (paths=["plans.toml"])
+  → ParseAddress fails (len(parts)=1 < expected+1=2) with
+  `ErrUnknownDB`; probe `"plans.task.__ta_scope_probe__"` parses → true.
+  `"plans.task.t01"` → ParseAddress succeeds (id-tail = "t01") →
+  false. `"nope"` → ParseAddress fails; every probe extension still
+  fails to match the `["plans.toml"]` mount → returns wrapped
+  `ErrInvalidScope`. Tests
+  `TestIsScopeAddressSingleFile` / `TestIsScopeAddressGlobMount` /
+  `TestIsScopeAddressUnknownDBErrors` /
+  `TestIsScopeAddressEmptySectionErrors` all match the trace.
+
+- 1.10 `search.parseScope` rewrite mirrors the parser. Two helpers —
+  `matchFixedScope` for non-collection mounts (counts residual
+  segments, applies `*` and literal match, then peels off type +
+  id-prefix) and `matchCollectionScope` for collection mounts
+  (LEFTMOST declared-type split). The catch-all branch at line 226
+  handles file-relpath-only scopes under collection mounts (e.g.
+  `"installation"` resolving to slug=`installation` with no type
+  filter). The `match` struct hoisted to package scope (lines 149–152)
+  so `consider()` (a closure) can carry candidates across helper
+  calls. Tiebreaker rule (longer slug wins; non-collection wins ties)
+  is consistent with `parseAddress`'s two-phase preference. Test
+  `TestMultiInstanceScopeNarrow` (`drop_1.db` →
+  fileRelPath=`drop_1.db`, no type/id) and
+  `TestMultiInstanceIDPrefixScope` (id-prefix `task_00`) both pass.
+  `TestSearchMDBody` exercises the collection mount with type filter
+  (`README.section`).
+
+- 1.11 Cross-package `tomlDeclaredName` / `buildBackend` duplication
+  honest and intentional. `internal/search/search.go` lines 533–566
+  duplicate the helper logic from `internal/ops/backend.go` to keep
+  search independent of ops (no import). Both reference
+  `dbDecl.Name + "." + typeName` for single-file and bare `typeName`
+  otherwise — same rule, two implementations. Acceptable per Phase
+  9.2 layering; flagging as documented duplication, not drift.
+
+- 1.12 Test-fixture migrations consistent. Magefile dogfoodRecords
+  emits `ta.db.build_task.<id>` / `ta.db.qa_task.<id>` (lines 512,
+  524) — pure file-relpath grammar. `internal/ops/dogfood_test.go`
+  uses `ta.db.build_task.task_12_1` style with schema
+  `paths=["workflow/*/db"]`. `internal/ops/ops_test.go`'s
+  `multiInstanceOpsSchema` matches. `internal/search/search_test.go`
+  fixtures use `drop_1.db.build_task.task_001` style. mcpsrv tests
+  migrated `readme.*` → `README.*` (lines 773, 782, 1459). The
+  cross-instance scope test
+  (`TestSearchCrossInstanceUnion`) switched to `scope: ""` per
+  worklog 1.5 fixup. Single-file fixtures (`plans.toml`) keep
+  `plans.task.<id>` addresses — file-relpath happens to coincide
+  with db name, so no migration needed.
+
+- 1.13 `cmd/ta/commands.go` callers route through the new resolver.
+  `lookupDBAndType` (line 265) constructs `db.NewResolver(projectPath,
+  reg)` and calls `ParseAddress`. `dbFormatFor` (line 221) does the
+  same. Three call sites updated (`runGetScope`, `buildRenderFields`,
+  `renderRawRecord`). The schema-get path (`runSchemaGet`,
+  `runSchemaGetJSON`) still uses `Registry.Lookup` / `LookupDB` for
+  the legacy `<db>.<type>` validation form — flagged in worklog 4.2 as
+  Phase 9.4 territory; not a Phase 9.2 regression.
+
+- 1.14 WORKLOG narrative complete. The main `## 12.17.9 Phase 9.2`
+  section (lines 3810–3988) and the fixup sub-entry
+  `## 12.17.9 Phase 9.2 — fixup round` (lines 3991–4074) sit after
+  Phase 9.1. Both round entries enumerate edits + verification +
+  decisions + Hylla feedback. Step-index table at the top is
+  Phase-9.x-agnostic so no entry is required there.
+
+### 2. Missing Evidence
+
+- 2.1 None blocking. The orchestrator-relayed `mage check` covers
+  every package; `mage dogfood` exits 0 (idempotent skip on existing
+  `workflow/ta/db.toml`); the working-tree state matches every
+  worklog claim that I could verify by Read.
+
+- 2.2 Glob `*` matching dot-files explicitly handled — `matchSegment`
+  (resolver.go:262–266) skips entries whose name starts with `.`.
+  `walkCollection` likewise skips dot-dirs (line 180) and dot-files
+  (line 185). Out-of-scope per the prompt's explicit carve-out, but
+  verified anyway since the locked design says they're excluded.
+
+- 2.3 `path_hint` rejection in `ResolveWrite` proven by
+  `TestResolveWriteRejectsHint` (instance_test.go:206–217). Out-of-scope
+  per the prompt; flagged as confirmed working under Phase 9.2 grammar.
+
+### 3. Summary
+
+PASS. Phase 9.2 lands the address parser + path resolver per the
+locked PLAN §12.17.9 design end-to-end. The three transitional helpers
+are gone; the LEFTMOST declared-type rule is consistent across
+`address.go` and `search.go`; `Address.SingleFileMount` propagates to
+every TOML bracket-form decision; cross-db overlap detection is
+glob-aware and symmetric; `Delete` is narrowed to record-level only;
+`IsScopeAddress` correctly distinguishes scope-prefix vs single-record
+addresses under the new grammar; and every test fixture is migrated to
+the new file-relpath form. Orchestrator gates green, no design
+ambiguity surfaced, no findings need fixing. Ready to commit.
+
+### 4. Hylla Feedback
+
+N/A — review touched only the working-tree Go files and existing
+worklog narrative; no Hylla queries issued.
+
+## 12.17.9 Phase 9.2 — fixup round 2 (2026-04-24)
+
+QA falsification on Phase 9.2 found three CONFIRMED counterexamples
+against the locked PLAN §12.17.9 spec. All three reachable via
+PLAN-documented mount forms with no test exercising them yet —
+`mage check` was green at HEAD `719504b` because the gaps were latent.
+Read/Edit/Write only; orchestrator owns verification.
+
+### 1. Edits
+
+- 1.1 **CE-1 — `~/` not expanded in `ParseAddress`**.
+  `internal/db/address.go` `tryParseAgainstMount` now calls the
+  package-local `resolveHome(root, mount)` (already in `resolver.go`)
+  at the top of the function and uses the returned `(base,
+  mountAfterHome)` for the staticPrefix split, the collection-shape
+  check, and both `buildFilePathFixed` / `buildFilePathCollection`
+  call sites. Without this, a schema with
+  `paths = ["~/.ta/projects/foo/db"]` would build
+  `<root>/~/.ta/projects/foo/db.toml` (literal `~` segment under
+  project root) — `Create` would silently write a corrupt directory
+  tree under the project root. Mirrors the existing
+  `resolver.expandMount` site (resolver.go:96-99). The error path
+  wraps as `"db %q: mount %q: %w"` consistent with that prior site.
+  Note: addresses for non-glob, non-collection mounts use the
+  residual segs as the file-relpath; for `~/.ta/projects/foo/db` the
+  residual is `[db]`, so the address grammar is `db.<type>.<id>`,
+  not `.ta.projects.foo.db.<type>.<id>` — only the on-disk path
+  carries the home-expanded prefix.
+
+- 1.2 **CE-2 — `SingleFileMount(".")` returns true (wrong)**.
+  `internal/schema/schema.go` `SingleFileMount` adds an early
+  `if mount == "." { return false }` guard. PLAN §12.17.9 Phase 9.2
+  treats `.` as the project-root collection mount across
+  `address.go:111`, `address.go:154`, `resolver.go:102`, and
+  `search.go:215` (all branch on `mount == "."` as collection); with
+  `SingleFileMount(".") = true`, bracket-form selection diverges —
+  Create writes db-prefixed payloads while search and schema_mutate
+  look for bare brackets, so a `.` mount is silently broken even
+  when every other call site agrees on the collection shape. The
+  guard aligns the helper with the rest of the package.
+
+- 1.3 **CE-3 — `mountsOverlap` misses extension-equivalent mounts**.
+  `internal/schema/load.go` plumbs `dbDecl.Format` through
+  `checkPathsOverlap` → `mountsOverlap(a, fa, b, fb)`. A new helper
+  `normalizeMountForOverlap(mount, format)` strips a trailing
+  `.<format>` suffix from non-collection mounts before regex/sample
+  computation. With both sides normalized to the bare form,
+  `["plans"]` (toml) and `["plans.toml"]` (toml) compare equal at
+  the top of `mountsOverlap` and the function returns true. The
+  `.`-and-trailing-slash collection cases pass through normalization
+  unchanged because their mount strings name a directory, not a
+  file basename. Verified the existing
+  `TestLoadRejectsGlobOverlapWithLiteral` (workflow/*/db vs
+  workflow/foo/db) and `TestLoadRejectsCollectionOverlapWithDescendant`
+  (`docs/` vs `docs/foo`) still pass with the same regex/sample
+  logic operating on the normalized mounts.
+
+### 2. New tests
+
+- 2.1 `TestParseAddressHomeRelativeMount` in
+  `internal/db/address_test.go`. Schema fixture
+  `paths = ["~/.ta/projects/foo/db"]`, format=toml; address
+  `db.task.t1` resolves to `addr.FilePath = $HOME/.ta/projects/foo/
+  db.toml`. Includes a counter-assertion that the path is NOT the
+  project-root-with-literal-tilde shape. Skips when
+  `os.UserHomeDir()` errors (matches the resolver's failure mode).
+
+- 2.2 `TestSingleFileMount` and
+  `TestIsSingleFileDBProjectRootCollectionIsNotSingle` in
+  `internal/schema/load_test.go`. Table-driven cases cover the
+  single-file forms (`plans`, `plans.toml`, `README`, `docs/api`,
+  `~/.ta/db`), the glob and trailing-slash multi-file forms, and the
+  CE-2 case (`.` returns false). The DB-level cross-check confirms
+  `IsSingleFileDB(DB{Paths: ["."]})` is also false.
+
+- 2.3 `TestLoadRejectsExtEquivalentOverlap` in
+  `internal/schema/load_test.go`. Schema fixture with
+  `[a] paths = ["plans"]` and `[b] paths = ["plans.toml"]`, both
+  format=toml. Asserts `errors.Is(err, ErrOverlappingPaths)`.
+
+### 3. Verification
+
+- 3.1 Bash denied this round. `mage fmt` + `mage check` deferred to
+  the orchestrator. Re-spawned QA falsification follows.
+
+### 4. Hylla Feedback
+
+N/A — task touched Go files only; verification was deferred and no
+Hylla queries were issued during the round. All evidence came from
+`Read` of the local working tree.
+
+## 12.17.9 Phase 9.2 — fixup round 2 QA falsification re-run (2026-04-24)
+
+Working tree at HEAD `719504b`. Read-only re-attack against the three
+fixed counterexamples plus residual surface-area scan. Orchestrator
+relayed `mage fmt` clean and `mage check` exit 0 (12 packages green).
+
+### 1. Findings
+
+- 1.1 CE-1 fix verified. `internal/db/address.go:142-156`
+  `tryParseAgainstMount` calls `resolveHome(root, mount)` at the top
+  and propagates the returned `(base, mountAfterHome)` through
+  `splitMountSegments` (line 156), the collection check (line 167),
+  `buildFilePathCollection` (line 193), and `buildFilePathFixed`
+  (line 241). `resolveHome` lives in the same package
+  (`internal/db/resolver.go:154-163`); both `address.go` and
+  `resolver.go` are `package db` so no cross-package import is needed
+  and no cycle is introduced. New test `TestParseAddressHomeRelativeMount`
+  asserts the home-expansion plus a counter-assertion against the
+  unexpanded `<root>/~/...` shape. Skips when `os.UserHomeDir`
+  errors, matching the resolver's failure mode. REFUTED — no
+  residual.
+
+- 1.2 CE-1 follow-on vectors REFUTED. (a) Home-relative + glob
+  `paths = ["~/.ta/projects/*/db"]`: `resolveHome` returns
+  `(home, ".ta/projects/*/db")`; `splitMountSegments` finds `*` at
+  segment idx=2 → `staticPrefix=".ta/projects/"`,
+  `residualSegs=["*", "db"]`. Address `proj1.db.task.t1` matches
+  (parts[1]="db" == residual literal); `buildFilePathFixed` yields
+  `$HOME/.ta/projects/proj1/db.toml`. Works. (b) Mixed
+  `paths=["~/foo/", "bar/"]`: each mount feeds `tryParseAgainstMount`
+  independently and `expandMount` independently; one call site does
+  not corrupt the other's expansion state. (c) `os.UserHomeDir`
+  failure: returns the wrapped `db %q: mount %q: %w` error and
+  `ParseAddress` propagates upward — no silent fallback to literal
+  `~`.
+
+- 1.3 CE-2 fix verified. `internal/schema/schema.go:33-35`
+  `SingleFileMount` now early-returns false on `mount == "."`. The
+  guard sits before the glob and trailing-slash checks so the three
+  collection-shape rules in `address.go:111`,
+  `address.go:167`, `resolver.go:102`, and `search.go:215` align with
+  the helper. `TestSingleFileMount` exercises the full branch tree
+  (single-file, glob, trailing-slash, `.`-collection, `~/...`
+  prefix); `TestIsSingleFileDBProjectRootCollectionIsNotSingle`
+  cross-checks at the DB level. REFUTED.
+
+- 1.4 CE-2 follow-on vectors REFUTED. (a)
+  `IsSingleFileDB(DB{Paths:[".","foo"]})` → false (`len != 1`
+  guard at schema.go:57). (b) End-to-end Create against `paths=["."]`:
+  ParseAddress collection branch (idx>=1 LEFTMOST type rule) returns
+  `addr.SingleFileMount=false` per `schema.SingleFileMount(".")=false`;
+  `tomlBracketPath` returns bare `<type>.<id>`; `buildBackend` with
+  `singleFile=false` builds a bare-prefix TOML backend. Bracket-form
+  selection consistent end-to-end.
+
+- 1.5 14 prior REFUTED/VERIFIED vectors still hold. Spot-checked:
+  LEFTMOST type rule (`address.go:331-338` and
+  `search.go:369-376`, both still scan `for i := 1; i < len(parts);
+  i++`); `Address.SingleFileMount` propagation
+  (`address.go:250` sets via `schema.SingleFileMount(mount)`;
+  `helpers.go:50-59` and `backend.go:106-115` branch on it);
+  cross-db disambiguation (two-phase non-collection-then-collection
+  loop at `address.go:107-130` unchanged); WORKLOG integrity
+  (fixup-round-2 entry at lines 4301-4390 intact, my entry appended
+  below it). Existing overlap tests
+  (`TestLoadRejectsOverlappingPaths`,
+  `TestLoadRejectsOverlappingPathsAcrossSlices`,
+  `TestLoadRejectsGlobOverlapWithLiteral`,
+  `TestLoadRejectsCollectionOverlapWithDescendant`,
+  `TestLoadAcceptsDisjointGlobs`) re-traced under the new
+  `normalizeMountForOverlap` + format-aware path: all behaviours
+  preserved (same-format equal mounts still pre-trim to same string;
+  glob/literal regex cases unaffected because no extension to strip
+  on glob segments; disjoint-prefix case still misses both regex
+  matches).
+
+### 2. Counterexamples
+
+- 2.1 **CONFIRMED — CE-3 fix introduces cross-format false-positive
+  overlap.** The orchestrator's prompt explicitly flagged this
+  vector ("Does `[\"plans\"]` (toml) overlap with `[\"plans\"]`
+  (md)?"). Trace `mountsOverlap("plans", FormatTOML, "plans",
+  FormatMD)` (`internal/schema/load.go:418-433`): `aNorm =
+  normalizeMountForOverlap("plans", "toml")` returns "plans" (no
+  `.toml` suffix to strip); `bNorm =
+  normalizeMountForOverlap("plans", "md")` returns "plans" (no `.md`
+  suffix to strip); `aNorm == bNorm` → returns true. But on disk:
+  the toml db writes `plans.toml`; the md db writes `plans.md`.
+  Different files. Schema load wrongly rejects this as
+  `ErrOverlappingPaths`. The fix forgot that the "extension-equiv"
+  rule only applies WITHIN a format — across formats, identical
+  bare mount strings name different files.
+
+  Reproduction (build under `internal/schema/`): a fixture with
+  `[a] paths=["plans"] format="toml"` and `[b] paths=["plans"]
+  format="md"` should Load cleanly but currently errors with
+  `ErrOverlappingPaths`. No existing test covers cross-format
+  identical mounts.
+
+- 2.2 **CONFIRMED — CE-3 fix introduces collection-vs-single-file
+  false positive (regression).** The orchestrator's prompt also
+  flagged this ("Does `[\"docs/\"]` vs `[\"docs.md\"]` ... detect
+  overlap? Edge case — what's intended?"). Pre-fix behaviour:
+  `mountsOverlap("docs/", "docs.md")` returned false because
+  `mountSample("docs.md") = "docs.md"` did not match
+  `^docs(/.+)?$` (the regex requires either nothing or `/...` after
+  "docs"). Post-fix:
+  `bNorm = normalizeMountForOverlap("docs.md", FormatMD)` strips
+  `.md` → "docs"; then `reA = ^docs(/.+)?$` matches "docs" because
+  `(/.+)?` is optional. Returns true (overlap). But on disk:
+  `["docs/"]` collection walks files inside `<root>/docs/`;
+  `["docs.md"]` is the literal file `<root>/docs.md`. Disjoint
+  filesystem entities — `docs.md` is not "inside" the `docs/`
+  directory. The fix silently reclassifies a previously-disjoint
+  pair as overlapping.
+
+  Reproduction: a fixture with `[a] paths=["docs/"] format="md"`
+  and `[b] paths=["docs.md"] format="md"` Loaded cleanly before the
+  fix and now errors with `ErrOverlappingPaths`. No existing test
+  asserts either side of this pair.
+
+- 2.3 **CONFIRMED — CE-3 fix misses cross-format ext-explicit
+  overlap.** Trace `mountsOverlap("plans", FormatMD, "plans.md",
+  FormatTOML)`: `aNorm = "plans"` (no `.md` → wait, format is md,
+  so `ext = ".md"`, `TrimSuffix("plans", ".md")` → "plans" (no
+  match)); `bNorm = "plans.md"` (format is toml, ext = ".toml",
+  `TrimSuffix("plans.md", ".toml")` → "plans.md"); `aNorm != bNorm`
+  → regex compare. `reA = ^plans$`, `mountSample("plans.md") =
+  "plans.md"`, no match. `reB = ^plans\.md$`, `mountSample("plans")
+  = "plans"`, no match. Returns false (no overlap). But on disk:
+  a's mount=`["plans"]` + format=md → file `plans.md`; b's
+  mount=`["plans.md"]` + format=toml → file literally `plans.md`
+  (toml content under .md extension — unusual but not forbidden by
+  the schema). Both write to the same file → collision. Schema
+  load fails to detect.
+
+  The asymmetry is that the explicit-extension form's normalization
+  only strips the *declaring* db's format suffix; if the same
+  on-disk file is ALSO matched by a different db whose format makes
+  the bare-mount expand to that filename, the cross-check misses.
+  Reproduction: a fixture with `[a] paths=["plans"] format="md"`
+  and `[b] paths=["plans.md"] format="toml"` Loads cleanly when it
+  should be rejected as overlapping.
+
+### 3. Summary
+
+FAIL. The CE-1 and CE-2 fixes are clean and the new tests
+exercise the right surfaces. The CE-3 fix is incomplete: the
+`normalizeMountForOverlap` helper assumes both sides share the
+declaring db's format, but `mountsOverlap` is called on pairs
+that may declare different formats. This produces both a
+false-positive (cross-format identical mounts erroneously rejected)
+and a false-negative (cross-format ext-explicit-vs-bare collision
+silently accepted), plus a regression that turns a previously-disjoint
+collection-vs-single-file pair into an apparent overlap.
+
+The correct fix needs `mountsOverlap` to compare against the actual
+on-disk filenames each side resolves to. Two non-collection mounts
+should compare equal iff they expand to the same `<base>.<format>`
+string per the declaring db's format. Two collection mounts compare
+under the existing prefix-recursion rule. Mixed (collection vs
+non-collection) needs a directory-vs-file disjointness check —
+`docs/` and `docs.md` are not the same filesystem entity.
+
+DESIGN ISSUE flag: PLAN §12.17.9 Phase 9.2 is silent on
+cross-format mount semantics. The orchestrator should clarify
+whether two dbs at the same logical path with different formats
+are explicitly disjoint (`plans.toml` and `plans.md` peacefully
+coexist) before the next fixup round lands. The current code
+behaves as if cross-format dbs ARE distinct (file paths differ at
+the `.toml` vs `.md` suffix), so the locked design implicitly
+permits the case the false-positive rejects.
+
+### 4. Hylla Feedback
+
+N/A — review touched only the working-tree Go files and the WORKLOG;
+no Hylla queries issued.
+
+## 12.17.9 Phase 9.2 — fixup round 3 (2026-04-25)
+
+CE-3 fix v1 (fixup round 2) shipped a same-format-only normalization
+that two QA falsification re-runs flagged with confirmed regressions.
+This round replaces the v1 normalization-everywhere logic with the
+locked PLAN §12.17.9 rule (dev-confirmed 2026-04-25). CE-1 and CE-2
+fixes from round 2 are unchanged. Read/Edit/Write only; orchestrator
+owns `mage fmt` + `mage check` verification.
+
+### 1. Locked rules (per dev confirmation 2026-04-25)
+
+- **Mount-string equality is the cross-db overlap test, regardless of
+  format.** Two dbs cannot share a `paths` entry. The address grammar
+  (`<file-relpath>.<type>.<id-tail>`, no db prefix) cannot disambiguate
+  mounts that resolve via different formats to physically distinct
+  files — the lookup-time scan can't tell which db's resolver to invoke
+  from the address alone. Reject at load.
+- **Within a single format, ext-normalize equivalent forms still
+  overlap.** `["plans"]` toml + `["plans.toml"]` toml → reject. The
+  round-2 normalization captures this case correctly when both
+  declaring formats match.
+- **Across formats, NO normalization.** `["plans"]` toml + `["plans"]`
+  md → reject (mount strings literally equal). `["plans"]` toml +
+  `["plans.md"]` toml → accept (different bare strings, different
+  files).
+- **Collection-vs-sibling-file with similar prefix is NOT overlap
+  (B2).** `["docs/"]` md + `["docs.md"]` md → accept. The collection
+  mount walks files inside `<root>/docs/`; the sibling file is the
+  literal `<root>/docs.md`. Physically distinct (dir vs file) AND
+  syntactically distinct mount strings (one ends in `/`, the other
+  does not). The collection regex must require at least one segment
+  under the collection root for this to hold.
+
+### 2. Edits
+
+- 2.1 **`internal/schema/load.go:mountsOverlap` — format-aware
+  normalization, in-format only.** Rewrote the helper so
+  `normalizeMountForOverlap` runs only when both sides share the
+  declaring format. Cross-format pairs compare on raw mount strings:
+  `aNorm = a; bNorm = b; if fa == fb { aNorm = normalize(a, fa); bNorm
+  = normalize(b, fa) }`. Then the existing `aNorm == bNorm` short-
+  circuit + regex/sample symmetric cross-check fire on the chosen
+  strings. Doc comment updated to cite the 2026-04-25 lock and walk
+  through the four locked cases (in-format ext-equiv collide;
+  cross-format identical-string collide; cross-format
+  ext-explicit-vs-bare disjoint by raw string; collection-vs-sibling
+  disjoint by raw string + tightened regex).
+
+- 2.2 **`internal/schema/load.go:mountRegex` — collection branch
+  requires at least one descendant segment.** Changed the trailing-
+  slash suffix from `(/.+)?$` (optional) to `/.+$` (required). With
+  the optional form, `mountSample("docs.md") = "docs.md"` matched
+  `^docs(/.+)?$` (the empty alternative collapsed `^docs$` against
+  the bare-name sample) and the symmetric cross-check produced a
+  false positive against `["docs/"]` collection. With the required
+  form, `^docs/.+$` only matches under-collection paths. The existing
+  `TestLoadRejectsCollectionOverlapWithDescendant` (`["docs/"]` vs
+  `["docs/foo"]`) still passes because `mountSample("docs/foo") =
+  "docs/foo"` matches the required form.
+
+- 2.3 **CE-1 + CE-2 untouched.** Round 2's `tryParseAgainstMount`
+  home-expansion in `internal/db/address.go` and the `mount == "."`
+  early-return in `internal/schema/schema.go:SingleFileMount` are
+  the right fixes; both remain in the working tree. This round only
+  reworks CE-3.
+
+### 3. New tests in `internal/schema/load_test.go`
+
+- 3.1 `TestLoadRejectsCrossFormatSameMount`. Schema fixture with
+  `[a] paths=["plans"] format="toml"` + `[b] paths=["plans"]
+  format="md"`. Asserts `errors.Is(err, ErrOverlappingPaths)`. The
+  in-format ext-equiv test from round 2
+  (`TestLoadRejectsExtEquivalentOverlap`) stays — it verifies the
+  same-format normalization still works.
+
+- 3.2 `TestLoadAcceptsCollectionVsSiblingFile`. Schema fixture with
+  `[a] paths=["docs/"] format="md"` + `[b] paths=["docs.md"]
+  format="md"` (both declare a `section` heading-2 type with a body
+  field). Asserts Load succeeds. Verifies the locked B2 rule.
+
+### 4. Existing overlap tests — preserved by construction
+
+- 4.1 `TestLoadRejectsOverlappingPaths` — same-string mounts, same
+  format. After 4.1's preserved literal-equality short-circuit
+  (`aNorm == bNorm` after same-format normalization), still rejects.
+- 4.2 `TestLoadRejectsOverlappingPathsAcrossSlices` — shared mount in
+  multi-entry slices, same format. Same path through the loop.
+- 4.3 `TestLoadRejectsGlobOverlapWithLiteral` (`workflow/*/db` vs
+  `workflow/foo/db`, both toml) — same format, normalize is a no-op
+  (no `.toml` suffix on either glob/literal), regex/sample cross-
+  check fires. Tightened collection regex doesn't touch glob mounts.
+- 4.4 `TestLoadRejectsCollectionOverlapWithDescendant` (`docs/` vs
+  `docs/foo`, both md) — same format, normalize is a no-op (collection
+  pass-through + non-collection has no `.md` suffix), tightened regex
+  `^docs/.+$` matches sample `docs/foo`.
+- 4.5 `TestLoadAcceptsDisjointGlobs` (`workflow/*/db` vs `plans`, both
+  toml) — same format, normalize strips no suffix; regex/sample
+  cross-check no match either direction.
+- 4.6 `TestLoadRejectsExtEquivalentOverlap` (`plans` vs `plans.toml`,
+  both toml) — same format triggers normalization, both sides fold
+  to `plans`, equality short-circuit fires.
+
+### 5. Verification
+
+- 5.1 Bash denied this round. `mage fmt` + `mage check` deferred to
+  the orchestrator; QA falsification re-spawn follows.
+
+### 6. Hylla Feedback
+
+N/A — task touched only Go and Markdown files; verification was
+deferred and no Hylla queries were issued during the round. All
+evidence came from `Read` of the local working tree (load.go,
+load_test.go, address.go, schema.go, PLAN.md, WORKLOG.md).

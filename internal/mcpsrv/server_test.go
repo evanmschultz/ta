@@ -62,9 +62,9 @@ description = "Body under the H2."
 
 const multiInstanceTOMLSchema = `
 [plan_db]
-paths = ["workflow"]
+paths = ["workflow/*/db"]
 format = "toml"
-description = "Multi-instance planning db."
+description = "Multi-file planning db."
 
 [plan_db.build_task]
 description = "A build task."
@@ -295,7 +295,7 @@ func TestCreateRejectsPathHintEscape(t *testing.T) {
 	c := newClient(t)
 	res := callTool(t, c, "create", map[string]any{
 		"path":      fx.projectRoot,
-		"section":   "docs.guide.title.overview",
+		"section":   "guide.title.overview",
 		"data":      map[string]any{"body": "hi"},
 		"path_hint": "../escape.md",
 	})
@@ -612,7 +612,12 @@ func TestDeleteRecordLevel(t *testing.T) {
 	}
 }
 
-func TestDeleteWholeFileSingleInstance(t *testing.T) {
+// TestDeleteWholeFileErrorsUnderPhase9_2 documents that whole-file
+// delete (the legacy `Delete <db>` form) is no longer supported.
+// Phase 9.2 (PLAN §12.17.9) narrows Delete to record-level addresses
+// only; whole-file delete returns in Phase 9.4 once the new
+// file-relpath delete semantics land.
+func TestDeleteWholeFileErrorsUnderPhase9_2(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)
 	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
@@ -623,67 +628,64 @@ func TestDeleteWholeFileSingleInstance(t *testing.T) {
 		"path":    fx.projectRoot,
 		"section": "plans",
 	})
-	if res.IsError {
-		t.Fatalf("delete errored: %s", firstText(t, res))
+	if !res.IsError {
+		t.Fatal("expected Phase 9.2 to reject whole-file delete")
 	}
-	if _, err := os.Stat(dataPath); !os.IsNotExist(err) {
-		t.Errorf("expected %s to be removed, stat err=%v", dataPath, err)
+	if _, err := os.Stat(dataPath); err != nil {
+		t.Errorf("file should still exist after rejected delete: %v", err)
 	}
 }
 
-func TestDeleteWholeInstanceDirDirectoryDB(t *testing.T) {
+// TestDeleteWholeInstanceErrorsUnderPhase9_2 documents the Phase 9.2
+// (PLAN §12.17.9) narrowing: Delete handles record-level addresses
+// only. Whole-file / whole-db deletes are deferred to Phase 9.4 where
+// the new file-relpath delete semantics land. The address `drop_1.db`
+// has no type+id so it errors as malformed.
+func TestDeleteWholeInstanceErrorsUnderPhase9_2(t *testing.T) {
 	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
 	c := newClient(t)
-	// Seed a drop with one record.
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
-		"section": "plan_db.drop_1.build_task.task_001",
+		"section": "drop_1.db.build_task.task_001",
 		"data":    map[string]any{"id": "TASK-001", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("seed create: %s", firstText(t, res))
 	}
-	dropDir := filepath.Join(fx.projectRoot, "workflow", "drop_1")
-	if _, err := os.Stat(dropDir); err != nil {
-		t.Fatalf("dropDir stat: %v", err)
-	}
-	// Delete whole instance dir.
-	if res := callTool(t, c, "delete", map[string]any{
+	res := callTool(t, c, "delete", map[string]any{
 		"path":    fx.projectRoot,
-		"section": "plan_db.drop_1",
-	}); res.IsError {
-		t.Fatalf("delete instance: %s", firstText(t, res))
-	}
-	if _, err := os.Stat(dropDir); !os.IsNotExist(err) {
-		t.Errorf("expected %s to be removed, err=%v", dropDir, err)
+		"section": "drop_1.db",
+	})
+	if !res.IsError {
+		t.Fatal("expected Phase 9.2 to reject whole-instance delete")
 	}
 }
 
-func TestDeleteWholeInstanceFileCollectionDB(t *testing.T) {
+// TestDeleteCollectionPageErrorsUnderPhase9_2 mirrors the rule for
+// collection mounts: `docs.guide` (no type+id) errors as malformed
+// under the Phase 9.2 record-level Delete narrowing.
+func TestDeleteCollectionPageErrorsUnderPhase9_2(t *testing.T) {
 	fx := newFixtureWithSchema(t, collectionMDSchema)
 	c := newClient(t)
-	// Create a page with a title.
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
-		"section": "docs.guide.title.overview",
+		"section": "guide.title.overview",
 		"data":    map[string]any{"body": "Welcome."},
 	}); res.IsError {
 		t.Fatalf("seed create: %s", firstText(t, res))
 	}
-	pagePath := filepath.Join(fx.projectRoot, "docs", "guide.md")
-	if _, err := os.Stat(pagePath); err != nil {
-		t.Fatalf("page stat: %v", err)
-	}
-	if res := callTool(t, c, "delete", map[string]any{
+	res := callTool(t, c, "delete", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "docs.guide",
-	}); res.IsError {
-		t.Fatalf("delete instance file: %s", firstText(t, res))
-	}
-	if _, err := os.Stat(pagePath); !os.IsNotExist(err) {
-		t.Errorf("expected %s removed, err=%v", pagePath, err)
+	})
+	if !res.IsError {
+		t.Fatal("expected Phase 9.2 to reject whole-page delete")
 	}
 }
 
+// TestDeleteWholeMultiInstanceDBErrors documents that whole-db
+// delete (`plan_db`) errors loudly under the Phase 9.2 narrowing
+// (PLAN §12.17.9). The address has neither file-relpath nor type+id,
+// so it cannot resolve as record-level.
 func TestDeleteWholeMultiInstanceDBErrors(t *testing.T) {
 	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
 	c := newClient(t)
@@ -692,10 +694,7 @@ func TestDeleteWholeMultiInstanceDBErrors(t *testing.T) {
 		"section": "plan_db",
 	})
 	if !res.IsError {
-		t.Fatalf("expected multi-instance whole-db delete to error")
-	}
-	if !strings.Contains(firstText(t, res), "ambiguous") {
-		t.Errorf("error should mention ambiguous: %s", firstText(t, res))
+		t.Fatalf("expected whole-db delete to error")
 	}
 }
 
@@ -704,7 +703,7 @@ func TestDeleteWholeMultiInstanceDBErrors(t *testing.T) {
 func TestMultiInstanceTOMLCreateThenGetFields(t *testing.T) {
 	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
 	c := newClient(t)
-	section := "plan_db.drop_1.build_task.task_001"
+	section := "drop_1.db.build_task.task_001"
 	res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": section,
@@ -769,7 +768,9 @@ func TestMDCreateGetUpdateDeleteRoundTrip(t *testing.T) {
 	c := newClient(t)
 
 	// create the H1 title first (parent), then an H2 section under it.
-	titleSection := "readme.title.ta"
+	// Phase 9.2 grammar: file-relpath comes first; mount paths=["README.md"]
+	// strips the .md to give file-relpath "README".
+	titleSection := "README.title.ta"
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": titleSection,
@@ -778,7 +779,7 @@ func TestMDCreateGetUpdateDeleteRoundTrip(t *testing.T) {
 		t.Fatalf("create title errored: %s", firstText(t, res))
 	}
 
-	section := "readme.section.ta.install"
+	section := "README.section.ta.install"
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": section,
@@ -1371,14 +1372,14 @@ func TestListSectionsMultiInstanceAddresses(t *testing.T) {
 	c := newClient(t)
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
-		"section": "plan_db.drop_1.build_task.task_001",
+		"section": "drop_1.db.build_task.task_001",
 		"data":    map[string]any{"id": "TASK-001", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("seed: %s", firstText(t, res))
 	}
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
-		"section": "plan_db.drop_2.build_task.task_001",
+		"section": "drop_2.db.build_task.task_001",
 		"data":    map[string]any{"id": "TASK-002", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("seed: %s", firstText(t, res))
@@ -1395,8 +1396,8 @@ func TestListSectionsMultiInstanceAddresses(t *testing.T) {
 		t.Fatalf("body not JSON: %v", err)
 	}
 	want := []string{
-		"plan_db.drop_1.build_task.task_001",
-		"plan_db.drop_2.build_task.task_001",
+		"drop_1.db.build_task.task_001",
+		"drop_2.db.build_task.task_001",
 	}
 	if len(payload.Sections) != len(want) {
 		t.Fatalf("sections = %v, want %v", payload.Sections, want)
@@ -1409,7 +1410,7 @@ func TestListSectionsMultiInstanceAddresses(t *testing.T) {
 	// With scope → only drop_1.
 	scoped := callTool(t, c, "list_sections", map[string]any{
 		"path":  fx.projectRoot,
-		"scope": "plan_db.drop_1",
+		"scope": "drop_1.db",
 	})
 	if scoped.IsError {
 		t.Fatalf("scoped list_sections errored: %s", firstText(t, scoped))
@@ -1417,8 +1418,8 @@ func TestListSectionsMultiInstanceAddresses(t *testing.T) {
 	if err := json.Unmarshal([]byte(firstText(t, scoped)), &payload); err != nil {
 		t.Fatalf("scoped body not JSON: %v", err)
 	}
-	if len(payload.Sections) != 1 || payload.Sections[0] != "plan_db.drop_1.build_task.task_001" {
-		t.Errorf("scoped sections = %v, want [plan_db.drop_1.build_task.task_001]", payload.Sections)
+	if len(payload.Sections) != 1 || payload.Sections[0] != "drop_1.db.build_task.task_001" {
+		t.Errorf("scoped sections = %v, want [drop_1.db.build_task.task_001]", payload.Sections)
 	}
 }
 
@@ -1455,14 +1456,14 @@ func TestGetFieldsMDNonBodyErrors(t *testing.T) {
 	c := newClient(t)
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
-		"section": "readme.section.hello",
+		"section": "README.section.hello",
 		"data":    map[string]any{"body": "world"},
 	}); res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
 	}
 	res := callTool(t, c, "get", map[string]any{
 		"path":    fx.projectRoot,
-		"section": "readme.section.hello",
+		"section": "README.section.hello",
 		"fields":  []any{"subtitle"},
 	})
 	if !res.IsError {
@@ -1546,18 +1547,21 @@ func TestSearchCrossInstanceUnion(t *testing.T) {
 	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
 	c := newClient(t)
 	for _, args := range []map[string]any{
-		{"path": fx.projectRoot, "section": "plan_db.drop_1.build_task.task_001",
+		{"path": fx.projectRoot, "section": "drop_1.db.build_task.task_001",
 			"data": map[string]any{"id": "TASK-001", "status": "todo"}},
-		{"path": fx.projectRoot, "section": "plan_db.drop_2.build_task.task_002",
+		{"path": fx.projectRoot, "section": "drop_2.db.build_task.task_002",
 			"data": map[string]any{"id": "TASK-002", "status": "todo"}},
 	} {
 		if res := callTool(t, c, "create", args); res.IsError {
 			t.Fatalf("seed: %s", firstText(t, res))
 		}
 	}
+	// Phase 9.2: scope `plan_db` (db-name) no longer exists; cross-file
+	// union under paths=["workflow/*/db"] uses the empty (whole-project)
+	// scope, which walks every db's instances.
 	res := callTool(t, c, "search", map[string]any{
 		"path":  fx.projectRoot,
-		"scope": "plan_db",
+		"scope": "",
 	})
 	if res.IsError {
 		t.Fatalf("search errored: %s", firstText(t, res))
@@ -1577,8 +1581,8 @@ func TestSearchCrossInstanceUnion(t *testing.T) {
 	sections := []string{payload.Hits[0].Section, payload.Hits[1].Section}
 	sort.Strings(sections)
 	want := []string{
-		"plan_db.drop_1.build_task.task_001",
-		"plan_db.drop_2.build_task.task_002",
+		"drop_1.db.build_task.task_001",
+		"drop_2.db.build_task.task_002",
 	}
 	for i, s := range sections {
 		if s != want[i] {
@@ -1623,7 +1627,7 @@ func TestCreateDirPerInstanceLeavesDirOnSuccess(t *testing.T) {
 	}
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
-		"section": "plan_db.drop_new.build_task.t1",
+		"section": "drop_new.db.build_task.t1",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))

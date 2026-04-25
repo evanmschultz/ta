@@ -451,14 +451,14 @@ func TestGetCmdFields(t *testing.T) {
 // ---- list-sections CLI (V2-PLAN §12.17.5 [A2]) ----------------------
 
 // multiInstanceCLISchema mirrors the MCP test fixture at
-// internal/mcpsrv/server_test.go:multiInstanceTOMLSchema. The
-// directory-per-instance shape is the only one that produces the
-// `plan_db.<instance>.<type>.<id>` form that A2 is validating.
+// internal/mcpsrv/server_test.go:multiInstanceTOMLSchema. Phase 9.2
+// (PLAN §12.17.9) uses the glob-mount shape so file-relpath
+// resolves to `<drop>.db`.
 const multiInstanceCLISchema = `
 [plan_db]
-paths = ["workflow"]
+paths = ["workflow/*/db"]
 format = "toml"
-description = "Multi-instance planning db."
+description = "Multi-file planning db."
 
 [plan_db.build_task]
 description = "A build task."
@@ -520,11 +520,11 @@ func TestListSectionsCmdProjectLevelAddresses(t *testing.T) {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
 	want := []string{
-		"plan_db.drop_a.build_task.task_1",
-		"plan_db.drop_a.build_task.task_2",
-		"plan_db.drop_a.build_task.task_3",
-		"plan_db.drop_b.build_task.task_1",
-		"plan_db.drop_b.build_task.task_2",
+		"drop_a.db.build_task.task_1",
+		"drop_a.db.build_task.task_2",
+		"drop_a.db.build_task.task_3",
+		"drop_b.db.build_task.task_1",
+		"drop_b.db.build_task.task_2",
 	}
 	if len(payload.Sections) != len(want) {
 		t.Fatalf("sections = %v, want %v", payload.Sections, want)
@@ -544,7 +544,7 @@ func TestListSectionsCmdScopeFilter(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "--scope", "plan_db.drop_a", "--json"})
+	cmd.SetArgs([]string{"--path", root, "--scope", "drop_a.db", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -555,7 +555,7 @@ func TestListSectionsCmdScopeFilter(t *testing.T) {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
 	for _, s := range payload.Sections {
-		if !strings.HasPrefix(s, "plan_db.drop_a.") {
+		if !strings.HasPrefix(s, "drop_a.db.") {
 			t.Errorf("scope filter leaked %q", s)
 		}
 	}
@@ -574,7 +574,7 @@ func TestListSectionsCmdScopePositional(t *testing.T) {
 	var flagOut bytes.Buffer
 	flagCmd.SetOut(&flagOut)
 	flagCmd.SetErr(&bytes.Buffer{})
-	flagCmd.SetArgs([]string{"--path", root, "--scope", "plan_db.drop_b", "--json"})
+	flagCmd.SetArgs([]string{"--path", root, "--scope", "drop_b.db", "--json"})
 	if err := flagCmd.Execute(); err != nil {
 		t.Fatalf("flag form: %v", err)
 	}
@@ -583,7 +583,7 @@ func TestListSectionsCmdScopePositional(t *testing.T) {
 	var posOut bytes.Buffer
 	posCmd.SetOut(&posOut)
 	posCmd.SetErr(&bytes.Buffer{})
-	posCmd.SetArgs([]string{"--path", root, "plan_db.drop_b", "--json"})
+	posCmd.SetArgs([]string{"--path", root, "drop_b.db", "--json"})
 	if err := posCmd.Execute(); err != nil {
 		t.Fatalf("positional form: %v", err)
 	}
@@ -660,7 +660,7 @@ func TestListSectionsCmdBothScopeFormsErrors(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "--scope", "plan_db", "plan_db.drop_a"})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plan_db", "drop_a.db"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("expected error when --scope and positional both supplied")
 	}

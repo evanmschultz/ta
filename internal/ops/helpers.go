@@ -3,10 +3,8 @@ package ops
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/evanmschultz/ta/internal/db"
-	"github.com/evanmschultz/ta/internal/schema"
 )
 
 // spliceOut returns buf with the bytes in rng removed. Atomic-write
@@ -31,47 +29,47 @@ func readFileIfExists(path string) ([]byte, error) {
 	return buf, nil
 }
 
-// validationPath adapts a full address to the "<db>.<type>..." form
-// schema.Validate expects (its signature pre-dates multi-instance).
-// For multi-instance addresses we rebuild "<db>.<type>..." by stripping
-// the <instance> segment.
-//
-// TODO(PLAN §12.17.9 Phase 9.2): rewrite under the new no-db-prefix grammar.
-func validationPath(reg schema.Registry, section string) string {
-	segs := strings.Split(section, ".")
-	if len(segs) < 2 {
-		return section
+// validationPath rebuilds the "<db>.<type>.<id>" form schema.Validate
+// expects from a resolved Address. The validation form is internal and
+// independent of the address grammar — it is the pre-9.1 address shape
+// used by Validate's two-segment lookup. Phase 9.2 derives it from the
+// resolved Address rather than slicing raw segments.
+func validationPath(addr db.Address) string {
+	parts := []string{addr.DBName, addr.Type}
+	if addr.ID != "" {
+		parts = append(parts, addr.ID)
 	}
-	dbDecl, ok := reg.DBs[segs[0]]
-	if !ok {
-		return section
-	}
-	if schema.IsSingleFile(dbDecl) {
-		return section
-	}
-	if len(segs) < 3 {
-		return section
-	}
-	// drop <instance> — segs[1]
-	rebuilt := make([]string, 0, len(segs)-1)
-	rebuilt = append(rebuilt, segs[0])
-	rebuilt = append(rebuilt, segs[2:]...)
-	return strings.Join(rebuilt, ".")
+	return joinDot(parts)
 }
 
 // tomlRelPathForFields returns the backend-relative record path for
-// use by extractTOMLFields. For legacy single-file TOML the map key path
-// is "<db>.<type>.<id>"; for multi-instance it is "<type>.<id>" (the
-// file carries only the type and below).
-//
-// TODO(PLAN §12.17.9 Phase 9.4): rewire to the new resolver-driven shape.
-func tomlRelPathForFields(dbDecl schema.DB, addr db.Address) string {
+// use by extractTOMLFields. Single-file mounts embed the db name in
+// every bracket path on disk (legacy `[plans.task.t1]` form), so the
+// rel path is `<db>.<type>.<id>`. Multi-file mounts emit bare brackets
+// (`[build_task.task_001]`) so the rel path is `<type>.<id>`.
+func tomlRelPathForFields(addr db.Address) string {
 	base := addr.Type
 	if addr.ID != "" {
 		base += "." + addr.ID
 	}
-	if schema.IsSingleFile(dbDecl) {
-		return dbDecl.Name + "." + base
+	if addr.SingleFileMount {
+		return addr.DBName + "." + base
 	}
 	return base
+}
+
+// joinDot joins non-empty segments with '.'.
+func joinDot(parts []string) string {
+	out := ""
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if out == "" {
+			out = p
+			continue
+		}
+		out += "." + p
+	}
+	return out
 }

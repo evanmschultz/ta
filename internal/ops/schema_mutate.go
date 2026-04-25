@@ -274,9 +274,10 @@ func applyFieldMutation(action, name string, data map[string]any, root map[strin
 }
 
 // dbHasDataOnDisk returns true when any backing file for the target db
-// exists on disk. The scan uses resolver.Instances so it catches
-// dir-per-instance subdirs, collection files, and single-instance
-// files uniformly.
+// exists on disk. Phase 9.2 (PLAN §12.17.9) routes every shape through
+// resolver.Instances — single-file mounts surface as one Instance,
+// glob mounts as one per concrete file, and collection mounts as one
+// per descendant.
 func dbHasDataOnDisk(projectPath, dbName string, root map[string]any) (bool, error) {
 	reg, err := registryFromRoot(root)
 	if err != nil {
@@ -286,18 +287,7 @@ func dbHasDataOnDisk(projectPath, dbName string, root map[string]any) (bool, err
 		// proceed when the authoring intent is "remove empty entry".
 		return false, nil
 	}
-	dbDecl, ok := reg.DBs[dbName]
-	if !ok {
-		return false, nil
-	}
-	// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new resolver.
-	if schema.IsSingleFile(dbDecl) {
-		target := filepath.Join(projectPath, dbDecl.Paths[0])
-		if _, err := os.Stat(target); err == nil {
-			return true, nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return false, fmt.Errorf("stat %s: %w", target, err)
-		}
+	if _, ok := reg.DBs[dbName]; !ok {
 		return false, nil
 	}
 	resolver := db.NewResolver(projectPath, reg)
@@ -320,7 +310,8 @@ func typeHasRecordsOnDisk(projectPath, dbName, typeName string, root map[string]
 	if !ok {
 		return false, nil
 	}
-	backend, err := buildBackend(dbDecl)
+	singleFile := schema.IsSingleFileDB(dbDecl)
+	backend, err := buildBackend(dbDecl, singleFile)
 	if err != nil {
 		return false, err
 	}
@@ -330,7 +321,7 @@ func typeHasRecordsOnDisk(projectPath, dbName, typeName string, root map[string]
 		return false, err
 	}
 	scope := typeName
-	if dbDecl.Format == schema.FormatTOML && schema.IsSingleFile(dbDecl) {
+	if dbDecl.Format == schema.FormatTOML && singleFile {
 		scope = dbName + "." + typeName
 	}
 	for _, inst := range instances {

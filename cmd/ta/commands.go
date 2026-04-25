@@ -11,6 +11,7 @@ import (
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
+	"github.com/evanmschultz/ta/internal/db"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/schema"
@@ -133,7 +134,7 @@ func runGetScope(c *cobra.Command, path, section string, fields []string, limit 
 		return fmt.Errorf("resolve schema: %w", err)
 	}
 	for _, rec := range records {
-		_, typeSt, err := lookupDBAndType(resolution.Registry, rec.Section)
+		_, typeSt, err := lookupDBAndType(resolution.Registry, path, rec.Section)
 		if err != nil {
 			// Best-effort: render without typed fields.
 			if err := r.Record(rec.Section, nil); err != nil {
@@ -222,10 +223,10 @@ func dbFormatFor(path, section string) (schema.Format, error) {
 	if err != nil {
 		return "", err
 	}
-	dbName, _, _ := strings.Cut(section, ".")
-	dbDecl, ok := resolution.Registry.DBs[dbName]
-	if !ok {
-		return "", fmt.Errorf("db %q not declared", dbName)
+	resolver := db.NewResolver(path, resolution.Registry)
+	_, dbDecl, err := resolver.ParseAddress(section)
+	if err != nil {
+		return "", fmt.Errorf("address %q: %w", section, err)
 	}
 	return dbDecl.Format, nil
 }
@@ -238,10 +239,10 @@ func buildRenderFields(path, section string, values map[string]any, names []stri
 	if err != nil {
 		return nil, fmt.Errorf("resolve schema: %w", err)
 	}
-	// Resolve type for the address. We need <db>.<type> — for multi-
-	// instance addresses strip the <instance> segment; mirrors
-	// ops.validationPath.
-	dbDecl, typeSt, err := lookupDBAndType(resolution.Registry, section)
+	// Resolve type for the address. The Phase 9.2 grammar
+	// `<file-relpath>.<type>.<id>` is parsed by the resolver; we
+	// need the type descriptor to drive structured rendering.
+	dbDecl, typeSt, err := lookupDBAndType(resolution.Registry, path, section)
 	if err != nil {
 		return nil, err
 	}
@@ -261,28 +262,15 @@ func buildRenderFields(path, section string, values map[string]any, names []stri
 	return out, nil
 }
 
-func lookupDBAndType(reg schema.Registry, section string) (schema.DB, schema.SectionType, error) {
-	parts := strings.Split(section, ".")
-	if len(parts) < 2 {
-		return schema.DB{}, schema.SectionType{}, fmt.Errorf("address %q: too few segments", section)
+func lookupDBAndType(reg schema.Registry, projectPath, section string) (schema.DB, schema.SectionType, error) {
+	resolver := db.NewResolver(projectPath, reg)
+	addr, dbDecl, err := resolver.ParseAddress(section)
+	if err != nil {
+		return schema.DB{}, schema.SectionType{}, fmt.Errorf("address %q: %w", section, err)
 	}
-	dbDecl, ok := reg.DBs[parts[0]]
+	t, ok := dbDecl.Types[addr.Type]
 	if !ok {
-		return schema.DB{}, schema.SectionType{}, fmt.Errorf("db %q not declared", parts[0])
-	}
-	var typeName string
-	// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new no-db-prefix grammar.
-	if schema.IsSingleFile(dbDecl) {
-		typeName = parts[1]
-	} else {
-		if len(parts) < 3 {
-			return schema.DB{}, schema.SectionType{}, fmt.Errorf("address %q: multi-instance needs <db>.<instance>.<type>...", section)
-		}
-		typeName = parts[2]
-	}
-	t, ok := dbDecl.Types[typeName]
-	if !ok {
-		return dbDecl, schema.SectionType{}, fmt.Errorf("type %q not declared on db %q", typeName, dbDecl.Name)
+		return dbDecl, schema.SectionType{}, fmt.Errorf("type %q not declared on db %q", addr.Type, dbDecl.Name)
 	}
 	return dbDecl, t, nil
 }
@@ -683,7 +671,7 @@ func renderSearchHits(w io.Writer, path string, hits []ops.SearchHit) error {
 		return fmt.Errorf("resolve schema: %w", err)
 	}
 	for _, hit := range hits {
-		_, typeSt, err := lookupDBAndType(resolution.Registry, hit.Section)
+		_, typeSt, err := lookupDBAndType(resolution.Registry, path, hit.Section)
 		if err != nil {
 			// Best-effort: render without typed fields.
 			if err := r.Record(hit.Section, nil); err != nil {
@@ -772,7 +760,7 @@ func resolveTypeForSection(path, section string) (schema.SectionType, error) {
 	if err != nil {
 		return schema.SectionType{}, fmt.Errorf("resolve schema: %w", err)
 	}
-	_, typeSt, err := lookupDBAndType(resolution.Registry, section)
+	_, typeSt, err := lookupDBAndType(resolution.Registry, path, section)
 	if err != nil {
 		return schema.SectionType{}, err
 	}

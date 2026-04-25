@@ -5,6 +5,61 @@ import (
 	"strings"
 )
 
+// SingleFileMount reports whether mount is a single-file mount entry —
+// one that resolves to exactly one concrete file at expansion time.
+// Phase 9.2 (PLAN §12.17.9) treats a mount as single-file when it
+// contains no glob `*` and does not end with `/` (the dir-collection
+// suffix). Examples per the locked design:
+//
+//   - "plans"               → single-file (resolves to "plans.<ext>").
+//   - "README"              → single-file.
+//   - "docs/api"            → single-file.
+//   - "workflow/*/db"       → multi-file (glob).
+//   - "docs/"               → multi-file (collection root).
+//
+// Single-file mounts emit db-prefixed brackets in their TOML payloads
+// (legacy `[plans.task.t1]`); multi-file mounts emit bare type-prefixed
+// brackets (`[build_task.task_001]`). The bracket-form choice is the
+// only place this helper drives behaviour outside the resolver.
+func SingleFileMount(mount string) bool {
+	// `.` is the project-root collection mount: every file under root
+	// matches it. PLAN §12.17.9 Phase 9.2 treats it as a collection
+	// alongside trailing-slash forms; the address parser, resolver,
+	// and search package all branch on `mount == "."` as a collection
+	// indicator. Returning true here would diverge bracket-form
+	// selection from those call sites — Create would write a
+	// db-prefixed payload while search and schema_mutate would look
+	// for bare brackets.
+	if mount == "." {
+		return false
+	}
+	if strings.Contains(mount, "*") {
+		return false
+	}
+	if strings.HasSuffix(mount, "/") {
+		return false
+	}
+	return true
+}
+
+// IsSingleFileDB reports whether db is declared with a single-entry
+// Paths slice that itself names a single concrete file (no glob, no
+// trailing slash). True only when SingleFileMount(db.Paths[0]) holds
+// and len(db.Paths) == 1. Multi-entry Paths slices are always
+// multi-file regardless of whether each entry is single-file-shaped.
+//
+// This drives bracket-form selection (db-prefixed vs bare) and
+// validation-form-vs-resolution-form decisions across packages that
+// previously branched on the deleted IsSingleFile / IsLegacyDirectory
+// trichotomy. Phase 9.4 may simplify it further once `<type>` moves
+// to a flag.
+func IsSingleFileDB(db DB) bool {
+	if len(db.Paths) != 1 {
+		return false
+	}
+	return SingleFileMount(db.Paths[0])
+}
+
 // Type is the declared type of a schema field, matching TOML's native types.
 // The string form is the wire representation in the schema config and in the
 // JSON contract of *ValidationError.
@@ -109,53 +164,6 @@ type Registry struct {
 	// DBs maps db name (first segment of an address, e.g. "plan_db") to
 	// its declaration.
 	DBs map[string]DB
-}
-
-// IsSingleFile reports whether db should be treated, for the duration of
-// the Phase 9.1 transitional period (PLAN §12.17.9), as a legacy
-// single-instance file db. True when Paths has exactly one entry and that
-// entry has a recognised file extension (.toml / .md). Used by downstream
-// callers (internal/db, internal/ops, internal/search, internal/render,
-// internal/mcpsrv, cmd/ta) to keep their previous shape-switch logic
-// compiling without re-implementing the old `Shape` enum.
-//
-// Phase 9.2 replaces every caller of this helper with the new
-// paths-glob-aware address resolver, after which IsSingleFile is removed.
-func IsSingleFile(db DB) bool {
-	if len(db.Paths) != 1 {
-		return false
-	}
-	p := db.Paths[0]
-	return strings.HasSuffix(p, ".toml") || strings.HasSuffix(p, ".md")
-}
-
-// IsLegacyCollection reports whether db should be treated, during the
-// Phase 9.1 transitional period (PLAN §12.17.9), as a legacy
-// file-per-instance ("collection") db. True when any Paths entry ends
-// with "/" — the syntactic distinguisher chosen so the resolver can
-// branch directory-shape vs collection-shape without resurrecting Shape.
-//
-// Phase 9.2 deletes this once the paths-glob expander lands.
-func IsLegacyCollection(db DB) bool {
-	if IsSingleFile(db) {
-		return false
-	}
-	for _, p := range db.Paths {
-		if strings.HasSuffix(p, "/") {
-			return true
-		}
-	}
-	return false
-}
-
-// IsLegacyDirectory reports whether db should be treated, during the
-// Phase 9.1 transitional period (PLAN §12.17.9), as a legacy
-// dir-per-instance db (canonical `db.<ext>` per immediate subdir). True
-// when db is neither single-file nor collection.
-//
-// Phase 9.2 deletes this once the paths-glob expander lands.
-func IsLegacyDirectory(db DB) bool {
-	return !IsSingleFile(db) && !IsLegacyCollection(db)
 }
 
 // Lookup returns the section type named by the first two segments of a

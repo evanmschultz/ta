@@ -70,11 +70,11 @@ func Get(path, section string, fields []string) (GetResult, error) {
 	if err != nil {
 		return GetResult{}, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	backend, err := buildBackend(dbDecl)
+	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
 	if err != nil {
 		return GetResult{}, err
 	}
-	backendSection := backendSectionPath(dbDecl, section)
+	backendSection := backendSectionPath(dbDecl, addr)
 	sec, ok, err := backend.Find(buf, backendSection)
 	if err != nil {
 		return GetResult{}, fmt.Errorf("locate %q in %s: %w", section, filePath, err)
@@ -86,7 +86,7 @@ func Get(path, section string, fields []string) (GetResult, error) {
 	if len(fields) == 0 {
 		return res, nil
 	}
-	relPath := tomlRelPathForFields(dbDecl, addr)
+	relPath := tomlRelPathForFields(addr)
 	out, err := extractFields(buf, sec, dbDecl, addr.Type, relPath, fields)
 	if err != nil {
 		return res, err
@@ -126,11 +126,11 @@ func GetAllFields(path, section string) (GetResult, schema.SectionType, error) {
 	if err != nil {
 		return GetResult{}, typeSt, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	backend, err := buildBackend(dbDecl)
+	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
 	if err != nil {
 		return GetResult{}, typeSt, err
 	}
-	backendSection := backendSectionPath(dbDecl, section)
+	backendSection := backendSectionPath(dbDecl, addr)
 	sec, found, err := backend.Find(buf, backendSection)
 	if err != nil {
 		return GetResult{}, typeSt, fmt.Errorf("locate %q in %s: %w", section, filePath, err)
@@ -139,7 +139,7 @@ func GetAllFields(path, section string) (GetResult, schema.SectionType, error) {
 		return GetResult{}, typeSt, fmt.Errorf("%w: %q in %s", ErrRecordNotFound, section, filePath)
 	}
 	res := GetResult{FilePath: filePath, Bytes: buf[sec.Range[0]:sec.Range[1]]}
-	relPath := tomlRelPathForFields(dbDecl, addr)
+	relPath := tomlRelPathForFields(addr)
 	out, err := extractAllDeclaredFields(buf, sec, dbDecl, typeSt, relPath)
 	if err != nil {
 		return res, typeSt, err
@@ -156,19 +156,19 @@ func Create(path, section, pathHint string, data map[string]any) (string, []stri
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
-	if err := resolution.Registry.Validate(validationPath(resolution.Registry, section), data); err != nil {
+	resolver := db.NewResolver(path, resolution.Registry)
+	addr, dbDecl, err := resolver.ParseAddress(section)
+	if err != nil {
 		return "", nil, err
 	}
-	resolver := db.NewResolver(path, resolution.Registry)
-	_, dbDecl, err := resolver.ParseAddress(section)
-	if err != nil {
+	if err := resolution.Registry.Validate(validationPath(addr), data); err != nil {
 		return "", nil, err
 	}
 	_, _, filePath, err := resolver.ResolveWrite(section, pathHint)
 	if err != nil {
 		return "", nil, err
 	}
-	backend, err := buildBackend(dbDecl)
+	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
 	if err != nil {
 		return "", nil, err
 	}
@@ -176,7 +176,7 @@ func Create(path, section, pathHint string, data map[string]any) (string, []stri
 	if err != nil {
 		return "", nil, err
 	}
-	backendSection := backendSectionPath(dbDecl, section)
+	backendSection := backendSectionPath(dbDecl, addr)
 	if _, exists, err := backend.Find(buf, backendSection); err != nil {
 		return "", nil, fmt.Errorf("pre-create probe %q: %w", section, err)
 	} else if exists {
@@ -280,11 +280,11 @@ func Update(path, section string, data map[string]any) (string, []string, error)
 		}
 		return "", nil, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	backend, err := buildBackend(dbDecl)
+	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
 	if err != nil {
 		return "", nil, err
 	}
-	backendSection := backendSectionPath(dbDecl, section)
+	backendSection := backendSectionPath(dbDecl, addr)
 
 	// Load the existing record's declared fields into a map we can
 	// overlay onto. When the record is absent the merged map starts
@@ -302,7 +302,7 @@ func Update(path, section string, data map[string]any) (string, []string, error)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := resolution.Registry.Validate(validationPath(resolution.Registry, section), merged); err != nil {
+	if err := resolution.Registry.Validate(validationPath(addr), merged); err != nil {
 		return "", nil, err
 	}
 
@@ -332,7 +332,7 @@ func loadExistingFields(buf []byte, backend record.Backend, backendSection strin
 	if !ok {
 		return map[string]any{}, nil
 	}
-	relPath := tomlRelPathForFields(dbDecl, addr)
+	relPath := tomlRelPathForFields(addr)
 	declaredNames := make([]string, 0, len(st.Fields))
 	for name := range st.Fields {
 		declaredNames = append(declaredNames, name)
@@ -384,26 +384,38 @@ func overlayPatch(existing, patch map[string]any, st schema.SectionType) (map[st
 	return merged, nil
 }
 
-// Delete removes a record, a whole single-instance data file, or a
-// multi-instance instance directory / file. Whole multi-instance db
-// deletes fail with ErrAmbiguousDelete.
+// Delete removes a single record. PLAN §12.17.9 Phase 9.2 narrows the
+// endpoint to record-level only; whole-file / whole-instance / whole-db
+// deletes that the legacy address grammar tolerated now error with
+// ErrAmbiguousDelete (or the underlying parse failure when the section
+// does not address any concrete record under the new grammar). Phase
+// 9.4 will revisit coarser delete forms once the address grammar
+// settles.
 func Delete(path, section string) (string, []string, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
-	removed, handled, err := deleteAtLevel(path, section, resolution)
-	if err != nil {
-		return "", resolution.Sources, err
-	}
-	if handled {
-		return removed, resolution.Sources, nil
-	}
-	// Record-level delete.
 	resolver := db.NewResolver(path, resolution.Registry)
-	_, dbDecl, err := resolver.ParseAddress(section)
+	addr, dbDecl, err := resolver.ParseAddress(section)
 	if err != nil {
-		return "", nil, err
+		// The Phase 9.2 grammar refuses to resolve any address shorter
+		// than <file-relpath>.<type>.<id>, so anything that previously
+		// addressed a whole file / instance / db now bounces here.
+		// Whole-shape deletes get ErrAmbiguousDelete (so callers can
+		// branch on the new contract); type-segment typos still surface
+		// the underlying ErrUnknownType for loud failure.
+		if errors.Is(err, db.ErrUnknownType) {
+			return "", resolution.Sources, err
+		}
+		return "", resolution.Sources, fmt.Errorf(
+			"%w: %q does not address a single record under Phase 9.2 grammar (%v)",
+			ErrAmbiguousDelete, section, err)
+	}
+	if addr.Type == "" || addr.ID == "" {
+		return "", resolution.Sources, fmt.Errorf(
+			"%w: %q does not address a single record under Phase 9.2 grammar",
+			ErrAmbiguousDelete, section)
 	}
 	_, _, filePath, err := resolver.ResolveRead(section)
 	if err != nil {
@@ -416,11 +428,11 @@ func Delete(path, section string) (string, []string, error) {
 		}
 		return "", nil, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	backend, err := buildBackend(dbDecl)
+	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
 	if err != nil {
 		return "", nil, err
 	}
-	backendSection := backendSectionPath(dbDecl, section)
+	backendSection := backendSectionPath(dbDecl, addr)
 	sec, ok, err := backend.Find(buf, backendSection)
 	if err != nil {
 		return "", nil, fmt.Errorf("locate %q: %w", section, err)
@@ -520,46 +532,74 @@ type ScopeRecord struct {
 }
 
 // IsScopeAddress reports whether section is a scope-prefix address
-// (<db>, <db>.<type> single-instance, <db>.<instance>, or
-// <db>.<instance>.<type> multi-instance) rather than a fully-qualified
-// single-record address (<db>.<type>.<id> single-instance,
-// <db>.<instance>.<type>.<id> multi-instance).
+// (e.g. `<file-relpath>` or `<file-relpath>.<type>`) rather than a
+// fully-qualified single-record address
+// (`<file-relpath>.<type>.<id-tail>`).
 //
-// Detection is segment-count + db-shape only — no I/O beyond the
-// schema-resolve the caller already does for the routing decision. An
-// unknown db returns an error so the caller surfaces a loud typo
-// failure rather than pretending the address was "just a scope we
-// couldn't walk".
+// Phase 9.2 (PLAN §12.17.9) replaces the old segment-count + db-shape
+// heuristic with a parse-and-probe rule that keys off the new
+// file-relpath address grammar:
+//
+//  1. `db.NewResolver.ParseAddress(section)` succeeds → fully-qualified
+//     record → return false.
+//  2. `ParseAddress` returns `db.ErrBadAddress` → section started
+//     matching a mount but ran out of segments before the id-tail →
+//     return true (scope).
+//  3. Other parse errors (e.g. `db.ErrUnknownDB` because section is
+//     too short to disambiguate which db's mount applies) → probe by
+//     extending section with one synthetic `<type>.<id>` per declared
+//     type. If any extended form parses cleanly, the original is a
+//     scope-prefix; otherwise the original is genuinely malformed and
+//     the underlying error propagates as ErrInvalidScope.
+//
+// An empty or empty-segment section is always rejected up front. The
+// caller surfaces a loud typo failure rather than silently treating a
+// mistyped address as "just a scope we couldn't walk".
 //
 // Mirrors the grammar search.parseScope / list_sections already accept
-// (V2-PLAN §3.1 amendment 2026-04-23 / §12.17.5 [B2]).
+// (V2-PLAN §3.1 amendment 2026-04-23 / §12.17.5 [B2]; PLAN §12.17.9
+// Phase 9.2 file-relpath grammar).
 func IsScopeAddress(path, section string) (bool, error) {
 	if section == "" {
 		return false, fmt.Errorf("%w: empty section", search.ErrInvalidScope)
-	}
-	resolution, err := resolveFromProjectDir(path)
-	if err != nil {
-		return false, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	parts := strings.Split(section, ".")
 	if slices.Contains(parts, "") {
 		return false, fmt.Errorf("%w: %q has empty segment", search.ErrInvalidScope, section)
 	}
-	dbDecl, ok := resolution.Registry.DBs[parts[0]]
-	if !ok {
-		return false, fmt.Errorf("%w: unknown db %q", search.ErrInvalidScope, parts[0])
+	resolution, err := resolveFromProjectDir(path)
+	if err != nil {
+		return false, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
-	// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new no-db-prefix
-	// address grammar (<file-relpath>.<id-tail>).
-	if schema.IsSingleFile(dbDecl) {
-		// legacy single-file: 1 seg (<db>) and 2 segs (<db>.<type>) are
-		// scopes; 3+ segs (<db>.<type>.<id-path>) is single-record.
-		return len(parts) < 3, nil
+	resolver := db.NewResolver(path, resolution.Registry)
+	addr, _, parseErr := resolver.ParseAddress(section)
+	if parseErr == nil {
+		// ParseAddress only returns success for full
+		// <file-relpath>.<type>.<id-tail> addresses, but defend the
+		// invariant explicitly so a future relaxation of the parser
+		// does not silently flip the scope-vs-record bit here.
+		if addr.Type != "" && addr.ID != "" {
+			return false, nil
+		}
+		return true, nil
 	}
-	// multi-instance: 1 seg (<db>), 2 segs (<db>.<instance>), and
-	// 3 segs (<db>.<instance>.<type>) are scopes; 4+ segs
-	// (<db>.<instance>.<type>.<id-path>) is single-record.
-	return len(parts) < 4, nil
+	if errors.Is(parseErr, db.ErrBadAddress) {
+		return true, nil
+	}
+	// Probe: try extending section with one synthetic <type>.<id> per
+	// declared type. A successful extension means the original section
+	// is a valid scope-prefix under that mount; anything else means the
+	// section truly does not bind to any registered db.
+	const probeID = "__ta_scope_probe__"
+	for _, dbDecl := range resolution.Registry.DBs {
+		for typeName := range dbDecl.Types {
+			extended := section + "." + typeName + "." + probeID
+			if _, _, err := resolver.ParseAddress(extended); err == nil {
+				return true, nil
+			}
+		}
+	}
+	return false, fmt.Errorf("%w: %v", search.ErrInvalidScope, parseErr)
 }
 
 // GetScope enumerates every record under a scope-prefix section and
@@ -642,73 +682,4 @@ func Search(path, scope string, match map[string]any, queryRegex, field string, 
 		out[i] = SearchHit{Section: r.Section, Bytes: r.Bytes, Fields: r.Fields}
 	}
 	return out, nil
-}
-
-// deleteAtLevel handles the coarser-than-record delete forms per §3.6.
-// Returns (removedPath, true, nil) on success at those levels,
-// ("", false, nil) when the caller should fall through to record-level
-// handling, or an error for coarse-level failures.
-func deleteAtLevel(path, section string, resolution config.Resolution) (string, bool, error) {
-	segs := strings.Split(section, ".")
-	if len(segs) == 0 || segs[0] == "" {
-		return "", true, errors.New("empty section")
-	}
-	dbDecl, ok := resolution.Registry.DBs[segs[0]]
-	if !ok {
-		// Let the record-level path produce the canonical error.
-		return "", false, nil
-	}
-	// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new no-db-prefix
-	// address grammar; the deleteAtLevel section-shape switch is the
-	// densest cluster of legacy-shape branching in the package.
-	switch len(segs) {
-	case 1:
-		if !schema.IsSingleFile(dbDecl) {
-			return "", true, fmt.Errorf(
-				"%w: db %q is multi-instance; delete each instance first or use schema(action=delete, kind=db)",
-				ErrAmbiguousDelete, dbDecl.Name)
-		}
-		target := filepath.Join(path, dbDecl.Paths[0])
-		if err := os.Remove(target); err != nil {
-			if os.IsNotExist(err) {
-				return "", true, fmt.Errorf("%w: %s", ErrFileNotFound, target)
-			}
-			return "", true, fmt.Errorf("remove %s: %w", target, err)
-		}
-		return target, true, nil
-	case 2:
-		if schema.IsSingleFile(dbDecl) {
-			return "", true, fmt.Errorf(
-				"single-instance db %q has no instances; use section=%q for whole-db delete",
-				dbDecl.Name, dbDecl.Name)
-		}
-		resolver := db.NewResolver(path, resolution.Registry)
-		instances, err := resolver.Instances(dbDecl.Name)
-		if err != nil {
-			return "", true, err
-		}
-		var target *db.Instance
-		for i := range instances {
-			if instances[i].Slug == segs[1] {
-				target = &instances[i]
-				break
-			}
-		}
-		if target == nil {
-			return "", true, fmt.Errorf("instance %q of db %q not found", segs[1], dbDecl.Name)
-		}
-		if schema.IsLegacyDirectory(dbDecl) {
-			if err := os.RemoveAll(target.DirPath); err != nil {
-				return "", true, fmt.Errorf("remove %s: %w", target.DirPath, err)
-			}
-			return target.DirPath, true, nil
-		}
-		if err := os.Remove(target.FilePath); err != nil {
-			return "", true, fmt.Errorf("remove %s: %w", target.FilePath, err)
-		}
-		return target.FilePath, true, nil
-	default:
-		// Record-level — caller handles.
-		return "", false, nil
-	}
 }

@@ -1,38 +1,44 @@
-// Package db resolves a dotted section address (e.g.
-// "plan_db.drop_3.build_task.task_001") against a schema.Registry and a
-// project root, returning the on-disk file that backs the addressed
-// record. See V2-PLAN.md §5.5 for the full addressing spec.
+// Package db resolves a dotted section address against a schema.Registry
+// and a project root, returning the on-disk file that backs the addressed
+// record. See V2-PLAN.md §5.5 and PLAN §12.17.9 for the addressing spec.
 //
-// The resolver is lang-agnostic: it never imports any backend package. It
-// hands back the schema.DB, the resolved instance (empty slug for legacy
-// single-file dbs), and the absolute file path; callers are responsible
-// for reading the file and handing its bytes to the correct
-// record.Backend.
+// The Phase 9.2 grammar is uniform across formats:
 //
-// Phase 9.1 (PLAN §12.17.9) migrates the schema model from
-// `Shape`+`Path` to `Paths []string`. The address parser and resolver in
-// this package retain their pre-9.1 segment-count rules during the
-// transitional window — they branch on `schema.IsSingleFile(db)` (true
-// when Paths == one entry with .toml/.md suffix) to choose the legacy
-// single-instance vs multi-instance form. Phase 9.2 rewrites the address
-// grammar (drops the db prefix) and the resolver (paths-glob expansion);
-// after Phase 9.2 lands, every IsSingleFile call site here disappears.
+//	<file-relpath>.<type>.<id-tail>
 //
-// Pre-9.2 resolution rules:
+// FileRelPath is the dotted-path equivalent of the on-disk file's
+// path-relative-to-its-mount-static-prefix (extension stripped, `/`
+// replaced with `.`). Type is the record-type segment (which moves to
+// a `--type` flag in Phase 9.4). ID-tail is one or more dot-joined
+// segments forming the bracket / heading-chain inside the file.
 //
-//   - Legacy single-file (IsSingleFile(db) == true): address is
-//     "<db>.<type>.<id-path>", 3+ segments; tail joined into addr.ID.
-//     Backing file is db.Paths[0] resolved against the project root.
-//   - Legacy multi-instance (IsSingleFile(db) == false): address is
-//     "<db>.<instance>.<type>.<id-path>", 4+ segments. Phase 9.1 keeps
-//     the dir-per-instance scan and collection scan from the pre-9.1
-//     resolver; Phase 9.2 rewrites both into a paths-glob expander.
+// Resolution rules:
 //
-// Fail-loudly contract (§1.1): segment-count below the minimum for the
-// resolved db's shape MUST error. Empty intermediate segments ("a..b",
-// leading/trailing dots) also error.
+//   - The Registry's dbs are tried in stable name order; for each db,
+//     each Paths entry is matched against the address. Non-collection
+//     mounts (single-file or glob) are tried before collection mounts
+//     so a specific match always beats a catch-all root.
+//   - A mount entry is split into a static prefix (everything up to
+//     the slash before the first `*`, or up to the last segment for
+//     non-glob mounts) and residual segments. Address segments are
+//     matched left-to-right against residual segments; `*` matches any
+//     non-empty segment, literals require equality. The matched prefix
+//     yields FileRelPath; the next segment yields Type; the remainder
+//     yields ID.
+//   - Collection mounts (trailing `/` or `.`) recurse: any descendant
+//     file with the format extension produces an Instance, with the
+//     dotted file-relpath as its slug.
+//   - Globs (`*`) match one path segment per occurrence and skip
+//     dotfiles.
+//   - `~/...` mounts expand against the user's home directory.
 //
-// path_hint safety (§11.D): ResolveWrite rejects any path_hint that
-// escapes the collection root, using filepath.IsLocal for the lexical
-// check.
+// The resolver is lang-agnostic: it never imports any backend package.
+// It hands back the schema.DB, the resolved instance, and the absolute
+// file path; callers are responsible for reading the file and handing
+// its bytes to the correct record.Backend.
+//
+// Fail-loudly contract (§1.1): empty address, leading/trailing/empty
+// segments, and missing-id-tail addresses error with ErrBadAddress.
+// Unknown db (no mount matches) → ErrUnknownDB. Type segment not
+// declared on the resolved db → ErrUnknownType.
 package db

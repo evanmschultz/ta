@@ -50,9 +50,9 @@ type = "array"
 
 const multiInstanceTOMLSchema = `
 [plan_db]
-paths = ["workflow"]
+paths = ["workflow/*/db"]
 format = "toml"
-description = "Multi-instance planning db."
+description = "Multi-file planning db."
 
 [plan_db.build_task]
 description = "Build task."
@@ -369,9 +369,12 @@ func TestMultiInstanceScopeUnion(t *testing.T) {
 	root := writeSchemaProject(t, multiInstanceTOMLSchema)
 	seedMultiInstance(t, root)
 
+	// Phase 9.2: the closest analogue of "all files of plan_db" is the
+	// empty scope (whole project). With only plan_db registered, this
+	// yields the same union.
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plan_db",
+		Scope: "",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -385,9 +388,9 @@ func TestMultiInstanceScopeUnion(t *testing.T) {
 		haveSections[h.Section] = true
 	}
 	for _, want := range []string{
-		"plan_db.drop_1.build_task.task_001",
-		"plan_db.drop_1.build_task.task_002",
-		"plan_db.drop_2.build_task.task_003",
+		"drop_1.db.build_task.task_001",
+		"drop_1.db.build_task.task_002",
+		"drop_2.db.build_task.task_003",
 	} {
 		if !haveSections[want] {
 			t.Errorf("missing section %q in union hits: %+v", want, hits)
@@ -401,7 +404,7 @@ func TestMultiInstanceScopeNarrow(t *testing.T) {
 
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plan_db.drop_1",
+		Scope: "drop_1.db",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -410,7 +413,7 @@ func TestMultiInstanceScopeNarrow(t *testing.T) {
 		t.Fatalf("got %d hits, want 2: %+v", len(hits), hits)
 	}
 	for _, h := range hits {
-		if !strings.HasPrefix(h.Section, "plan_db.drop_1.") {
+		if !strings.HasPrefix(h.Section, "drop_1.db.") {
 			t.Errorf("hit outside drop_1: %q", h.Section)
 		}
 	}
@@ -422,7 +425,7 @@ func TestMultiInstanceIDPrefixScope(t *testing.T) {
 
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plan_db.drop_1.build_task.task_00",
+		Scope: "drop_1.db.build_task.task_00",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -434,19 +437,19 @@ func TestMultiInstanceIDPrefixScope(t *testing.T) {
 	// With id-prefix narrower.
 	hits, err = search.Run(search.Query{
 		Path:  root,
-		Scope: "plan_db.drop_1.build_task.task_001",
+		Scope: "drop_1.db.build_task.task_001",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plan_db.drop_1.build_task.task_001" {
+	if len(hits) != 1 || hits[0].Section != "drop_1.db.build_task.task_001" {
 		t.Errorf("got %+v, want one hit on task_001", hits)
 	}
 
 	// Wildcard-suffix form.
 	hits, err = search.Run(search.Query{
 		Path:  root,
-		Scope: "plan_db.drop_1.build_task.task_*",
+		Scope: "drop_1.db.build_task.task_*",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -602,7 +605,7 @@ func TestSearchMDBody(t *testing.T) {
 	re := regexp.MustCompile(`mage`)
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "readme.section",
+		Scope: "README.section",
 		Query: re,
 	})
 	if err != nil {
@@ -682,16 +685,18 @@ status = "todo"
 	}
 }
 
-func TestMultiInstanceScopeTypePickedFirst(t *testing.T) {
+func TestMultiInstanceScopeUnionAcrossFiles(t *testing.T) {
 	root := writeSchemaProject(t, multiInstanceTOMLSchema)
 	seedMultiInstance(t, root)
-	// "plan_db.build_task" → type scope, union across instances.
-	hits, err := search.Run(search.Query{Path: root, Scope: "plan_db.build_task"})
+	// Under the Phase 9.2 grammar there is no "all files of db X"
+	// scope — addresses are file-relpath rooted. The empty scope
+	// walks every file across every db, which is the closest thing.
+	hits, err := search.Run(search.Query{Path: root, Scope: ""})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if len(hits) != 3 {
-		t.Errorf("got %d, want 3 across instances: %+v", len(hits), hits)
+		t.Errorf("got %d, want 3 across files: %+v", len(hits), hits)
 	}
 }
 
@@ -700,7 +705,7 @@ func TestMultiInstanceScopeUnknownTypeErrors(t *testing.T) {
 	seedMultiInstance(t, root)
 	_, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plan_db.drop_1.ghost",
+		Scope: "drop_1.db.ghost",
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -803,7 +808,7 @@ func TestSearchMDNonBodyFieldErrors(t *testing.T) {
 	t.Run("match-non-body", func(t *testing.T) {
 		_, err := search.Run(search.Query{
 			Path:  root,
-			Scope: "readme.section",
+			Scope: "README.section",
 			Match: map[string]any{"subtitle": "foo"},
 		})
 		if !errors.Is(err, search.ErrUnknownField) {
@@ -816,7 +821,7 @@ func TestSearchMDNonBodyFieldErrors(t *testing.T) {
 	t.Run("field-non-body", func(t *testing.T) {
 		_, err := search.Run(search.Query{
 			Path:  root,
-			Scope: "readme.section",
+			Scope: "README.section",
 			Query: regexp.MustCompile("x"),
 			Field: "subtitle",
 		})
