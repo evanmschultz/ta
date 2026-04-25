@@ -21,7 +21,7 @@ import (
 
 const tomlTaskSchema = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "Test planning db."
 
@@ -39,7 +39,7 @@ required = true
 
 const mdReadmeSchema = `
 [readme]
-file = "README.md"
+paths = ["README.md"]
 format = "md"
 description = "Dogfood MD db."
 
@@ -62,7 +62,7 @@ description = "Body under the H2."
 
 const multiInstanceTOMLSchema = `
 [plan_db]
-directory = "workflow"
+paths = ["workflow"]
 format = "toml"
 description = "Multi-instance planning db."
 
@@ -80,7 +80,7 @@ required = true
 
 const collectionMDSchema = `
 [docs]
-collection = "docs"
+paths = ["docs/"]
 format = "md"
 description = "File-per-instance MD pages."
 
@@ -381,7 +381,7 @@ func TestUpdateAppendsWhenRecordAbsent(t *testing.T) {
 // exercised on one seed.
 const patchSchema = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "PATCH-semantics test db."
 
@@ -863,14 +863,15 @@ func TestSchemaCreateDBType_Field(t *testing.T) {
 	}
 	c := newClientWithPath(t, root)
 
-	// 1. create db.
+	// 1. create db. PLAN §12.17.9 Phase 9.1: `paths` array replaces the
+	// retired `file`/`directory`/`collection` keys.
 	if res := callTool(t, c, "schema", map[string]any{
 		"path":   root,
 		"action": "create",
 		"kind":   "db",
 		"name":   "notes",
 		"data": map[string]any{
-			"file":        "notes.toml",
+			"paths":       []any{"notes.toml"},
 			"format":      "toml",
 			"description": "A notes db.",
 		},
@@ -1040,13 +1041,14 @@ func TestSchemaUpdateAndDeleteDB(t *testing.T) {
 	c := newClientWithPath(t, root)
 
 	// create db with a type+field so the schema is valid end-state.
+	// PLAN §12.17.9 Phase 9.1: `paths` array replaces legacy keys.
 	if res := callTool(t, c, "schema", map[string]any{
 		"path":   root,
 		"action": "create",
 		"kind":   "db",
 		"name":   "logs",
 		"data": map[string]any{
-			"file":        "logs.toml",
+			"paths":       []any{"logs.toml"},
 			"format":      "toml",
 			"description": "Logs db.",
 		},
@@ -1075,7 +1077,7 @@ func TestSchemaUpdateAndDeleteDB(t *testing.T) {
 		"kind":   "db",
 		"name":   "logs",
 		"data": map[string]any{
-			"file":        "logs.toml",
+			"paths":       []any{"logs.toml"},
 			"format":      "toml",
 			"description": "Updated description.",
 		},
@@ -1427,7 +1429,7 @@ func TestListSectionsMultiInstanceAddresses(t *testing.T) {
 // silently drop the field.
 const mdSchemaWithExtraField = `
 [readme]
-file = "README.md"
+paths = ["README.md"]
 format = "md"
 description = "MD db with a non-body declared field for extractor testing."
 

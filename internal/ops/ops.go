@@ -549,17 +549,17 @@ func IsScopeAddress(path, section string) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("%w: unknown db %q", search.ErrInvalidScope, parts[0])
 	}
-	switch dbDecl.Shape {
-	case schema.ShapeFile:
-		// single-instance: 1 seg (<db>) and 2 segs (<db>.<type>) are
+	// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new no-db-prefix
+	// address grammar (<file-relpath>.<id-tail>).
+	if schema.IsSingleFile(dbDecl) {
+		// legacy single-file: 1 seg (<db>) and 2 segs (<db>.<type>) are
 		// scopes; 3+ segs (<db>.<type>.<id-path>) is single-record.
 		return len(parts) < 3, nil
-	default:
-		// multi-instance: 1 seg (<db>), 2 segs (<db>.<instance>), and
-		// 3 segs (<db>.<instance>.<type>) are scopes; 4+ segs
-		// (<db>.<instance>.<type>.<id-path>) is single-record.
-		return len(parts) < 4, nil
 	}
+	// multi-instance: 1 seg (<db>), 2 segs (<db>.<instance>), and
+	// 3 segs (<db>.<instance>.<type>) are scopes; 4+ segs
+	// (<db>.<instance>.<type>.<id-path>) is single-record.
+	return len(parts) < 4, nil
 }
 
 // GetScope enumerates every record under a scope-prefix section and
@@ -658,14 +658,17 @@ func deleteAtLevel(path, section string, resolution config.Resolution) (string, 
 		// Let the record-level path produce the canonical error.
 		return "", false, nil
 	}
+	// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new no-db-prefix
+	// address grammar; the deleteAtLevel section-shape switch is the
+	// densest cluster of legacy-shape branching in the package.
 	switch len(segs) {
 	case 1:
-		if dbDecl.Shape != schema.ShapeFile {
+		if !schema.IsSingleFile(dbDecl) {
 			return "", true, fmt.Errorf(
-				"%w: db %q is %s; delete each instance first or use schema(action=delete, kind=db)",
-				ErrAmbiguousDelete, dbDecl.Name, dbDecl.Shape)
+				"%w: db %q is multi-instance; delete each instance first or use schema(action=delete, kind=db)",
+				ErrAmbiguousDelete, dbDecl.Name)
 		}
-		target := filepath.Join(path, dbDecl.Path)
+		target := filepath.Join(path, dbDecl.Paths[0])
 		if err := os.Remove(target); err != nil {
 			if os.IsNotExist(err) {
 				return "", true, fmt.Errorf("%w: %s", ErrFileNotFound, target)
@@ -674,7 +677,7 @@ func deleteAtLevel(path, section string, resolution config.Resolution) (string, 
 		}
 		return target, true, nil
 	case 2:
-		if dbDecl.Shape == schema.ShapeFile {
+		if schema.IsSingleFile(dbDecl) {
 			return "", true, fmt.Errorf(
 				"single-instance db %q has no instances; use section=%q for whole-db delete",
 				dbDecl.Name, dbDecl.Name)
@@ -694,7 +697,7 @@ func deleteAtLevel(path, section string, resolution config.Resolution) (string, 
 		if target == nil {
 			return "", true, fmt.Errorf("instance %q of db %q not found", segs[1], dbDecl.Name)
 		}
-		if dbDecl.Shape == schema.ShapeDirectory {
+		if schema.IsLegacyDirectory(dbDecl) {
 			if err := os.RemoveAll(target.DirPath); err != nil {
 				return "", true, fmt.Errorf("remove %s: %w", target.DirPath, err)
 			}

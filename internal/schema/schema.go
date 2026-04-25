@@ -29,26 +29,6 @@ const (
 	TypeTable Type = "table"
 )
 
-// Shape names the db shape selector at the [<db>] root: exactly one of
-// `file`, `directory`, or `collection` is set. See V2-PLAN §4.1 and §5.5.
-type Shape string
-
-// Supported db shape selectors. Each matches one of the three mutually
-// exclusive root keys allowed on a [<db>] block.
-const (
-	// ShapeFile marks a single-instance db backed by one file at the
-	// declared relative path (e.g. "plans.toml", "README.md").
-	ShapeFile Shape = "file"
-	// ShapeDirectory marks a dir-per-instance db: every immediate subdir
-	// under the declared directory that contains the canonical db file is
-	// one instance.
-	ShapeDirectory Shape = "directory"
-	// ShapeCollection marks a file-per-instance db: every file under the
-	// declared directory (recursively) whose extension matches `format`
-	// is one instance.
-	ShapeCollection Shape = "collection"
-)
-
 // Format names the canonical on-disk format of a db's records. Exactly one
 // backend handles each Format.
 type Format string
@@ -99,21 +79,23 @@ type SectionType struct {
 }
 
 // DB is one database declared at the [<db>] root of a schema file. It
-// carries the db-scope meta-fields (shape selector, format, heading) plus
-// the map of record types declared under it.
+// carries the db-scope meta-fields (paths, format, heading) plus the map
+// of record types declared under it.
+//
+// Phase 9.1 (PLAN §12.17.9) replaces the prior Shape + Path fields with a
+// single Paths slice. Each entry is project-relative or home-relative
+// (`~/...`). Globs (`*`) are permitted in any one segment. Phase 9.2
+// builds the address parser + path resolver atop this model; Phase 9.1
+// only wires the schema model.
 type DB struct {
 	// Name is the db name, matching the first segment of each concrete
 	// section path that resolves to this db.
 	Name string
 	// Description is the human-readable description from [<db>].
 	Description string
-	// Shape is the selector of which root key is set: file, directory, or
-	// collection.
-	Shape Shape
-	// Path is the value of whichever root key Shape names (e.g. "plans.toml"
-	// for ShapeFile, "workflow" for ShapeDirectory, "docs" for
-	// ShapeCollection). Always relative to the project root.
-	Path string
+	// Paths is the declared list of mount paths for this db. Length 1+.
+	// Glob `*` allowed for one segment per entry. See PLAN §12.17.9.
+	Paths []string
 	// Format is the canonical on-disk format. TOML or MD.
 	Format Format
 	// Types maps record-type name (second segment of an address) to its
@@ -127,6 +109,53 @@ type Registry struct {
 	// DBs maps db name (first segment of an address, e.g. "plan_db") to
 	// its declaration.
 	DBs map[string]DB
+}
+
+// IsSingleFile reports whether db should be treated, for the duration of
+// the Phase 9.1 transitional period (PLAN §12.17.9), as a legacy
+// single-instance file db. True when Paths has exactly one entry and that
+// entry has a recognised file extension (.toml / .md). Used by downstream
+// callers (internal/db, internal/ops, internal/search, internal/render,
+// internal/mcpsrv, cmd/ta) to keep their previous shape-switch logic
+// compiling without re-implementing the old `Shape` enum.
+//
+// Phase 9.2 replaces every caller of this helper with the new
+// paths-glob-aware address resolver, after which IsSingleFile is removed.
+func IsSingleFile(db DB) bool {
+	if len(db.Paths) != 1 {
+		return false
+	}
+	p := db.Paths[0]
+	return strings.HasSuffix(p, ".toml") || strings.HasSuffix(p, ".md")
+}
+
+// IsLegacyCollection reports whether db should be treated, during the
+// Phase 9.1 transitional period (PLAN §12.17.9), as a legacy
+// file-per-instance ("collection") db. True when any Paths entry ends
+// with "/" — the syntactic distinguisher chosen so the resolver can
+// branch directory-shape vs collection-shape without resurrecting Shape.
+//
+// Phase 9.2 deletes this once the paths-glob expander lands.
+func IsLegacyCollection(db DB) bool {
+	if IsSingleFile(db) {
+		return false
+	}
+	for _, p := range db.Paths {
+		if strings.HasSuffix(p, "/") {
+			return true
+		}
+	}
+	return false
+}
+
+// IsLegacyDirectory reports whether db should be treated, during the
+// Phase 9.1 transitional period (PLAN §12.17.9), as a legacy
+// dir-per-instance db (canonical `db.<ext>` per immediate subdir). True
+// when db is neither single-file nor collection.
+//
+// Phase 9.2 deletes this once the paths-glob expander lands.
+func IsLegacyDirectory(db DB) bool {
+	return !IsSingleFile(db) && !IsLegacyCollection(db)
 }
 
 // Lookup returns the section type named by the first two segments of a

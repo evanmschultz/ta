@@ -169,7 +169,7 @@ func parseScope(reg schema.Registry, scope string) (searchPlan, error) {
 	case 2:
 		// Ambiguous in theory: could be <db>.<instance> (multi) or
 		// <db>.<type> (single). Resolve using db shape and presence.
-		if dbDecl.Shape == schema.ShapeFile {
+		if schema.IsSingleFile(dbDecl) {
 			// Single-instance: segment must be a type name.
 			if _, ok := dbDecl.Types[parts[1]]; !ok {
 				return plan, fmt.Errorf("%w: type %q not declared on db %q",
@@ -189,7 +189,7 @@ func parseScope(reg schema.Registry, scope string) (searchPlan, error) {
 		// 3+ segments:
 		//   single-instance: <db>.<type>.<id-prefix>
 		//   multi-instance:  <db>.<instance>.<type>(.<id-prefix>)?
-		if dbDecl.Shape == schema.ShapeFile {
+		if schema.IsSingleFile(dbDecl) {
 			if _, ok := dbDecl.Types[parts[1]]; !ok {
 				return plan, fmt.Errorf("%w: type %q not declared on db %q",
 					ErrInvalidScope, parts[1], dbDecl.Name)
@@ -393,7 +393,7 @@ func buildBackend(dbDecl schema.DB) (record.Backend, error) {
 }
 
 func tomlDeclaredName(dbDecl schema.DB, typeName string) string {
-	if dbDecl.Shape == schema.ShapeFile {
+	if schema.IsSingleFile(dbDecl) {
 		return dbDecl.Name + "." + typeName
 	}
 	return typeName
@@ -424,12 +424,12 @@ func backendTypeScope(dbDecl schema.DB, typeName string) string {
 func fullAddress(dbDecl schema.DB, inst db.Instance, backendAddr string) string {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
-		if dbDecl.Shape == schema.ShapeFile {
+		if schema.IsSingleFile(dbDecl) {
 			return backendAddr
 		}
 		return dbDecl.Name + "." + inst.Slug + "." + backendAddr
 	case schema.FormatMD:
-		if dbDecl.Shape == schema.ShapeFile {
+		if schema.IsSingleFile(dbDecl) {
 			return dbDecl.Name + "." + backendAddr
 		}
 		return dbDecl.Name + "." + inst.Slug + "." + backendAddr
@@ -439,20 +439,20 @@ func fullAddress(dbDecl schema.DB, inst db.Instance, backendAddr string) string 
 }
 
 // typeAndID splits a full address into (type, id-path).
+//
+// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new no-db-prefix grammar.
 func typeAndID(dbDecl schema.DB, fullAddr string) (string, string) {
 	parts := strings.Split(fullAddr, ".")
-	switch dbDecl.Shape {
-	case schema.ShapeFile:
+	if schema.IsSingleFile(dbDecl) {
 		if len(parts) < 2 {
 			return "", ""
 		}
 		return parts[1], strings.Join(parts[2:], ".")
-	default:
-		if len(parts) < 3 {
-			return "", ""
-		}
-		return parts[2], strings.Join(parts[3:], ".")
 	}
+	if len(parts) < 3 {
+		return "", ""
+	}
+	return parts[2], strings.Join(parts[3:], ".")
 }
 
 // decodeFields returns the parsed field map for one located record.

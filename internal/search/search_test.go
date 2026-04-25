@@ -15,7 +15,7 @@ import (
 
 const singleInstanceTOMLSchema = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "Single-instance planning db."
 
@@ -50,7 +50,7 @@ type = "array"
 
 const multiInstanceTOMLSchema = `
 [plan_db]
-directory = "workflow"
+paths = ["workflow"]
 format = "toml"
 description = "Multi-instance planning db."
 
@@ -572,7 +572,7 @@ status = "doing"
 
 const mdSchema = `
 [readme]
-file = "README.md"
+paths = ["README.md"]
 format = "md"
 description = "MD db."
 
@@ -772,7 +772,7 @@ status = "todo"
 // `get`-path guard landed in §12.5+§12.6.
 const mdSchemaWithNonBodyField = `
 [readme]
-file = "README.md"
+paths = ["README.md"]
 format = "md"
 description = "MD db with a declared non-body field."
 

@@ -2,11 +2,13 @@
 # the file does not already exist; edit freely after install — re-running
 # `mage install` will not clobber your edits.
 #
-# Each top-level table is a **database**. Every db has exactly one of:
-#   - file      = "<relative-path>"   single-instance (plans.toml, README.md)
-#   - directory = "<relative-path>"   dir-per-instance (workflow/<drop>/db.toml)
-#   - collection = "<relative-path>"  file-per-instance (docs/*.md)
-# plus `format = "toml" | "md"` and an optional `description`.
+# Each top-level table is a **database**. Every db declares:
+#   - paths    = [...]                  one or more mount paths (project-
+#                                       relative or home-relative `~/...`).
+#                                       Glob `*` is allowed for one segment
+#                                       per entry. See PLAN §12.17.9.
+#   - format   = "toml" | "md"          canonical on-disk format
+#   - description = "..."               (optional, recommended)
 #
 # Record types live under [<db>.<type>] with `description` (required) and,
 # for MD dbs, `heading = 1..6`. Fields live under [<db>.<type>.fields.<name>]
@@ -17,15 +19,15 @@
 # Resolution: home `~/.ta/schema.toml` is the base layer. Every
 # `.ta/schema.toml` found on the target file's ancestor chain (filesystem-
 # root-to-file order) folds on top. Same-named dbs are wholly replaced;
-# dbs unique to any level are additive.
+# dbs unique to any level are additive. Paths must not overlap across dbs.
 
 [plans]
-file = "plans.toml"
+paths = ["plans"]
 format = "toml"
-description = "A single-instance TOML db for tracking tasks and freeform notes."
+description = "A TOML db for tracking tasks and freeform notes."
 
 [plans.task]
-description = "A unit of work tracked in plans.toml."
+description = "A unit of work tracked in plans."
 
 [plans.task.fields.id]
 type = "string"

@@ -8,8 +8,7 @@
 
 plans
 
-    shape   file
-    path    plans.toml
+    paths   plans.toml
     format  toml
 
   Test planning db.

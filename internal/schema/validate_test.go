@@ -269,7 +269,7 @@ func TestValidateIntegerRejectsFraction(t *testing.T) {
 // exercise valueMatchesType end-to-end.
 const typeMatrixSchema = `
 [rows]
-file = "rows.toml"
+paths = ["rows.toml"]
 format = "toml"
 
 [rows.row]
@@ -320,7 +320,7 @@ func TestValidateTypeMatrix(t *testing.T) {
 func TestValidateDatetimeFromString(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
-file = "rows.toml"
+paths = ["rows.toml"]
 format = "toml"
 
 [rows.row]

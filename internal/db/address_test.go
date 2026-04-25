@@ -7,13 +7,23 @@ import (
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
+// testRegistry builds a Phase 9.1-shaped registry that exercises all
+// three legacy-shape branches via the IsSingleFile / IsLegacyDirectory /
+// IsLegacyCollection heuristics:
+//
+//   - readme: Paths=["README.md"] → IsSingleFile (single .md entry).
+//   - plan_db: Paths=["workflow"] → IsLegacyDirectory (no ext, no
+//     trailing slash, no glob).
+//   - docs: Paths=["docs/"] → IsLegacyCollection (trailing slash).
+//
+// Phase 9.2 rewrites every consumer of this registry against the new
+// paths-glob grammar; this fixture is transitional.
 func testRegistry() schema.Registry {
 	return schema.Registry{DBs: map[string]schema.DB{
 		"readme": {
 			Name:   "readme",
-			Shape:  schema.ShapeFile,
+			Paths:  []string{"README.md"},
 			Format: schema.FormatMD,
-			Path:   "README.md",
 			Types: map[string]schema.SectionType{
 				"title":   {Name: "title", Heading: 1},
 				"section": {Name: "section", Heading: 2},
@@ -21,9 +31,8 @@ func testRegistry() schema.Registry {
 		},
 		"plan_db": {
 			Name:   "plan_db",
-			Shape:  schema.ShapeDirectory,
+			Paths:  []string{"workflow"},
 			Format: schema.FormatTOML,
-			Path:   "workflow",
 			Types: map[string]schema.SectionType{
 				"build_task": {Name: "build_task"},
 				"qa_task":    {Name: "qa_task"},
@@ -31,9 +40,8 @@ func testRegistry() schema.Registry {
 		},
 		"docs": {
 			Name:   "docs",
-			Shape:  schema.ShapeCollection,
+			Paths:  []string{"docs/"},
 			Format: schema.FormatMD,
-			Path:   "docs",
 			Types: map[string]schema.SectionType{
 				"title":   {Name: "title", Heading: 1},
 				"section": {Name: "section", Heading: 2},

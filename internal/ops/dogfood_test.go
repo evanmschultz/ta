@@ -9,7 +9,7 @@ import (
 	"github.com/evanmschultz/ta/internal/ops"
 )
 
-// planDBSchema mirrors the ta-v2 dogfood schema shape at the minimum
+// planDBSchema mirrors the ta dogfood schema shape at the minimum
 // fidelity required to validate records of the form
 // `plan_db.<instance>.build_task.<id>` and
 // `plan_db.<instance>.qa_task.<id>`. Kept self-contained per the §12.10
@@ -17,7 +17,7 @@ import (
 // path (use a temp dir + seeded records)."
 const planDBSchema = `
 [plan_db]
-directory = "workflow"
+paths = ["workflow"]
 format = "toml"
 description = "dogfood planning db"
 
@@ -96,7 +96,7 @@ func seedDogfoodFixture(t *testing.T) string {
 		data    map[string]any
 	}{
 		{
-			section: "plan_db.ta-v2.build_task.task_12_1",
+			section: "plan_db.ta.build_task.task_12_1",
 			data: map[string]any{
 				"id":     "task_12_1",
 				"status": "done",
@@ -106,7 +106,7 @@ func seedDogfoodFixture(t *testing.T) string {
 			},
 		},
 		{
-			section: "plan_db.ta-v2.build_task.task_12_9",
+			section: "plan_db.ta.build_task.task_12_9",
 			data: map[string]any{
 				"id":     "task_12_9",
 				"status": "doing",
@@ -116,7 +116,7 @@ func seedDogfoodFixture(t *testing.T) string {
 			},
 		},
 		{
-			section: "plan_db.ta-v2.qa_task.qa_12_1_proof",
+			section: "plan_db.ta.qa_task.qa_12_1_proof",
 			data: map[string]any{
 				"id":                "qa_12_1_proof",
 				"parent_build_task": "task_12_1",
@@ -126,7 +126,7 @@ func seedDogfoodFixture(t *testing.T) string {
 			},
 		},
 		{
-			section: "plan_db.ta-v2.qa_task.qa_12_1_falsification",
+			section: "plan_db.ta.qa_task.qa_12_1_falsification",
 			data: map[string]any{
 				"id":                "qa_12_1_falsification",
 				"parent_build_task": "task_12_1",
@@ -147,11 +147,11 @@ func seedDogfoodFixture(t *testing.T) string {
 // TestDogfoodGetRoundtripsBuildTask proves a record written via
 // ops.Create comes back identically through ops.Get on the
 // dogfood plan_db shape. This is the §12.10 verification contract:
-// `ta get <path> plan_db.ta-v2.build_task.task_12_1` must surface the
+// `ta get <path> plan_db.ta.build_task.task_12_1` must surface the
 // record's bytes.
 func TestDogfoodGetRoundtripsBuildTask(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	res, err := ops.Get(root, "plan_db.ta-v2.build_task.task_12_1", nil)
+	res, err := ops.Get(root, "plan_db.ta.build_task.task_12_1", nil)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -167,43 +167,43 @@ func TestDogfoodGetRoundtripsBuildTask(t *testing.T) {
 			t.Errorf("Get output missing %q\n--- got ---\n%s", want, got)
 		}
 	}
-	if !strings.HasSuffix(res.FilePath, filepath.Join("workflow", "ta-v2", "db.toml")) {
+	if !strings.HasSuffix(res.FilePath, filepath.Join("workflow", "ta", "db.toml")) {
 		t.Errorf("unexpected backing file: %s", res.FilePath)
 	}
 }
 
 // TestDogfoodSearchFindsDoneBuildTasks proves the §12.10 verification
-// probe `ta search --scope plan_db.ta-v2 --match '{"status":"done"}'`
+// probe `ta search --scope plan_db.ta --match '{"status":"done"}'`
 // returns only the done build_tasks, not the in-flight ones or the
 // QA twins (which have a different `status` enum).
 func TestDogfoodSearchFindsDoneBuildTasks(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	hits, err := ops.Search(root, "plan_db.ta-v2.build_task", map[string]any{"status": "done"}, "", "", 0, true)
+	hits, err := ops.Search(root, "plan_db.ta.build_task", map[string]any{"status": "done"}, "", "", 0, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(hits) != 1 {
 		t.Fatalf("expected 1 done build_task, got %d: %+v", len(hits), hits)
 	}
-	if got, want := hits[0].Section, "plan_db.ta-v2.build_task.task_12_1"; got != want {
+	if got, want := hits[0].Section, "plan_db.ta.build_task.task_12_1"; got != want {
 		t.Errorf("section = %q; want %q", got, want)
 	}
 }
 
 // TestDogfoodSearchFindsFalsificationTwins proves the §12.10 probe
-// `ta search --scope plan_db.ta-v2.qa_task --match '{"kind":"falsification"}'`
+// `ta search --scope plan_db.ta.qa_task --match '{"kind":"falsification"}'`
 // returns the falsification twins without bleeding over into proof twins
 // or build_task records.
 func TestDogfoodSearchFindsFalsificationTwins(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	hits, err := ops.Search(root, "plan_db.ta-v2.qa_task", map[string]any{"kind": "falsification"}, "", "", 0, true)
+	hits, err := ops.Search(root, "plan_db.ta.qa_task", map[string]any{"kind": "falsification"}, "", "", 0, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(hits) != 1 {
 		t.Fatalf("expected 1 falsification twin, got %d: %+v", len(hits), hits)
 	}
-	if got, want := hits[0].Section, "plan_db.ta-v2.qa_task.qa_12_1_falsification"; got != want {
+	if got, want := hits[0].Section, "plan_db.ta.qa_task.qa_12_1_falsification"; got != want {
 		t.Errorf("section = %q; want %q", got, want)
 	}
 }
@@ -215,7 +215,7 @@ func TestDogfoodSearchFindsFalsificationTwins(t *testing.T) {
 // silently append or corrupt the db file.
 func TestDogfoodCreateIsIdempotentPerRecord(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	_, _, err := ops.Create(root, "plan_db.ta-v2.build_task.task_12_1", "", map[string]any{
+	_, _, err := ops.Create(root, "plan_db.ta.build_task.task_12_1", "", map[string]any{
 		"id":     "task_12_1",
 		"status": "done",
 		"title":  "Backend interface extraction",

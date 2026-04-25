@@ -35,6 +35,8 @@ func readFileIfExists(path string) ([]byte, error) {
 // schema.Validate expects (its signature pre-dates multi-instance).
 // For multi-instance addresses we rebuild "<db>.<type>..." by stripping
 // the <instance> segment.
+//
+// TODO(PLAN §12.17.9 Phase 9.2): rewrite under the new no-db-prefix grammar.
 func validationPath(reg schema.Registry, section string) string {
 	segs := strings.Split(section, ".")
 	if len(segs) < 2 {
@@ -44,7 +46,7 @@ func validationPath(reg schema.Registry, section string) string {
 	if !ok {
 		return section
 	}
-	if dbDecl.Shape == schema.ShapeFile {
+	if schema.IsSingleFile(dbDecl) {
 		return section
 	}
 	if len(segs) < 3 {
@@ -58,15 +60,17 @@ func validationPath(reg schema.Registry, section string) string {
 }
 
 // tomlRelPathForFields returns the backend-relative record path for
-// use by extractTOMLFields. For single-instance TOML the map key path
+// use by extractTOMLFields. For legacy single-file TOML the map key path
 // is "<db>.<type>.<id>"; for multi-instance it is "<type>.<id>" (the
 // file carries only the type and below).
+//
+// TODO(PLAN §12.17.9 Phase 9.4): rewire to the new resolver-driven shape.
 func tomlRelPathForFields(dbDecl schema.DB, addr db.Address) string {
 	base := addr.Type
 	if addr.ID != "" {
 		base += "." + addr.ID
 	}
-	if dbDecl.Shape == schema.ShapeFile {
+	if schema.IsSingleFile(dbDecl) {
 		return dbDecl.Name + "." + base
 	}
 	return base

@@ -225,8 +225,7 @@ type schemaResult struct {
 type dbView struct {
 	Name        string              `json:"name"`
 	Description string              `json:"description,omitempty"`
-	Shape       schema.Shape        `json:"shape"`
-	Path        string              `json:"path"`
+	Paths       []string            `json:"paths"`
 	Format      schema.Format       `json:"format"`
 	Types       map[string]typeView `json:"types"`
 }
@@ -652,8 +651,7 @@ func toDBView(dbDecl schema.DB) dbView {
 	return dbView{
 		Name:        dbDecl.Name,
 		Description: dbDecl.Description,
-		Shape:       dbDecl.Shape,
-		Path:        dbDecl.Path,
+		Paths:       dbDecl.Paths,
 		Format:      dbDecl.Format,
 		Types:       toTypesView(dbDecl.Types),
 	}

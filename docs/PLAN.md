@@ -1096,10 +1096,10 @@ Critical invariant tests:
 2. `mage install` — binary at `~/.local/bin/ta`. Per 2026-04-24 amendment: creates an EMPTY `~/.ta/schema.toml` and prints laslig instructions on how to populate it (copy from `examples/`, build via `ta schema --action=create`, or promote from a project via `ta template save`); no embedded default schema.
 3. `ta schema get /abs/path/to/main` — dogfood schema resolves, cascade shows home + project sources; output glamour-rendered.
 4. `ta create /abs/path/to/main --section readme.title.ta --data-file -` with a test body → creates (or fails if exists). Output rendered via laslig.
-5. `ta update /abs/path/to/main --section plan_db.ta-v2.build_task.task_001 --data '{...}'` — mutates an existing record in a multi-instance db (auto-creates `workflow/ta-v2/db.toml` on first call).
-6. `ta delete /abs/path/to/main --section plan_db.ta-v2.build_task.task_001` — removes just that record.
+5. `ta update /abs/path/to/main --section plan_db.ta.build_task.task_001 --data '{...}'` — mutates an existing record in a multi-instance db (auto-creates `workflow/ta/db.toml` on first call).
+6. `ta delete /abs/path/to/main --section plan_db.ta.build_task.task_001` — removes just that record.
 7. `ta search /abs/path/to/main --scope plan_db --match '{"status":"todo"}' --query scanner` — cross-instance search over every drop's plan_db.
-8. `ta get /abs/path/to/main --section plan_db.ta-v2.build_task.task_001` — verify laslig renders string fields as markdown (code blocks highlighted).
+8. `ta get /abs/path/to/main --section plan_db.ta.build_task.task_001` — verify laslig renders string fields as markdown (code blocks highlighted).
 9. MCP client smoke test: register `ta` in `.claude/`, restart Claude Code, exercise each tool once.
 
 ---
@@ -1155,7 +1155,7 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 7. **12.7 Laslig CLI rendering.** Build `internal/render/` on top of laslig. String fields rendered as markdown via glamour (syntax-highlighted code blocks). MCP output unchanged (structured JSON). See §13.
 8. **12.8 Search.** `internal/search/` + `search` tool + CLI subcommand. Regex via `regexp`. Cross-instance union for multi-instance dbs.
 9. **12.9 MCP caching.** In-memory schema cache with `os.Stat`-mtime check per call; atomic swap on schema mutations; startup meta-validation refuses to boot on a malformed cascade.
-10. **12.10 Dogfood migration.** Migrate the redesign plan (then named `docs/V2-PLAN.md`, renamed to `docs/PLAN.md` on 2026-04-23) → `workflow/ta-v2/db.toml` via `ta create` calls (each §12.x step becomes one `build_task` record; each QA pass a `qa_task` twin). Verify `search` and `get` against real records.
+10. **12.10 Dogfood migration.** Migrate the redesign plan (then named `docs/V2-PLAN.md`, renamed to `docs/PLAN.md` on 2026-04-23) → `workflow/ta/db.toml` via `ta create` calls (each §12.x step becomes one `build_task` record; each QA pass a `qa_task` twin). Verify `search` and `get` against real records.
 11. **12.11 Strip global cascade from runtime.** `internal/config/Resolve` reads only `<project>/.ta/schema.toml`. No home-layer, no ancestor walk. `mcpsrv.Config.ProjectPath` required. Cache collapses to a single entry. All six `config.Resolve` callers updated (mcpsrv cache / ops / schema_mutate / tools, search, cmd/ta). `mage dogfood` loses its HOME-staging workaround. Tests simplify (drop `t.Setenv HOME` staging). See §14 for the full architecture.
 12. **12.12 JSON output mode.** All CLI read commands (`get`, `list-sections`, `schema get`, `search`, `template list`, `template show`) grow a `--json` flag that emits structured JSON instead of laslig-rendered markdown. Mage targets `Test` / `Check` / `Cover` grow `--json` output (or respect `MAGEFILE_JSON=1`). Default human path unchanged. Agent-facing guidance in CLAUDE.md / AGENTS.md: use `--json` for every `ta` and `mage` invocation.
 13. **12.13 Template library at `~/.ta/`.** New `internal/templates/` package: `List()`, `Load(name)`, `Save(name, bytes)`, `Delete(name)`. Convention: `~/.ta/<name>.toml` is one named template; `~/.ta/schema.toml` is the "default" template. `ta template list` + `ta template show <name>` CLI subcommands (read-only this slice). **Firewall:** `internal/templates/` imports stdlib + `internal/schema/` only — NEVER `internal/config/Resolve`. Runtime consumers never touch `internal/templates/`.
@@ -1181,7 +1181,7 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 
     - **[A1] `--path` flag pattern across all commands.** Drop the `<path>` positional from every path-taking command. Introduce `--path <value>` as an optional flag accepting relative OR absolute (resolved via `filepath.Abs`); default = cwd. Applies uniformly to `ta get`, `ta list-sections`, `ta create`, `ta update`, `ta delete`, `ta schema`, `ta search`, `ta init`, `ta template apply`. MCP tool handlers keep the absolute-required guard server-side — agents with a drifted cwd would silently write to the wrong project. Release-note caveat: `ta create` / `ta update` / `ta delete` from a typoed cwd with a sibling `.ta/schema.toml` would silently mutate the wrong project; acceptable risk (typing in the right dir is the overwhelming common case). This supersedes the prior "default path to cwd" + "accept relative paths" bullets.
 
-    - **[A2] `ta list-sections` rewrite — match MCP tool shape.** Today the CLI takes a TOML **file** path and lists bracket paths from that one file; it diverges from the MCP tool (`list_sections(path, scope)` per §3.2) which takes a project dir + scope and returns project-level addresses. Rewrite the CLI to match MCP: project dir (via `--path`, default cwd) + optional scope (`--scope` flag AND optional second positional). Output emits full project-level addresses (`plan_db.ta-v2.build_task.task_12_1`, not `build_task.task_12_1`) so copy-paste composes with CRUD addresses. `--limit <N>` (default 10, `-n` shorthand) + `--all` boolean; mutex-exclusive. **Scope boundary with [A1]:** A1 leaves `newListSectionsCmd` alone; A2 owns the rewrite — no parallel edits to the same function.
+    - **[A2] `ta list-sections` rewrite — match MCP tool shape.** Today the CLI takes a TOML **file** path and lists bracket paths from that one file; it diverges from the MCP tool (`list_sections(path, scope)` per §3.2) which takes a project dir + scope and returns project-level addresses. Rewrite the CLI to match MCP: project dir (via `--path`, default cwd) + optional scope (`--scope` flag AND optional second positional). Output emits full project-level addresses (`plan_db.ta.build_task.task_12_1`, not `build_task.task_12_1`) so copy-paste composes with CRUD addresses. `--limit <N>` (default 10, `-n` shorthand) + `--all` boolean; mutex-exclusive. **Scope boundary with [A1]:** A1 leaves `newListSectionsCmd` alone; A2 owns the rewrite — no parallel edits to the same function.
 
     - **[A3] `mage install` output styling.** `mage install` currently prints plain text ("current schema.toml untouched" etc.). Route through laslig so install output is visually consistent with the rest of the CLI surface.
 
@@ -1220,7 +1220,7 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 
     - **Round 3 — [B0] solo (mechanical package split).** Move `mcpsrv/*` domain files into `internal/ops/`; leave `server.go` + `tools.go` in `internal/mcpsrv/`; rewire every `cmd/ta/*` import + `internal/mcpsrv/tools.go` handlers. Single builder, no parallelism — the move touches nearly every file and must land atomically. `mage check` green after each incremental move if broken into sub-steps; ideally one commit for the full shift. QA pair verifies no semantic drift.
 
-    - **Round 4 — [A2.1+A2.2] bundled solo.** [A2.1] and [A2.2] SHARE edits in `internal/search/search.go` — both add `Limit`/`All` fields to `search.Query` and an early-exit in `search.Run`'s outer loop. That shared surface forbids naive parallelism. Bundle them under one builder: "A2.1+A2.2 limit/all into list-sections and search endpoints." Planning evidence: `workflow/ta-v2/IMPACT-B0-A21-A22.md §4.2`.
+    - **Round 4 — [A2.1+A2.2] bundled solo.** [A2.1] and [A2.2] SHARE edits in `internal/search/search.go` — both add `Limit`/`All` fields to `search.Query` and an early-exit in `search.Run`'s outer loop. That shared surface forbids naive parallelism. Bundle them under one builder: "A2.1+A2.2 limit/all into list-sections and search endpoints." Planning evidence: `workflow/ta/IMPACT-B0-A21-A22.md §4.2`.
 
     - **Round 5 — [B2] solo.** [B2] (`ta get` scope expansion) runs after Round 4. Rationale: [B2]'s multi-record `ta get` with `--limit`/`--all` routes through the same `search.Run` walker that [A2.1] / [A2.2] edit. Running [B2] in parallel with Round 4 would create a second contender for `search.Query.Limit/All`. Serializing keeps the search.go surface owned by one builder at a time. Falsification evidence: round-2 QA on the decoupling plan.
 
@@ -1322,7 +1322,7 @@ The schema-level convention is that **every `type = "string"` field carries mark
 - Authors and agents who want rich rendering (code blocks, inline emphasis, lists, tables) get it for free.
 - The `format = "markdown"` field-level hint in §4.1 becomes informational only — laslig renders all string fields as markdown regardless. The hint is kept so an alternate renderer (JSON export, plain log, terminal without colour) can branch on it if needed.
 
-Example. A `plan_db.ta-v2.build_task.task_001` record with a TOML body:
+Example. A `plan_db.ta.build_task.task_001` record with a TOML body:
 
 ```toml
 [build_task.task_001]

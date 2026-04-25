@@ -14,7 +14,7 @@ import (
 // the limit/all tests can seed N records cheaply via a flat file.
 const limitAllSchema = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "Endpoint limit/all test fixture."
 
@@ -195,7 +195,7 @@ func TestSearchAllBeatsLimit(t *testing.T) {
 // multi-instance branch.
 const multiInstanceOpsSchema = `
 [plan_db]
-directory = "workflow"
+paths = ["workflow"]
 format = "toml"
 description = "Multi-instance planning db."
 

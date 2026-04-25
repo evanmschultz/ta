@@ -12,7 +12,7 @@ import (
 
 const sampleTemplate = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "Example planning db."
 
@@ -30,7 +30,7 @@ required = true
 
 const malformedTemplate = `
 [plans]
-# missing shape selector and format — fails meta-schema.
+# missing paths and format — fails meta-schema.
 
 [plans.task]
 description = "no fields"

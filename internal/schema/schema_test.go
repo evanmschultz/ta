@@ -7,9 +7,8 @@ func TestRegistryLookup(t *testing.T) {
 		"plans": {
 			Name:   "plans",
 			Types:  map[string]SectionType{"task": {Name: "task"}},
-			Shape:  ShapeFile,
 			Format: FormatTOML,
-			Path:   "plans.toml",
+			Paths:  []string{"plans.toml"},
 		},
 	}}
 

@@ -9,7 +9,7 @@ import (
 
 const taskConfig = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "A unit of work"
 

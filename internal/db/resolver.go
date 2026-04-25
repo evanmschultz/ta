@@ -29,69 +29,78 @@ func NewResolver(root string, registry schema.Registry) *Resolver {
 }
 
 // Instance is one resolved database instance: Slug is the instance
-// identifier (empty for single-instance dbs); DirPath is the filesystem
-// directory that owns the instance (empty for single-instance dbs);
-// FilePath is the absolute path of the backing file.
+// identifier (empty for legacy single-file dbs); DirPath is the filesystem
+// directory that owns the instance (empty for single-file dbs); FilePath
+// is the absolute path of the backing file.
 type Instance struct {
 	Slug     string
 	DirPath  string
 	FilePath string
 }
 
+// firstPath returns the first declared path for db. Phase 9.1 callers
+// always operate on the single-entry case (multi-path semantics land in
+// Phase 9.2). Empty Paths is rejected at schema-load time, so this is
+// guarded only against zero-value DBs constructed in tests.
+func firstPath(db schema.DB) string {
+	if len(db.Paths) == 0 {
+		return ""
+	}
+	return db.Paths[0]
+}
+
 // canonicalFileName returns the db.<ext> filename a dir-per-instance db
-// uses inside each subdir. ShapeDirectory convention per §5.5.1.
+// uses inside each subdir. Legacy directory-shape convention per §5.5.1.
 func canonicalFileName(db schema.DB) string {
 	return "db." + string(db.Format)
 }
 
 // Instances enumerates every concrete instance of dbName on disk. The
-// return value is shape-dependent:
+// return value is shape-dependent (legacyShapeOf):
 //
-//   - ShapeFile: exactly one Instance with Slug="" and FilePath set to
-//     the absolute path of the declared file.
-//   - ShapeDirectory: one Instance per immediate subdir of the declared
-//     directory that contains a canonical db.<ext> file. Subdirs without
-//     the canonical file are skipped; nested canonical files deeper than
-//     one level are ignored; stray files at the dir root are ignored.
-//   - ShapeCollection: one Instance per file under the declared
-//     directory (recursively) whose extension matches the db's format.
-//     Dotfiles and dotdirs are skipped. Slug collisions fail loudly with
-//     ErrSlugCollision (includes both paths in the error).
+//   - file: exactly one Instance with Slug="" and FilePath set to the
+//     absolute path of the declared file (db.Paths[0]).
+//   - directory: one Instance per immediate subdir of the declared
+//     directory that contains a canonical db.<ext> file.
+//   - collection: one Instance per file under the declared directory
+//     (recursively) whose extension matches the db's format.
 //
 // Returns an empty slice (no error) when the declared directory does
 // not exist yet — first-create is legal and the caller will mkdir it.
+//
+// TODO(PLAN §12.17.9 Phase 9.2): rewrite this on the paths-glob expander.
 func (r *Resolver) Instances(dbName string) ([]Instance, error) {
-	db, ok := r.registry.DBs[dbName]
+	dbDecl, ok := r.registry.DBs[dbName]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownDB, dbName)
 	}
 
-	switch db.Shape {
-	case schema.ShapeFile:
+	switch {
+	case schema.IsSingleFile(dbDecl):
 		return []Instance{{
 			Slug:     "",
 			DirPath:  "",
-			FilePath: filepath.Join(r.root, db.Path),
+			FilePath: filepath.Join(r.root, firstPath(dbDecl)),
 		}}, nil
-	case schema.ShapeDirectory:
-		return r.scanDirectory(db)
-	case schema.ShapeCollection:
-		return r.scanCollection(db)
+	case schema.IsLegacyDirectory(dbDecl):
+		return r.scanDirectory(dbDecl)
+	case schema.IsLegacyCollection(dbDecl):
+		return r.scanCollection(dbDecl)
 	default:
-		return nil, fmt.Errorf("%w: %q on db %q", ErrUnsupportedShape, db.Shape, db.Name)
+		return nil, fmt.Errorf("%w: db %q", ErrUnsupportedShape, dbDecl.Name)
 	}
 }
 
-func (r *Resolver) scanDirectory(db schema.DB) ([]Instance, error) {
-	base := filepath.Join(r.root, db.Path)
+func (r *Resolver) scanDirectory(dbDecl schema.DB) ([]Instance, error) {
+	base := filepath.Join(r.root, firstPath(dbDecl))
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("db %q: scan %s: %w", db.Name, base, err)
+		return nil, fmt.Errorf("db %q: scan %s: %w", dbDecl.Name, base, err)
 	}
-	canonical := canonicalFileName(db)
+	canonical := canonicalFileName(dbDecl)
 
 	out := make([]Instance, 0, len(entries))
 	for _, e := range entries {
@@ -117,9 +126,9 @@ func (r *Resolver) scanDirectory(db schema.DB) ([]Instance, error) {
 	return out, nil
 }
 
-func (r *Resolver) scanCollection(db schema.DB) ([]Instance, error) {
-	base := filepath.Join(r.root, db.Path)
-	ext := "." + string(db.Format)
+func (r *Resolver) scanCollection(dbDecl schema.DB) ([]Instance, error) {
+	base := filepath.Join(r.root, firstPath(dbDecl))
+	ext := "." + string(dbDecl.Format)
 
 	bySlug := map[string][]Instance{}
 	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, werr error) error {
@@ -151,7 +160,7 @@ func (r *Resolver) scanCollection(db schema.DB) ([]Instance, error) {
 		if !strings.EqualFold(filepath.Ext(d.Name()), ext) {
 			return nil
 		}
-		slug := slugFromCollectionPath(rel, string(db.Format))
+		slug := slugFromCollectionPath(rel, string(dbDecl.Format))
 		if slug == "" {
 			return nil
 		}
@@ -166,7 +175,7 @@ func (r *Resolver) scanCollection(db schema.DB) ([]Instance, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("db %q: walk %s: %w", db.Name, base, err)
+		return nil, fmt.Errorf("db %q: walk %s: %w", dbDecl.Name, base, err)
 	}
 
 	// Collect and detect collisions.
@@ -212,40 +221,39 @@ func (r *Resolver) MatchSlug(scope, slug string) bool {
 // file path to read. For multi-instance dbs the instance must exist on
 // disk; a missing instance returns ErrInstanceNotFound. Slug collisions
 // propagate as ErrSlugCollision.
+//
+// TODO(PLAN §12.17.9 Phase 9.2): rewire to the new address grammar
+// (`<file-relpath>.<id-tail>`) once the paths-glob expander lands.
 func (r *Resolver) ResolveRead(section string) (schema.DB, Instance, string, error) {
-	addr, db, err := r.ParseAddress(section)
+	addr, dbDecl, err := r.ParseAddress(section)
 	if err != nil {
 		return schema.DB{}, Instance{}, "", err
 	}
-	switch db.Shape {
-	case schema.ShapeFile:
-		inst := Instance{FilePath: filepath.Join(r.root, db.Path)}
-		return db, inst, inst.FilePath, nil
-	case schema.ShapeDirectory, schema.ShapeCollection:
-		instances, err := r.Instances(db.Name)
-		if err != nil {
-			return schema.DB{}, Instance{}, "", err
-		}
-		for _, inst := range instances {
-			if inst.Slug == addr.Instance {
-				return db, inst, inst.FilePath, nil
-			}
-		}
-		return schema.DB{}, Instance{}, "", fmt.Errorf(
-			"%w: db %q instance %q", ErrInstanceNotFound, db.Name, addr.Instance)
-	default:
-		return schema.DB{}, Instance{}, "", fmt.Errorf(
-			"%w: %q", ErrUnsupportedShape, db.Shape)
+	if schema.IsSingleFile(dbDecl) {
+		inst := Instance{FilePath: filepath.Join(r.root, firstPath(dbDecl))}
+		return dbDecl, inst, inst.FilePath, nil
 	}
+	// Multi-instance (directory or collection): scan and match instance.
+	instances, err := r.Instances(dbDecl.Name)
+	if err != nil {
+		return schema.DB{}, Instance{}, "", err
+	}
+	for _, inst := range instances {
+		if inst.Slug == addr.Instance {
+			return dbDecl, inst, inst.FilePath, nil
+		}
+	}
+	return schema.DB{}, Instance{}, "", fmt.Errorf(
+		"%w: db %q instance %q", ErrInstanceNotFound, dbDecl.Name, addr.Instance)
 }
 
 // ResolveWrite parses section and returns the db, instance, and
 // absolute file path to write. path_hint is consulted only for
-// ShapeCollection dbs (file-per-instance) — ShapeFile rejects any
-// non-empty hint, and ShapeDirectory ignores it (the canonical filename
+// collection-shaped dbs (file-per-instance) — file-shaped rejects any
+// non-empty hint, and directory-shaped ignores it (the canonical filename
 // is fixed).
 //
-// For a new instance on ShapeCollection, empty hint produces a flat
+// For a new instance on collection-shaped, empty hint produces a flat
 // path (docs/<slug>.<ext>); a non-empty hint is interpreted as a path
 // relative to the collection root. For an existing instance, a
 // non-empty hint must exactly match the on-disk relative path, else
@@ -253,45 +261,47 @@ func (r *Resolver) ResolveRead(section string) (schema.DB, Instance, string, err
 //
 // The returned path's parent directory may not exist yet — the caller
 // is responsible for mkdir + file creation (§12.5).
+//
+// TODO(PLAN §12.17.9 Phase 9.2): rewire to paths-glob expander.
 func (r *Resolver) ResolveWrite(section, pathHint string) (schema.DB, Instance, string, error) {
-	addr, db, err := r.ParseAddress(section)
+	addr, dbDecl, err := r.ParseAddress(section)
 	if err != nil {
 		return schema.DB{}, Instance{}, "", err
 	}
-	switch db.Shape {
-	case schema.ShapeFile:
+	switch {
+	case schema.IsSingleFile(dbDecl):
 		if pathHint != "" {
 			return schema.DB{}, Instance{}, "", fmt.Errorf(
 				"%w: single-instance db %q does not accept path_hint",
-				ErrBadAddress, db.Name)
+				ErrBadAddress, dbDecl.Name)
 		}
-		inst := Instance{FilePath: filepath.Join(r.root, db.Path)}
-		return db, inst, inst.FilePath, nil
-	case schema.ShapeDirectory:
+		inst := Instance{FilePath: filepath.Join(r.root, firstPath(dbDecl))}
+		return dbDecl, inst, inst.FilePath, nil
+	case schema.IsLegacyDirectory(dbDecl):
 		// Canonical filename is fixed; path_hint would have no meaning.
 		if pathHint != "" {
 			return schema.DB{}, Instance{}, "", fmt.Errorf(
 				"%w: dir-per-instance db %q uses canonical filename, path_hint not allowed",
-				ErrBadAddress, db.Name)
+				ErrBadAddress, dbDecl.Name)
 		}
-		dirPath := filepath.Join(r.root, db.Path, addr.Instance)
-		filePath := filepath.Join(dirPath, canonicalFileName(db))
+		dirPath := filepath.Join(r.root, firstPath(dbDecl), addr.Instance)
+		filePath := filepath.Join(dirPath, canonicalFileName(dbDecl))
 		inst := Instance{Slug: addr.Instance, DirPath: dirPath, FilePath: filePath}
-		return db, inst, filePath, nil
-	case schema.ShapeCollection:
-		return r.resolveWriteCollection(db, addr, pathHint)
+		return dbDecl, inst, filePath, nil
+	case schema.IsLegacyCollection(dbDecl):
+		return r.resolveWriteCollection(dbDecl, addr, pathHint)
 	default:
 		return schema.DB{}, Instance{}, "", fmt.Errorf(
-			"%w: %q", ErrUnsupportedShape, db.Shape)
+			"%w: db %q", ErrUnsupportedShape, dbDecl.Name)
 	}
 }
 
-func (r *Resolver) resolveWriteCollection(db schema.DB, addr Address, pathHint string) (schema.DB, Instance, string, error) {
-	base := filepath.Join(r.root, db.Path)
-	ext := "." + string(db.Format)
+func (r *Resolver) resolveWriteCollection(dbDecl schema.DB, addr Address, pathHint string) (schema.DB, Instance, string, error) {
+	base := filepath.Join(r.root, firstPath(dbDecl))
+	ext := "." + string(dbDecl.Format)
 
 	// Find an existing instance with this slug, if any.
-	instances, err := r.Instances(db.Name)
+	instances, err := r.Instances(dbDecl.Name)
 	if err != nil {
 		return schema.DB{}, Instance{}, "", err
 	}
@@ -305,14 +315,14 @@ func (r *Resolver) resolveWriteCollection(db schema.DB, addr Address, pathHint s
 
 	if existing != nil {
 		if pathHint == "" {
-			return db, *existing, existing.FilePath, nil
+			return dbDecl, *existing, existing.FilePath, nil
 		}
 		// Non-empty hint on existing must match the on-disk relative path.
 		hintClean := filepath.ToSlash(filepath.Clean(pathHint))
 		existingRel, err := filepath.Rel(base, existing.FilePath)
 		if err != nil {
 			return schema.DB{}, Instance{}, "", fmt.Errorf(
-				"db %q: rel %s: %w", db.Name, existing.FilePath, err)
+				"db %q: rel %s: %w", dbDecl.Name, existing.FilePath, err)
 		}
 		existingRelSlash := filepath.ToSlash(existingRel)
 		if hintClean != existingRelSlash {
@@ -320,7 +330,7 @@ func (r *Resolver) resolveWriteCollection(db schema.DB, addr Address, pathHint s
 				"%w: instance %q exists at %q, hint was %q",
 				ErrPathHintMismatch, addr.Instance, existingRelSlash, hintClean)
 		}
-		return db, *existing, existing.FilePath, nil
+		return dbDecl, *existing, existing.FilePath, nil
 	}
 
 	// New instance: derive target path from hint, else flat <slug>.<ext>.
@@ -340,7 +350,7 @@ func (r *Resolver) resolveWriteCollection(db schema.DB, addr Address, pathHint s
 				ErrPathHintMismatch, pathHint)
 		}
 		// Sanity: hint must produce the given slug.
-		hintSlug := slugFromCollectionPath(relPath, string(db.Format))
+		hintSlug := slugFromCollectionPath(relPath, string(dbDecl.Format))
 		if hintSlug != addr.Instance {
 			return schema.DB{}, Instance{}, "", fmt.Errorf(
 				"%w: hint %q yields slug %q, address instance is %q",
@@ -353,5 +363,5 @@ func (r *Resolver) resolveWriteCollection(db schema.DB, addr Address, pathHint s
 		DirPath:  filepath.Dir(filePath),
 		FilePath: filePath,
 	}
-	return db, inst, filePath, nil
+	return dbDecl, inst, filePath, nil
 }

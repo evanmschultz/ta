@@ -271,10 +271,10 @@ func lookupDBAndType(reg schema.Registry, section string) (schema.DB, schema.Sec
 		return schema.DB{}, schema.SectionType{}, fmt.Errorf("db %q not declared", parts[0])
 	}
 	var typeName string
-	switch dbDecl.Shape {
-	case schema.ShapeFile:
+	// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new no-db-prefix grammar.
+	if schema.IsSingleFile(dbDecl) {
 		typeName = parts[1]
-	default:
+	} else {
 		if len(parts) < 3 {
 			return schema.DB{}, schema.SectionType{}, fmt.Errorf("address %q: multi-instance needs <db>.<instance>.<type>...", section)
 		}
@@ -312,7 +312,7 @@ func newListSectionsCmd() *cobra.Command {
 			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
 		Example: `  ta list-sections
   ta list-sections plan_db
-  ta list-sections --scope plan_db.ta-v2
+  ta list-sections --scope plan_db.ta
   ta list-sections --scope plan_db --all --json`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
@@ -890,8 +890,7 @@ func schemaDBsToJSON(dbs map[string]schema.DB) map[string]any {
 		out[name] = map[string]any{
 			"name":        db.Name,
 			"description": db.Description,
-			"shape":       string(db.Shape),
-			"path":        db.Path,
+			"paths":       db.Paths,
 			"format":      string(db.Format),
 			"types":       schemaTypesToJSON(db.Types),
 		}

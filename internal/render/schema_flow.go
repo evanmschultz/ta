@@ -58,13 +58,16 @@ func (r *Renderer) SchemaFlow(path, scope string, sources []string, dbs map[stri
 
 // renderDB writes one db block: Section header, db-meta KV block, and
 // the db-description Paragraph, then each declared type under it.
+//
+// PLAN §12.17.9 Phase 9.1: the `shape` row was retired with the Shape
+// enum; the `paths` row replaces the prior single `path` row and renders
+// every declared mount path joined by ", ".
 func (r *Renderer) renderDB(db schema.DB) error {
 	if err := r.p.Section(db.Name); err != nil {
 		return err
 	}
 	dbPairs := []laslig.Field{
-		{Label: "shape", Value: string(db.Shape)},
-		{Label: "path", Value: db.Path},
+		{Label: "paths", Value: strings.Join(db.Paths, ", ")},
 		{Label: "format", Value: string(db.Format)},
 	}
 	if err := r.p.KV(laslig.KV{Pairs: dbPairs}); err != nil {

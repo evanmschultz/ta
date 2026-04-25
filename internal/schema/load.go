@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -11,11 +12,18 @@ import (
 // Meta-field keys recognised at the [<db>] root. Any other key at that
 // level that is not a sub-table is a meta-schema violation.
 const (
-	metaFieldFile        = "file"
-	metaFieldDirectory   = "directory"
-	metaFieldCollection  = "collection"
+	metaFieldPaths       = "paths"
 	metaFieldFormat      = "format"
 	metaFieldDescription = "description"
+)
+
+// Legacy meta-field keys removed in PLAN §12.17.9 Phase 9.1. Their presence
+// in any schema file is a hard load-time error pointing at the migration
+// note.
+const (
+	legacyMetaFieldFile       = "file"
+	legacyMetaFieldDirectory  = "directory"
+	legacyMetaFieldCollection = "collection"
 )
 
 // Field-level keys recognised inside a [<db>.<type>.fields.<name>] table.
@@ -36,14 +44,33 @@ const (
 	typeKeyFields      = "fields"
 )
 
+// ErrLegacyShapeKey is returned when a schema file declares any of the
+// removed `file` / `directory` / `collection` keys at the [<db>] root.
+// Callers can match on this sentinel to surface migration guidance. See
+// PLAN §12.17.9 Phase 9.1.
+var ErrLegacyShapeKey = errors.New(
+	"schema: legacy shape selector (file/directory/collection) " +
+		"is no longer supported; use `paths = [...]` per PLAN §12.17.9")
+
+// ErrOverlappingPaths is returned when two distinct dbs declare any
+// overlapping entries in their `paths` slices. Two dbs sharing a mount
+// would make addresses ambiguous. PLAN §12.17.9 Phase 9.1 enforces this
+// at schema-load time.
+//
+// Phase 9.1 implements exact-string-equality detection across all entries
+// of every db's paths slice. Glob-aware overlap (e.g.
+// `["workflow/*/db"]` vs `["workflow/foo/db"]`) is deferred to Phase 9.2
+// where the path-glob expander itself lands.
+var ErrOverlappingPaths = errors.New("schema: overlapping paths across dbs")
+
 // Load reads a schema config document from r and returns the resolved
 // Registry. The top-level tables are databases; sub-tables under each db
 // are record types; sub-tables under a record type's `fields` table are
 // fields. See V2-PLAN §4.1.
 //
-// Load also enforces the meta-schema (§4.7): exactly one of file /
-// directory / collection per db, valid format, valid heading on MD types,
-// supported field types, etc.
+// Load also enforces the meta-schema (§4.7 + PLAN §12.17.9): every db
+// declares `paths = [...]` (length 1+); old shape selectors are rejected;
+// supported field types; etc.
 func Load(r io.Reader) (Registry, error) {
 	dec := toml.NewDecoder(r)
 
@@ -89,9 +116,8 @@ func buildRegistry(raw map[string]any) (Registry, error) {
 		reg.DBs[name] = db
 	}
 
-	// Meta-schema: no two dbs may point to the same path, and no db's
-	// path may be a strict prefix of another's (§4.7).
-	if err := checkPathUniqueness(reg); err != nil {
+	// Phase 9.1: cross-db paths-overlap rejection (PLAN §12.17.9).
+	if err := checkPathsOverlap(reg); err != nil {
 		return Registry{}, err
 	}
 	return reg, nil
@@ -100,31 +126,18 @@ func buildRegistry(raw map[string]any) (Registry, error) {
 func buildDB(name string, body map[string]any) (DB, error) {
 	db := DB{Name: name, Types: map[string]SectionType{}}
 
-	// Collect shape selectors and meta-fields.
-	shapes := make([]Shape, 0, 3)
+	// Collect meta-fields and any record-type sub-tables.
 	for key, val := range body {
 		switch key {
-		case metaFieldFile:
-			s, err := stringVal(name, key, val)
+		case legacyMetaFieldFile, legacyMetaFieldDirectory, legacyMetaFieldCollection:
+			return DB{}, fmt.Errorf(
+				"schema: %s.%s: %w", name, key, ErrLegacyShapeKey)
+		case metaFieldPaths:
+			paths, err := stringSliceVal(name, key, val)
 			if err != nil {
 				return DB{}, err
 			}
-			shapes = append(shapes, ShapeFile)
-			db.Path = s
-		case metaFieldDirectory:
-			s, err := stringVal(name, key, val)
-			if err != nil {
-				return DB{}, err
-			}
-			shapes = append(shapes, ShapeDirectory)
-			db.Path = s
-		case metaFieldCollection:
-			s, err := stringVal(name, key, val)
-			if err != nil {
-				return DB{}, err
-			}
-			shapes = append(shapes, ShapeCollection)
-			db.Path = s
+			db.Paths = paths
 		case metaFieldFormat:
 			s, err := stringVal(name, key, val)
 			if err != nil {
@@ -149,7 +162,7 @@ func buildDB(name string, body map[string]any) (DB, error) {
 				return DB{}, fmt.Errorf(
 					"schema: %s.%s: unknown meta-field or non-table value (type %T); "+
 						"record types must be tables, meta-fields must be one of "+
-						"file/directory/collection/format/description",
+						"paths/format/description (PLAN §12.17.9)",
 					name, key, val)
 			}
 			st, err := buildType(name, key, typeBody)
@@ -160,30 +173,28 @@ func buildDB(name string, body map[string]any) (DB, error) {
 		}
 	}
 
-	// §4.7: exactly one of file / directory / collection.
-	if len(shapes) == 0 {
+	// PLAN §12.17.9: paths is required and non-empty.
+	if db.Paths == nil {
 		return DB{}, fmt.Errorf(
-			"schema: %s: missing shape selector; set exactly one of %q, %q, %q",
-			name, metaFieldFile, metaFieldDirectory, metaFieldCollection)
+			"schema: %s: missing required %q array (PLAN §12.17.9)",
+			name, metaFieldPaths)
 	}
-	if len(shapes) > 1 {
+	if len(db.Paths) == 0 {
 		return DB{}, fmt.Errorf(
-			"schema: %s: shape selectors are mutually exclusive; got %v",
-			name, shapes)
+			"schema: %s: %q must declare at least one entry (PLAN §12.17.9)",
+			name, metaFieldPaths)
 	}
-	db.Shape = shapes[0]
+	for i, p := range db.Paths {
+		if p == "" {
+			return DB{}, fmt.Errorf(
+				"schema: %s: %q[%d] is empty", name, metaFieldPaths, i)
+		}
+	}
 
 	if db.Format == "" {
 		return DB{}, fmt.Errorf(
 			"schema: %s: missing required meta-field %q (want %q or %q)",
 			name, metaFieldFormat, FormatTOML, FormatMD)
-	}
-
-	// §4.7: file extension must match format.
-	if db.Shape == ShapeFile {
-		if err := checkFileExt(name, db.Path, db.Format); err != nil {
-			return DB{}, err
-		}
 	}
 
 	// §4.7: MD types require heading; duplicate heading levels rejected.
@@ -322,24 +333,6 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 	return f, nil
 }
 
-func checkFileExt(db, path string, format Format) error {
-	var wantExt string
-	switch format {
-	case FormatTOML:
-		wantExt = ".toml"
-	case FormatMD:
-		wantExt = ".md"
-	default:
-		return nil // unreachable; format already validated.
-	}
-	if len(path) < len(wantExt) || path[len(path)-len(wantExt):] != wantExt {
-		return fmt.Errorf(
-			"schema: %s: file %q extension does not match format %q (want %q)",
-			db, path, format, wantExt)
-	}
-	return nil
-}
-
 func checkMDHeadings(db string, types map[string]SectionType) error {
 	seen := make(map[int]string, len(types))
 	for name, t := range types {
@@ -357,54 +350,42 @@ func checkMDHeadings(db string, types map[string]SectionType) error {
 	return nil
 }
 
-func checkPathUniqueness(reg Registry) error {
+// checkPathsOverlap enforces the PLAN §12.17.9 cross-db invariant: no two
+// dbs may share any entry in their `paths` slices. Two dbs with the same
+// mount would make addresses ambiguous (`<file-relpath>.<id-tail>` cannot
+// resolve to two distinct dbs).
+//
+// Phase 9.1 detects exact string-equality overlap. Glob-aware overlap
+// detection (e.g. `["workflow/*/db"]` vs `["workflow/foo/db"]`) is deferred
+// to Phase 9.2 where the path-glob expander itself lands.
+func checkPathsOverlap(reg Registry) error {
 	type entry struct {
 		db   string
 		path string
 	}
-	paths := make([]entry, 0, len(reg.DBs))
+	flat := make([]entry, 0)
 	for name, db := range reg.DBs {
-		paths = append(paths, entry{db: name, path: db.Path})
+		for _, p := range db.Paths {
+			flat = append(flat, entry{db: name, path: p})
+		}
 	}
-	// Exact collisions.
-	seen := make(map[string]string, len(paths))
-	for _, e := range paths {
-		if prior, ok := seen[e.path]; ok {
+	// Sort for deterministic error messages.
+	sort.Slice(flat, func(i, j int) bool {
+		if flat[i].path != flat[j].path {
+			return flat[i].path < flat[j].path
+		}
+		return flat[i].db < flat[j].db
+	})
+	seen := make(map[string]string, len(flat))
+	for _, e := range flat {
+		if prior, ok := seen[e.path]; ok && prior != e.db {
 			return fmt.Errorf(
-				"schema: dbs %q and %q both target path %q", prior, e.db, e.path)
+				"%w: dbs %q and %q both declare path %q",
+				ErrOverlappingPaths, prior, e.db, e.path)
 		}
 		seen[e.path] = e.db
 	}
-	// Prefix nesting.
-	for i := range paths {
-		for j := range paths {
-			if i == j {
-				continue
-			}
-			if isPathPrefix(paths[i].path, paths[j].path) {
-				return fmt.Errorf(
-					"schema: db %q path %q is nested inside db %q path %q",
-					paths[j].db, paths[j].path, paths[i].db, paths[i].path)
-			}
-		}
-	}
 	return nil
-}
-
-// isPathPrefix returns true when outer is a strict directory-prefix of
-// inner. Path separator is "/" (schema paths are always POSIX-style
-// relative paths per §4.1).
-func isPathPrefix(outer, inner string) bool {
-	if outer == "" || inner == "" || outer == inner {
-		return false
-	}
-	if len(inner) <= len(outer) {
-		return false
-	}
-	if inner[:len(outer)] != outer {
-		return false
-	}
-	return inner[len(outer)] == '/'
 }
 
 func stringVal(scope, key string, val any) (string, error) {
@@ -414,6 +395,24 @@ func stringVal(scope, key string, val any) (string, error) {
 			"schema: %s.%s: must be string, got %T", scope, key, val)
 	}
 	return s, nil
+}
+
+func stringSliceVal(scope, key string, val any) ([]string, error) {
+	arr, ok := val.([]any)
+	if !ok {
+		return nil, fmt.Errorf(
+			"schema: %s.%s: must be array of strings, got %T", scope, key, val)
+	}
+	out := make([]string, 0, len(arr))
+	for i, item := range arr {
+		s, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf(
+				"schema: %s.%s[%d]: must be string, got %T", scope, key, i, item)
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 func intVal(scope, key string, val any) (int, error) {

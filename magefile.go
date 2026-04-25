@@ -151,8 +151,8 @@ func installError(rr *render.Renderer, stage string, cause error) error {
 	return fmt.Errorf("%s: %w", stage, cause)
 }
 
-// Dogfood materializes the ta-v2 drop's build+QA lineage into
-// workflow/ta-v2/db.toml by routing through ops.Create — the same
+// Dogfood materializes the ta drop's build+QA lineage into
+// workflow/ta/db.toml by routing through ops.Create — the same
 // code path the MCP tool uses. Per V2-PLAN §2.7 ("we eat the output")
 // and §12.10 (dogfood migration). Idempotent: if the db file already
 // exists we assume the migration has run and skip to avoid collision
@@ -167,7 +167,7 @@ func Dogfood() error {
 	if err != nil {
 		return fmt.Errorf("resolve cwd: %w", err)
 	}
-	dbFile := filepath.Join(root, "workflow", "ta-v2", "db.toml")
+	dbFile := filepath.Join(root, "workflow", "ta", "db.toml")
 	if _, err := os.Stat(dbFile); err == nil {
 		fmt.Printf("ta: %s already exists; dogfood migration already materialized. Skipping.\n", dbFile)
 		return nil
@@ -297,7 +297,7 @@ func snapshot(paths ...string) (string, error) {
 	return b.String(), nil
 }
 
-// dogfoodRecord is one row to materialize under plan_db.ta-v2.
+// dogfoodRecord is one row to materialize under plan_db.ta.
 // Section is the full dotted address the MCP tool expects; Data is
 // the field map validated against .ta/schema.toml's plan_db types.
 type dogfoodRecord struct {
@@ -305,11 +305,11 @@ type dogfoodRecord struct {
 	Data    map[string]any
 }
 
-// dogfoodRecords returns every record the ta-v2 drop needs to
+// dogfoodRecords returns every record the ta drop needs to
 // materialize per V2-PLAN §12.10: 8 completed build_tasks + 16 QA
 // twins + 2 in-flight build_tasks = 26 rows. Bodies are 2–4 sentence
 // structured summaries citing commit SHAs + design decisions; the
-// verbose narrative stays in workflow/ta-v2/WORKLOG.md until §12.11
+// verbose narrative stays in workflow/ta/WORKLOG.md until §12.11
 // README collapse. Ordering matches the chronological drop arc so
 // ta get + ta search returns records in a sensible default sequence.
 func dogfoodRecords() []dogfoodRecord {
@@ -396,8 +396,8 @@ func dogfoodRecords() []dogfoodRecord {
 			status: "doing",
 			title:  "Dogfood migration",
 			body: "In-progress: this record is itself materialized by the `mage dogfood` target introduced in this slice, which routes through `ops.Create` to eat the §2.7 dogfood principle end-to-end. " +
-				"Writes `workflow/ta-v2/db.toml` carrying 8 done build_tasks + 16 QA twins + 2 in-flight build_tasks per V2-PLAN §12.10. " +
-				"Idempotent on re-run via existence check; orchestrator retains write ownership of `workflow/ta-v2/WORKLOG.md` which stays in place until §12.11 README collapse.",
+				"Writes `workflow/ta/db.toml` carrying 8 done build_tasks + 16 QA twins + 2 in-flight build_tasks per V2-PLAN §12.10. " +
+				"Idempotent on re-run via existence check; orchestrator retains write ownership of `workflow/ta/WORKLOG.md` which stays in place until §12.11 README collapse.",
 		},
 	}
 
@@ -509,7 +509,7 @@ func dogfoodRecords() []dogfoodRecord {
 	out := make([]dogfoodRecord, 0, len(builds)+len(qaTwins))
 	for _, b := range builds {
 		out = append(out, dogfoodRecord{
-			Section: "plan_db.ta-v2.build_task." + b.id,
+			Section: "plan_db.ta.build_task." + b.id,
 			Data: map[string]any{
 				"id":     b.id,
 				"status": b.status,
@@ -521,7 +521,7 @@ func dogfoodRecords() []dogfoodRecord {
 	}
 	for _, q := range qaTwins {
 		out = append(out, dogfoodRecord{
-			Section: "plan_db.ta-v2.qa_task." + q.id,
+			Section: "plan_db.ta.qa_task." + q.id,
 			Data: map[string]any{
 				"id":                q.id,
 				"parent_build_task": q.parent,

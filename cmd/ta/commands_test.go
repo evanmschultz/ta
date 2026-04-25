@@ -19,7 +19,7 @@ var updateCLIGolden = flag.Bool("update", false, "regenerate golden fixtures in 
 
 const cliTaskSchema = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "Test planning db."
 
@@ -296,7 +296,7 @@ func TestUpdateCmdInlineData(t *testing.T) {
 func TestUpdateCmdJSONNullPreservedToPatch(t *testing.T) {
 	const body = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "cli patch test."
 
@@ -456,7 +456,7 @@ func TestGetCmdFields(t *testing.T) {
 // `plan_db.<instance>.<type>.<id>` form that A2 is validating.
 const multiInstanceCLISchema = `
 [plan_db]
-directory = "workflow"
+paths = ["workflow"]
 format = "toml"
 description = "Multi-instance planning db."
 

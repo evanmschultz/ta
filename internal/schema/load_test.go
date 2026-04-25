@@ -1,15 +1,17 @@
 package schema
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
 
-// exampleConfig is a single-instance TOML db with four fields, used by
-// tests in this package as a reusable fixture.
+// exampleConfig is a TOML db with four fields, used by tests in this
+// package as a reusable fixture. Phase 9.1 (PLAN §12.17.9) replaces the
+// old shape-selector keys with `paths = [...]`.
 const exampleConfig = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "Example planning db for schema tests."
 
@@ -48,11 +50,8 @@ func TestLoadHappyPath(t *testing.T) {
 	if !ok {
 		t.Fatal("missing plans db")
 	}
-	if db.Shape != ShapeFile {
-		t.Errorf("shape = %q, want %q", db.Shape, ShapeFile)
-	}
-	if db.Path != "plans.toml" {
-		t.Errorf("path = %q, want plans.toml", db.Path)
+	if len(db.Paths) != 1 || db.Paths[0] != "plans.toml" {
+		t.Errorf("paths = %v, want [\"plans.toml\"]", db.Paths)
 	}
 	if db.Format != FormatTOML {
 		t.Errorf("format = %q, want toml", db.Format)
@@ -99,7 +98,7 @@ func TestLoadHappyPath(t *testing.T) {
 func TestLoadRejectsUnsupportedFieldType(t *testing.T) {
 	src := `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 
 [plans.note]
@@ -117,7 +116,7 @@ type = "set"
 	}
 }
 
-func TestLoadRejectsMissingShapeSelector(t *testing.T) {
+func TestLoadRejectsMissingPaths(t *testing.T) {
 	src := `
 [plans]
 format = "toml"
@@ -131,17 +130,85 @@ required = true
 `
 	_, err := Load(strings.NewReader(src))
 	if err == nil {
-		t.Fatal("expected error for missing shape selector")
+		t.Fatal("expected error for missing paths")
 	}
-	if !strings.Contains(err.Error(), "shape selector") {
-		t.Errorf("error = %q, want shape-selector message", err)
+	if !strings.Contains(err.Error(), "paths") {
+		t.Errorf("error = %q, want paths-required message", err)
 	}
 }
 
-func TestLoadRejectsMultipleShapeSelectors(t *testing.T) {
+func TestLoadRejectsEmptyPaths(t *testing.T) {
+	src := `
+[plans]
+paths = []
+format = "toml"
+
+[plans.task]
+description = "A task"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for empty paths")
+	}
+	if !strings.Contains(err.Error(), "at least one entry") {
+		t.Errorf("error = %q", err)
+	}
+}
+
+func TestLoadRejectsEmptyPathEntry(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml", ""]
+format = "toml"
+
+[plans.task]
+description = "A task"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for empty path entry")
+	}
+	if !strings.Contains(err.Error(), "is empty") {
+		t.Errorf("error = %q", err)
+	}
+}
+
+func TestLoadRejectsLegacyFileKey(t *testing.T) {
 	src := `
 [plans]
 file = "plans.toml"
+format = "toml"
+
+[plans.task]
+description = "A task"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for legacy file key")
+	}
+	if !errors.Is(err, ErrLegacyShapeKey) {
+		t.Errorf("errors.Is ErrLegacyShapeKey = false, err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "12.17.9") {
+		t.Errorf("error must point at PLAN §12.17.9, got %q", err)
+	}
+}
+
+func TestLoadRejectsLegacyDirectoryKey(t *testing.T) {
+	src := `
+[plans]
 directory = "workflow"
 format = "toml"
 
@@ -153,18 +220,34 @@ type = "string"
 required = true
 `
 	_, err := Load(strings.NewReader(src))
-	if err == nil {
-		t.Fatal("expected error for multiple shape selectors")
+	if !errors.Is(err, ErrLegacyShapeKey) {
+		t.Fatalf("errors.Is ErrLegacyShapeKey = false, err = %v", err)
 	}
-	if !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Errorf("error = %q, want mutually-exclusive message", err)
+}
+
+func TestLoadRejectsLegacyCollectionKey(t *testing.T) {
+	src := `
+[plans]
+collection = "docs"
+format = "md"
+
+[plans.section]
+description = "A section"
+heading = 2
+
+[plans.section.fields.body]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if !errors.Is(err, ErrLegacyShapeKey) {
+		t.Fatalf("errors.Is ErrLegacyShapeKey = false, err = %v", err)
 	}
 }
 
 func TestLoadRejectsMissingFormat(t *testing.T) {
 	src := `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 
 [plans.task]
 description = "A task"
@@ -185,7 +268,7 @@ required = true
 func TestLoadRejectsBadFormat(t *testing.T) {
 	src := `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "yaml"
 
 [plans.task]
@@ -204,32 +287,10 @@ required = true
 	}
 }
 
-func TestLoadRejectsFileExtFormatMismatch(t *testing.T) {
-	src := `
-[plans]
-file = "plans.md"
-format = "toml"
-
-[plans.task]
-description = "A task"
-
-[plans.task.fields.id]
-type = "string"
-required = true
-`
-	_, err := Load(strings.NewReader(src))
-	if err == nil {
-		t.Fatal("expected error for ext/format mismatch")
-	}
-	if !strings.Contains(err.Error(), "extension does not match format") {
-		t.Errorf("error = %q", err)
-	}
-}
-
 func TestLoadRejectsTypeWithoutDescription(t *testing.T) {
 	src := `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 
 [plans.task]
@@ -250,7 +311,7 @@ required = true
 func TestLoadRejectsTypeWithoutFields(t *testing.T) {
 	src := `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 
 [plans.task]
@@ -268,7 +329,7 @@ description = "A task"
 func TestLoadRejectsMDWithoutHeading(t *testing.T) {
 	src := `
 [readme]
-file = "README.md"
+paths = ["README.md"]
 format = "md"
 
 [readme.section]
@@ -289,7 +350,7 @@ type = "string"
 func TestLoadRejectsMDHeadingOutOfRange(t *testing.T) {
 	src := `
 [readme]
-file = "README.md"
+paths = ["README.md"]
 format = "md"
 
 [readme.section]
@@ -311,7 +372,7 @@ type = "string"
 func TestLoadRejectsDuplicateMDHeading(t *testing.T) {
 	src := `
 [readme]
-file = "README.md"
+paths = ["README.md"]
 format = "md"
 
 [readme.title]
@@ -340,7 +401,7 @@ type = "string"
 func TestLoadRejectsHeadingOnTOMLDB(t *testing.T) {
 	src := `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 
 [plans.task]
@@ -360,10 +421,10 @@ required = true
 	}
 }
 
-func TestLoadRejectsDuplicatePath(t *testing.T) {
+func TestLoadRejectsOverlappingPaths(t *testing.T) {
 	src := `
 [a]
-file = "same.toml"
+paths = ["same.toml"]
 format = "toml"
 
 [a.task]
@@ -374,7 +435,7 @@ type = "string"
 required = true
 
 [b]
-file = "same.toml"
+paths = ["same.toml"]
 format = "toml"
 
 [b.task]
@@ -386,50 +447,79 @@ required = true
 `
 	_, err := Load(strings.NewReader(src))
 	if err == nil {
-		t.Fatal("expected error for duplicate path across dbs")
+		t.Fatal("expected error for overlapping paths across dbs")
+	}
+	if !errors.Is(err, ErrOverlappingPaths) {
+		t.Errorf("errors.Is ErrOverlappingPaths = false, err = %v", err)
 	}
 	if !strings.Contains(err.Error(), "same.toml") {
-		t.Errorf("error = %q", err)
+		t.Errorf("error must name the overlapping path, got %q", err)
 	}
 }
 
-func TestLoadRejectsNestedPaths(t *testing.T) {
+func TestLoadRejectsOverlappingPathsAcrossSlices(t *testing.T) {
+	// One db's slice contains a path that another db also declares —
+	// even when neither slice is a singleton.
 	src := `
-[outer]
-directory = "work"
+[a]
+paths = ["a/db", "shared/db"]
 format = "toml"
 
-[outer.task]
-description = "Outer"
+[a.task]
+description = "A"
 
-[outer.task.fields.id]
+[a.task.fields.id]
 type = "string"
 required = true
 
-[inner]
-directory = "work/sub"
+[b]
+paths = ["b/db", "shared/db"]
 format = "toml"
 
-[inner.task]
-description = "Inner"
+[b.task]
+description = "B"
 
-[inner.task.fields.id]
+[b.task.fields.id]
 type = "string"
 required = true
 `
 	_, err := Load(strings.NewReader(src))
-	if err == nil {
-		t.Fatal("expected error for nested paths")
-	}
-	if !strings.Contains(err.Error(), "nested") {
-		t.Errorf("error = %q", err)
+	if !errors.Is(err, ErrOverlappingPaths) {
+		t.Fatalf("errors.Is ErrOverlappingPaths = false, err = %v", err)
 	}
 }
 
-func TestLoadAcceptsDirectoryShape(t *testing.T) {
+func TestLoadAcceptsMultiPathSlice(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml", "extra.toml"]
+format = "toml"
+description = "Multi-mount db."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	db := reg.DBs["plans"]
+	if len(db.Paths) != 2 {
+		t.Errorf("paths len = %d, want 2", len(db.Paths))
+	}
+	if db.Paths[0] != "plans.toml" || db.Paths[1] != "extra.toml" {
+		t.Errorf("paths = %v", db.Paths)
+	}
+}
+
+func TestLoadAcceptsGlobPath(t *testing.T) {
 	src := `
 [plan_db]
-directory = "workflow"
+paths = ["workflow/*/db"]
 format = "toml"
 description = "Drops."
 
@@ -445,18 +535,15 @@ required = true
 		t.Fatalf("Load: %v", err)
 	}
 	db := reg.DBs["plan_db"]
-	if db.Shape != ShapeDirectory {
-		t.Errorf("shape = %q", db.Shape)
-	}
-	if db.Path != "workflow" {
-		t.Errorf("path = %q", db.Path)
+	if len(db.Paths) != 1 || db.Paths[0] != "workflow/*/db" {
+		t.Errorf("paths = %v", db.Paths)
 	}
 }
 
-func TestLoadAcceptsCollectionShape(t *testing.T) {
+func TestLoadAcceptsCollectionLikePath(t *testing.T) {
 	src := `
 [docs]
-collection = "docs"
+paths = ["docs/"]
 format = "md"
 description = "Pages."
 
@@ -472,11 +559,8 @@ type = "string"
 		t.Fatalf("Load: %v", err)
 	}
 	db := reg.DBs["docs"]
-	if db.Shape != ShapeCollection {
-		t.Errorf("shape = %q", db.Shape)
-	}
-	if db.Path != "docs" {
-		t.Errorf("path = %q", db.Path)
+	if len(db.Paths) != 1 || db.Paths[0] != "docs/" {
+		t.Errorf("paths = %v", db.Paths)
 	}
 	if db.Format != FormatMD {
 		t.Errorf("format = %q", db.Format)
@@ -509,7 +593,7 @@ func TestLoadMalformedTOML(t *testing.T) {
 func TestLoadRejectsUnknownTypeKey(t *testing.T) {
 	src := `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 
 [plans.task]
@@ -532,7 +616,7 @@ required = true
 func TestLoadRejectsUnknownFieldKey(t *testing.T) {
 	src := `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 
 [plans.task]
@@ -570,5 +654,29 @@ func TestLoadRejectsNonTableTopLevel(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must be a table") {
 		t.Errorf("error = %q", err)
+	}
+}
+
+func TestIsSingleFile(t *testing.T) {
+	cases := []struct {
+		name  string
+		paths []string
+		want  bool
+	}{
+		{"single .toml", []string{"plans.toml"}, true},
+		{"single .md", []string{"README.md"}, true},
+		{"single dir-like (no ext)", []string{"workflow"}, false},
+		{"glob entry", []string{"workflow/*/db"}, false},
+		{"trailing slash", []string{"docs/"}, false},
+		{"two entries", []string{"a.toml", "b.toml"}, false},
+		{"empty", nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := IsSingleFile(DB{Paths: c.paths})
+			if got != c.want {
+				t.Errorf("IsSingleFile(%v) = %v, want %v", c.paths, got, c.want)
+			}
+		})
 	}
 }

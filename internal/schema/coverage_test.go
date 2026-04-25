@@ -22,7 +22,7 @@ func TestFormatAllowedMixedTypes(t *testing.T) {
 func TestValidateNumericEnum(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
-file = "rows.toml"
+paths = ["rows.toml"]
 format = "toml"
 
 [rows.row]
@@ -50,7 +50,7 @@ enum = [1, 2, 3]
 func TestValidateIntegerTypeVariants(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
-file = "rows.toml"
+paths = ["rows.toml"]
 format = "toml"
 
 [rows.row]
@@ -78,7 +78,7 @@ required = true
 func TestValidateFloatTypeVariants(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
-file = "rows.toml"
+paths = ["rows.toml"]
 format = "toml"
 
 [rows.row]
@@ -108,7 +108,7 @@ required = true
 func TestValidateArrayAndTableRejections(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
-file = "rows.toml"
+paths = ["rows.toml"]
 format = "toml"
 
 [rows.row]

@@ -143,7 +143,10 @@ func applyDBMutation(projectPath, action, name string, data map[string]any, root
 			existingMap = map[string]any{}
 		}
 		// Replace meta-fields; preserve sub-table record types on update.
-		for _, metaKey := range []string{"file", "directory", "collection", "format", "description"} {
+		// PLAN §12.17.9 Phase 9.1: meta-field set is `paths`/`format`/
+		// `description`. Legacy `file`/`directory`/`collection` keys are
+		// rejected at schema-load and so cannot reach this path.
+		for _, metaKey := range []string{"paths", "format", "description"} {
 			delete(existingMap, metaKey)
 		}
 		maps.Copy(existingMap, data)
@@ -287,8 +290,9 @@ func dbHasDataOnDisk(projectPath, dbName string, root map[string]any) (bool, err
 	if !ok {
 		return false, nil
 	}
-	if dbDecl.Shape == schema.ShapeFile {
-		target := filepath.Join(projectPath, dbDecl.Path)
+	// TODO(PLAN §12.17.9 Phase 9.4): rewire on the new resolver.
+	if schema.IsSingleFile(dbDecl) {
+		target := filepath.Join(projectPath, dbDecl.Paths[0])
 		if _, err := os.Stat(target); err == nil {
 			return true, nil
 		} else if !errors.Is(err, fs.ErrNotExist) {
@@ -326,7 +330,7 @@ func typeHasRecordsOnDisk(projectPath, dbName, typeName string, root map[string]
 		return false, err
 	}
 	scope := typeName
-	if dbDecl.Format == schema.FormatTOML && dbDecl.Shape == schema.ShapeFile {
+	if dbDecl.Format == schema.FormatTOML && schema.IsSingleFile(dbDecl) {
 		scope = dbName + "." + typeName
 	}
 	for _, inst := range instances {

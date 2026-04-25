@@ -8,8 +8,7 @@
 
 docs
 
-    shape   collection
-    path    docs
+    paths   docs/
     format  md
 
   Long-form documentation set.
@@ -31,8 +30,7 @@ docs.note
 
 plans
 
-    shape   file
-    path    plans.toml
+    paths   plans.toml
     format  toml
 
   Project planning db.

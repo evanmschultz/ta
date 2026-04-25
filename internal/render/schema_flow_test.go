@@ -18,8 +18,7 @@ func schemaFixturePlans() map[string]schema.DB {
 	plans := schema.DB{
 		Name:        "plans",
 		Description: "Project planning db.",
-		Shape:       schema.ShapeFile,
-		Path:        "plans.toml",
+		Paths:       []string{"plans.toml"},
 		Format:      schema.FormatTOML,
 		Types: map[string]schema.SectionType{
 			"task": {
@@ -62,8 +61,7 @@ func schemaFixtureMultiDB() map[string]schema.DB {
 	dbs["docs"] = schema.DB{
 		Name:        "docs",
 		Description: "Long-form documentation set.",
-		Shape:       schema.ShapeCollection,
-		Path:        "docs",
+		Paths:       []string{"docs/"},
 		Format:      schema.FormatMD,
 		Types: map[string]schema.SectionType{
 			"note": {

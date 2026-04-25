@@ -7,21 +7,23 @@
 #
 # The meta-schema itself is stored as a single-instance TOML db at
 # .ta/meta_schema.toml — conceptually. In practice the literal is embedded
-# in the ta binary and never resolved from disk. See V2-PLAN §4.7, §3.3.
+# in the ta binary and never resolved from disk. See V2-PLAN §4.7, §3.3,
+# and PLAN §12.17.9 (Phase 9.1 paths-shape model migration).
 # ============================================================================
 
 [ta_schema]
-file = "ta_schema.toml"
+paths = ["ta_schema.toml"]
 format = "toml"
-description = "Meta-schema: the three kinds (db, type, field) an agent constructs via the `schema` tool, and the meta-schema rules enforced on `schema.toml` at load time. See V2-PLAN §4.1 and §4.7."
+description = "Meta-schema: the three kinds (db, type, field) an agent constructs via the `schema` tool, and the meta-schema rules enforced on `schema.toml` at load time. See V2-PLAN §4.1, §4.7, and PLAN §12.17.9."
 
 # ----------------------------------------------------------------------------
 # kind = "db" — the data shape of `schema(action="create"|"update", kind="db",
-# name="<db>", data=...)`. Exactly one of file / directory / collection must
-# be set; `format` is required; `description` recommended. See V2-PLAN §4.1.
+# name="<db>", data=...)`. `paths` is required (length 1+); `format` is
+# required; `description` is recommended. Per PLAN §12.17.9 Phase 9.1 the old
+# `file` / `directory` / `collection` selector keys are removed.
 # ----------------------------------------------------------------------------
 [ta_schema.db]
-description = "A database: one of the three shapes (single-instance file, dir-per-instance, file-per-instance). Corresponds to one [<db>] root in the schema file."
+description = "A database. Mounted at one or more on-disk paths via the `paths` slice; each entry is project-relative or home-relative (`~/...`). Glob `*` is allowed for one segment per entry."
 
 [ta_schema.db.fields.format]
 type = "string"
@@ -29,17 +31,10 @@ required = true
 enum = ["toml", "md"]
 description = "Canonical on-disk format. Binds this db to one backend."
 
-[ta_schema.db.fields.file]
-type = "string"
-description = "Single-instance: relative path from project root (e.g. 'plans.toml', 'README.md'). Extension must match `format`. Set exactly one of file / directory / collection."
-
-[ta_schema.db.fields.directory]
-type = "string"
-description = "Dir-per-instance: relative path from project root (e.g. 'workflow'). Each immediate child dir holding the canonical `db.<ext>` file is one instance. Set exactly one of file / directory / collection."
-
-[ta_schema.db.fields.collection]
-type = "string"
-description = "File-per-instance: relative path from project root (e.g. 'docs'). Every file under this dir (recursively) whose extension matches `format` is one instance. Set exactly one of file / directory / collection."
+[ta_schema.db.fields.paths]
+type = "array"
+required = true
+description = "Mount paths (length 1+). Each entry is project-relative or home-relative; glob `*` is allowed for one segment per entry. Examples: ['plans.toml'], ['workflow/*/db'], ['docs/'], ['~/.ta/projects/myproj/workflow/*/db']. Paths must not overlap with any other db's paths slice (PLAN §12.17.9)."
 
 [ta_schema.db.fields.description]
 type = "string"

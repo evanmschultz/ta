@@ -33,7 +33,7 @@ func seedProject(t *testing.T, body string) string {
 
 const cacheTestSchema = `
 [plans]
-file = "plans.toml"
+paths = ["plans.toml"]
 format = "toml"
 description = "cache-test db."
 
@@ -270,11 +270,13 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 func TestStartupRefusesMalformedCascade(t *testing.T) {
 	t.Cleanup(ops.ResetDefaultCacheForTest)
 	ops.ResetDefaultCacheForTest()
-	// Malformed: `format` absent, so the meta-schema loader errors.
+	// Malformed: legacy `file` key was retired in PLAN §12.17.9 Phase 9.1
+	// and now triggers ErrLegacyShapeKey at load — exercises the
+	// startup-refuse path the same way the prior missing-format case did.
 	broken := `
 [plans]
 file = "plans.toml"
-description = "missing format key"
+description = "uses retired legacy shape selector"
 `
 	root := seedProject(t, broken)
 
