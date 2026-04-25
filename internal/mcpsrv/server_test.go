@@ -243,6 +243,7 @@ func TestCreateSingleInstanceTOMLRoundTrip(t *testing.T) {
 	res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "plans.task.t1",
+		"type":    "task",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	})
 	if res.IsError {
@@ -275,6 +276,7 @@ func TestCreateRejectsExistingRecord(t *testing.T) {
 	args := map[string]any{
 		"path":    fx.projectRoot,
 		"section": "plans.task.t1",
+		"type":    "task",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	}
 	if res := callTool(t, c, "create", args); res.IsError {
@@ -290,20 +292,43 @@ func TestCreateRejectsExistingRecord(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsPathHintEscape(t *testing.T) {
+// TestCreateRequiresTypeArgument locks in the PLAN §12.17.9 Phase 9.4
+// contract: the MCP `create` tool now REQUIRES a `type` argument.
+// Replaces the legacy path_hint escape test (path_hint was retired in
+// Phase 9.4 along with the orthogonal `--type` migration).
+func TestCreateRequiresTypeArgument(t *testing.T) {
 	fx := newFixtureWithSchema(t, collectionMDSchema)
 	c := newClient(t)
 	res := callTool(t, c, "create", map[string]any{
-		"path":      fx.projectRoot,
-		"section":   "guide.title.overview",
-		"data":      map[string]any{"body": "hi"},
-		"path_hint": "../escape.md",
+		"path":    fx.projectRoot,
+		"section": "guide.title.overview",
+		"data":    map[string]any{"body": "hi"},
 	})
 	if !res.IsError {
-		t.Fatalf("expected path_hint escape to error")
+		t.Fatalf("expected missing type argument to error")
 	}
-	if !strings.Contains(firstText(t, res), "path_hint") {
-		t.Errorf("error should mention path_hint: %s", firstText(t, res))
+	if !strings.Contains(firstText(t, res), "type") {
+		t.Errorf("error should mention type: %s", firstText(t, res))
+	}
+}
+
+// TestCreateRejectsTypeMismatch proves a `type` argument that
+// disagrees with the address's type segment surfaces ErrTypeMismatch.
+// PLAN §12.17.9 Phase 9.4 cross-check.
+func TestCreateRejectsTypeMismatch(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "create", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"type":    "ghost",
+		"data":    map[string]any{"id": "T1", "status": "todo"},
+	})
+	if !res.IsError {
+		t.Fatalf("expected type-mismatch to error")
+	}
+	if !strings.Contains(firstText(t, res), "type mismatch") {
+		t.Errorf("error should mention type mismatch: %s", firstText(t, res))
 	}
 }
 
@@ -647,6 +672,7 @@ func TestDeleteWholeInstanceErrorsUnderPhase9_2(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "drop_1.db.build_task.task_001",
+		"type":    "build_task",
 		"data":    map[string]any{"id": "TASK-001", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("seed create: %s", firstText(t, res))
@@ -669,6 +695,7 @@ func TestDeleteCollectionPageErrorsUnderPhase9_2(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "guide.title.overview",
+		"type":    "title",
 		"data":    map[string]any{"body": "Welcome."},
 	}); res.IsError {
 		t.Fatalf("seed create: %s", firstText(t, res))
@@ -707,6 +734,7 @@ func TestMultiInstanceTOMLCreateThenGetFields(t *testing.T) {
 	res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": section,
+		"type":    "build_task",
 		"data":    map[string]any{"id": "TASK-001", "status": "todo"},
 	})
 	if res.IsError {
@@ -746,6 +774,7 @@ func TestGetFieldsUnknownFieldErrors(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "plans.task.t1",
+		"type":    "task",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
@@ -774,6 +803,7 @@ func TestMDCreateGetUpdateDeleteRoundTrip(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": titleSection,
+		"type":    "title",
 		"data":    map[string]any{"body": "Tagline goes here."},
 	}); res.IsError {
 		t.Fatalf("create title errored: %s", firstText(t, res))
@@ -783,6 +813,7 @@ func TestMDCreateGetUpdateDeleteRoundTrip(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": section,
+		"type":    "section",
 		"data":    map[string]any{"body": "Install from source:\n\n    mage install\n"},
 	}); res.IsError {
 		t.Fatalf("create section errored: %s", firstText(t, res))
@@ -953,6 +984,7 @@ func TestSchemaDeleteTypeRejectsWhenRecordsExist(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "plans.task.t1",
+		"type":    "task",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
@@ -1211,6 +1243,7 @@ func TestDogfoodRoundTripCreateGetUpdateDelete(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": section,
+		"type":    "task",
 		"data":    map[string]any{"id": "DOG-001", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
@@ -1373,6 +1406,7 @@ func TestListSectionsMultiInstanceAddresses(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "drop_1.db.build_task.task_001",
+		"type":    "build_task",
 		"data":    map[string]any{"id": "TASK-001", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("seed: %s", firstText(t, res))
@@ -1380,6 +1414,7 @@ func TestListSectionsMultiInstanceAddresses(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "drop_2.db.build_task.task_001",
+		"type":    "build_task",
 		"data":    map[string]any{"id": "TASK-002", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("seed: %s", firstText(t, res))
@@ -1457,6 +1492,7 @@ func TestGetFieldsMDNonBodyErrors(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "README.section.hello",
+		"type":    "section",
 		"data":    map[string]any{"body": "world"},
 	}); res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
@@ -1482,9 +1518,9 @@ func TestSearchReturnsHits(t *testing.T) {
 	c := newClient(t)
 	// Seed two records.
 	for _, args := range []map[string]any{
-		{"path": fx.projectRoot, "section": "plans.task.t1",
+		{"path": fx.projectRoot, "section": "plans.task.t1", "type": "task",
 			"data": map[string]any{"id": "T1", "status": "todo"}},
-		{"path": fx.projectRoot, "section": "plans.task.t2",
+		{"path": fx.projectRoot, "section": "plans.task.t2", "type": "task",
 			"data": map[string]any{"id": "T2", "status": "doing"}},
 	} {
 		if res := callTool(t, c, "create", args); res.IsError {
@@ -1526,6 +1562,7 @@ func TestSearchUnknownFieldErrors(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "plans.task.t1",
+		"type":    "task",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("seed: %s", firstText(t, res))
@@ -1547,9 +1584,9 @@ func TestSearchCrossInstanceUnion(t *testing.T) {
 	fx := newFixtureWithSchema(t, multiInstanceTOMLSchema)
 	c := newClient(t)
 	for _, args := range []map[string]any{
-		{"path": fx.projectRoot, "section": "drop_1.db.build_task.task_001",
+		{"path": fx.projectRoot, "section": "drop_1.db.build_task.task_001", "type": "build_task",
 			"data": map[string]any{"id": "TASK-001", "status": "todo"}},
-		{"path": fx.projectRoot, "section": "drop_2.db.build_task.task_002",
+		{"path": fx.projectRoot, "section": "drop_2.db.build_task.task_002", "type": "build_task",
 			"data": map[string]any{"id": "TASK-002", "status": "todo"}},
 	} {
 		if res := callTool(t, c, "create", args); res.IsError {
@@ -1628,6 +1665,7 @@ func TestCreateDirPerInstanceLeavesDirOnSuccess(t *testing.T) {
 	if res := callTool(t, c, "create", map[string]any{
 		"path":    fx.projectRoot,
 		"section": "drop_new.db.build_task.t1",
+		"type":    "build_task",
 		"data":    map[string]any{"id": "T1", "status": "todo"},
 	}); res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))

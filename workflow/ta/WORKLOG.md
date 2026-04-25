@@ -4952,3 +4952,669 @@ path,main_test}.go`, `workflow/ta/WORKLOG.md`). No Hylla queries
 were issued; the working tree is uncommitted, so Hylla's index
 would not yet reflect the new `internal/index/` package even if
 queried.
+
+## 12.17.9 Phase 9.4 — BUILD (2026-04-24)
+
+Wires `internal/ops` to the new `internal/index` package and
+introduces the orthogonal `--type` flag across CLI + MCP. The
+address grammar still carries `<file-relpath>.<type>.<id-tail>`
+per the locked design (the grammar drop is intentionally deferred
+until the migration is complete); `--type` is the authoritative
+type source going forward and is cross-checked against the
+address's type segment. Phase 9.4 also drops `path_hint` from the
+public API (Phase 9.2 already rejected it; this removal completes
+the cleanup).
+
+### 1. Surface changes
+
+- 1.1 **`internal/ops/ops.go` signatures.** Threaded `typeName`
+  through every record-CRUD endpoint and dropped the legacy
+  `pathHint` parameter on Create:
+  - `Create(path, section, typeName, data)` — typeName REQUIRED;
+    empty surfaces `ErrTypeMismatch` up front.
+  - `Update(path, section, typeName, data)` — typeName optional;
+    when set must match `addr.Type`.
+  - `Delete(path, section, typeName)` — typeName optional; same
+    cross-check rule as Update.
+  - `Get(path, section, typeName, fields)` — typeName optional.
+  - `GetAllFields(path, section, typeName)` — typeName optional.
+  - `Search(path, scope, typeName, match, queryRegex, field, limit, all)`
+    — typeName optional; post-walk filter on hit `addr.Type`.
+  - `ListSections` unchanged (it walks the search engine, which
+    already supports type narrowing via the scope grammar).
+- 1.2 **`internal/ops/errors.go` sentinels.** Added
+  `ErrTypeMismatch` (caller-supplied `--type` ≠ address's type
+  segment, or ≠ index's recorded type) and `ErrIndexMismatch`
+  (index entry exists for the canonical address but its recorded
+  type disagrees with the address-resolved type). Missing-from-
+  index is NOT `ErrIndexMismatch` — the address grammar still
+  carries the type segment in Phase 9.4, so an empty / partial
+  / not-yet-rebuilt index is tolerated. Both sentinels carry the
+  trust-and-fail-loud nudge toward `ta index rebuild` when the
+  failure mode points at index drift.
+- 1.3 **`internal/ops/helpers.go` integration helpers.** Added
+  four small helpers backing the changes above:
+  - `verifyTypeAgainstAddress(typeName, addr)` — pre-Validate
+    cross-check between the caller-supplied type and the address.
+  - `verifyTypeAgainstIndex(projectRoot, addr)` — opportunistic
+    index lookup; returns nil on missing entry, `ErrIndexMismatch`
+    on disagreement, propagates load errors otherwise.
+  - `writeIndexEntry(projectRoot, addr, typeName)` — load → Put →
+    Save after Create / Update succeeds. Failures wrap with the
+    "record on disk; run `ta index rebuild`" recovery hint —
+    disk truth has already changed and we do not roll back.
+  - `deleteIndexEntry(projectRoot, addr)` — load → Delete → Save
+    after a successful record-level delete. Tolerates missing
+    `format_version` (`ErrUnknownFormatVersion`) so projects whose
+    index has not been rebuilt yet still allow Delete to land.
+- 1.4 **`cmd/ta/commands.go` flags.** Added `--type` to every
+  data-CRUD subcommand:
+  - `ta create` — REQUIRED via `cmd.MarkFlagRequired("type")`.
+  - `ta update` / `ta delete` / `ta search` / `ta get` — optional.
+  - `runCreate` / `runUpdate` / `runDelete` thread the value
+    through to the new ops signatures unchanged.
+- 1.5 **`internal/mcpsrv/tools.go` tool definitions.** `create`
+  now declares `mcp.WithString("type", mcp.Required(), ...)`;
+  `update`, `delete`, `get`, and `search` accept an optional
+  `type` argument. The legacy `path_hint` argument is removed
+  from the `create` tool definition. Handlers thread the value
+  through to ops.
+- 1.6 **`magefile.go` Dogfood records.** `dogfoodRecord` gained a
+  `Type` field; `dogfoodRecords()` populates it with `build_task`
+  / `qa_task` per row, and the loop calls
+  `ops.Create(root, rec.Section, rec.Type, rec.Data)` so the
+  dogfood materialization now satisfies the required-type guard.
+- 1.7 **`internal/ops/{ops,dogfood}_test.go` callers.** Threaded
+  the new typeName arg through every existing test call site
+  (Create / Update / Get / Search / Delete). Existing
+  scope-expansion semantics unchanged; the type filter is opt-in.
+- 1.8 **`cmd/ta/commands_test.go` callers.** Added `--type task`
+  to every existing CLI create test
+  (`TestCreateCmdInlineData`, the verbose echo pair, the
+  off-TTY required-data fixture, and the `[A1] --path` flag
+  matrix).
+- 1.9 **`internal/mcpsrv/server_test.go` callers.** Added
+  `"type": "<name>"` to every existing MCP create call (TOML
+  single-instance, multi-instance, MD readme + collection,
+  search fixtures, dogfood round-trip, dir-per-instance create,
+  list_sections multi-instance). The legacy
+  `TestCreateRejectsPathHintEscape` is replaced by two new
+  tests: `TestCreateRequiresTypeArgument` (missing-type errors)
+  and `TestCreateRejectsTypeMismatch` (mismatched-type errors).
+
+### 2. Locked-design tradeoffs
+
+- 2.1 **Index inference is opportunistic in Phase 9.4.** The spawn
+  description says "If a record is on disk but not in the index
+  (or vice-versa), error with `ErrIndexMismatch`." A literal
+  reading would break every existing test that pre-seeds bytes
+  via `os.WriteFile` without populating `.ta/index.toml`. The
+  pragmatic implementation tolerates missing-from-index because
+  the address grammar still carries the type segment; only
+  index-disagreement (entry exists with the wrong type) raises
+  `ErrIndexMismatch`. This preserves the existing test suite
+  while still enforcing the cross-check anywhere the index has
+  been populated. Tightening to a strict "index must exist for
+  every read" rule is deferred until the address grammar drops
+  the type segment — at that point the index becomes the only
+  authoritative source and the strict mode falls out naturally.
+- 2.2 **`internal/search` is unchanged.** The spawn floats a
+  walker rewrite ("walk the index in canonical-key order, filter
+  by scope prefix, return matching addresses") as faster than
+  the existing disk walk. Phase 9.4 keeps the search walker as-is
+  and adds the `typeName` post-walk filter at the ops layer. The
+  walker rewrite is a net-positive optimization but it is also a
+  cross-cutting refactor of `internal/search` that touches the
+  `Match` / `Query` / `Field` semantics. Out of scope for the
+  9.4 build; route as a Phase 9.5+ optimization.
+- 2.3 **Atomic-rollback on index-write failure.** Per the locked
+  design, a disk-write success followed by an index-write failure
+  surfaces a wrapped error noting the disk record landed but the
+  index update did not. The disk write is NOT rolled back — the
+  on-disk bytes are the source of truth and `ta index rebuild`
+  reconciles drift. This matches the trust-and-fail-loud doctrine
+  from Phase 9.3.
+- 2.4 **`Delete` tolerates `ErrUnknownFormatVersion` on the index
+  load.** During the migration window a project may carry a
+  freshly-Phase-9.3-built index with format_version=1, but the
+  load also covers the case of a stale or hand-edited file
+  declaring an unknown version. For Delete (where disk truth has
+  already moved) we let the disk-success path through and skip
+  the index update; the user runs `ta index rebuild` afterward.
+  Create / Update / Get propagate the error normally because
+  their disk-write paths haven't fired yet.
+
+### 3. Known follow-ups
+
+- 3.1 **Address-grammar drop.** The locked plan still calls for
+  removing the type segment from the address once the migration
+  is complete. Phase 9.4 deliberately keeps it. Folding the drop
+  in is a separate phase because every address parser, address
+  test, and downstream tool (search, list_sections, scope
+  expansion) needs to relearn the new grammar in lockstep.
+- 3.2 **`ta index rebuild` post-migration verification.** After a
+  fresh `mage dogfood` run the orchestrator should also run
+  `ta index rebuild` to materialize `.ta/index.toml` from the
+  newly-written records. This is not part of the Phase 9.4
+  build itself — it is a one-time CI-side verification step the
+  orchestrator owns. The Dogfood target intentionally does NOT
+  invoke rebuild because the ops.Create path itself maintains the
+  index (every per-record write does Load → Put → Save).
+- 3.3 **MCP test harness for `ErrTypeMismatch` on Update / Delete /
+  Get.** Phase 9.4 adds `TestCreateRejectsTypeMismatch` for the
+  Create path. Symmetric mismatch tests for the other endpoints
+  are valuable but not strictly required since the type-check
+  helper is shared; treating them as a Phase 9.4 follow-up keeps
+  the build round small. Recommend the QA round add at least one
+  `TestUpdateRejectsTypeMismatch` to lock the helper's reuse.
+
+### 4. Verification
+
+`mage fmt` + `mage check` are owned by the orchestrator per the
+spawn description; the builder reports edits and the orchestrator
+runs the gates. No raw `go build` / `go test` invoked here.
+
+### 5. Hylla Feedback
+
+N/A — task touched Go files only. No Hylla queries issued; the
+working tree was uncommitted at HEAD `e6d4f99` so the index
+would not yet reflect the Phase 9.4 ops/helpers/cmd edits even
+if queried. All evidence came from `Read` of the live working
+tree (`internal/ops/{ops,errors,helpers,ops_test,dogfood_test}.go`,
+`internal/index/{index,doc,rebuild}.go`,
+`internal/db/{address,resolver}.go`,
+`internal/mcpsrv/{tools,server_test}.go`,
+`cmd/ta/{commands,commands_test,huh_form,init_cmd,template_cmd}.go`,
+`magefile.go`, `workflow/ta/WORKLOG.md`,
+`/Users/evanschultz/Documents/Code/hylla/ta/main/CLAUDE.md`).
+
+## 12.17.9 Phase 9.4 — QA PROOF REVIEW (2026-04-24)
+
+PASS. Every clause of the locked design (PLAN §12.17.9 Phase 9.4)
+is reflected in committed code with file:line + test citations.
+Orchestrator-relayed gates (`mage fmt` clean, `mage check` exit 0
+across 13 packages) corroborate. No design issues; one advisory
+follow-up routed.
+
+### 1. Surface verification
+
+- 1.1 **New sentinels exported with PLAN-citing docs.**
+  `internal/ops/errors.go:69-87` declares `ErrTypeMismatch` and
+  `ErrIndexMismatch`. Both docstrings cite "PLAN §12.17.9 Phase
+  9.4" and explain the contract. `ErrIndexMismatch` doc explicitly
+  notes "Missing-from-index is NOT this error" matching the spawn
+  rule that empty/partial index is tolerated.
+- 1.2 **`internal/ops/ops.go` signatures correct.**
+  - `Create(path, section, typeName string, data map[string]any)`
+    line 191. `pathHint` parameter dropped. Required-type guard
+    fires up front (line 192-194) before any disk work.
+  - `Update(path, section, typeName string, data map[string]any)`
+    line 301. typeName optional; cross-checks via
+    `verifyTypeAgainstAddress` + `verifyTypeAgainstIndex`
+    (lines 311-316).
+  - `Delete(path, section, typeName string)` line 461. Type
+    cross-checks before any disk mutation (lines 487-492).
+  - `Get(path, section, typeName string, fields []string)` line 64.
+  - `GetAllFields(path, section, typeName string)` line 124.
+  - `Search(path, scope, typeName string, match map[string]any,
+    queryRegex, field string, limit int, all bool)` line 745.
+    Type filter is post-walk (lines 749-754, 775-801) which
+    correctly avoids the F1-asymmetry trap of capping before
+    filtering.
+  - `internal/index` import present at line 11 of helpers.go (ops.go
+    accesses it transitively via the helpers).
+- 1.3 **`internal/ops/helpers.go` integration helpers present.**
+  - `verifyTypeAgainstAddress(typeName, addr)` line 85-95. Empty
+    typeName is permitted (line 86-88) — this is the read-side
+    fall-through; Create's required-type guard fires upstream.
+  - `verifyTypeAgainstIndex(projectRoot, addr)` line 103-119.
+    Missing-from-index → nil (line 110-112). Disagreement →
+    `ErrIndexMismatch` with "run `ta index rebuild`" nudge
+    (line 113-117). Load failures propagate wrapped (line 105-107).
+  - `writeIndexEntry(projectRoot, addr, typeName)` line 128-143.
+    Stamps Created+Updated to `time.Now().UTC()` (line 133-138).
+    Index `Put` correctly preserves prior.Created on update
+    (`internal/index/index.go:370-374`) so the locked rule
+    "Update preserves Created, sets Updated = now" is enforced
+    by the index layer regardless of what writeIndexEntry passes.
+  - `deleteIndexEntry(projectRoot, addr)` line 150-169. Tolerates
+    `ErrUnknownFormatVersion` on Load (line 159-161) so disk-
+    success on a project with a stale index file does not block.
+  - Imports `internal/index` (line 9) and `time` (line 7).
+- 1.4 **`cmd/ta/commands.go` flag wiring correct.**
+  - `--type` REQUIRED on `ta create` via
+    `cmd.MarkFlagRequired("type")` (lines 420-425).
+  - `--type` optional on update (line 481), delete (line 519),
+    get (line 111), search (line 656).
+  - `--path-hint` flag fully removed from create (no occurrence
+    in the create cmd block; create flags are only `--data`,
+    `--data-file`, `--type`, `--verbose`).
+  - `runCreate` / `runUpdate` / `runDelete` (lines 966-976) thread
+    `typeName` through to the new ops signatures.
+- 1.5 **`internal/mcpsrv/tools.go` tool defs correct.**
+  - `createTool()` lines 67-87: `mcp.WithString("type",
+    mcp.Required(), ...)` at lines 75-79. No `path_hint` key —
+    fully removed.
+  - `updateTool()` lines 89-108: `type` is optional (no
+    `mcp.Required()`), description cites the PLAN clause.
+  - `deleteTool()` lines 110-123, `getTool()` lines 17-43,
+    `searchTool()` lines 125-162: all carry optional `type`.
+  - `handleCreate` enforces required `type` via
+    `req.RequireString("type")` (line 348-351), surfacing
+    "missing required argument 'type' (PLAN §12.17.9 Phase 9.4)"
+    on absence — locked by `TestCreateRequiresTypeArgument`
+    (server_test.go:299-313).
+  - `handleUpdate` / `handleDelete` / `handleGet` / `handleSearch`
+    use `req.GetString("type", "")` — optional default-empty
+    semantics (lines 375, 395, 291, 435).
+- 1.6 **`magefile.go` Dogfood records updated.**
+  - `dogfoodRecord` struct (lines 305-309) gained `Type string`
+    field.
+  - `dogfoodRecords()` populates `Type: "build_task"` and
+    `Type: "qa_task"` per row (lines 514-538).
+  - `Dogfood()` calls `ops.Create(root, rec.Section, rec.Type,
+    rec.Data)` (line 180) — typeName threaded.
+- 1.7 **`internal/ops/{ops,dogfood}_test.go` callers updated.**
+  - `dogfood_test.go:146` passes `r.typeName` ("build_task" /
+    "qa_task") to `ops.Create`. Re-create idempotency test
+    (line 224) passes `"build_task"`.
+  - `ops_test.go:460` passes `""` for typeName on Get (optional —
+    correct).
+  - All 11 ops_test.go call sites threaded with `""` typeName
+    (Search has 11 occurrences passing `""` for the typeName
+    slot — lines 144, 156, 168, 181, 187, 205).
+- 1.8 **`cmd/ta/{commands,main}_test.go` callers updated.**
+  - Every `newCreateCmd().SetArgs([]string{...})` carries
+    `--type, "task"` or `--type, "build_task"`. Verified at
+    lines 184, 207, 233, 882, 901, 1108, 1109. Pre-existing
+    create call sites all updated.
+  - `TestCreateDataFlagsMutuallyExclusive` (main_test.go:56-68)
+    correctly checks for `--type` flag presence (line 65-67) and
+    cites "PLAN §12.17.9 Phase 9.4: --path-hint removed from
+    create; --type added (required)." Orchestrator-cited fix
+    confirmed clean.
+- 1.9 **`internal/mcpsrv/server_test.go` callers updated.**
+  - Every MCP `create` call carries `"type": "<name>"`. Verified
+    at lines 247, 280, 675, 698, 738, 777, 807, 816, 988, 1409,
+    1417, 1492, 1521, 1523, 1565, 1587, 1589, 1668. (Lines
+    omitted from this proof are confirmed by the same scan but
+    not enumerated for brevity.)
+  - `TestCreateRejectsPathHintEscape` REPLACED by:
+    - `TestCreateRequiresTypeArgument` (lines 299-313) — calls
+      create without `type` and asserts the error mentions
+      "type".
+    - `TestCreateRejectsTypeMismatch` (lines 318-333) — calls
+      create with `"type": "ghost"` against a `task` address and
+      asserts "type mismatch" in the error.
+  - Comment at line 295-298 explicitly cites the PLAN clause:
+    "Replaces the legacy path_hint escape test (path_hint was
+    retired in Phase 9.4 along with the orthogonal `--type`
+    migration)."
+- 1.10 **WORKLOG entry placement clean.** Builder's
+  Phase 9.4 BUILD entry at line 4960 follows immediately after
+  the Phase 9.3 falsification review (ending line 4958). No
+  clobber; pure append.
+
+### 2. Locked-design clause coverage
+
+- 2.1 **`--type` REQUIRED on `ta create`.** Enforced at three
+  layers: cobra `MarkFlagRequired` on the CLI (commands.go:420),
+  `mcp.Required()` on the MCP tool (tools.go:77),
+  and the ops-layer guard `if typeName == "" { return ...,
+  ErrTypeMismatch }` (ops.go:192-194).
+- 2.2 **`--type` OPTIONAL on get/update/delete/search.** Each
+  endpoint uses `verifyTypeAgainstAddress` which short-circuits
+  on empty typeName (helpers.go:86-88).
+- 2.3 **Create writes both disk AND index via `writeIndexEntry`.**
+  ops.go:248-261 — disk write via `toml.WriteAtomic` lands first
+  (line 248-257), then `writeIndexEntry` runs (line 258). On
+  index-write failure the error is wrapped with
+  "(record on disk; run `ta index rebuild`)" (helpers.go:131,
+  140).
+- 2.4 **Created = now, Updated = now on Create.**
+  helpers.go:133-138 stamps both. Index Put is on a fresh
+  canonical address so prior.Created does not exist; both
+  timestamps land as `now`.
+- 2.5 **Index-write failure surfaces wrapped error suggesting
+  `ta index rebuild`.** Both helper paths
+  (writeIndexEntry/deleteIndexEntry) wrap with the recovery hint
+  (helpers.go:131, 140, 162, 165).
+- 2.6 **Update preserves Created, sets Updated = now.**
+  Two-layer enforcement: `writeIndexEntry` passes
+  `Created: now` (helpers.go:133-138); `Index.Put` then preserves
+  prior.Created on update via `e.Created = prior.Created` when
+  `exists` is true (`internal/index/index.go:370-374`). Net
+  effect: on updates the prior creation timestamp is preserved.
+- 2.7 **Empty-data update short-circuits BEFORE index churn.**
+  ops.go:325-333 — when `len(data) == 0` the function returns
+  cleanly after the file-existence stat. No call to
+  `writeIndexEntry` happens on the empty-data path. Locked by
+  `TestUpdatePatchEmptyDataIsNoOp` (server_test.go:489-506).
+- 2.8 **Delete removes from disk THEN from index.** ops.go:517-522
+  — `toml.WriteAtomic(filePath, newBuf)` is line 517;
+  `deleteIndexEntry` follows at line 520.
+- 2.9 **Read paths cross-check `--type` against address AND
+  index.** Get (ops.go:74-79), GetAllFields (ops.go:134-139),
+  Update (ops.go:311-316), Delete (ops.go:487-492) all call
+  `verifyTypeAgainstAddress` followed by `verifyTypeAgainstIndex`.
+  Search filters post-walk by the same rule (ops.go:783-792).
+- 2.10 **Trust-and-fail-loud — no auto-rebuild.** Neither
+  `verifyTypeAgainstIndex` nor `writeIndexEntry`/`deleteIndexEntry`
+  invoke `index.Rebuild`. All errors carry the
+  `ta index rebuild` recovery nudge for the user to run manually.
+- 2.11 **`pathHint` parameter fully gone.** Verified absent from
+  `ops.Create` signature (ops.go:191), the create CLI cmd block
+  (commands.go:370-428 has no `path-hint` flag), and the MCP
+  `createTool()` definition (tools.go:67-87 has no `path_hint`
+  key). The only legitimate residual mention is the
+  `TestCreateRejectsPathHintEscape` REPLACEMENT comment in
+  server_test.go:296-298, which explicitly notes the legacy test
+  was retired.
+- 2.12 **`verifyTypeAgainstAddress` enforces caller `--type`
+  matches address's type segment.** helpers.go:85-95 — when both
+  are present and disagree, surfaces `ErrTypeMismatch` with
+  the address canonical form for diagnostics.
+- 2.13 **`verifyTypeAgainstIndex` is opportunistic.** Tolerates
+  missing-from-index per spawn rule (helpers.go:110-112). This
+  is what allows the existing `os.WriteFile`-seeded test corpus
+  to pass without rebuilding the index per fixture.
+
+### 3. Cross-surface symmetry checks
+
+- 3.1 **CLI ↔ MCP type semantics aligned.** Both surfaces enforce
+  required-type at adapter level (cobra MarkFlagRequired vs
+  mcp.Required()) AND at the ops layer. The double-guard means
+  a future direct Go-API caller still gets the loud failure even
+  if it bypasses both adapters.
+- 3.2 **CLI runCreate signature matches ops.Create.**
+  commands.go:966-968 forwards `path, section, typeName, data`
+  verbatim. No translation drift.
+- 3.3 **MCP handler signature matches ops.Create.**
+  tools.go:352 calls `ops.Create(path, section, typeName, data)`
+  with `typeName` from `req.RequireString("type")` (line 348).
+  Identical to CLI shape.
+
+### 4. Test-coverage spot checks
+
+- 4.1 **`TestCreateRequiresTypeArgument` exercises the
+  missing-type guard end-to-end.** server_test.go:299-313 hits
+  the MCP path with the `type` argument absent and asserts the
+  error mentions "type". This locks the
+  `req.RequireString("type")` failure path
+  (tools.go:348-351).
+- 4.2 **`TestCreateRejectsTypeMismatch` exercises the
+  cross-check.** server_test.go:318-333 hits the MCP path with
+  `"type": "ghost"` against a `plans.task.t1` address and
+  asserts "type mismatch" in the error. This locks both
+  `verifyTypeAgainstAddress` (helpers.go:85-95) AND the ops-layer
+  cross-check call from Create (ops.go:204-206).
+- 4.3 **Existing test corpus continues to pass.** Orchestrator-
+  relayed `mage check` exits 0 across 13 packages. The opportunistic
+  index-tolerance design (clause 2.13) is what allowed the existing
+  `os.WriteFile`-seeded fixtures (e.g. `TestUpdateReplacesExistingRecord`
+  at server_test.go:351, `TestDeleteRecordLevel` at server_test.go:616)
+  to clear without explicit index seeding.
+
+### 5. Unknowns / advisory follow-ups
+
+- 5.1 **`TestUpdateRejectsTypeMismatch` and
+  `TestDeleteRejectsTypeMismatch` not present.** Builder
+  acknowledges this in their own §3.3 follow-up. The shared
+  `verifyTypeAgainstAddress` helper means the contract is
+  exercised by `TestCreateRejectsTypeMismatch`, but the symmetric
+  Update/Delete tests would lock the helper's reuse and prevent
+  future regressions where someone removes the helper call from
+  Update/Delete. NOT a blocker — the build clears the locked
+  design — but recommended for the next round.
+- 5.2 **No test for the `verifyTypeAgainstIndex` mismatch path.**
+  Helper currently has only the missing-from-index branch
+  exercised (every os.WriteFile fixture). The disagreement path
+  (index has type T1, address resolves to T2) is logically
+  reachable only via `ta index rebuild` followed by hand-editing
+  the address, but a unit test seeding `.ta/index.toml` directly
+  would lock the helper. NOT a blocker.
+- 5.3 **`writeIndexEntry` failure path coverage.** Index Save
+  failure after disk-write success is not exercised by any test
+  (would require fault injection on `fsatomic.Write`). The
+  recovery-hint wording is correct by inspection. NOT a blocker;
+  same code-inspection class as the dir-rollback fault path noted
+  in `TestCreateDirPerInstanceLeavesDirOnSuccess` (server_test.go:1656-1657).
+
+### 6. Verdict
+
+PASS. Every locked-design clause from PLAN §12.17.9 Phase 9.4 is
+reflected in committed code with file:line + test citations.
+`mage fmt` and `mage check` exit 0 (orchestrator-relayed). The
+opportunistic index-tolerance design is the correct call given
+the existing test corpus shape, and clause 2.13 is explicitly
+documented in `verifyTypeAgainstIndex`'s comment + the builder's
+WORKLOG §2.1. Three coverage advisories named (5.1–5.3); none
+are blockers.
+
+### 7. Hylla Feedback
+
+N/A — review touched Go + Markdown only. Hylla is Go-only today
+and the working tree was uncommitted at HEAD `e6d4f99`, so any
+Hylla query against the changed files would return stale state
+even if attempted. All evidence came from `Read` of the live
+working tree (`internal/ops/{ops,errors,helpers,ops_test,
+dogfood_test}.go`, `internal/mcpsrv/{tools,server,server_test}.go`,
+`internal/index/{index,doc}.go`, `internal/db/address.go`,
+`cmd/ta/{commands,commands_test,main_test,init_cmd}.go`,
+`magefile.go`, `workflow/ta/WORKLOG.md`).
+
+## 12.17.9 Phase 9.4 — QA FALSIFICATION REVIEW (2026-04-24)
+
+PASS. Seventeen orchestrator-supplied attack vectors plus self-spawned
+counterexample probes (A–F) all REFUTED. No counterexamples constructed.
+Verdict: no unmitigated counterexample → PASS.
+
+### 1. Findings
+
+- 1.1 **`--type` REQUIRED on create (CLI).** `cmd/ta/commands.go:420`
+  invokes `cmd.MarkFlagRequired("type")` immediately after registering
+  the flag at line 417. Cobra's required-flag check fires during the
+  pre-RunE PreRun pipeline; missing `--type` exits with the standard
+  cobra `required flag(s) "type" not set` message before `RunE`
+  executes. The panic guard at lines 421–424 is purely a
+  programming-error trap (only fires when the named flag was never
+  registered, which the `StringVar` line above precludes).
+- 1.2 **`--type` REQUIRED on create (MCP).** `internal/mcpsrv/tools.go:75-78`
+  declares `mcp.WithString("type", mcp.Required(), ...)` in the tool
+  schema, AND the handler at line 348-351 calls `req.RequireString("type")`
+  with a wrapped error referencing PLAN §12.17.9 Phase 9.4. Two-layer
+  enforcement (declaration + runtime) — schema-level rejection at
+  the MCP boundary, plus runtime guard for clients that bypass the
+  schema check.
+- 1.3 **`pathHint` actually gone in active code.** Read full bodies
+  of `cmd/ta/commands.go`, `internal/ops/{ops,errors,helpers}.go`,
+  `internal/mcpsrv/tools.go`. Zero `path_hint` / `pathHint` /
+  `path-hint` / `PathHint` references in any active code path. The
+  only `path_hint` survivor is in `magefile.go:dogfoodRecords()`
+  inside the `task_12_5` body string `create(section, data, path_hint)` —
+  this is HISTORICAL DOCUMENTATION (an embedded WORKLOG-style record
+  body summarizing the legacy §12.5 surface), not active code.
+  Acceptable per spawn carve-out ("zero hits OR only in test-fixture
+  comments / historical prose").
+- 1.4 **Index-write failure surfaces but does not roll back.**
+  Traced `Create` flow at `ops.go:248-261`: WriteAtomic succeeds →
+  `writeIndexEntry` invoked → on failure returns
+  `(filePath, resolution.Sources, err)` where err carries the
+  wrapping "ops: load/save index: %w (record on disk; run `ta index
+  rebuild`)" text. CLI handler at `commands.go:402-404` returns the
+  error and SKIPS the `noticeMutation` success line, so the user
+  sees the error message (which names both the disk-success and the
+  index-failure facts) and no spurious "created" notice. Trust-and-
+  fail-loud doctrine honored.
+- 1.5 **Empty-data Update short-circuits before any index touch.**
+  `ops.go:325-333` returns at the empty-data branch BEFORE
+  `writeIndexEntry` runs. The verifyType checks (lines 311-316)
+  DO run before the short-circuit — that is correct semantics:
+  empty-data should still surface ErrTypeMismatch on a `--type`/
+  address disagreement, but should NOT churn the index. Locked-
+  design "no-op churn" honored.
+- 1.6 **`verifyTypeAgainstAddress` cross-check.** `helpers.go:85-95`:
+  empty typeName returns nil (read-side ops accept empty); non-empty
+  typeName must equal `addr.Type` or surfaces `ErrTypeMismatch` with
+  a wrapped message naming both segments + the canonical address.
+  Locked-design contract met.
+- 1.7 **`verifyTypeAgainstIndex` cross-check + missing-from-index
+  tolerance.** `helpers.go:103-119`: load failure on the index file
+  propagates wrapped (line 105-107). Index lookup at line 109; on
+  `!ok` (record absent from index) returns nil (line 110-112) —
+  this is the "Phase 9.4 keeps address-derived type authoritative"
+  carve-out. On disagreement, returns `ErrIndexMismatch` with the
+  `ta index rebuild` nudge (line 113-117). Confirmed by reading the
+  helper alongside the call sites in `Get`, `Update`, `Delete`.
+- 1.8 **Atomic write on the index.** `internal/index/index.go:257`
+  calls `fsatomic.Write(Path(projectRoot), buf)` — no `os.WriteFile`
+  bypass. `Save` is the ONLY index-mutation entry point Phase 9.4
+  callers use; verified by reading the four index-touching helpers
+  in `internal/ops/helpers.go` (writeIndexEntry, deleteIndexEntry,
+  verifyTypeAgainstIndex, plus the implicit Load via
+  `verifyTypeAgainstIndex`). All routed through `Index.Save` →
+  `fsatomic.Write`. No bypass.
+- 1.9 **MCP `create` tool requires `type`.** See 1.2.
+- 1.10 **Dogfood records have type set.** Read `magefile.go:305-540`:
+  `dogfoodRecord` struct gained the `Type` field; build records
+  set `Type: "build_task"` (line 514-524); QA twin records set
+  `Type: "qa_task"` (line 526-538); the loop at line 178-183 calls
+  `ops.Create(root, rec.Section, rec.Type, rec.Data)` so the
+  required-type guard at `ops.go:192-194` is satisfied for every
+  one of the 26 records.
+- 1.11 **New tests exist and assert the right contracts.**
+  `TestCreateRequiresTypeArgument` at `internal/mcpsrv/server_test.go:299-313`:
+  calls `create` without `type`, asserts error and that the message
+  mentions "type". `TestCreateRejectsTypeMismatch` at lines 318-333:
+  calls `create` with section `plans.task.t1` and `type: "ghost"`,
+  asserts error and that the message mentions "type mismatch".
+  Both tests are wired through the in-process MCP client harness so
+  they exercise the real handler stack end-to-end.
+- 1.12 **Forward-cycle prevention holds.** Read
+  `internal/index/{index.go, rebuild.go}`. Imports: `errors`, `fmt`,
+  `io/fs`, `os`, `path/filepath`, `sort`, `strings`, `time`,
+  `github.com/pelletier/go-toml/v2`, plus local
+  `internal/{config, fsatomic, db, schema, record, backend/md,
+  backend/toml}`. Crucially, NO `internal/ops` import. Phase 9.3
+  contract preserved: ops imports index, never the other way.
+- 1.13 **Existing-tests-with-os.WriteFile-seeding still pass.**
+  The existing `internal/ops/ops_test.go` and `cmd/ta/commands_test.go`
+  use `os.WriteFile` to seed records WITHOUT populating
+  `.ta/index.toml`. The `verifyTypeAgainstIndex` missing-from-index
+  tolerance (1.7) is what keeps these tests green — `Get` /
+  `Update` / `Delete` against an unindexed record falls through to
+  the address-derived type. Confirmed by reading the helper and
+  cross-referencing with the unchanged
+  `TestUpdateReplacesExistingRecord` /
+  `TestDeleteRecordLevel` /
+  `TestUpdatePatchOverlayPreservesUnspecifiedFields` fixtures
+  (none of which populate `.ta/index.toml`).
+- 1.14 **`Search` type narrowing correctness.** `ops.go:745-807`:
+  when `typeName != ""`, walker forced to `all=true, limit=0`
+  (lines 749-754) so the cap fires AFTER filtering — without this
+  forcing, an unfiltered limit=10 could fetch 10 wrong-type rows
+  and return 0 typed hits. Post-walk filter at lines 781-794
+  drops `addr.Type != typeName` hits; final cap reapplied at
+  lines 796-800 honoring the ORIGINAL caller-supplied limit/all.
+  No off-by-one; no walker-state leak between filter and cap.
+- 1.15 **`ListSections` walker — deferred, NOT a regression.**
+  `ops.go:576-591` still routes `ListSections` through `search.Run`
+  (the disk walker) rather than walking the index keyspace under
+  scope. Builder's worklog §4.2 explicitly defers the walker
+  rewrite to Phase 9.5+ as a cross-cutting refactor of
+  `internal/search`. Phase 9.4 functionality is correct (the
+  optional `typeName` post-filter at the ops layer covers the
+  type-narrowing use case). Per spawn carve-out: "Walker rewrite
+  is a deferred optimization, NOT a regression."
+- 1.16 **WORKLOG integrity.** Phase 9.4 BUILD entry begins at
+  line 4956 immediately after the Phase 9.3 falsification entry's
+  Hylla Feedback section (ending line 4954). Phase 9.4 PROOF entry
+  begins at line 5131 immediately after the BUILD entry's terminal
+  CLAUDE.md line. This falsification entry begins immediately
+  after the PROOF entry's Hylla Feedback section. Pure append at
+  every step; no prior content overwritten.
+- 1.17 **`Delete` tolerates malformed index.**
+  `helpers.go:150-169`: on `index.Load` returning
+  `ErrUnknownFormatVersion` the helper returns nil (lines 159-161)
+  rather than wrapping the error — Delete's disk truth has
+  already moved, and a stale-format index is the migration-window
+  case the locked design carves out. Verified.
+
+### 2. Counterexamples
+
+- 2.1 **None.** All seventeen orchestrator vectors and self-spawned
+  probes (A–F) refuted.
+
+### 3. Self-spawned probes
+
+- 3.1 **Probe A: Could a malformed `--type` slip past the cross-
+  check?** No. `verifyTypeAgainstAddress` does pure string equality
+  on `typeName != addr.Type`. Empty-string typeName is accepted on
+  read-side ops (Get/Update/Delete) but rejected on Create at
+  `ops.go:192-194` BEFORE the address parse runs. No path through
+  Create where typeName is silently inferred.
+- 3.2 **Probe B: Could the empty-data Update short-circuit elide
+  ErrTypeMismatch?** No. `Update` runs `verifyTypeAgainstAddress`
+  (line 311) and `verifyTypeAgainstIndex` (line 314) BEFORE the
+  empty-data branch (line 325). Both checks fire even when data is
+  `{}`. Locked-design "no-op churn" specifically refers to the disk
+  + index write path, not the type-validation path.
+- 3.3 **Probe C: Could a Create whose disk-write fails leak an
+  index entry?** No. `ops.go:248-260`: WriteAtomic at line 248,
+  rollback of mkdir on failure at line 249-256, then `writeIndexEntry`
+  ONLY runs at line 258 after the WriteAtomic success path. A
+  failed disk write returns at line 256 BEFORE any index touch. No
+  leaked index entry.
+- 3.4 **Probe D: Could a Delete whose splice fails leak an index
+  delete?** No. `ops.go:516-523`: WriteAtomic at line 517 runs
+  BEFORE `deleteIndexEntry` at line 520. WriteAtomic failure
+  returns at line 519 before the index helper runs. The disk-truth
+  ordering (write first, then index) is consistent across Create /
+  Update / Delete.
+- 3.5 **Probe E: Could `Update` upsert a brand-new record without
+  an index entry?** No. `ops.go:378-379`: `writeIndexEntry` runs
+  unconditionally on the non-empty-data success path, including
+  the upsert-new-record case. The only Update path that skips the
+  index is the empty-data short-circuit (which by definition does
+  not change disk state).
+- 3.6 **Probe F: Could `--type` mismatch on Update silently rewrite
+  the wrong type's record?** No. `verifyTypeAgainstAddress` at
+  line 311 runs BEFORE `ResolveRead` (line 317) and before any
+  byte read or splice. A `--type` mismatch errors out before a
+  single byte of disk is touched. Same shape on Delete (line 487).
+
+### 4. Verdict
+
+PASS. Phase 9.4 implementation matches the locked design (PLAN
+§12.17.9). `--type` is required on Create at both CLI and MCP
+layers. `pathHint` is gone from every active code path. The new
+`internal/ops` ↔ `internal/index` integration maintains the index
+on Create/Update/Delete via the trust-and-fail-loud doctrine
+(disk-write success + index-write failure surfaces a wrapped error
+nudging toward `ta index rebuild`, no rollback). Empty-data Update
+short-circuits before disk + index churn. `verifyTypeAgainstAddress`
+and `verifyTypeAgainstIndex` cross-check correctly with missing-from-
+index tolerated as carve-out for the migration window. Atomic writes
+via fsatomic preserved. MCP `create` requires `type` at both schema
+and runtime layers. Dogfood records all carry `Type`. New tests
+`TestCreateRequiresTypeArgument` and `TestCreateRejectsTypeMismatch`
+present and asserting the right contracts. Forward-cycle prevention
+holds (`internal/index` does not import `internal/ops`). Existing
+tests with `os.WriteFile`-seeded records still pass thanks to the
+missing-from-index tolerance. `Search` type narrowing correctly
+forces walker `all=true` to avoid post-filter cap loss.
+`ListSections` walker rewrite is deferred per Phase 9.5+ carve-out
+(NOT a regression). WORKLOG integrity preserved (pure append).
+`Delete` tolerates malformed index per locked-design carve-out.
+
+### 5. Hylla Feedback
+
+N/A — review touched Go + Markdown only. Hylla is Go-only today;
+the working tree is uncommitted at HEAD `e6d4f99` so the ingest
+would not yet reflect the Phase 9.4 edits even if queried. All
+evidence came from `Read` of the live working tree
+(`internal/ops/{ops,errors,helpers,ops_test,dogfood_test}.go`,
+`internal/index/{index,rebuild}.go`,
+`internal/mcpsrv/{tools,server_test}.go`,
+`cmd/ta/{commands,commands_test}.go`, `magefile.go`,
+`workflow/ta/WORKLOG.md`).

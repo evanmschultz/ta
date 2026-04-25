@@ -177,7 +177,7 @@ func Dogfood() error {
 
 	records := dogfoodRecords()
 	for _, rec := range records {
-		if _, _, err := ops.Create(root, rec.Section, "", rec.Data); err != nil {
+		if _, _, err := ops.Create(root, rec.Section, rec.Type, rec.Data); err != nil {
 			return fmt.Errorf("create %s: %w", rec.Section, err)
 		}
 	}
@@ -298,10 +298,13 @@ func snapshot(paths ...string) (string, error) {
 }
 
 // dogfoodRecord is one row to materialize under ta.db.
-// Section is the full dotted address the MCP tool expects; Data is
-// the field map validated against .ta/schema.toml's plan_db types.
+// Section is the full dotted address the MCP tool expects; Type is
+// the declared record type name (PLAN §12.17.9 Phase 9.4 makes this
+// the orthogonal authoritative source on Create); Data is the field
+// map validated against .ta/schema.toml's plan_db types.
 type dogfoodRecord struct {
 	Section string
+	Type    string
 	Data    map[string]any
 }
 
@@ -510,6 +513,7 @@ func dogfoodRecords() []dogfoodRecord {
 	for _, b := range builds {
 		out = append(out, dogfoodRecord{
 			Section: "ta.db.build_task." + b.id,
+			Type:    "build_task",
 			Data: map[string]any{
 				"id":     b.id,
 				"status": b.status,
@@ -522,6 +526,7 @@ func dogfoodRecords() []dogfoodRecord {
 	for _, q := range qaTwins {
 		out = append(out, dogfoodRecord{
 			Section: "ta.db.qa_task." + q.id,
+			Type:    "qa_task",
 			Data: map[string]any{
 				"id":                q.id,
 				"parent_build_task": q.parent,

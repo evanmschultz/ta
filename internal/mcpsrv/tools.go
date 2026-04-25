@@ -27,6 +27,10 @@ func getTool() mcp.Tool {
 			mcp.Description("Optional array of declared field names. Single-record: narrows the response to a {fields} object (unknown names error; absent returns raw bytes). Scope-prefix: narrows each record's fields map; absent returns every declared field."),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
+		mcp.WithString(
+			"type",
+			mcp.Description("Optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)."),
+		),
 		mcp.WithNumber(
 			"limit",
 			mcp.Description("Optional cap on returned records when 'section' is a scope prefix. Default 10. Mutually exclusive with all=true. Ignored for single-record addresses."),
@@ -64,19 +68,20 @@ func createTool() mcp.Tool {
 	return mcp.NewTool(
 		"create",
 		mcp.WithDescription(
-			"Create a new record. Fails if the record already exists. Creates missing directories and the backing file. For file-per-instance dbs a relative 'path_hint' disambiguates flat vs nested placement inside the collection root.",
+			"Create a new record. Fails if the record already exists. Creates missing directories and the backing file. PLAN §12.17.9 Phase 9.4: 'type' is REQUIRED — names the declared record type as the orthogonal authoritative source.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString("section", mcp.Required(), mcp.Description("Record address.")),
+		mcp.WithString(
+			"type",
+			mcp.Required(),
+			mcp.Description("REQUIRED declared record type name. Must match the type segment carried by the address."),
+		),
 		mcp.WithObject(
 			"data",
 			mcp.Required(),
 			mcp.Description("Field values. Validated against the declared type."),
 			mcp.AdditionalProperties(map[string]any{}),
-		),
-		mcp.WithString(
-			"path_hint",
-			mcp.Description("Optional (collection dbs only). Relative path inside the collection root."),
 		),
 	)
 }
@@ -95,6 +100,10 @@ func updateTool() mcp.Tool {
 			mcp.Description("Partial overlay: {field: value} pairs. Null clears an optional field or resets a required-with-default field; empty object is a no-op. Merged record validated against the declared type."),
 			mcp.AdditionalProperties(map[string]any{}),
 		),
+		mcp.WithString(
+			"type",
+			mcp.Description("Optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)."),
+		),
 	)
 }
 
@@ -106,6 +115,10 @@ func deleteTool() mcp.Tool {
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString("section", mcp.Required(), mcp.Description("Address to remove.")),
+		mcp.WithString(
+			"type",
+			mcp.Description("Optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)."),
+		),
 	)
 }
 
@@ -132,6 +145,10 @@ func searchTool() mcp.Tool {
 		mcp.WithString(
 			"field",
 			mcp.Description("Optional: restrict `query` to one named string field. Default = every declared string field on the record type."),
+		),
+		mcp.WithString(
+			"type",
+			mcp.Description("Optional declared type name; post-walk filter on hit addresses (PLAN §12.17.9 Phase 9.4)."),
 		),
 		mcp.WithNumber(
 			"limit",
@@ -271,6 +288,7 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	typeName := req.GetString("type", "")
 	if isScope {
 		records, err := ops.GetScope(path, section, fields, limit, all)
 		if err != nil {
@@ -282,7 +300,7 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 		}
 		return mcp.NewToolResultJSON(scopeResult{Path: path, Section: section, Records: out})
 	}
-	res, err := ops.Get(path, section, fields)
+	res, err := ops.Get(path, section, typeName, fields)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -327,8 +345,11 @@ func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if errRes != nil {
 		return errRes, nil
 	}
-	pathHint := req.GetString("path_hint", "")
-	filePath, sources, err := ops.Create(path, section, pathHint, data)
+	typeName, err := req.RequireString("type")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("missing required argument 'type' (PLAN §12.17.9 Phase 9.4): %v", err)), nil
+	}
+	filePath, sources, err := ops.Create(path, section, typeName, data)
 	if err != nil {
 		return validationOrPlainError(err), nil
 	}
@@ -351,7 +372,8 @@ func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if errRes != nil {
 		return errRes, nil
 	}
-	filePath, sources, err := ops.Update(path, section, data)
+	typeName := req.GetString("type", "")
+	filePath, sources, err := ops.Update(path, section, typeName, data)
 	if err != nil {
 		return validationOrPlainError(err), nil
 	}
@@ -370,7 +392,8 @@ func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if errRes != nil {
 		return errRes, nil
 	}
-	targetPath, sources, err := ops.Delete(path, section)
+	typeName := req.GetString("type", "")
+	targetPath, sources, err := ops.Delete(path, section, typeName)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -409,6 +432,7 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	scope := req.GetString("scope", "")
 	queryStr := req.GetString("query", "")
 	field := req.GetString("field", "")
+	typeName := req.GetString("type", "")
 	args := req.GetArguments()
 
 	var match map[string]any
@@ -428,7 +452,7 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		return mcp.NewToolResultError("pass either limit or all, not both"), nil
 	}
 
-	hits, err := ops.Search(path, scope, match, queryStr, field, limit, all)
+	hits, err := ops.Search(path, scope, typeName, match, queryStr, field, limit, all)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}

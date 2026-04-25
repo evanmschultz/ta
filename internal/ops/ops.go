@@ -52,7 +52,16 @@ type GetResult struct {
 // Get reads one record. When fields is nil, GetResult.Bytes carries
 // the raw bytes; when non-nil, GetResult.Fields carries the named
 // field values.
-func Get(path, section string, fields []string) (GetResult, error) {
+//
+// typeName is optional. When non-empty it must match the type segment
+// carried by the address; mismatches surface ErrTypeMismatch. When
+// empty, the address's type segment alone drives type resolution
+// (Phase 9.4 keeps the type in the address; a future grammar drop will
+// flip the index into the authoritative-source role). Either way, when
+// the index has an entry for the canonical address its recorded type
+// is cross-checked against the resolved type and a disagreement
+// surfaces ErrIndexMismatch with a `ta index rebuild` nudge.
+func Get(path, section, typeName string, fields []string) (GetResult, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return GetResult{}, fmt.Errorf("resolve schema for %s: %w", path, err)
@@ -60,6 +69,12 @@ func Get(path, section string, fields []string) (GetResult, error) {
 	resolver := db.NewResolver(path, resolution.Registry)
 	addr, dbDecl, err := resolver.ParseAddress(section)
 	if err != nil {
+		return GetResult{}, err
+	}
+	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+		return GetResult{}, err
+	}
+	if err := verifyTypeAgainstIndex(path, addr); err != nil {
 		return GetResult{}, err
 	}
 	_, _, filePath, err := resolver.ResolveRead(section)
@@ -104,7 +119,9 @@ func Get(path, section string, fields []string) (GetResult, error) {
 // field materializes; a declared non-body MD field is skipped rather
 // than erroring (cf. extractFields' strict mode, which is still the
 // right contract for user-specified field lists).
-func GetAllFields(path, section string) (GetResult, schema.SectionType, error) {
+//
+// typeName is optional; same cross-check rules as Get.
+func GetAllFields(path, section, typeName string) (GetResult, schema.SectionType, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return GetResult{}, schema.SectionType{}, fmt.Errorf("resolve schema for %s: %w", path, err)
@@ -112,6 +129,12 @@ func GetAllFields(path, section string) (GetResult, schema.SectionType, error) {
 	resolver := db.NewResolver(path, resolution.Registry)
 	addr, dbDecl, err := resolver.ParseAddress(section)
 	if err != nil {
+		return GetResult{}, schema.SectionType{}, err
+	}
+	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+		return GetResult{}, schema.SectionType{}, err
+	}
+	if err := verifyTypeAgainstIndex(path, addr); err != nil {
 		return GetResult{}, schema.SectionType{}, err
 	}
 	typeSt, ok := dbDecl.Types[addr.Type]
@@ -151,7 +174,24 @@ func GetAllFields(path, section string) (GetResult, schema.SectionType, error) {
 // Create creates a new record. Returns the absolute file path that
 // was written plus the resolved schema source list for diagnostics.
 // Fails with ErrRecordExists when the record already exists.
-func Create(path, section, pathHint string, data map[string]any) (string, []string, error) {
+//
+// typeName is REQUIRED on Create per PLAN §12.17.9 Phase 9.4: the
+// `--type` flag (or MCP `type` argument) is the orthogonal authoritative
+// type source going forward. Empty typeName surfaces ErrTypeMismatch
+// up front so the failure is loud rather than silently falling through
+// to address-derived inference. typeName MUST also match the type
+// segment carried by the address grammar; a disagreement surfaces
+// ErrTypeMismatch.
+//
+// On success Create writes the bracket via the backend AND inserts an
+// entry into `.ta/index.toml` (load → Put → Save). The disk write is
+// the source of truth; an index-write failure surfaces a wrapped error
+// noting that the disk record landed but the index update did not —
+// the user runs `ta index rebuild` to reconcile.
+func Create(path, section, typeName string, data map[string]any) (string, []string, error) {
+	if typeName == "" {
+		return "", nil, fmt.Errorf("%w: create requires --type", ErrTypeMismatch)
+	}
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
@@ -161,10 +201,13 @@ func Create(path, section, pathHint string, data map[string]any) (string, []stri
 	if err != nil {
 		return "", nil, err
 	}
+	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+		return "", nil, err
+	}
 	if err := resolution.Registry.Validate(validationPath(addr), data); err != nil {
 		return "", nil, err
 	}
-	_, _, filePath, err := resolver.ResolveWrite(section, pathHint)
+	_, _, filePath, err := resolver.ResolveWrite(section, "")
 	if err != nil {
 		return "", nil, err
 	}
@@ -212,6 +255,9 @@ func Create(path, section, pathHint string, data map[string]any) (string, []stri
 		}
 		return "", nil, err
 	}
+	if err := writeIndexEntry(path, addr, typeName); err != nil {
+		return filePath, resolution.Sources, err
+	}
 	return filePath, resolution.Sources, nil
 }
 
@@ -246,7 +292,13 @@ func Create(path, section, pathHint string, data map[string]any) (string, []stri
 // missing record in an existing file continues to be upserted (append)
 // under the non-empty-data path, matching the pre-PATCH behavior; empty
 // data on a missing record is a no-op and does not append.
-func Update(path, section string, data map[string]any) (string, []string, error) {
+//
+// typeName is OPTIONAL. When non-empty it must match the type segment
+// in the address (and the index entry, if present); empty defers to
+// the address. PLAN §12.17.9 Phase 9.4. On success the index entry is
+// upserted via Put (Created preserved across update; Updated stamped to
+// now).
+func Update(path, section, typeName string, data map[string]any) (string, []string, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
@@ -254,6 +306,12 @@ func Update(path, section string, data map[string]any) (string, []string, error)
 	resolver := db.NewResolver(path, resolution.Registry)
 	addr, dbDecl, err := resolver.ParseAddress(section)
 	if err != nil {
+		return "", nil, err
+	}
+	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+		return "", nil, err
+	}
+	if err := verifyTypeAgainstIndex(path, addr); err != nil {
 		return "", nil, err
 	}
 	_, _, filePath, err := resolver.ResolveRead(section)
@@ -316,6 +374,9 @@ func Update(path, section string, data map[string]any) (string, []string, error)
 	}
 	if err := toml.WriteAtomic(filePath, newBuf); err != nil {
 		return "", nil, err
+	}
+	if err := writeIndexEntry(path, addr, addr.Type); err != nil {
+		return filePath, resolution.Sources, err
 	}
 	return filePath, resolution.Sources, nil
 }
@@ -391,7 +452,13 @@ func overlayPatch(existing, patch map[string]any, st schema.SectionType) (map[st
 // does not address any concrete record under the new grammar). Phase
 // 9.4 will revisit coarser delete forms once the address grammar
 // settles.
-func Delete(path, section string) (string, []string, error) {
+//
+// typeName is OPTIONAL. When non-empty it is cross-checked against the
+// address (and the index) before any disk mutation; mismatches surface
+// ErrTypeMismatch / ErrIndexMismatch and the file is untouched. PLAN
+// §12.17.9 Phase 9.4. After a successful splice the index entry for
+// the canonical address is removed via index.Delete + Save.
+func Delete(path, section, typeName string) (string, []string, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
@@ -416,6 +483,12 @@ func Delete(path, section string) (string, []string, error) {
 		return "", resolution.Sources, fmt.Errorf(
 			"%w: %q does not address a single record under Phase 9.2 grammar",
 			ErrAmbiguousDelete, section)
+	}
+	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+		return "", resolution.Sources, err
+	}
+	if err := verifyTypeAgainstIndex(path, addr); err != nil {
+		return "", resolution.Sources, err
 	}
 	_, _, filePath, err := resolver.ResolveRead(section)
 	if err != nil {
@@ -443,6 +516,9 @@ func Delete(path, section string) (string, []string, error) {
 	newBuf := spliceOut(buf, sec.Range)
 	if err := toml.WriteAtomic(filePath, newBuf); err != nil {
 		return "", nil, err
+	}
+	if err := deleteIndexEntry(path, addr); err != nil {
+		return filePath, resolution.Sources, err
 	}
 	return filePath, resolution.Sources, nil
 }
@@ -657,14 +733,32 @@ func filterFields(values map[string]any, names []string) map[string]any {
 // `all == true` returns every hit. Default-10 / all-wins contract is
 // identical to ListSections (see resolveLimit). Mirrors docs/PLAN.md
 // §3.7 / §12.17.5 [A2.2].
-func Search(path, scope string, match map[string]any, queryRegex, field string, limit int, all bool) ([]SearchHit, error) {
+//
+// typeName is an OPTIONAL post-walk filter (PLAN §12.17.9 Phase 9.4):
+// when non-empty, hits whose parsed address.Type does not equal
+// typeName are dropped before the limit/all cap is applied. This is
+// the type-flag analogue of `--scope <db>.<type>`; callers that want
+// type narrowing without baking it into the scope string get the same
+// effect via the dedicated knob. The filter runs over decoded results
+// rather than the search walker so the existing internal/search
+// contract stays unchanged.
+func Search(path, scope, typeName string, match map[string]any, queryRegex, field string, limit int, all bool) ([]SearchHit, error) {
+	// Apply the type filter post-walk; ask the walker for `all` so the
+	// cap fires AFTER filtering. Without this, an unfiltered limit=10
+	// could fetch 10 wrong-type rows and return 0 typed hits.
+	walkerLimit := limit
+	walkerAll := all
+	if typeName != "" {
+		walkerLimit = 0
+		walkerAll = true
+	}
 	q := search.Query{
 		Path:  path,
 		Scope: scope,
 		Match: match,
 		Field: field,
-		Limit: resolveLimit(limit, all),
-		All:   all,
+		Limit: resolveLimit(walkerLimit, walkerAll),
+		All:   walkerAll,
 	}
 	if queryRegex != "" {
 		re, err := regexp.Compile(queryRegex)
@@ -677,9 +771,37 @@ func Search(path, scope string, match map[string]any, queryRegex, field string, 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]SearchHit, len(results))
-	for i, r := range results {
-		out[i] = SearchHit{Section: r.Section, Bytes: r.Bytes, Fields: r.Fields}
+	hits := make([]SearchHit, 0, len(results))
+	if typeName != "" {
+		resolution, rerr := resolveFromProjectDir(path)
+		if rerr != nil {
+			return nil, fmt.Errorf("resolve schema for %s: %w", path, rerr)
+		}
+		resolver := db.NewResolver(path, resolution.Registry)
+		for _, r := range results {
+			addr, _, perr := resolver.ParseAddress(r.Section)
+			if perr != nil {
+				// A search hit whose address no longer parses cleanly
+				// is a real anomaly; skip it rather than poison the
+				// type filter, but keep the loud-fail discipline by
+				// surfacing the parse error to the caller.
+				return nil, fmt.Errorf("ops search: parse %q: %w", r.Section, perr)
+			}
+			if addr.Type != typeName {
+				continue
+			}
+			hits = append(hits, SearchHit{Section: r.Section, Bytes: r.Bytes, Fields: r.Fields})
+		}
+		// Apply the original limit/all to the filtered slice.
+		if !all && limit > 0 && len(hits) > limit {
+			hits = hits[:limit]
+		} else if !all && limit <= 0 && len(hits) > defaultListLimit {
+			hits = hits[:defaultListLimit]
+		}
+		return hits, nil
 	}
-	return out, nil
+	for _, r := range results {
+		hits = append(hits, SearchHit{Section: r.Section, Bytes: r.Bytes, Fields: r.Fields})
+	}
+	return hits, nil
 }

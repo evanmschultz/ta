@@ -61,8 +61,9 @@ func TestCreateDataFlagsMutuallyExclusive(t *testing.T) {
 	if cmd.Flags().Lookup("data-file") == nil {
 		t.Error("--data-file flag missing")
 	}
-	if cmd.Flags().Lookup("path-hint") == nil {
-		t.Error("--path-hint flag missing")
+	// PLAN §12.17.9 Phase 9.4: --path-hint removed from create; --type added (required).
+	if cmd.Flags().Lookup("type") == nil {
+		t.Error("--type flag missing")
 	}
 }
 

@@ -35,6 +35,7 @@ func newGetCmd() *cobra.Command {
 	var asJSON bool
 	var limit int
 	var all bool
+	var typeName string
 	cmd := &cobra.Command{
 		Use:   "get <section>",
 		Short: "Read one record or every record under a scope prefix; optionally extract declared field values",
@@ -77,7 +78,7 @@ func newGetCmd() *cobra.Command {
 				return runGetScope(c, path, section, fields, limit, all, asJSON)
 			}
 			if asJSON {
-				res, err := ops.Get(path, section, fields)
+				res, err := ops.Get(path, section, typeName, fields)
 				if err != nil {
 					return err
 				}
@@ -85,13 +86,13 @@ func newGetCmd() *cobra.Command {
 			}
 			r := render.New(c.OutOrStdout())
 			if len(fields) == 0 {
-				res, typeSt, err := ops.GetAllFields(path, section)
+				res, typeSt, err := ops.GetAllFields(path, section, typeName)
 				if err != nil {
 					return err
 				}
 				return r.Record(section, render.BuildFields(typeSt, res.Fields))
 			}
-			res, err := ops.Get(path, section, fields)
+			res, err := ops.Get(path, section, typeName, fields)
 			if err != nil {
 				return err
 			}
@@ -107,6 +108,7 @@ func newGetCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the record count at N when <section> is a scope prefix (default 10; ignored for single-record addresses; mutually exclusive with --all)")
 	cmd.Flags().BoolVar(&all, "all", false, "return every record when <section> is a scope prefix (ignored for single-record addresses; mutually exclusive with --limit)")
+	cmd.Flags().StringVar(&typeName, "type", "", "optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)")
 	cmd.MarkFlagsMutuallyExclusive("limit", "all")
 	addPathFlag(cmd)
 	return cmd
@@ -189,7 +191,7 @@ func emitGetJSON(w io.Writer, section string, raw []byte, fields map[string]any,
 // per V2-PLAN §13.1. Returns any fetch error so the caller can surface
 // it rather than silently skip the echo.
 func renderVerboseRecord(w io.Writer, path, section string) error {
-	res, err := ops.Get(path, section, nil)
+	res, err := ops.Get(path, section, "", nil)
 	if err != nil {
 		return fmt.Errorf("verbose echo: %w", err)
 	}
@@ -368,21 +370,22 @@ func resolveListScope(flagScope string, args []string) (string, error) {
 func newCreateCmd() *cobra.Command {
 	var dataInline string
 	var dataFile string
-	var pathHint string
+	var typeName string
 	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "create <section>",
 		Short: "Create a new record (fails if it exists); mirrors MCP tool `create`.",
 		Long: "Create a new record at the given address. Fails if the record " +
 			"already exists (V2-PLAN §3.4). Creates the backing file and any " +
-			"intermediate directories on first use. For file-per-instance dbs, " +
-			"--path-hint disambiguates flat vs nested placement. With --verbose, " +
-			"the newly-created record content is echoed after the success " +
-			"notice per V2-PLAN §13.1. --path defaults to cwd; relative or " +
-			"absolute accepted (V2-PLAN §12.17.5 [A1]).",
-		Example: "  ta create plans.task.task-001 --data '{\"id\":\"TASK-001\",\"status\":\"todo\"}'\n" +
-			"  ta create --path /abs/proj plans.task.task-001 --data-file payload.json\n" +
-			"  cat payload.json | ta create plans.task.task-001 --data-file -",
+			"intermediate directories on first use. --type names the declared " +
+			"record type; PLAN §12.17.9 Phase 9.4 makes it the orthogonal " +
+			"authoritative source. With --verbose, the newly-created record " +
+			"content is echoed after the success notice per V2-PLAN §13.1. " +
+			"--path defaults to cwd; relative or absolute accepted (V2-PLAN " +
+			"§12.17.5 [A1]).",
+		Example: "  ta create plans.task.task-001 --type task --data '{\"id\":\"TASK-001\",\"status\":\"todo\"}'\n" +
+			"  ta create --path /abs/proj plans.task.task-001 --type task --data-file payload.json\n" +
+			"  cat payload.json | ta create plans.task.task-001 --type task --data-file -",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -396,7 +399,7 @@ func newCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			targetPath, sources, err := runCreate(path, section, pathHint, data)
+			targetPath, sources, err := runCreate(path, section, typeName, data)
 			if err != nil {
 				return err
 			}
@@ -411,9 +414,15 @@ func newCreateCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
-	cmd.Flags().StringVar(&pathHint, "path-hint", "", "relative placement hint inside a collection db's root")
+	cmd.Flags().StringVar(&typeName, "type", "", "declared record type name (REQUIRED; PLAN §12.17.9 Phase 9.4)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the newly-created record after the success notice")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
+	if err := cmd.MarkFlagRequired("type"); err != nil {
+		// MarkFlagRequired only errors when the named flag is not registered.
+		// We just registered it above, so this is a programming-error guard
+		// rather than a runtime path; surface via panic per cobra norms.
+		panic(fmt.Sprintf("ta: mark --type required: %v", err))
+	}
 	addPathFlag(cmd)
 	return cmd
 }
@@ -421,6 +430,7 @@ func newCreateCmd() *cobra.Command {
 func newUpdateCmd() *cobra.Command {
 	var dataInline string
 	var dataFile string
+	var typeName string
 	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "update <section>",
@@ -453,7 +463,7 @@ func newUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			targetPath, sources, err := runUpdate(path, section, data)
+			targetPath, sources, err := runUpdate(path, section, typeName, data)
 			if err != nil {
 				return err
 			}
@@ -468,6 +478,7 @@ func newUpdateCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
+	cmd.Flags().StringVar(&typeName, "type", "", "optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the updated record after the success notice")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	addPathFlag(cmd)
@@ -475,14 +486,17 @@ func newUpdateCmd() *cobra.Command {
 }
 
 func newDeleteCmd() *cobra.Command {
+	var typeName string
 	cmd := &cobra.Command{
 		Use:   "delete <section>",
 		Short: "Remove a record, file, or instance directory; mirrors MCP tool `delete`.",
 		Long: "Remove a record (bytes spliced out), a single-instance data " +
 			"file, or a multi-instance instance dir/file. Whole multi-instance " +
 			"db deletes error as ambiguous; zero the instances first or route " +
-			"through `schema delete --kind db` (V2-PLAN §3.6). --path defaults " +
-			"to cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+			"through `schema delete --kind db` (V2-PLAN §3.6). --type is " +
+			"optional and cross-checks the supplied type against the address " +
+			"(PLAN §12.17.9 Phase 9.4). --path defaults to cwd; relative or " +
+			"absolute accepted (V2-PLAN §12.17.5 [A1]).",
 		Example: `  ta delete plans.task.task-001
   ta delete --path /abs/proj plans
   ta delete plan_db.drop-3`,
@@ -495,13 +509,14 @@ func newDeleteCmd() *cobra.Command {
 				return err
 			}
 			section := args[0]
-			targetPath, sources, err := runDelete(path, section)
+			targetPath, sources, err := runDelete(path, section, typeName)
 			if err != nil {
 				return err
 			}
 			return noticeMutation(c.OutOrStdout(), "deleted", section, targetPath, sources)
 		},
 	}
+	cmd.Flags().StringVar(&typeName, "type", "", "optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)")
 	addPathFlag(cmd)
 	return cmd
 }
@@ -592,6 +607,7 @@ func newSearchCmd() *cobra.Command {
 	var matchJSON string
 	var query string
 	var field string
+	var typeName string
 	var asJSON bool
 	var limit int
 	var all bool
@@ -623,7 +639,7 @@ func newSearchCmd() *cobra.Command {
 					return fmt.Errorf("parse --match JSON: %w", err)
 				}
 			}
-			hits, err := ops.Search(path, scope, match, query, field, limit, all)
+			hits, err := ops.Search(path, scope, typeName, match, query, field, limit, all)
 			if err != nil {
 				return err
 			}
@@ -637,6 +653,7 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&matchJSON, "match", "", "JSON object of {field: exact-value}")
 	cmd.Flags().StringVar(&query, "query", "", "Go RE2 regex matched against string fields")
 	cmd.Flags().StringVar(&field, "field", "", "restrict --query to one string field")
+	cmd.Flags().StringVar(&typeName, "type", "", "optional declared type name; post-walk filter on hit addresses (PLAN §12.17.9 Phase 9.4)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the hit count at N (default 10)")
 	cmd.Flags().BoolVar(&all, "all", false, "return every match (disables --limit)")
@@ -740,7 +757,7 @@ func collectUpdateData(c *cobra.Command, path, section, dataInline, dataFile str
 	if !ttyInteractive(false) {
 		return nil, errors.New("input required — pass --data '{...}' or --data-file <path>, or run interactively in a TTY")
 	}
-	res, typeSt, err := ops.GetAllFields(path, section)
+	res, typeSt, err := ops.GetAllFields(path, section, "")
 	if err != nil {
 		return nil, err
 	}
@@ -946,16 +963,16 @@ func noticeMutation(w io.Writer, action, section, filePath string, sources []str
 // CLI's error surface is pure-Go (no MCP envelope) while the MCP
 // handlers in internal/mcpsrv/tools.go reuse exactly the same paths.
 
-func runCreate(path, section, pathHint string, data map[string]any) (string, []string, error) {
-	return ops.Create(path, section, pathHint, data)
+func runCreate(path, section, typeName string, data map[string]any) (string, []string, error) {
+	return ops.Create(path, section, typeName, data)
 }
 
-func runUpdate(path, section string, data map[string]any) (string, []string, error) {
-	return ops.Update(path, section, data)
+func runUpdate(path, section, typeName string, data map[string]any) (string, []string, error) {
+	return ops.Update(path, section, typeName, data)
 }
 
-func runDelete(path, section string) (string, []string, error) {
-	return ops.Delete(path, section)
+func runDelete(path, section, typeName string) (string, []string, error) {
+	return ops.Delete(path, section, typeName)
 }
 
 func runSchemaMutate(path, action, kind, name string, data map[string]any) ([]string, error) {

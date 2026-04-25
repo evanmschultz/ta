@@ -141,7 +141,7 @@ func TestListSectionsEarlyExitWalkOrder(t *testing.T) {
 // search endpoint. Ten hits out of a fifteen-hit scope. §12.17.5 [A2.2].
 func TestSearchDefaultLimit(t *testing.T) {
 	root := seedNTasks(t, 15)
-	hits, err := ops.Search(root, "plans.task", map[string]any{"status": "todo"}, "", "", 0, false)
+	hits, err := ops.Search(root, "plans.task", "", map[string]any{"status": "todo"}, "", "", 0, false)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestSearchDefaultLimit(t *testing.T) {
 // TestSearchExplicitLimit proves a non-zero limit is honored.
 func TestSearchExplicitLimit(t *testing.T) {
 	root := seedNTasks(t, 15)
-	hits, err := ops.Search(root, "plans.task", map[string]any{"status": "todo"}, "", "", 4, false)
+	hits, err := ops.Search(root, "plans.task", "", map[string]any{"status": "todo"}, "", "", 4, false)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestSearchExplicitLimit(t *testing.T) {
 // TestSearchAll proves all=true returns every hit.
 func TestSearchAll(t *testing.T) {
 	root := seedNTasks(t, 15)
-	hits, err := ops.Search(root, "plans.task", map[string]any{"status": "todo"}, "", "", 0, true)
+	hits, err := ops.Search(root, "plans.task", "", map[string]any{"status": "todo"}, "", "", 0, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestSearchAll(t *testing.T) {
 // all wins at the endpoint even when limit is also non-zero.
 func TestSearchAllBeatsLimit(t *testing.T) {
 	root := seedNTasks(t, 12)
-	hits, err := ops.Search(root, "plans.task", map[string]any{"status": "todo"}, "", "", 3, true)
+	hits, err := ops.Search(root, "plans.task", "", map[string]any{"status": "todo"}, "", "", 3, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestGetScopeFieldsFilter(t *testing.T) {
 // inherit the byte-equivalence proof.
 func TestGetSingleRecordUnchanged(t *testing.T) {
 	root := seedNTasks(t, 1)
-	res, err := ops.Get(root, "plans.task.t01", nil)
+	res, err := ops.Get(root, "plans.task.t01", "", nil)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

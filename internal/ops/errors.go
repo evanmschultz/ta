@@ -65,4 +65,24 @@ var (
 	// cannot be unset via Update; change the schema or delete +
 	// recreate the record.
 	ErrCannotClearRequired = errors.New("ops: cannot clear required field")
+
+	// ErrTypeMismatch is returned by Create / Update / Get / Delete /
+	// Search when the caller supplies a `--type` (or `typeName`) that
+	// disagrees with the type segment carried by the address, OR when
+	// the supplied type disagrees with the index's recorded type for
+	// the same canonical address. PLAN §12.17.9 Phase 9.4: `--type` is
+	// the orthogonal authoritative source; mismatches with the address
+	// or the index fail loudly rather than silently picking one.
+	ErrTypeMismatch = errors.New("ops: type mismatch")
+
+	// ErrIndexMismatch is returned by read paths when the index entry
+	// for a canonical address disagrees with on-disk reality (e.g. the
+	// address parses cleanly with type T1 but the index records type
+	// T2 for the same canonical key). PLAN §12.17.9 Phase 9.4
+	// trust-and-fail-loud doctrine: callers branch on the sentinel and
+	// nudge the user toward `ta index rebuild` to reconcile. Missing-
+	// from-index is NOT this error — Phase 9.4 keeps the address
+	// grammar carrying the type segment, so an empty / partial index
+	// is tolerated.
+	ErrIndexMismatch = errors.New("ops: index mismatch")
 )

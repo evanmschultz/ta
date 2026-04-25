@@ -181,6 +181,7 @@ func TestCreateCmdInlineData(t *testing.T) {
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
 		"--path", root, "plans.task.t1",
+		"--type", "task",
 		"--data", `{"id": "T1", "status": "todo"}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -202,7 +203,9 @@ func TestCreateCmdRequiresData(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1"})
+	// --type satisfies the PLAN §12.17.9 Phase 9.4 required-flag guard
+	// so the test reaches the data-missing branch we want to assert.
+	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--type", "task"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected error when --data is omitted off-TTY")
@@ -227,6 +230,7 @@ func TestCreateCmdInlineDataNonInteractiveRegression(t *testing.T) {
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
 		"--path", root, "plans.task.regress",
+		"--type", "task",
 		"--data", `{"id": "REGRESS", "status": "todo"}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -877,6 +881,7 @@ func TestCreateCmdVerboseEchoesRecord(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"--path", root, "plans.task.quiet",
+		"--type", "task",
 		"--data", `{"id": "Q1", "status": "todo"}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -893,6 +898,7 @@ func TestCreateCmdVerboseEchoesRecord(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"--path", root, "plans.task.loud",
+		"--type", "task",
 		"--data", `{"id": "L1", "status": "todo"}`,
 		"--verbose",
 	})
@@ -1099,8 +1105,8 @@ func TestPathFlagAcceptedAcrossCommands(t *testing.T) {
 				c.SetErr(&bytes.Buffer{})
 				return c, c.SetArgs
 			},
-			okArgs:  []string{"--path", root, "plans.task.new1", "--data", `{"id":"N1","status":"todo"}`},
-			badArgs: []string{root, "plans.task.new2", "--data", `{"id":"N2","status":"todo"}`},
+			okArgs:  []string{"--path", root, "plans.task.new1", "--type", "task", "--data", `{"id":"N1","status":"todo"}`},
+			badArgs: []string{root, "plans.task.new2", "--type", "task", "--data", `{"id":"N2","status":"todo"}`},
 		},
 		{
 			name: "update",

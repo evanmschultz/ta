@@ -93,11 +93,13 @@ func seedDogfoodFixture(t *testing.T) string {
 	}
 
 	records := []struct {
-		section string
-		data    map[string]any
+		section  string
+		typeName string
+		data     map[string]any
 	}{
 		{
-			section: "ta.db.build_task.task_12_1",
+			section:  "ta.db.build_task.task_12_1",
+			typeName: "build_task",
 			data: map[string]any{
 				"id":     "task_12_1",
 				"status": "done",
@@ -107,7 +109,8 @@ func seedDogfoodFixture(t *testing.T) string {
 			},
 		},
 		{
-			section: "ta.db.build_task.task_12_9",
+			section:  "ta.db.build_task.task_12_9",
+			typeName: "build_task",
 			data: map[string]any{
 				"id":     "task_12_9",
 				"status": "doing",
@@ -117,7 +120,8 @@ func seedDogfoodFixture(t *testing.T) string {
 			},
 		},
 		{
-			section: "ta.db.qa_task.qa_12_1_proof",
+			section:  "ta.db.qa_task.qa_12_1_proof",
+			typeName: "qa_task",
 			data: map[string]any{
 				"id":                "qa_12_1_proof",
 				"parent_build_task": "task_12_1",
@@ -127,7 +131,8 @@ func seedDogfoodFixture(t *testing.T) string {
 			},
 		},
 		{
-			section: "ta.db.qa_task.qa_12_1_falsification",
+			section:  "ta.db.qa_task.qa_12_1_falsification",
+			typeName: "qa_task",
 			data: map[string]any{
 				"id":                "qa_12_1_falsification",
 				"parent_build_task": "task_12_1",
@@ -138,7 +143,7 @@ func seedDogfoodFixture(t *testing.T) string {
 		},
 	}
 	for _, r := range records {
-		if _, _, err := ops.Create(root, r.section, "", r.data); err != nil {
+		if _, _, err := ops.Create(root, r.section, r.typeName, r.data); err != nil {
 			t.Fatalf("Create %s: %v", r.section, err)
 		}
 	}
@@ -152,7 +157,7 @@ func seedDogfoodFixture(t *testing.T) string {
 // record's bytes.
 func TestDogfoodGetRoundtripsBuildTask(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	res, err := ops.Get(root, "ta.db.build_task.task_12_1", nil)
+	res, err := ops.Get(root, "ta.db.build_task.task_12_1", "", nil)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -179,7 +184,7 @@ func TestDogfoodGetRoundtripsBuildTask(t *testing.T) {
 // QA twins (which have a different `status` enum).
 func TestDogfoodSearchFindsDoneBuildTasks(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	hits, err := ops.Search(root, "ta.db.build_task", map[string]any{"status": "done"}, "", "", 0, true)
+	hits, err := ops.Search(root, "ta.db.build_task", "", map[string]any{"status": "done"}, "", "", 0, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -197,7 +202,7 @@ func TestDogfoodSearchFindsDoneBuildTasks(t *testing.T) {
 // or build_task records.
 func TestDogfoodSearchFindsFalsificationTwins(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	hits, err := ops.Search(root, "ta.db.qa_task", map[string]any{"kind": "falsification"}, "", "", 0, true)
+	hits, err := ops.Search(root, "ta.db.qa_task", "", map[string]any{"kind": "falsification"}, "", "", 0, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -216,7 +221,7 @@ func TestDogfoodSearchFindsFalsificationTwins(t *testing.T) {
 // silently append or corrupt the db file.
 func TestDogfoodCreateIsIdempotentPerRecord(t *testing.T) {
 	root := seedDogfoodFixture(t)
-	_, _, err := ops.Create(root, "ta.db.build_task.task_12_1", "", map[string]any{
+	_, _, err := ops.Create(root, "ta.db.build_task.task_12_1", "build_task", map[string]any{
 		"id":     "task_12_1",
 		"status": "done",
 		"title":  "Backend interface extraction",
