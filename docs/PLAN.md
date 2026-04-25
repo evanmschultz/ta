@@ -1228,13 +1228,34 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 
     - **Round 7 — Phase D (sequential per 2026-04-24 amendment).** D1 huh form per field landed solo (`30974e6`); new-D2 `--blank` removal + empty-home guard lands solo afterward. Both touch `cmd/ta/` tests and init-cmd prose so parallel builders would entangle; sequential serialises the `cmd/ta/` test surface.
 
-    - **Round 8 — Phase E.** E1 dogfood pass (no builder — human walkthrough). Closes §12.17.5.
+    - **Round 8 — Phase E.** E1 dogfood pass (no builder — human walkthrough). Closes §12.17.5. E1 surfaced the [F1] schema UX gap below.
 
-    - **Round 9 — §12.17.6 cascade-agents design.** Dev + orchestrator collaborative design session. No builder. Output: a new design doc under `docs/` (exact filename TBD). Pre-release; its output shapes §12.17.7 and the dogfood local-schema.
+    - **Round 9 — [F1] `ta init` db-picker redesign (solo builder).** Surfaced during E1 dogfood (2026-04-24). See §12.17.8 below. Must land before §12.17.6 cascade-agents design because the per-db picker is the UX that the examples dir will demonstrate.
 
-    - **Round 10 — §12.17.7 examples rebuild.** Dev + orchestrator collaborative build. No solo builder (dev-driven design decisions throughout). Replaces `examples/schema.toml` with a richer copy-from-able set based on §12.17.6.
+    - **Round 10 — §12.17.6 cascade-agents design.** Dev + orchestrator collaborative design session. No builder. Output: a new design doc under `docs/` (exact filename TBD). Pre-release; its output shapes §12.17.7 and the dogfood local-schema.
 
-After §12.17.5 closes: §12.17.6 cascade-agents design → §12.17.7 examples rebuild → §12.18 README collapse → §12.19 v0.1.0 release tag.
+    - **Round 11 — §12.17.7 examples rebuild.** Dev + orchestrator collaborative build. No solo builder (dev-driven design decisions throughout). Replaces `examples/schema.toml` with a richer copy-from-able set based on §12.17.6.
+
+After §12.17.5 closes: §12.17.8 [F1] init db-picker → §12.17.6 cascade-agents design → §12.17.7 examples rebuild → §12.18 README collapse → §12.19 v0.1.0 release tag.
+
+**12.17.8 `ta init` db-picker redesign (pre-release, builder task). Surfaced during E1 dogfood 2026-04-24.** Today `ta init` treats `~/.ta/*.toml` as opaque named template files — the huh picker shows filenames and copies the entire selected file to `<project>/.ta/schema.toml`. This is wrong: `~/.ta/schema.toml` is a schema LIBRARY containing multiple top-level db declarations (`[plans]`, `[agents]`, etc.), and users should be able to pick any subset of those dbs when initting a project.
+
+**New UX goal.** `ta init` parses the home schema library and presents individual db declarations via a `huh.MultiSelect`. The user picks none, some, or all. The selected dbs (plus their type + field sub-tables) are reconstructed into the project `.ta/schema.toml`. This gives users full granularity: "I want `plans` and `agents` in this project but not `build_task`." Named template files (`~/.ta/<name>.toml` other than `schema.toml`) continue to work as full-file presets accessible via `--template <name>`; the db-picker is the default interactive path.
+
+**Open design questions (dev sign-off required before build):**
+- `~/.ta/schema.toml` as the LIBRARY and `~/.ta/<name>.toml` as PRESETS — is this the canonical mental model going forward? (Implies `ta template save` saves the whole project schema as a preset, not individual dbs.)
+- Zero-db selection: error loudly, or write an empty `schema.toml` (valid TOML, user builds via `ta schema --action=create` later)?
+- Filtering: should the db-picker also let the user edit a db's type/field list inline, or is that post-init via `ta schema --action=update`?
+- Agent UX: on non-TTY, `--template <name>` remains the non-interactive escape. Should agents be able to pass `--dbs plans,agents` as a flag for scripted db selection?
+
+**Scope (build items after design sign-off):**
+- Parse `~/.ta/schema.toml` to extract db names via the existing `schema` package loader.
+- Replace `huh.Select` (template file picker) with `huh.MultiSelect` (db-name picker) in `chooseSchema` / `pickTemplate`.
+- Reconstruct a subset schema TOML from selected dbs using `pelletier/go-toml/v2` marshal + `schema.Registry` subset.
+- Keep `--template <name>` full-file path as non-interactive escape and named-preset shortcut.
+- Empty home schema (0 dbs after parse) → existing `emptyHomeError`.
+- Tests: `internal/schema` subset-marshal, `cmd/ta/init_cmd` multi-select flow, non-TTY `--dbs` flag if adopted.
+- QA pair gates the commit per standard discipline.
 
 **12.17.6 Cascade-agents design (pre-release, collaborative).** Dev + orchestrator work through this together — no solo subagent, no dev-alone writing session. Defines the cascade-agents discipline that orchestrator / builder / QA / research agents obey across Tillsyn-coordinated work: roles and their boundaries, handoff mechanics, auth lifecycle (project-scoped vs global sessions), keymap and UI defaults, and the rule-cascade layering (`~/.claude/CLAUDE.md` ↔ `~/.codex/AGENTS.md` ↔ project `CLAUDE.md` / `AGENTS.md` ↔ `.ta/` schema records). Output: a design doc under `docs/` (filename TBD during the session) capturing the discipline in prose plus example records. Signed off jointly by dev and orchestrator before §12.17.7 starts. Rationale: its output shapes the dogfood local-schema structure and the §12.17.7 examples; cannot skip and still ship a usable v0.1.0.
 
