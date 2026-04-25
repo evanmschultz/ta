@@ -527,6 +527,8 @@ func newSchemaCmd() *cobra.Command {
 	var name string
 	var dataInline string
 	var dataFile string
+	var pathsAppend string
+	var pathsRemove string
 	var verbose bool
 	var asJSON bool
 	cmd := &cobra.Command{
@@ -537,14 +539,21 @@ func newSchemaCmd() *cobra.Command {
 			"reserved value `ta_schema` prints the embedded meta-schema " +
 			"literal. With action=create|update|delete, mutates the project " +
 			"`.ta/schema.toml` (re-validated on every mutation with atomic " +
-			"rollback — V2-PLAN §4.6). With --json the laslig path is " +
-			"bypassed and JSON is written for agent consumption (action=get " +
-			"only; mutations always print the success notice). --path defaults " +
-			"to cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+			"rollback — V2-PLAN §4.6). With action=update + kind=db, the " +
+			"--paths-append=<entry> / --paths-remove=<entry> sugar mutates " +
+			"the db's `paths` slice incrementally (PLAN §12.17.9 Phase 9.6); " +
+			"each flag takes one entry and the two are mutually exclusive " +
+			"with each other and with `--data` carrying a `paths` key. With " +
+			"--json the laslig path is bypassed and JSON is written for " +
+			"agent consumption (action=get only; mutations always print the " +
+			"success notice). --path defaults to cwd; relative or absolute " +
+			"accepted (V2-PLAN §12.17.5 [A1]).",
 		Example: `  ta schema
   ta schema plans.task --json
   ta schema ta_schema
-  ta schema --path /abs/proj --action=create --kind=type --name=plans.note --data '{...}'`,
+  ta schema --path /abs/proj --action=create --kind=type --name=plans.note --data '{...}'
+  ta schema --action=update --kind=db --name=plans --paths-append=archive
+  ta schema --action=update --kind=db --name=plans --paths-remove=archive`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -562,6 +571,31 @@ func newSchemaCmd() *cobra.Command {
 					return runSchemaGetJSON(c.OutOrStdout(), path, scope)
 				}
 				return runSchemaGet(c.OutOrStdout(), path, scope)
+			}
+			// PLAN §12.17.9 Phase 9.6: --paths-append / --paths-remove
+			// sugar lives strictly on action=update + kind=db. Cobra's
+			// MarkFlagsMutuallyExclusive handles append-vs-remove and
+			// each-vs-data; we still gate on action+kind so misuse on
+			// e.g. action=create surfaces a clear scope error rather
+			// than silently colliding with the create payload.
+			if pathsAppend != "" || pathsRemove != "" {
+				if action != "update" || kind != "db" {
+					return fmt.Errorf("--paths-append / --paths-remove only valid with --action=update --kind=db")
+				}
+				if name == "" {
+					return errors.New("schema: missing required --name")
+				}
+				sources, err := ops.MutateDBPaths(path, name, pathsAppend, pathsRemove)
+				if err != nil {
+					return err
+				}
+				if err := noticeMutation(c.OutOrStdout(), "schema "+action, name, "", sources); err != nil {
+					return err
+				}
+				if verbose {
+					return runSchemaGet(c.OutOrStdout(), path, "")
+				}
+				return nil
 			}
 			raw, err := readJSONDataOptional(dataInline, dataFile, c.InOrStdin(), action == "delete")
 			if err != nil {
@@ -591,9 +625,16 @@ func newSchemaCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "dotted schema address (for action != get)")
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON payload (for action create|update)")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON payload from file; use `-` for stdin")
+	cmd.Flags().StringVar(&pathsAppend, "paths-append", "", "append one entry to a db's paths slice (action=update --kind=db); idempotent — repeats are no-ops")
+	cmd.Flags().StringVar(&pathsRemove, "paths-remove", "", "remove one entry from a db's paths slice (action=update --kind=db); missing entries are no-ops")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the post-mutation schema after the success notice (no effect on action=get)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output (action=get)")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
+	cmd.MarkFlagsMutuallyExclusive("paths-append", "paths-remove")
+	cmd.MarkFlagsMutuallyExclusive("paths-append", "data")
+	cmd.MarkFlagsMutuallyExclusive("paths-append", "data-file")
+	cmd.MarkFlagsMutuallyExclusive("paths-remove", "data")
+	cmd.MarkFlagsMutuallyExclusive("paths-remove", "data-file")
 	addPathFlag(cmd)
 	return cmd
 }

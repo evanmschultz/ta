@@ -2095,3 +2095,194 @@ func TestGetSingleRecordIgnoresLimitAll(t *testing.T) {
 		t.Errorf("single-record + limit response lost raw-bytes shape: %q", body)
 	}
 }
+
+// ---- §12.17.9 Phase 9.6 paths sugar (MCP surface) -------------------
+
+// TestSchemaPathsAppendMCP locks in the Phase 9.6 happy path on the
+// MCP surface. Mirrors the CLI test of the same shape: a fixture with
+// paths=["plans.toml"] grows to paths=["plans.toml", "archive.toml"]
+// after a single paths_append call.
+func TestSchemaPathsAppendMCP(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":         fx.projectRoot,
+		"action":       "update",
+		"kind":         "db",
+		"name":         "plans",
+		"paths_append": "archive.toml",
+	})
+	if res.IsError {
+		t.Fatalf("schema paths_append errored: %s", firstText(t, res))
+	}
+	resolution, err := ops.ResolveProject(fx.projectRoot)
+	if err != nil {
+		t.Fatalf("ResolveProject: %v", err)
+	}
+	dbDecl := resolution.Registry.DBs["plans"]
+	want := []string{"plans.toml", "archive.toml"}
+	if len(dbDecl.Paths) != len(want) {
+		t.Fatalf("paths after append = %v, want %v", dbDecl.Paths, want)
+	}
+	for i, p := range want {
+		if dbDecl.Paths[i] != p {
+			t.Errorf("paths[%d] = %q, want %q", i, dbDecl.Paths[i], p)
+		}
+	}
+}
+
+// TestSchemaPathsRemoveMCP proves the happy-path remove on the MCP
+// surface.
+func TestSchemaPathsRemoveMCP(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	// Seed a two-entry slice via paths_append.
+	if res := callTool(t, c, "schema", map[string]any{
+		"path":         fx.projectRoot,
+		"action":       "update",
+		"kind":         "db",
+		"name":         "plans",
+		"paths_append": "archive.toml",
+	}); res.IsError {
+		t.Fatalf("seed paths_append errored: %s", firstText(t, res))
+	}
+	// Now remove the original.
+	res := callTool(t, c, "schema", map[string]any{
+		"path":         fx.projectRoot,
+		"action":       "update",
+		"kind":         "db",
+		"name":         "plans",
+		"paths_remove": "plans.toml",
+	})
+	if res.IsError {
+		t.Fatalf("schema paths_remove errored: %s", firstText(t, res))
+	}
+	resolution, err := ops.ResolveProject(fx.projectRoot)
+	if err != nil {
+		t.Fatalf("ResolveProject: %v", err)
+	}
+	dbDecl := resolution.Registry.DBs["plans"]
+	if len(dbDecl.Paths) != 1 || dbDecl.Paths[0] != "archive.toml" {
+		t.Errorf("paths after remove = %v, want [archive.toml]", dbDecl.Paths)
+	}
+}
+
+// TestSchemaPathsAppendIdempotentMCP proves appending an already-
+// present entry is a no-op write that still succeeds on the MCP
+// surface.
+func TestSchemaPathsAppendIdempotentMCP(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":         fx.projectRoot,
+		"action":       "update",
+		"kind":         "db",
+		"name":         "plans",
+		"paths_append": "plans.toml",
+	})
+	if res.IsError {
+		t.Fatalf("schema idempotent paths_append errored: %s", firstText(t, res))
+	}
+	resolution, err := ops.ResolveProject(fx.projectRoot)
+	if err != nil {
+		t.Fatalf("ResolveProject: %v", err)
+	}
+	dbDecl := resolution.Registry.DBs["plans"]
+	if len(dbDecl.Paths) != 1 || dbDecl.Paths[0] != "plans.toml" {
+		t.Errorf("paths after idempotent append = %v, want [plans.toml]", dbDecl.Paths)
+	}
+}
+
+// TestSchemaPathsAppendRemoveMutexMCP proves the MCP handler rejects
+// passing both paths_append and paths_remove together.
+func TestSchemaPathsAppendRemoveMutexMCP(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":         fx.projectRoot,
+		"action":       "update",
+		"kind":         "db",
+		"name":         "plans",
+		"paths_append": "x.toml",
+		"paths_remove": "y.toml",
+	})
+	if !res.IsError {
+		t.Fatalf("expected paths_append + paths_remove to error")
+	}
+	if !strings.Contains(firstText(t, res), "either") && !strings.Contains(firstText(t, res), "both") {
+		t.Errorf("error should mention mutex: %s", firstText(t, res))
+	}
+}
+
+// TestSchemaPathsAppendWithDataPathsRejected proves the MCP handler
+// rejects passing paths_append together with a data payload that
+// carries a 'paths' key — the user is mixing replace-mode and
+// incremental-mode and that has to fail loudly.
+func TestSchemaPathsAppendWithDataPathsRejected(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":         fx.projectRoot,
+		"action":       "update",
+		"kind":         "db",
+		"name":         "plans",
+		"paths_append": "archive.toml",
+		"data": map[string]any{
+			"paths":  []any{"plans.toml", "archive.toml"},
+			"format": "toml",
+		},
+	})
+	if !res.IsError {
+		t.Fatalf("expected paths_append + data.paths to error")
+	}
+	if !strings.Contains(firstText(t, res), "paths") {
+		t.Errorf("error should mention paths conflict: %s", firstText(t, res))
+	}
+}
+
+// TestSchemaPathsAppendOnlyValidOnUpdateDBMCP proves the sugar errors
+// when used outside action=update + kind=db scope.
+func TestSchemaPathsAppendOnlyValidOnUpdateDBMCP(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":         fx.projectRoot,
+		"action":       "delete",
+		"kind":         "db",
+		"name":         "plans",
+		"paths_append": "archive.toml",
+	})
+	if !res.IsError {
+		t.Fatalf("expected paths_append on action=delete to error")
+	}
+}
+
+// TestSchemaPathsRemoveLeavingEmptyTriggersMetaSchemaMCP proves
+// removing the only entry rolls back atomically on the MCP surface
+// (mirrors the CLI test of the same shape).
+func TestSchemaPathsRemoveLeavingEmptyTriggersMetaSchemaMCP(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	schemaPath := filepath.Join(fx.projectRoot, ".ta", "schema.toml")
+	before, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read schema before: %v", err)
+	}
+	res := callTool(t, c, "schema", map[string]any{
+		"path":         fx.projectRoot,
+		"action":       "update",
+		"kind":         "db",
+		"name":         "plans",
+		"paths_remove": "plans.toml",
+	})
+	if !res.IsError {
+		t.Fatalf("expected meta-schema violation when removing only entry")
+	}
+	after, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read schema after: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("atomic rollback failed: schema bytes drifted on disk")
+	}
+}

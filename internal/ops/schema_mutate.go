@@ -17,6 +17,109 @@ import (
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
+// ComputePathsMutation returns the new paths slice for a db after the
+// `--paths-append` / `--paths-remove` sugar (PLAN §12.17.9 Phase 9.6) is
+// applied to currentPaths. Pure function — no I/O.
+//
+// At most one of append / remove may be non-empty; passing both is a
+// programmer error (caller must enforce the mutex upstream so the user
+// gets a clear flag-level diagnostic).
+//
+// Append semantics: if the entry is already present, the slice is
+// returned unchanged (no-op idempotence); otherwise it is appended at
+// the end so prior order is preserved.
+//
+// Remove semantics: if the entry is present, every matching occurrence
+// is filtered out; otherwise the slice is returned unchanged. Removing
+// a missing entry is a no-op, not an error.
+//
+// Empty currentPaths + append → single-entry result. Empty append AND
+// empty remove returns currentPaths unchanged (the caller is expected
+// to skip calling this helper when neither flag is set).
+func ComputePathsMutation(currentPaths []string, appendEntry, removeEntry string) ([]string, error) {
+	if appendEntry != "" && removeEntry != "" {
+		return nil, fmt.Errorf("ops: ComputePathsMutation: append and remove are mutually exclusive")
+	}
+	if appendEntry == "" && removeEntry == "" {
+		// Nothing to do; copy to avoid aliasing the caller's slice.
+		out := make([]string, len(currentPaths))
+		copy(out, currentPaths)
+		return out, nil
+	}
+	if appendEntry != "" {
+		for _, p := range currentPaths {
+			if p == appendEntry {
+				// Idempotent: already present, return unchanged copy.
+				out := make([]string, len(currentPaths))
+				copy(out, currentPaths)
+				return out, nil
+			}
+		}
+		out := make([]string, 0, len(currentPaths)+1)
+		out = append(out, currentPaths...)
+		out = append(out, appendEntry)
+		return out, nil
+	}
+	// removeEntry != "".
+	out := make([]string, 0, len(currentPaths))
+	for _, p := range currentPaths {
+		if p == removeEntry {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// MutateDBPaths is the adapter-shared helper for the `--paths-append`
+// / `--paths-remove` CLI flags and the `paths_append` / `paths_remove`
+// MCP params (PLAN §12.17.9 Phase 9.6). It loads the current resolved
+// db, applies ComputePathsMutation, and routes the result through the
+// existing MutateSchema(action="update", kind="db") atomic-rollback
+// pipeline so the post-mutation schema is re-validated and rolled back
+// on meta-schema violation.
+//
+// Format and description are carried over from the existing db so the
+// caller does not have to re-supply them — the underlying
+// applyDBMutation deletes the full meta-field set on update, so any
+// missing meta-field would otherwise vanish on write.
+//
+// Caller must enforce the (append XOR remove) mutex AND the
+// no-data-paths-key rule before calling; this helper assumes a clean
+// single-mutation request.
+func MutateDBPaths(projectPath, dbName, appendEntry, removeEntry string) ([]string, error) {
+	resolution, err := resolveFromProjectDir(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve schema for %s: %w", projectPath, err)
+	}
+	dbDecl, ok := resolution.Registry.DBs[dbName]
+	if !ok {
+		return nil, fmt.Errorf("%w: db %q", ErrUnknownSchemaTarget, dbName)
+	}
+	newPaths, err := ComputePathsMutation(dbDecl.Paths, appendEntry, removeEntry)
+	if err != nil {
+		return nil, err
+	}
+	// Convert to []any so the in-memory shape matches the post-Unmarshal
+	// shape every other update-db caller passes (`data["paths"]` =
+	// `[]any{...}`). pelletier's Marshal accepts both []string and
+	// []any, but the round-trip through schema.LoadBytes' stringSliceVal
+	// guard expects []any — keeping the in-memory shape consistent
+	// avoids surprises if any future check inspects the map directly.
+	pathsAny := make([]any, len(newPaths))
+	for i, p := range newPaths {
+		pathsAny[i] = p
+	}
+	data := map[string]any{
+		"paths":  pathsAny,
+		"format": string(dbDecl.Format),
+	}
+	if dbDecl.Description != "" {
+		data["description"] = dbDecl.Description
+	}
+	return MutateSchema(projectPath, "update", "db", dbName, data)
+}
+
 // MutateSchema applies action to the project `.ta/schema.toml` located
 // at <path>/.ta/schema.toml (creating the dir and file on first use)
 // under an atomic-rollback discipline (V2-PLAN §4.6):

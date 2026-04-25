@@ -6077,3 +6077,665 @@ mod-cache marshaler.go was denied by the sandbox, so map-key
 ordering is grounded in `go doc` + project-wide empirical
 behaviour rather than direct source inspection — flagged as a
 non-blocking Unknown above.
+
+## 12.17.9 Phase 9.6 — `--paths-append` / `--paths-remove` sugar (2026-04-24)
+
+### 1. Goal
+
+Add ergonomic incremental sugar for the db-paths slice on
+`ta schema --action=update --kind=db`. The full-replace path
+(`--data='{"paths":[...],"format":"toml"}'`) still works
+verbatim; the sugar lets agents and humans add or remove a
+single mount entry without re-asserting the rest of the slice.
+
+### 2. Locked-design summary
+
+- **CLI**: `ta schema --action=update --kind=db --name=<db>
+  --paths-append=<entry>` / `--paths-remove=<entry>`. Each flag
+  takes one string; the user calls multiple times to add or
+  remove many.
+- **MCP**: same shape — `paths_append` / `paths_remove` on
+  the `schema` tool when `action=update` and `kind=db`.
+- **Mutex**: append vs remove are mutually exclusive with each
+  other and with `--data` carrying a `paths` key. The CLI uses
+  cobra's `MarkFlagsMutuallyExclusive` (rejects the entire
+  combination of `--paths-append` with `--data` regardless of
+  body — slightly stricter than the plan, simpler UX); the MCP
+  surface inspects `data["paths"]` and rejects the conflict
+  surgically.
+- **Idempotence**: append-existing and remove-missing are no-op
+  successes, not errors. Loud-failure is reserved for true error
+  states (unknown db, meta-schema violation).
+- **Empty-result path**: removing the only entry leaves
+  `paths = []`, which fails the meta-schema's non-empty-paths
+  rule and rolls back atomically. No special-case handling —
+  the plan-doc'd behaviour.
+
+### 3. Files changed
+
+- `internal/ops/schema_mutate.go`:
+  - `ComputePathsMutation(currentPaths, append, remove
+    string) ([]string, error)` — pure helper that returns the
+    new slice. Append at end (preserve order); duplicates and
+    missing-removes are no-ops; both flags set is a
+    programmer-error.
+  - `MutateDBPaths(projectPath, dbName, append, remove
+    string) ([]string, error)` — adapter-shared helper. Loads
+    the resolved db via `resolveFromProjectDir`, applies
+    `ComputePathsMutation`, builds a synthetic data map
+    carrying `paths` + `format` + `description` (so the
+    `applyDBMutation` meta-field replacement preserves the
+    other meta-fields), and routes through the standard
+    `MutateSchema(action="update", kind="db", ...)` atomic-
+    rollback pipeline.
+- `cmd/ta/commands.go`:
+  - Two new flags on `newSchemaCmd`: `--paths-append`,
+    `--paths-remove`. Cobra mutex pairs:
+    - `--paths-append` ↔ `--paths-remove`
+    - `--paths-append` ↔ `--data`
+    - `--paths-append` ↔ `--data-file`
+    - `--paths-remove` ↔ `--data`
+    - `--paths-remove` ↔ `--data-file`
+  - RunE early-branches when either sugar flag is set: enforces
+    `action=update + kind=db + name != ""`, then calls
+    `ops.MutateDBPaths`. Falls through to the existing
+    full-data path when neither sugar flag is set.
+  - Updated `cmd.Long` and `Example` to surface the new sugar.
+- `internal/mcpsrv/tools.go`:
+  - `schemaTool` declaration: two new optional string params
+    `paths_append` / `paths_remove`, documented as
+    action=update + kind=db sugar.
+  - `handleSchemaMutate` early-branches when either param is
+    set: enforces `action=update + kind=db`, then enforces the
+    append-vs-remove and data.paths mutexes, then calls
+    `ops.MutateDBPaths`.
+- `internal/ops/schema_mutate_test.go` (new):
+  - `TestComputePathsMutationTable` — table-driven coverage
+    of append/remove/duplicate/missing/empty/both-set cases.
+  - `TestComputePathsMutationDoesNotAliasInput` — fresh-slice
+    contract.
+  - `TestMutateDBPathsAppendsLandsOnDisk` — append happy path.
+  - `TestMutateDBPathsAppendIdempotent` — append-duplicate
+    no-op.
+  - `TestMutateDBPathsRemoveLeavesEmptyTriggersMetaSchema` —
+    empty-paths atomic-rollback gate.
+  - `TestMutateDBPathsRemoveExistingEntry` — remove happy path.
+  - `TestMutateDBPathsRemoveMissingEntryIsNoOp` —
+    remove-missing no-op.
+  - `TestMutateDBPathsUnknownDBErrors` — unknown-db error
+    surface.
+- `cmd/ta/commands_test.go`:
+  - `TestSchemaCmdPathsAppendLandsEntry` — CLI append happy
+    path.
+  - `TestSchemaCmdPathsRemoveTriggersMetaSchemaWhenEmpty` —
+    empty-result rollback gate.
+  - `TestSchemaCmdPathsRemoveExisting` — remove happy path.
+  - `TestSchemaCmdPathsAppendDuplicateIsNoOp` — idempotent
+    append.
+  - `TestSchemaCmdPathsAppendRemoveMutex` — cobra mutex on
+    append vs remove.
+  - `TestSchemaCmdPathsAppendDataMutex` — cobra mutex on
+    append vs `--data`.
+  - `TestSchemaCmdPathsAppendOnlyValidOnUpdateDB` — scope
+    guard (errors on action != update or kind != db).
+- `internal/mcpsrv/server_test.go`:
+  - `TestSchemaPathsAppendMCP` — MCP append happy path.
+  - `TestSchemaPathsRemoveMCP` — MCP remove happy path.
+  - `TestSchemaPathsAppendIdempotentMCP` — MCP idempotent
+    append.
+  - `TestSchemaPathsAppendRemoveMutexMCP` — MCP mutex on
+    append vs remove.
+  - `TestSchemaPathsAppendWithDataPathsRejected` — MCP mutex
+    on append vs `data.paths`.
+  - `TestSchemaPathsAppendOnlyValidOnUpdateDBMCP` — MCP scope
+    guard.
+  - `TestSchemaPathsRemoveLeavingEmptyTriggersMetaSchemaMCP` —
+    MCP empty-result rollback.
+
+### 4. Open questions
+
+None. The plan's "what if remove leaves zero paths" question
+is answered by the meta-schema's existing non-empty rule and
+the existing atomic-rollback pipeline; no special-case
+handling is needed and the CLI / MCP tests both lock that
+behaviour in.
+
+### 5. Verification (orchestrator-run)
+
+- `mage fmt` (NEVER raw `gofmt`).
+- `mage check` (covers `mage fmt`, `mage vet`, `mage tidy`,
+  `mage test` with race + coverage gate).
+
+### 6. Hylla Feedback
+
+N/A — task touched Go code only (`internal/ops/schema_mutate.go`,
+`internal/ops/schema_mutate_test.go` (new),
+`cmd/ta/commands.go`, `cmd/ta/commands_test.go`,
+`internal/mcpsrv/tools.go`, `internal/mcpsrv/server_test.go`)
+plus this Markdown WORKLOG entry. Evidence came from `Read` on
+the live working tree at HEAD `d798269` (Hylla ingest reflects
+that commit). No external library semantics needed beyond the
+already-known cobra `MarkFlagsMutuallyExclusive` and the
+existing `MutateSchema` pipeline contracts already exercised
+by Phase 9.1 tests.
+
+## 12.17.9 Phase 9.6 — `--paths-append` / `--paths-remove` sugar — QA PROOF REVIEW (2026-04-24)
+
+### 1. Verdict
+
+PASS. The uncommitted working tree at HEAD `d798269` (6 modified
+files + 1 new test file, +738 / −6) implements the locked-design
+Phase 9.6 paths-sugar exactly: a pure `ComputePathsMutation`
+helper, an adapter-shared `MutateDBPaths` that fetch-modifies
+through the existing `MutateSchema` atomic-rollback pipeline,
+two CLI flags with the full cobra mutex stack, two MCP params
+with surgical `data.paths` rejection, and 22 new tests covering
+every spec'd branch (8 ops + 7 CLI + 7 MCP). Orchestrator-relayed
+`mage fmt` clean and `mage check` exit 0 (13 packages green)
+confirm compile + race + coverage gates pass.
+
+### 2. Evidence (PROOF certificate)
+
+- **Premises**: (a) `ComputePathsMutation` is pure (no I/O), with
+  spec'd append-end / remove-filter / no-op-on-duplicate /
+  no-op-on-missing / error-on-both-set semantics; (b)
+  `MutateDBPaths` preserves `format` + `description` across the
+  meta-field-replacement step in `applyDBMutation`; (c) Cobra
+  mutex on the CLI rejects `--paths-append` ↔ `--paths-remove`,
+  each ↔ `--data`, each ↔ `--data-file`; (d) MCP-side scope
+  guard requires `action=update + kind=db`, surgical
+  `data.paths` rejection (not `data.format` etc.); (e) atomic
+  rollback fires on remove-to-empty via the existing
+  `schema.LoadBytes` non-empty-paths rule; (f) WORKLOG entry
+  appended below the Phase 9.5 closeout.
+
+- **Evidence**:
+  - `internal/ops/schema_mutate.go:39-72` — `ComputePathsMutation`
+    is pure: a single function with `[]string` in / `[]string` +
+    `error` out, no I/O imports referenced. Both-flags-set returns
+    `fmt.Errorf("…mutually exclusive")`; both-empty returns a
+    fresh copy (no aliasing); append-existing returns a fresh
+    copy; append-missing extends; remove filters all matches;
+    remove-missing returns a filtered (== unchanged) copy.
+  - `internal/ops/schema_mutate.go:90-121` — `MutateDBPaths`
+    loads via `resolveFromProjectDir`, looks up `dbDecl` (errors
+    `ErrUnknownSchemaTarget` on miss), computes new paths via
+    `ComputePathsMutation`, builds a synthetic `data` map
+    carrying `paths` (as `[]any`) + `format` + (conditionally)
+    `description`, and routes through `MutateSchema(update, db)`.
+    Format-preservation: `dbDecl.Format` is non-empty for any
+    successfully loaded DB (`internal/schema/load.go:200-204`
+    requires it on load), so `string(dbDecl.Format)` is a real
+    `"toml"` / `"md"` token. Description-preservation: the
+    conditional set covers the empty-description case where
+    omitting the key is the right shape (since `applyDBMutation`
+    deletes meta-keys first then `maps.Copy`s the new data, an
+    omitted key stays absent — which matches the pre-mutation
+    state).
+  - `cmd/ta/commands.go:530-639` — two new string flags
+    (`--paths-append`, `--paths-remove`) registered with help
+    text describing the idempotence + scope rule. Five
+    `MarkFlagsMutuallyExclusive` calls cover all six pairs in
+    the locked design (append↔remove, each↔data, each↔data-file).
+    RunE early-branches at line 581: when either sugar flag is
+    set, validates `action == "update"` and `kind == "db"` (else
+    error), validates `name != ""`, calls `ops.MutateDBPaths`,
+    emits the standard `noticeMutation("schema update", name,
+    "", sources)` success notice, optionally re-renders the
+    schema on `--verbose`. Falls through to the existing
+    full-data path when neither flag is set, leaving Phase 9.1
+    semantics untouched.
+  - `internal/mcpsrv/tools.go:182-191` — two new optional string
+    params on `schemaTool` with descriptions naming the
+    `action=update + kind=db` scope and the mutex shape.
+  - `internal/mcpsrv/tools.go:592-622` — `handleSchemaMutate`
+    early-branches when either sugar param is set, in order:
+    (1) scope guard requiring `action=update + kind=db` (errors
+    with PLAN reference); (2) append-vs-remove mutex; (3)
+    surgical `data.paths` rejection — fetches `args["data"]`,
+    type-asserts to `map[string]any`, checks for `paths` key
+    only. Allows `data.format` etc. to coexist (silently
+    ignored, since the sugar path takes over). Calls
+    `ops.MutateDBPaths` and returns a `mutationSuccess` JSON
+    envelope.
+  - `internal/ops/schema_mutate.go:140-189` — pre-existing
+    `MutateSchema` pipeline: read-current → in-memory mutate →
+    `pelletier.Marshal` → `schema.LoadBytes` re-validate →
+    `WriteAtomic`. The re-validate step errors with
+    `ErrMetaSchemaViolation` on `LoadBytes` failure WITHOUT
+    touching disk (no `WriteAtomic` call on the error path).
+    The cache invalidation + re-resolve at lines 179-188 only
+    fires after a successful write.
+  - `internal/schema/load.go:188-192` — meta-schema rule:
+    `len(db.Paths) == 0` is rejected with "must declare at
+    least one entry (PLAN §12.17.9)". This is the
+    remove-to-empty trigger that Phase 9.6's
+    `TestMutateDBPathsRemoveLeavesEmptyTriggersMetaSchema`
+    test catches via the atomic-rollback path.
+  - `internal/ops/schema_mutate_test.go:63-159` —
+    `TestComputePathsMutationTable` table-drives 10 cases:
+    append fresh / append duplicate / remove existing / remove
+    missing / empty + append / remove only entry → empty /
+    preserves order on append / remove preserves remaining
+    order / both empty → unchanged copy / both set → error.
+    Asserts the exact slice contents via `reflect.DeepEqual`
+    with the conventional "[]string{} vs nil" carve-out.
+  - `internal/ops/schema_mutate_test.go:166-176` —
+    `TestComputePathsMutationDoesNotAliasInput` proves the
+    helper returns a fresh slice (mutating `got[0]` does not
+    leak back to `curr[0]`).
+  - `internal/ops/schema_mutate_test.go:182-203,207-221,
+    228-249,255-274,279-293,297-306` — 6 end-to-end ops tests:
+    append lands on disk + cache invalidates correctly; append
+    idempotent leaves slice unchanged; remove-to-empty errors
+    with meta-schema language AND the schema bytes don't drift
+    (atomic rollback proven by byte-equality of `before` and
+    `after`); remove existing entry filters; remove missing is
+    no-op; unknown-db surfaces.
+  - `cmd/ta/commands_test.go:1592-1800` — 7 new CLI tests
+    covering: append lands; remove-to-empty triggers
+    meta-schema + atomic rollback (byte-identity check);
+    remove existing after seed-via-append; idempotent append;
+    cobra append-vs-remove mutex; cobra append-vs-data mutex;
+    scope guard (action=delete + kind=db + paths-append errors).
+  - `internal/mcpsrv/server_test.go:2099-2288` — 7 new MCP
+    tests parallel to the CLI ones: paths_append happy; paths_
+    remove happy (after seed); idempotent append; append vs
+    remove mutex; append + data.paths rejection (surgical,
+    error mentions "paths"); scope guard
+    (action=delete); remove-to-empty atomic rollback (byte-
+    identity).
+  - `workflow/ta/WORKLOG.md:6081-6220` — Phase 9.6 builder
+    entry with goal, locked-design summary, files-changed
+    inventory, open questions ("None"), verification, and
+    Hylla feedback. Append-only, cleanly follows the Phase 9.5
+    QA Falsification block.
+
+- **Trace or cases**:
+  - **Append happy** — fixture `paths=["plans.toml"]` →
+    `MutateDBPaths(root, "plans", "archive.toml", "")` →
+    `ComputePathsMutation(["plans.toml"], "archive.toml", "")`
+    returns `["plans.toml", "archive.toml"]` → synthetic data
+    `{paths:[...], format:"toml", description:"…"}` →
+    `MutateSchema(update, db, "plans", data)` →
+    `applyDBMutation` update-branch deletes meta-fields then
+    `maps.Copy` writes the new ones → `LoadBytes` validates →
+    `WriteAtomic`. Asserted by both ops + CLI + MCP tests.
+  - **Append idempotent** — fixture `paths=["plans.toml"]` →
+    `MutateDBPaths(root, "plans", "plans.toml", "")` →
+    `ComputePathsMutation` finds `plans.toml` in the slice on
+    iteration, returns a fresh copy unchanged → still routes
+    through `MutateSchema` (so the file mtime updates and the
+    cache invalidates, but the bytes are unchanged). No error.
+    Asserted by ops + CLI + MCP tests.
+  - **Remove existing** — pre-seeded
+    `paths=["plans.toml","archive.toml"]` →
+    `MutateDBPaths(root, "plans", "", "plans.toml")` →
+    `ComputePathsMutation` filters → `["archive.toml"]` →
+    `MutateSchema` writes → resolution sees the new shape.
+  - **Remove to empty (atomic rollback)** — fixture
+    `paths=["plans.toml"]` → `MutateDBPaths(root, "plans", "",
+    "plans.toml")` → `ComputePathsMutation` returns `[]` →
+    synthetic data `{paths:[], format:"toml", description:"…"}`
+    → `MutateSchema.applyDBMutation` lands the empty slice in-
+    memory → `pelletier.Marshal` succeeds → `schema.LoadBytes`
+    errors via `buildDB` line 188-192 → `MutateSchema` returns
+    `ErrMetaSchemaViolation` BEFORE the `WriteAtomic` step. On-
+    disk bytes unchanged. Asserted by ops + CLI + MCP byte-
+    identity checks.
+  - **Mutex (append/remove)** — CLI: cobra `MarkFlagsMutually
+    Exclusive("paths-append","paths-remove")` rejects at parse
+    time (test asserts `err != nil`). MCP: `handleSchemaMutate`
+    line 598-600 returns the `"either…or…not both"` error
+    string (test asserts the substring).
+  - **Mutex (append/data on CLI vs MCP divergence)** — CLI:
+    cobra rejects the entire `--paths-append + --data` combo
+    regardless of `data` body. MCP: only rejects when the data
+    object carries a `paths` key (allows `data.format` etc. to
+    coexist). The tests assert the documented divergence —
+    CLI test passes any data; MCP test passes
+    `{paths:[…],format:"toml"}` and asserts "paths" appears in
+    the error.
+  - **Scope guard** — CLI test passes `--action=delete --kind=db
+    --paths-append=archive.toml`; RunE line 582-583 errors
+    "only valid with --action=update --kind=db". MCP test
+    passes the same; handler line 595-596 errors with PLAN
+    reference. Asserted by both tests.
+  - **Format + description preservation** — implicit in every
+    happy-path test. The tests use `ops.ResolveProject` post-
+    mutation and look up `Registry.DBs["plans"]`; if `format`
+    or `description` had been dropped, `LoadBytes` would have
+    errored on the missing-required-format rule (load.go:200-
+    204) before the test reached the `dbDecl` lookup. The fact
+    that the resolution succeeds is the proof that meta-fields
+    survived.
+
+- **Conclusion**: PASS. Every premise is backed by a concrete
+  citation; every spec'd branch has a test; the existing
+  atomic-rollback pipeline carries the empty-paths corner case
+  for free; the cobra + MCP mutex stacks together cover the
+  locked-design constraint set.
+
+- **Unknowns**: None blocking. The CLI-vs-MCP divergence on
+  `--data` rejection (cobra rejects unconditionally; MCP rejects
+  surgically) is documented in the WORKLOG ("slightly stricter
+  than the plan, simpler UX"); both forms are tested and both
+  forms fail closed. The format-preservation argument leans on
+  `dbDecl.Format` being non-empty for any successfully loaded
+  DB — true by `buildDB`'s required-format rule but worth
+  flagging as a load-time invariant the helper relies on.
+
+### 3. Files reviewed
+
+- `internal/ops/schema_mutate.go` (new helper, sections 39-72
+  pure compute + 90-121 adapter).
+- `cmd/ta/commands.go` (newSchemaCmd flags + RunE early-branch).
+- `internal/mcpsrv/tools.go` (schemaTool params + handle
+  Schema Mutate early-branch).
+- `internal/ops/schema_mutate_test.go` (new, 8 test functions,
+  table-driven + end-to-end).
+- `cmd/ta/commands_test.go` (7 new tests).
+- `internal/mcpsrv/server_test.go` (7 new tests).
+- `internal/schema/load.go` (re-read to confirm non-empty-paths
+  rule is the rollback trigger).
+- `workflow/ta/WORKLOG.md` (Phase 9.6 builder block read in
+  full; this PROOF appended below).
+
+### 4. Hylla Feedback
+
+N/A — review touched Go (`internal/ops/schema_mutate.go`,
+`internal/ops/schema_mutate_test.go`, `cmd/ta/commands.go`,
+`cmd/ta/commands_test.go`, `internal/mcpsrv/tools.go`,
+`internal/mcpsrv/server_test.go`, `internal/schema/load.go`)
+and Markdown (`workflow/ta/WORKLOG.md`) on an uncommitted
+working tree at HEAD `d798269` (Hylla ingest reflects the
+HEAD, not the deltas). Evidence sourced from `Read` on the
+live tree. Bash + grep were denied by the sandbox; symbol
+lookups stayed within the read files. No external library
+semantics needed beyond cobra `MarkFlagsMutuallyExclusive`
+and pelletier-go-toml `Marshal`/`Unmarshal`, both already
+heavily exercised by Phase 9.1-9.5 code paths.
+
+## 12.17.9 Phase 9.6 — `--paths-append` / `--paths-remove` sugar — QA FALSIFICATION REVIEW (2026-04-24)
+
+### 1. Verdict
+
+PASS. No CONFIRMED counterexample produced after attacking 14
+vectors against the uncommitted working tree at HEAD `d798269`
+(6 modified files plus 1 new — `internal/ops/schema_mutate.go`,
+`internal/ops/schema_mutate_test.go` (new), `cmd/ta/commands.go`,
+`cmd/ta/commands_test.go`, `internal/mcpsrv/tools.go`,
+`internal/mcpsrv/server_test.go`, `workflow/ta/WORKLOG.md`).
+Every attempted attack either REFUTED on inspection of the
+live tree or matched a documented locked-design behaviour.
+The orchestrator-relayed `mage fmt` clean and `mage check`
+exit 0 (13 packages green, +738 / −6) confirm compilation +
+race + coverage gates clear.
+
+### 2. Attack vectors and outcomes
+
+- **2.1 `ComputePathsMutation` purity (REFUTED).**
+  `internal/ops/schema_mutate.go:39-72`: the helper takes three
+  string-or-slice inputs, allocates `out` slices, copies, and
+  returns. No `os.*`, no `net.*`, no `syscall.*`, no goroutine
+  spawn. The function body touches only `fmt.Errorf` (error
+  format) and slice primitives — package-level imports
+  (`os`, `path/filepath`, `pelletier`, etc.) are present for
+  other functions in the same file (`MutateSchema`,
+  `loadSchemaMap`) and have no role in `ComputePathsMutation`.
+
+- **2.2 Append-existing idempotence (REFUTED).**
+  Lines 49-57: `for _, p := range currentPaths { if p ==
+  appendEntry { return copy unchanged } }` short-circuits
+  before the post-loop `append` call. `TestComputePaths
+  MutationTable` subcase "append duplicate is no-op"
+  (`schema_mutate_test.go:78-83`) and
+  `TestMutateDBPathsAppendIdempotent`
+  (`schema_mutate_test.go:207-221`) both lock the contract.
+
+- **2.3 Remove-missing idempotence (REFUTED).**
+  Lines 64-71: filter-loop appends every input to a fresh
+  `out` when nothing matches, returning a same-length copy.
+  Subcase "remove missing entry is no-op"
+  (`schema_mutate_test.go:91-95`) and
+  `TestMutateDBPathsRemoveMissingEntryIsNoOp`
+  (`schema_mutate_test.go:279-293`) lock it.
+
+- **2.4 Remove-to-empty triggers atomic rollback (REFUTED).**
+  `ComputePathsMutation` returns `[]string{}` (length 0) when
+  the slice contained only `removeEntry`. `MutateDBPaths`
+  (lines 109-120) marshals an empty `pathsAny`, dispatches
+  through `MutateSchema`. `applyDBMutation` deletes the
+  existing meta-keys and `maps.Copy(existingMap, data)`
+  overlays `paths=[]`. `pelletier.Marshal` re-emits the
+  schema, `schema.LoadBytes` calls `buildDB:188-192` which
+  rejects `len(db.Paths) == 0` with "must declare at least
+  one entry (PLAN §12.17.9)". The error is wrapped as
+  `ErrMetaSchemaViolation` at `schema_mutate.go:163-165`,
+  returned BEFORE the `toml.WriteAtomic` step at line 170.
+  Disk is untouched.
+  `TestMutateDBPathsRemoveLeavesEmptyTriggersMetaSchema`
+  (`schema_mutate_test.go:228-249`) reads the schema bytes
+  before and after, calls remove-to-empty, asserts the call
+  errored, and asserts `before == after`.
+  `TestSchemaCmdPathsRemoveTriggersMetaSchemaWhenEmpty`
+  (`commands_test.go:1634-1662`) and
+  `TestSchemaPathsRemoveLeavingEmptyTriggersMetaSchemaMCP`
+  (`server_test.go:2263-2288`) lock the same on the CLI and
+  MCP surfaces. The rollback assertion is exercised at all
+  three layers.
+
+- **2.5 `MutateDBPaths` cache invalidation (REFUTED).**
+  `MutateDBPaths` does not invalidate directly — it
+  delegates to `MutateSchema`, which calls
+  `defaultCache.Invalidate(projectPath)` at line 179 after
+  successful atomic-write and BEFORE the post-mutation
+  resolve at line 182. `TestMutateDBPathsAppendsLandsOnDisk`
+  (`schema_mutate_test.go:182-203`) and
+  `TestMutateDBPathsRemoveExistingEntry`
+  (`schema_mutate_test.go:255-274`) both call
+  `ResolveProject` after the mutation and assert
+  post-mutation `dbDecl.Paths`; assertions would fail under
+  a stale cache, so the invalidation contract is end-to-end
+  exercised.
+
+- **2.6 `applyDBMutation` repopulates format + description
+  (REFUTED).** `applyDBMutation:248-256` deletes meta-fields
+  `paths` / `format` / `description` from `existingMap` then
+  `maps.Copy(existingMap, data)`. If `MutateDBPaths` did not
+  repopulate them, the post-mutation schema would have empty
+  `format` and the meta-schema would reject
+  (`buildDB:200-204`). `MutateDBPaths:113-119` rebuilds
+  `data` with `paths` always, `format = string(dbDecl.Format)`
+  always, and `description = dbDecl.Description` only when
+  non-empty. Description is not required by the meta-schema
+  (`meta_schema.toml:39-42` — no `required` flag). Net:
+  format is always preserved; description is preserved when
+  present and silently absent when the source had none (no
+  information loss).
+
+- **2.7 Type sub-tables preserved on update (REFUTED).**
+  `applyDBMutation:248-256` removes only the meta-key set
+  from `existingMap`. `[plans.task]` lives under key `task`,
+  not in the meta-key list, so it survives the delete.
+  `maps.Copy` only overlays keys present in `data` —
+  `MutateDBPaths` builds `data` with at most
+  `paths`/`format`/`description`, never `task`. So the
+  existing `task` sub-table remains untouched.
+  `TestMutateDBPathsAppendsLandsOnDisk` exercises a fixture
+  with `[plans.task]` (`schema_mutate_test.go:23-33`); after
+  append + ResolveProject the registry succeeds — would
+  fail at `buildType:276-279` if `task.fields` vanished.
+
+- **2.8 Cobra mutex completeness (REFUTED).**
+  `commands.go:632-637` registers all five Phase 9.6
+  mutex pairs (in addition to the pre-existing
+  `data` ↔ `data-file`):
+  - `paths-append` ↔ `paths-remove` (line 633)
+  - `paths-append` ↔ `data` (line 634)
+  - `paths-append` ↔ `data-file` (line 635)
+  - `paths-remove` ↔ `data` (line 636)
+  - `paths-remove` ↔ `data-file` (line 637)
+  All five registered exactly as the task description
+  required. `TestSchemaCmdPathsAppendRemoveMutex`
+  (`commands_test.go:1739-1756`) and
+  `TestSchemaCmdPathsAppendDataMutex`
+  (`commands_test.go:1761-1778`) lock two of them; the
+  remaining three are covered by cobra's uniform
+  registration semantics.
+
+- **2.9 MCP surgical `data.paths` rejection (REFUTED).**
+  `tools.go:601-611`: when `pathsAppend` or `pathsRemove`
+  is set, the handler reads `req.GetArguments()["data"]`,
+  type-asserts to `map[string]any`, and rejects only when
+  the map carries a `paths` key. `data.format` and any
+  other key on `data` are silently allowed.
+  `TestSchemaPathsAppendWithDataPathsRejected`
+  (`server_test.go:2221-2241`) seeds `data:
+  {paths:[...],format:"toml"}` alongside `paths_append` and
+  asserts the rejection mentions "paths".
+
+- **2.10 MCP scope guard (REFUTED).**
+  `tools.go:594-596`: `if pathsAppend != "" || pathsRemove
+  != "" { if action != "update" || kind != "db" { error
+  } }`. Both axes enforced — `paths_append` with
+  `action=delete` errors, `paths_append` with `kind=type`
+  errors. `TestSchemaPathsAppendOnlyValidOnUpdateDBMCP`
+  (`server_test.go:2245-2258`) exercises the
+  `action=delete` branch; the `kind=type` branch is
+  structurally identical (same predicate, same return).
+  CLI parity at `commands.go:582-584` and
+  `TestSchemaCmdPathsAppendOnlyValidOnUpdateDB`
+  (`commands_test.go:1784-1800`).
+
+- **2.11 Cross-db paths overlap on append (REFUTED, by
+  inheritance).** `MutateSchema` re-runs
+  `schema.LoadBytes(newBuf)` at line 163 BEFORE the atomic
+  write at line 170. `LoadBytes → buildRegistry →
+  checkPathsOverlap` (`load.go:368-401`) detects glob-aware
+  overlap and returns `ErrOverlappingPaths`, wrapped as
+  `ErrMetaSchemaViolation`. No new test specifically
+  attacks the cross-db overlap on the sugar path, but the
+  overlap-rejection wiring is shared with every other
+  update-db dispatch (Phase 9.1 tests already exercise the
+  round-trip-LoadBytes overlap path). The sugar path
+  inherits the gate by construction — there is no bypass.
+  Recorded as inherited PASS.
+
+- **2.12 Append at non-end position (REFUTED).**
+  `ComputePathsMutation:58-61` allocates `out :=
+  make([]string, 0, len(currentPaths)+1)`, copies the input
+  via `out = append(out, currentPaths...)`, then `out =
+  append(out, appendEntry)`. The new entry is
+  unconditionally appended at the end; original order is
+  preserved by Go's append-of-slice semantics. Subcase
+  "preserves order on append" (`schema_mutate_test.go:108
+  -113`) locks three-element preservation; subcase "remove
+  preserves remaining order" (`schema_mutate_test.go:114
+  -119`) locks the symmetric remove path.
+
+- **2.13 Test coverage matches builder claims (REFUTED —
+  counts exact).** Builder claimed 8+7+7 across the three
+  test files:
+  - `internal/ops/schema_mutate_test.go`: 8 functions —
+    `TestComputePathsMutationTable`,
+    `TestComputePathsMutationDoesNotAliasInput`,
+    `TestMutateDBPathsAppendsLandsOnDisk`,
+    `TestMutateDBPathsAppendIdempotent`,
+    `TestMutateDBPathsRemoveLeavesEmptyTriggersMetaSchema`,
+    `TestMutateDBPathsRemoveExistingEntry`,
+    `TestMutateDBPathsRemoveMissingEntryIsNoOp`,
+    `TestMutateDBPathsUnknownDBErrors`. Verified by full
+    `Read` of `schema_mutate_test.go` (307 lines).
+  - `cmd/ta/commands_test.go` Phase 9.6 block (lines
+    1592-1800): 7 functions —
+    `TestSchemaCmdPathsAppendLandsEntry`,
+    `TestSchemaCmdPathsRemoveTriggersMetaSchemaWhenEmpty`,
+    `TestSchemaCmdPathsRemoveExisting`,
+    `TestSchemaCmdPathsAppendDuplicateIsNoOp`,
+    `TestSchemaCmdPathsAppendRemoveMutex`,
+    `TestSchemaCmdPathsAppendDataMutex`,
+    `TestSchemaCmdPathsAppendOnlyValidOnUpdateDB`. Verified
+    by `Read` lines 1500-1834.
+  - `internal/mcpsrv/server_test.go` Phase 9.6 block (lines
+    2099-2288): 7 functions — `TestSchemaPathsAppendMCP`,
+    `TestSchemaPathsRemoveMCP`,
+    `TestSchemaPathsAppendIdempotentMCP`,
+    `TestSchemaPathsAppendRemoveMutexMCP`,
+    `TestSchemaPathsAppendWithDataPathsRejected`,
+    `TestSchemaPathsAppendOnlyValidOnUpdateDBMCP`,
+    `TestSchemaPathsRemoveLeavingEmptyTriggersMetaSchemaMCP`.
+    Verified by `Read` lines 1900-2288.
+  Counts match: 8 + 7 + 7 = 22 net-new test functions.
+
+- **2.14 WORKLOG integrity (REFUTED).** Phase 9.5 builder
+  + Phase 9.5 QA Proof + Phase 9.5 QA Falsification all
+  appear before line 6080. Phase 9.6 builder block
+  (sections 1-6) lands at lines 6081-6220. Phase 9.6 QA
+  Proof block (sections 1-4) lands at lines 6222-6457.
+  This QA Falsification block appends after the QA Proof —
+  pure append, no in-place edit, no header collision,
+  follows the well-established Phase 9.5 ordering pattern.
+
+### 3. Conclusion (FALSIFICATION certificate)
+
+- **Premises**: locked-design Phase 9.6 contract per task
+  description: `ComputePathsMutation` is pure;
+  append-existing / remove-missing are no-ops;
+  remove-to-empty rolls back via meta-schema; `MutateDBPaths`
+  repopulates `format` + `description` from existing
+  dbDecl; `applyDBMutation` preserves type sub-tables;
+  cobra registers all 5 mutex pairs; MCP rejects
+  `data.paths` surgically; MCP scope-guards to
+  `action=update + kind=db`; cross-db overlap on append
+  rolls back via inherited `LoadBytes` pipeline; order
+  preservation; 8+7+7 test coverage; WORKLOG append-only.
+- **Evidence**: full `Read` of `internal/ops/schema_mutate.go`
+  (510 lines), `internal/ops/schema_mutate_test.go` (307
+  lines), the schema-command region of `cmd/ta/commands.go`
+  (lines 524-640), the schema-tool region of
+  `internal/mcpsrv/tools.go` (lines 164-650), the Phase 9.6
+  test regions of `cmd/ta/commands_test.go` (lines
+  1500-1834) and `internal/mcpsrv/server_test.go` (lines
+  1900-2288); cross-package `Read` of `internal/schema/load.go`
+  (paths-overlap detector + non-empty-paths gate) and
+  `internal/schema/meta_schema.toml` (description not
+  required); `Read` of WORKLOG.md surrounding lines (Phase
+  9.5 closeout + Phase 9.6 builder + Phase 9.6 QA Proof);
+  orchestrator-relayed `mage fmt` clean and `mage check`
+  exit 0 (13 packages, +738 / −6) confirm compilation +
+  race + coverage.
+- **Trace or cases**: 14 attack vectors enumerated above,
+  every one REFUTED on inspection of the live tree.
+- **Conclusion**: PASS. No CONFIRMED counterexample produced.
+- **Unknowns**: None blocking. The cross-db paths-overlap
+  attack (vector 2.11) lacks a sugar-path-specific negative
+  test; the wiring is structurally complete and inherits
+  the gate from `MutateSchema → schema.LoadBytes →
+  checkPathsOverlap`, which is exercised by Phase 9.1
+  tests. Recorded as inherited PASS rather than blocking.
+  The cobra `MarkFlagsMutuallyExclusive` mechanism is
+  treated as transitively trusted across the three
+  unattested mutex pairs (paths-append↔data-file,
+  paths-remove↔data, paths-remove↔data-file) — cobra's
+  registration semantics reject all such pairs uniformly,
+  so locking two of five via tests is sufficient. If a
+  future defensive sweep wants every pair locked, three
+  more table-driven CLI cases would close the gap.
+
+### 4. Hylla Feedback
+
+N/A — review touched Go code only (`internal/ops/schema_mutate.go`,
+`internal/ops/schema_mutate_test.go`, `cmd/ta/commands.go`,
+`cmd/ta/commands_test.go`, `internal/mcpsrv/tools.go`,
+`internal/mcpsrv/server_test.go`, `internal/schema/load.go`,
+`internal/schema/meta_schema.toml`) plus this Markdown
+WORKLOG entry. Evidence sourced from `Read` on the live
+working tree at HEAD `d798269`. Bash was denied for the
+entirety of this review, so `Hylla`, `grep`, `find`, and
+`git diff` were unavailable; all counterexample attempts
+were reduced to direct `Read` inspection. No external
+library semantics needed beyond the already-known cobra
+`MarkFlagsMutuallyExclusive` (verified by inspection of
+`commands.go:632-637`) and the existing `MutateSchema`
+pipeline contracts already exercised by Phase 9.1 tests.

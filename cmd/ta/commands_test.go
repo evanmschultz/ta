@@ -1589,6 +1589,216 @@ func pad2(i int) string {
 	return string(rune('0'+hi)) + string(rune('0'+lo))
 }
 
+// ---- §12.17.9 Phase 9.6 paths sugar CLI -----------------------------
+
+// TestSchemaCmdPathsAppendLandsEntry locks in the Phase 9.6 happy path:
+// `ta schema --action=update --kind=db --name=plans --paths-append=archive`
+// against a fixture with paths=["plans.toml"] writes paths=["plans.toml",
+// "archive"] through the standard atomic-rollback pipeline.
+func TestSchemaCmdPathsAppendLandsEntry(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root,
+		"--action", "update",
+		"--kind", "db",
+		"--name", "plans",
+		"--paths-append", "archive.toml",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+	}
+	resolution, err := ops.ResolveProject(root)
+	if err != nil {
+		t.Fatalf("ResolveProject: %v", err)
+	}
+	dbDecl := resolution.Registry.DBs["plans"]
+	want := []string{"plans.toml", "archive.toml"}
+	if len(dbDecl.Paths) != len(want) {
+		t.Fatalf("paths after append = %v, want %v", dbDecl.Paths, want)
+	}
+	for i, p := range want {
+		if dbDecl.Paths[i] != p {
+			t.Errorf("paths[%d] = %q, want %q", i, dbDecl.Paths[i], p)
+		}
+	}
+}
+
+// TestSchemaCmdPathsRemoveTriggersMetaSchemaWhenEmpty proves the Phase
+// 9.6 doc'd corner: removing the only entry leaves the db with zero
+// paths, which fails the meta-schema and rolls back atomically. No
+// special-case handling — the meta-schema error surfaces verbatim.
+func TestSchemaCmdPathsRemoveTriggersMetaSchemaWhenEmpty(t *testing.T) {
+	root := newSchemaFixture(t)
+	schemaPath := filepath.Join(root, ".ta", "schema.toml")
+	before, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read schema before: %v", err)
+	}
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root,
+		"--action", "update",
+		"--kind", "db",
+		"--name", "plans",
+		"--paths-remove", "plans.toml",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected meta-schema violation when removing only entry; stdout=%s", out.String())
+	}
+	after, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read schema after: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("atomic rollback failed: schema bytes drifted on disk")
+	}
+}
+
+// TestSchemaCmdPathsRemoveExisting proves the happy-path remove when
+// the slice has more than one entry: a prior --paths-append seeds two
+// entries, then --paths-remove filters one out.
+func TestSchemaCmdPathsRemoveExisting(t *testing.T) {
+	root := newSchemaFixture(t)
+	// Seed via append.
+	seed := newSchemaCmd()
+	seed.SetOut(&bytes.Buffer{})
+	seed.SetErr(&bytes.Buffer{})
+	seed.SetArgs([]string{
+		"--path", root,
+		"--action", "update",
+		"--kind", "db",
+		"--name", "plans",
+		"--paths-append", "archive.toml",
+	})
+	if err := seed.Execute(); err != nil {
+		t.Fatalf("seed append: %v", err)
+	}
+	// Remove the original.
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root,
+		"--action", "update",
+		"--kind", "db",
+		"--name", "plans",
+		"--paths-remove", "plans.toml",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute remove: %v stderr=%s", err, errOut.String())
+	}
+	resolution, err := ops.ResolveProject(root)
+	if err != nil {
+		t.Fatalf("ResolveProject: %v", err)
+	}
+	dbDecl := resolution.Registry.DBs["plans"]
+	if len(dbDecl.Paths) != 1 || dbDecl.Paths[0] != "archive.toml" {
+		t.Errorf("paths after remove = %v, want [archive.toml]", dbDecl.Paths)
+	}
+}
+
+// TestSchemaCmdPathsAppendDuplicateIsNoOp proves appending an
+// already-present entry leaves the slice unchanged and still re-
+// validates cleanly.
+func TestSchemaCmdPathsAppendDuplicateIsNoOp(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root,
+		"--action", "update",
+		"--kind", "db",
+		"--name", "plans",
+		"--paths-append", "plans.toml",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute idempotent append: %v stderr=%s", err, errOut.String())
+	}
+	resolution, err := ops.ResolveProject(root)
+	if err != nil {
+		t.Fatalf("ResolveProject: %v", err)
+	}
+	dbDecl := resolution.Registry.DBs["plans"]
+	if len(dbDecl.Paths) != 1 || dbDecl.Paths[0] != "plans.toml" {
+		t.Errorf("paths after duplicate append = %v, want [plans.toml]", dbDecl.Paths)
+	}
+}
+
+// TestSchemaCmdPathsAppendRemoveMutex proves cobra rejects passing both
+// --paths-append and --paths-remove together.
+func TestSchemaCmdPathsAppendRemoveMutex(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root,
+		"--action", "update",
+		"--kind", "db",
+		"--name", "plans",
+		"--paths-append", "x.toml",
+		"--paths-remove", "y.toml",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --paths-append + --paths-remove to error")
+	}
+}
+
+// TestSchemaCmdPathsAppendDataMutex proves cobra rejects passing
+// --paths-append together with --data — the user is mixing replace-
+// mode and incremental-mode and that has to fail loudly.
+func TestSchemaCmdPathsAppendDataMutex(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root,
+		"--action", "update",
+		"--kind", "db",
+		"--name", "plans",
+		"--paths-append", "archive.toml",
+		"--data", `{"paths":["plans.toml","archive.toml"],"format":"toml"}`,
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --paths-append + --data to error")
+	}
+}
+
+// TestSchemaCmdPathsAppendOnlyValidOnUpdateDB proves the sugar guards
+// scope: passing --paths-append with action != update or kind != db
+// surfaces a clear scope error rather than silently doing the wrong
+// thing.
+func TestSchemaCmdPathsAppendOnlyValidOnUpdateDB(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root,
+		"--action", "delete",
+		"--kind", "db",
+		"--name", "plans",
+		"--paths-append", "archive.toml",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --paths-append on action=delete to error")
+	}
+}
+
 // assertGolden compares got against the bytes stored at goldenPath. On
 // -update the golden is regenerated; on first run (file missing) the
 // golden is materialized and the test fails loudly so the dev reviews

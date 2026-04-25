@@ -165,7 +165,7 @@ func schemaTool() mcp.Tool {
 	return mcp.NewTool(
 		"schema",
 		mcp.WithDescription(
-			"Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema). action=create|update|delete uses 'kind' (db / type / field) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload).",
+			"Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema). action=create|update|delete uses 'kind' (db / type / field) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload). Sugar (PLAN §12.17.9 Phase 9.6): on action=update + kind=db, 'paths_append' / 'paths_remove' mutate the db's paths slice incrementally — single-entry strings, mutually exclusive with each other and with a 'data' payload carrying a 'paths' key.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString(
@@ -179,6 +179,14 @@ func schemaTool() mcp.Tool {
 			"data",
 			mcp.Description("action=create|update: kind-specific meta-schema payload."),
 			mcp.AdditionalProperties(map[string]any{}),
+		),
+		mcp.WithString(
+			"paths_append",
+			mcp.Description("Sugar (PLAN §12.17.9 Phase 9.6, action=update + kind=db only): append one entry to the db's paths slice. Idempotent — repeats are no-ops. Mutually exclusive with paths_remove and with a 'data' payload that carries a 'paths' key."),
+		),
+		mcp.WithString(
+			"paths_remove",
+			mcp.Description("Sugar (PLAN §12.17.9 Phase 9.6, action=update + kind=db only): remove one entry from the db's paths slice. Missing entries are no-ops. Mutually exclusive with paths_append and with a 'data' payload that carries a 'paths' key."),
 		),
 	)
 }
@@ -575,6 +583,44 @@ func handleSchemaMutate(path, action string, req mcp.CallToolRequest) *mcp.CallT
 	if name == "" {
 		return mcp.NewToolResultError("schema: missing required 'name'")
 	}
+
+	// PLAN §12.17.9 Phase 9.6: paths_append / paths_remove sugar.
+	// Lives strictly on action=update + kind=db. The two are mutually
+	// exclusive with each other and with a `data` payload that carries
+	// a `paths` key — either you replace the slice via data, or you
+	// mutate it incrementally via the sugar, never both.
+	pathsAppend := req.GetString("paths_append", "")
+	pathsRemove := req.GetString("paths_remove", "")
+	if pathsAppend != "" || pathsRemove != "" {
+		if action != "update" || kind != "db" {
+			return mcp.NewToolResultError("schema: paths_append / paths_remove only valid with action=update + kind=db (PLAN §12.17.9 Phase 9.6)")
+		}
+		if pathsAppend != "" && pathsRemove != "" {
+			return mcp.NewToolResultError("schema: pass either paths_append or paths_remove, not both")
+		}
+		// Reject a `data.paths` payload alongside the sugar — the user
+		// is mixing replace-mode and incremental-mode and we surface
+		// the conflict loudly.
+		args := req.GetArguments()
+		if dataAny, ok := args["data"]; ok && dataAny != nil {
+			if dm, ok := dataAny.(map[string]any); ok {
+				if _, hasPaths := dm["paths"]; hasPaths {
+					return mcp.NewToolResultError("schema: 'data.paths' cannot be combined with paths_append / paths_remove sugar")
+				}
+			}
+		}
+		sources, err := ops.MutateDBPaths(path, name, pathsAppend, pathsRemove)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error())
+		}
+		return mustJSON(mutationSuccess{
+			Path:        path,
+			Section:     name,
+			Action:      "schema." + action,
+			SchemaPaths: sources,
+		})
+	}
+
 	// Reserved-name guard is enforced inside MutateSchema so both
 	// CLI and MCP paths share one rejection point.
 	var data map[string]any
