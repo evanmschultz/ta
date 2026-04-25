@@ -1230,32 +1230,68 @@ One drop. The ordering below is build-order, not commit-boundary — commits may
 
     - **Round 8 — Phase E.** E1 dogfood pass (no builder — human walkthrough). Closes §12.17.5. E1 surfaced the [F1] schema UX gap below.
 
-    - **Round 9 — [F1] `ta init` db-picker redesign (solo builder).** Surfaced during E1 dogfood (2026-04-24). See §12.17.8 below. Must land before §12.17.6 cascade-agents design because the per-db picker is the UX that the examples dir will demonstrate.
+    - **Round 9 — §12.17.9 paths-shape + index (multi-phase sequential builder series).** Replaces three current shapes with `paths = [...]` slice; new address grammar without db prefix; adds `.ta/index.toml`; subsumes [F1]. Sub-rounds 9.1–9.8 listed in §12.17.9. Each sub-round is one builder + QA pair + commit. SEQUENTIAL — each builds on previous. Largest pre-release drop.
 
     - **Round 10 — §12.17.6 cascade-agents design.** Dev + orchestrator collaborative design session. No builder. Output: a new design doc under `docs/` (exact filename TBD). Pre-release; its output shapes §12.17.7 and the dogfood local-schema.
 
     - **Round 11 — §12.17.7 examples rebuild.** Dev + orchestrator collaborative build. No solo builder (dev-driven design decisions throughout). Replaces `examples/schema.toml` with a richer copy-from-able set based on §12.17.6.
 
-After §12.17.5 closes: §12.17.8 [F1] init db-picker → §12.17.6 cascade-agents design → §12.17.7 examples rebuild → §12.18 README collapse → §12.19 v0.1.0 release tag.
+After §12.17.5 closes: §12.17.9 paths-shape + index → §12.17.6 cascade-agents design → §12.17.7 examples rebuild → §12.18 README collapse → §12.19 v0.1.0 release tag.
 
-**12.17.8 `ta init` db-picker redesign (pre-release, builder task). Surfaced during E1 dogfood 2026-04-24.** Today `ta init` treats `~/.ta/*.toml` as opaque named template files — the huh picker shows filenames and copies the entire selected file to `<project>/.ta/schema.toml`. This is wrong: `~/.ta/schema.toml` is a schema LIBRARY containing multiple top-level db declarations (`[plans]`, `[agents]`, etc.), and users should be able to pick any subset of those dbs when initting a project.
+**12.17.8 `ta init` db-picker redesign — SUPERSEDED by §12.17.9.** This drop's UX intent (multi-select dbs from home schema library on init) is folded into §12.17.9 Phase 5 below. Original spec retained for context but no longer freestanding.
 
-**New UX goal.** `ta init` parses the home schema library and presents individual db declarations via a `huh.MultiSelect`. The user picks none, some, or all. The selected dbs (plus their type + field sub-tables) are reconstructed into the project `.ta/schema.toml`. This gives users full granularity: "I want `plans` and `agents` in this project but not `build_task`." Named template files (`~/.ta/<name>.toml` other than `schema.toml`) continue to work as full-file presets accessible via `--template <name>`; the db-picker is the default interactive path.
+**12.17.9 Paths-shape model + runtime index (pre-release, multi-phase builder task). Locked 2026-04-24 after extensive design discussion through E1 dogfood.** Replaces the three current shapes (`ShapeFile`, `ShapeDirectory`, `ShapeCollection`) with a single `paths = [...]` slice model. Adds `.ta/index.toml` runtime record-type index. Changes address grammar to drop the db-prefix segment. Subsumes the §12.17.8 db-picker redesign. Largest §12.17.5 sibling drop.
 
-**Open design questions (dev sign-off required before build):**
-- `~/.ta/schema.toml` as the LIBRARY and `~/.ta/<name>.toml` as PRESETS — is this the canonical mental model going forward? (Implies `ta template save` saves the whole project schema as a preset, not individual dbs.)
-- Zero-db selection: error loudly, or write an empty `schema.toml` (valid TOML, user builds via `ta schema --action=create` later)?
-- Filtering: should the db-picker also let the user edit a db's type/field list inline, or is that post-init via `ta schema --action=update`?
-- Agent UX: on non-TTY, `--template <name>` remains the non-interactive escape. Should agents be able to pass `--dbs plans,agents` as a flag for scripted db selection?
+**Locked design (no more redesign — these are decisions to build against):**
 
-**Scope (build items after design sign-off):**
-- Parse `~/.ta/schema.toml` to extract db names via the existing `schema` package loader.
-- Replace `huh.Select` (template file picker) with `huh.MultiSelect` (db-name picker) in `chooseSchema` / `pickTemplate`.
-- Reconstruct a subset schema TOML from selected dbs using `pelletier/go-toml/v2` marshal + `schema.Registry` subset.
-- Keep `--template <name>` full-file path as non-interactive escape and named-preset shortcut.
-- Empty home schema (0 dbs after parse) → existing `emptyHomeError`.
-- Tests: `internal/schema` subset-marshal, `cmd/ta/init_cmd` multi-select flow, non-TTY `--dbs` flag if adopted.
-- QA pair gates the commit per standard discipline.
+- **Schema model**: every db declares `paths = [...]` (slice, length 1+, glob `*` allowed for one segment). Replaces `file=` / `directory=` / `collection=`. Project-relative or home-relative (`~/...`). Examples: `["plans"]`, `["workflow/*/db"]`, `["docs/"]`, `["~/.ta/projects/myproj/workflow/*/db"]`. Schema-load REJECTS overlapping `paths` slices across dbs (would make addresses ambiguous).
+- **Address grammar**: `<file-relpath>.<id-tail>`. NO db prefix. The schema's `paths` mount determines the db. `<file-relpath>` is the dotted on-disk path under the mount, basename only (no extension). `<id-tail>` is the bracket path inside the file. Examples: `phase_1.db.t1` (under `paths = ["workflow/*/db"]` → `workflow/phase_1/db.toml [t1]`); `README.installation` (under `paths = ["."]` → `README.md [installation]`); `guides.install.prereqs` (under `paths = ["docs/"]` → `docs/guides/install.md [prereqs]`).
+- **Type via flag**: `--type` is REQUIRED on `ta create` (defines the type for validation + index). OPTIONAL on `ta get`/`update`/`delete`/`search` — index resolves; if specified must match index else error.
+- **`.ta/index.toml`**: top-level `format_version = 1` scalar. One bracket-table per record, keyed by canonical address (no db prefix). Each entry carries `type`, `created`, `updated`. Idiomatic TOML — natural nested form. Example:
+  ```toml
+  format_version = 1
+
+  [phase_1.db.t1]
+  type = "task"
+  created = 2026-04-24T15:00:00Z
+  updated = 2026-04-24T15:30:00Z
+
+  [README.installation]
+  type = "section"
+  created = 2026-04-24T14:00:00Z
+  updated = 2026-04-24T14:30:00Z
+  ```
+- **Index is trust-and-fail-loud**: written atomically on every create/update/delete. NO mtime-stat caching, NO auto-rebuild, NO drift-recovery scaffolding. If a read finds a mismatch (index says yes but bracket missing on disk, or bracket on disk that's not in index), error loudly with "run `ta index rebuild`". Manual command only.
+- **Id-tail uniqueness**: enforced at create-time. The full canonical address `<file-relpath>.<id-tail>` must not exist in the index. ErrRecordExists fires if it does. TOML bracket parser also enforces uniqueness within each file by parser semantics — two-layer safety.
+- **`ta create --file <path> --schema <db>`**: pre-create step that creates the on-disk file (and any missing parent dirs) using the schema's `format` extension. After file exists, `ta create <addr> --type <name> --data '{...}'` writes the first record into it. Auto-mkdir + auto-create.
+- **CLI `ta create <addr> --type <name>`** without `--data` opens a huh form with one input per declared field on the type, dispatching by `(Field.Type, Field.Format)` per existing D1 logic.
+- **MCP `mcp__ta__create`** always carries `data` JSON; agents never use the form path.
+- **CLI+MCP path-list sugar**: `ta schema --action=update --kind=db --name=<db> --paths-append=<glob>` and `--paths-remove=<glob>`. MCP equivalent via optional `paths_append` / `paths_remove` params on `mcp__ta__schema(action="update")`. Server-side fetch-modify-write with atomic-rollback. Full-replace via `data.paths` array also works.
+- **`ta template save`** preserves project schema's `paths` verbatim into `~/.ta/<name>.toml`. No path rewriting on promote.
+- **`ta init` db-picker**: `huh.MultiSelect` over the home schema library's declared dbs. User picks subset. Selected dbs (with their `paths`, `format`, types, fields) are reconstructed into the project's `.ta/schema.toml`. Replaces template-file picker.
+- **`ta index rebuild`**: manual command. Walks every declared db's `paths`, opens each matching file, parses records, regenerates `.ta/index.toml`. Atomic write. Used after hand-edits or on index errors.
+
+**Phase decomposition (sequential builder rounds; each lands as one commit after QA pair PASS):**
+
+- **Phase 9.1 — Schema model migration.** Replace `schema.DB.Path string` + `schema.DB.Shape Shape` with `schema.DB.Paths []string`. Update meta-schema (`internal/schema/meta_schema.toml`) to require `paths` slice + reject `file`/`directory`/`collection`. Schema-load enforces no-overlap-across-dbs invariant. Update `examples/schema.toml`. Migrate `main/.ta/schema.toml` (dogfood) to `paths = ["workflow/*/db"]` + types `build_task`, `qa_task`. Old shape constants (ShapeFile etc.) deleted from `internal/schema/schema.go`. Tests in `internal/schema` updated for new model.
+
+- **Phase 9.2 — Address parser + path resolver.** Replace `internal/db/address.go:ParseAddress` with new grammar `<file-relpath>.<id-tail>` (no db prefix). Replace `internal/db/resolver.go` instance/path logic with paths-glob expansion. New helper: given an address and a `Registry`, find which db's `paths` mount contains the file, return the absolute file path + bracket id-tail. Tests in `internal/db` heavily updated.
+
+- **Phase 9.3 — Index store package.** New `internal/index/` package. Read/write `.ta/index.toml` with `format_version` scalar + per-record bracket tables. `index.Get(addr)`, `index.Put(addr, type, created, updated)`, `index.Delete(addr)`, `index.Walk()`. Atomic write via `internal/fsatomic`. Concurrent-write safety via `.ta/index.toml.lock` sentinel. Tests in `internal/index/`. New `ta index rebuild` CLI command (no MCP equivalent — too rebuild-y for an agent). Empty-index initial-state handled cleanly.
+
+- **Phase 9.4 — CRUD rewires.** `ops.Create` requires `--type`, validates type exists on db, validates fields, writes bracket, updates index. `ops.Update` resolves type from index, validates fields, PATCH overlay, updates index `updated` timestamp. `ops.Delete` removes bracket + index entry. `ops.Get` resolves type from index (or validates `--type` if passed). `ops.ListSections` walks index keyspace under scope. `ops.Search` filters index keys + reads bracket bytes for content match. CLI commands gain `--type` flag. `--type` REQUIRED on create, OPTIONAL on read commands. `--file` + `--schema` on create-the-file path. ErrRecordExists, type-mismatch, index-disk-mismatch errors all spec'd.
+
+- **Phase 9.5 — Init UX redesign (subsumes [F1]).** Replace `pickTemplate` (file-list select) with `pickDBs` (db-list multi-select) in `cmd/ta/init_cmd.go`. Parses home `~/.ta/schema.toml`, extracts top-level db names + their meta, presents `huh.MultiSelect`. Selected dbs reconstructed into project schema via `pelletier/go-toml/v2` marshal of `schema.Registry` subset. `--template <name>` remains as full-file shortcut path. Zero-db selection writes empty schema (per dev decision; user builds via `ta schema --action=create`). Empty home schema → existing `emptyHomeError`.
+
+- **Phase 9.6 — Schema CRUD path-list sugar.** `--paths-append` / `--paths-remove` flags on `ta schema --action=update --kind=db`. Server-side fetch-modify-write through existing atomic-rollback path. MCP `mcp__ta__schema(action="update")` gains `paths_append`/`paths_remove` optional params. Tests in `internal/ops` and `internal/mcpsrv`.
+
+- **Phase 9.7 — Test suite + golden regen.** All affected goldens regenerated. `cmd/ta/testdata/` goldens updated for new address grammar. `dogfood_test.go` rewires to new shape. Cross-package integration tests confirm CLI ↔ MCP parity holds.
+
+- **Phase 9.8 — Migration + dogfood verification.** Final `mage dogfood` run materializes new index from migrated schema. E2E walkthrough in `main/` with the user against real records. Migration notes added to release notes.
+
+**Sequencing rule.** Phases run STRICTLY SEQUENTIALLY — each phase's diff is the foundation for the next. No parallel builders. QA pair on every commit. Stop on any QA design-issue finding for orchestrator + dev discussion before resuming.
+
+**Migration impact.** Breaking change for any downstream consumer of `schema.DB.Shape` / `Path` / `File`-keyword. Release-note text drafted in Phase 9.8. v0.1.0 ships post §12.17.9 with this as the canonical model — no compat layer for old shapes.
 
 **12.17.6 Cascade-agents design (pre-release, collaborative).** Dev + orchestrator work through this together — no solo subagent, no dev-alone writing session. Defines the cascade-agents discipline that orchestrator / builder / QA / research agents obey across Tillsyn-coordinated work: roles and their boundaries, handoff mechanics, auth lifecycle (project-scoped vs global sessions), keymap and UI defaults, and the rule-cascade layering (`~/.claude/CLAUDE.md` ↔ `~/.codex/AGENTS.md` ↔ project `CLAUDE.md` / `AGENTS.md` ↔ `.ta/` schema records). Output: a design doc under `docs/` (filename TBD during the session) capturing the discipline in prose plus example records. Signed off jointly by dev and orchestrator before §12.17.7 starts. Rationale: its output shapes the dogfood local-schema structure and the §12.17.7 examples; cannot skip and still ship a usable v0.1.0.
 
