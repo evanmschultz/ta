@@ -332,6 +332,67 @@ func TestCreateRejectsTypeMismatch(t *testing.T) {
 	}
 }
 
+// TestUpdateRejectsTypeMismatch is the symmetric Phase 9.4 lock for the
+// MCP `update` surface. PLAN §12.17.9 Phase 9.7 audit: `update` and
+// `delete` share the `verifyTypeAgainstAddress` helper with `create`,
+// but the contract was only locked end-to-end through Create.
+// Disagreement on Update must error and leave on-disk bytes untouched.
+func TestUpdateRejectsTypeMismatch(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	initial := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res := callTool(t, c, "update", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"type":    "ghost",
+		"data":    map[string]any{"status": "done"},
+	})
+	if !res.IsError {
+		t.Fatalf("expected type-mismatch to error")
+	}
+	if !strings.Contains(firstText(t, res), "type mismatch") {
+		t.Errorf("error should mention type mismatch: %s", firstText(t, res))
+	}
+	after, _ := os.ReadFile(dataPath)
+	if string(after) != initial {
+		t.Errorf("rejected update touched bytes:\n--- before ---\n%s\n--- after ---\n%s", initial, after)
+	}
+}
+
+// TestDeleteRejectsTypeMismatch is the symmetric Phase 9.4 lock for the
+// MCP `delete` surface. PLAN §12.17.9 Phase 9.7 audit: same rationale
+// as TestUpdateRejectsTypeMismatch — the helper was only exercised
+// end-to-end through Create. Disagreement must error before any splice;
+// the record stays on disk.
+func TestDeleteRejectsTypeMismatch(t *testing.T) {
+	fx := newFixture(t)
+	c := newClient(t)
+	dataPath := filepath.Join(fx.projectRoot, "plans.toml")
+	initial := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"section": "plans.task.t1",
+		"type":    "ghost",
+	})
+	if !res.IsError {
+		t.Fatalf("expected type-mismatch to error")
+	}
+	if !strings.Contains(firstText(t, res), "type mismatch") {
+		t.Errorf("error should mention type mismatch: %s", firstText(t, res))
+	}
+	after, _ := os.ReadFile(dataPath)
+	if string(after) != initial {
+		t.Errorf("rejected delete touched bytes:\n--- before ---\n%s\n--- after ---\n%s", initial, after)
+	}
+}
+
 func TestUpdateFailsOnMissingFile(t *testing.T) {
 	fx := newFixture(t)
 	c := newClient(t)

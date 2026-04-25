@@ -6739,3 +6739,366 @@ library semantics needed beyond the already-known cobra
 `MarkFlagsMutuallyExclusive` (verified by inspection of
 `commands.go:632-637`) and the existing `MutateSchema`
 pipeline contracts already exercised by Phase 9.1 tests.
+
+## 12.17.9 Phase 9.7 — TEST SUITE AUDIT (2026-04-25)
+
+**Scope:** verify the post-Phase-9.6 test suite is complete and
+consistent across CLI ↔ MCP surfaces; audit goldens for
+post-Phase-9.2 grammar drift; close Phase 9.4 falsification
+"advisory non-blocker" gaps that named symmetric Update /
+Delete type-mismatch tests + a `verifyTypeAgainstIndex`
+disagreement-path test. AUDIT phase, not feature phase — no
+source files (`*.go` non-test) touched.
+
+### A. Golden audit — PASS
+
+All seven `.golden` fixtures re-verified against their
+asserting tests. Every fixture uses post-Phase-9.2
+file-relpath grammar and post-Phase-9.1 `paths` array model.
+No drift, no rewrites needed.
+
+- `cmd/ta/testdata/get_single.golden` — asserts on
+  `plans.task.t1` (file-relpath form `plans` + type `task` +
+  id `t1`). Asserter:
+  `cmd/ta/commands_test.go::TestGetCmdSingleRecordGolden`
+  uses fixture `cliTaskSchema` with `paths = ["plans.toml"]`.
+- `cmd/ta/testdata/get_single_json.golden` — JSON envelope
+  carrying section `plans.task.t1` and bytes
+  `[plans.task.t1]\nid = "T1"\nstatus = "todo"\n`. Asserter:
+  `TestGetCmdSingleRecordJSONGolden`. OK.
+- `cmd/ta/testdata/schema_flow.golden` — emits
+  `paths plans.toml` / `format toml` (Phase 9.1+ multi-entry
+  paths array rendering). Asserter:
+  `TestSchemaCmdFlowGolden`. OK.
+- `internal/render/testdata/record_search.golden` — asserts
+  `plans.task.t1` rendered Record output with five fields.
+  Asserter: `TestRendererRecordSearchGolden`. OK.
+- `internal/render/testdata/schema_flow_single_db.golden`,
+  `schema_flow_single_type.golden`,
+  `schema_flow_whole_project.golden` — all three render
+  schema-flow output with `paths plans.toml` or `paths docs/`
+  on the relevant DB row. Asserters in
+  `internal/render/schema_flow_test.go` build fixtures with
+  `Paths: []string{"plans.toml"}` /
+  `Paths: []string{"docs/"}` (Phase 9.1+ slice model). OK.
+
+No fixture references the retired `--blank`, `Shape`,
+`path_hint`, `file = "..."`, `directory = "..."`, or
+`collection = "..."` keys. The Phase 9.1+ `paths` array
+model is the single source of truth across the schema and
+golden fixtures.
+
+### B. CLI ↔ MCP parity sweep — PASS with two filled gaps
+
+Every CLI command in the parity matrix has a matching MCP
+test that asserts on equivalent behavior, EXCEPT for two
+type-mismatch cases identified during the sweep:
+
+| Surface | Command | Type-mismatch test | Status |
+|---------|---------|--------------------|--------|
+| MCP     | create  | TestCreateRejectsTypeMismatch | EXISTED |
+| CLI     | create  | TestCreateCmdRejectsTypeMismatch | **ADDED in this audit** |
+| MCP     | update  | TestUpdateRejectsTypeMismatch | **ADDED in this audit** |
+| CLI     | update  | TestUpdateCmdRejectsTypeMismatch | **ADDED in this audit** |
+| MCP     | delete  | TestDeleteRejectsTypeMismatch | **ADDED in this audit** |
+| CLI     | delete  | TestDeleteCmdRejectsTypeMismatch | **ADDED in this audit** |
+
+The `verifyTypeAgainstAddress` helper is shared across
+Create / Update / Delete on both surfaces (`internal/ops/
+helpers.go:80-95`). Pre-audit only Create exercised it
+end-to-end on MCP (`server_test.go:318`). The new tests
+lock the contract symmetrically across all six
+(surface × verb) cells, so a future refactor cannot quietly
+drop the helper from Update or Delete on either surface.
+
+All paths-sugar parity (Phase 9.6 row of the matrix) was
+already locked: `TestSchemaCmdPaths*` (CLI, 7 tests) ↔
+`TestSchemaPaths*MCP` (MCP, 7 tests). No gap.
+
+### C. Phase 9.4 advisory non-blockers — closed
+
+1. **Symmetric `TestUpdateRejectsTypeMismatch` /
+   `TestDeleteRejectsTypeMismatch`** — added on both CLI
+   (`cmd/ta/commands_test.go`) and MCP
+   (`internal/mcpsrv/server_test.go`). Each test seeds a
+   record on disk, supplies `--type ghost` (or
+   `"type": "ghost"`) against an address whose type segment
+   resolves to `task`, asserts the call errors with "type
+   mismatch", and asserts the on-disk bytes are unchanged
+   (atomic-rollback discipline at the verifyType barrier).
+2. **`verifyTypeAgainstIndex` disagreement-path test** —
+   added `TestGetRejectsIndexMismatch` in
+   `internal/ops/ops_test.go`. Hand-seeds `.ta/index.toml`
+   with `{type: "ghost"}` for canonical `plans.task.t01`,
+   then calls `ops.Get` on that address. Asserts
+   `errors.Is(err, ops.ErrIndexMismatch)` and that the
+   error text nudges toward `ta index rebuild`. Paired with
+   `TestGetTolerantOfMissingIndexEntry` which locks the
+   inverse contract: a missing index file is NOT an error
+   (Phase 9.4 doctrine: missing-from-index is tolerated;
+   only explicit disagreement triggers the sentinel).
+3. **Fault-injection for index-write failure** — DEFERRED
+   per task description. Requires unwritable-dir / fs-fault
+   plumbing that does not exist in the codebase today; the
+   write paths in `helpers.go::writeIndexEntry` /
+   `deleteIndexEntry` already wrap the failure in a
+   "record on disk; run `ta index rebuild`" message, so a
+   future test would need only assert the wrapped sentinel
+   surfaces. Documented here as the open item; not blocking.
+
+### D. Address grammar consistency — PASS
+
+Every `*_test.go` file across `cmd/ta`, `internal/ops`,
+`internal/db`, `internal/schema`, `internal/search`,
+`internal/render`, `internal/mcpsrv`, and `internal/index`
+uses the post-Phase-9.2 file-relpath grammar
+(`<file-relpath>.<type>.<id-tail>`) for record addresses
+and the post-Phase-9.1 `paths = [...]` array shape for
+schema fixtures. Specifically verified:
+
+- `cmd/ta/commands_test.go` — `cliTaskSchema` (single-file
+  mount `plans` → `paths = ["plans.toml"]`),
+  `multiInstanceCLISchema` (glob mount → `paths =
+  ["workflow/*/db"]`); addresses like
+  `plans.task.t1`, `drop_a.db.build_task.task_1`.
+- `internal/mcpsrv/server_test.go` — `tomlTaskSchema`,
+  `mdReadmeSchema`, `multiInstanceTOMLSchema`,
+  `collectionMDSchema`, `patchSchema`; addresses like
+  `plans.task.t1`, `README.title.ta`,
+  `drop_1.db.build_task.task_001`,
+  `README.section.hello`.
+- `internal/ops/{ops_test.go, dogfood_test.go,
+  schema_mutate_test.go}` — same grammar (`plans.task.t01`,
+  `ta.db.build_task.task_12_1`,
+  `drop_a.db.build_task.task_1`). `pathsSugarSchema` /
+  `limitAllSchema` / `multiInstanceOpsSchema` /
+  `planDBSchema` all carry `paths = [...]` first-class.
+- `internal/db/{address_test.go, instance_test.go}` —
+  `testRegistry()` declares all three Phase 9.2 mount shapes
+  (single-file `["README"]`, glob `["workflow/*/db"]`,
+  collection `["docs/"]`); resolver tests address
+  `README.section.installation`, `ta.db.build_task.task_001`,
+  `drop_9.db.build_task.task_001`.
+- `internal/search/{search_test.go, dogfood_test.go}` —
+  `singleInstanceTOMLSchema` and `multiInstanceTOMLSchema`
+  with `paths = ["plans.toml"]` and `paths =
+  ["workflow/*/db"]`.
+- `internal/schema/{load_test.go, schema_test.go}` — every
+  fixture uses `paths = [...]`; legacy-key rejection tests
+  (`TestLoadRejectsLegacyFileKey`,
+  `TestLoadRejectsLegacyDirectoryKey`,
+  `TestLoadRejectsLegacyCollectionKey`) deliberately seed
+  the retired keys and assert `ErrLegacyShapeKey`, locking
+  the migration ratchet.
+
+No literal `plan_db.task.<id>` (without instance segment)
+addresses survive in test code outside of the documented
+`MatchScope` slug-matcher cases.
+
+### E. Net change
+
+- **CLI tests added (`cmd/ta/commands_test.go`):**
+  - `TestCreateCmdRejectsTypeMismatch`
+  - `TestUpdateCmdRejectsTypeMismatch`
+  - `TestDeleteCmdRejectsTypeMismatch`
+- **MCP tests added (`internal/mcpsrv/server_test.go`):**
+  - `TestUpdateRejectsTypeMismatch`
+  - `TestDeleteRejectsTypeMismatch`
+- **Endpoint tests added (`internal/ops/ops_test.go`):**
+  - `TestGetRejectsIndexMismatch`
+  - `TestGetTolerantOfMissingIndexEntry`
+- **Goldens regenerated:** none. All seven fixtures stayed
+  byte-identical; no drift surfaced during the audit.
+- **Source files (`*.go` non-test) touched:** none. AUDIT
+  scope held.
+- **Imports added:** `errors`, `time`, and
+  `internal/index` to `internal/ops/ops_test.go`.
+
+Net: 7 net-new test functions across 3 files;
+0 source-file changes; 0 golden regenerations; 0 deferred
+DESIGN BLOCKER notes.
+
+### QA Falsification — go-qa-falsification-agent
+
+**Verdict: PASS** (2026-04-24, fresh-context adversarial review of
+the uncommitted working tree at HEAD `e0e47b3`. Bash denied;
+evidence sourced from `Read` on `internal/ops/ops_test.go`,
+`cmd/ta/commands_test.go`, `internal/mcpsrv/server_test.go`,
+`internal/ops/errors.go`, `internal/ops/helpers.go`,
+`internal/ops/ops.go`, `internal/index/index.go`, plus
+`Read` of WORKLOG surrounding lines).
+
+- **REFUTED 1: substring "type mismatch" spuriously matches.**
+  Vector: a test asserting `strings.Contains(err.Error(), "type
+  mismatch")` could pass against an unrelated error happening to
+  contain that text. Inspection: `internal/ops/errors.go:76`
+  defines `ErrTypeMismatch = errors.New("ops: type mismatch")`;
+  `verifyTypeAgainstAddress` at `helpers.go:90-93` is the only
+  producer and wraps the sentinel with `%w`. Grep-equivalent
+  semantic survey of the tree shows no other error path uses the
+  literal "type mismatch" string. Soft note: the five new tests
+  (`TestCreateCmdRejectsTypeMismatch`,
+  `TestUpdateCmdRejectsTypeMismatch`,
+  `TestDeleteCmdRejectsTypeMismatch`,
+  `TestUpdateRejectsTypeMismatch`,
+  `TestDeleteRejectsTypeMismatch`) use substring matches rather
+  than `errors.Is(err, ops.ErrTypeMismatch)`. The MCP cases run
+  through `firstText(t, res)` (string-mode) where the sentinel
+  identity is lost in transit, so substring is the correct shape
+  for those two; the three CLI cases could be tightened to
+  `errors.Is` since they have direct access to the typed error
+  from `cmd.Execute()`. Advisory non-blocker, not a CONFIRMED
+  counterexample — the load-bearing assertions
+  (`bytes.Equal(after, initial)` for Update/Delete,
+  `os.Stat(dataPath)` non-existence for Create) are tight.
+
+- **REFUTED 2: on-disk byte-identity assertions absent.**
+  Update/Delete failure tests (CLI 282-309 + 313-339; MCP 340-364
+  + 371-394) all seed the file with `os.WriteFile(dataPath,
+  initial, ...)`, then after the rejected call read back via
+  `os.ReadFile(dataPath)` and assert `bytes.Equal(after, initial)`
+  / `string(after) != initial`. Create's CLI test at 255-277 is
+  stronger: it asserts the file does not exist at all
+  (`os.Stat(dataPath); statErr == nil` → fail). Atomic-rollback
+  contract end-to-end exercised at the byte level on both surfaces.
+
+- **REFUTED 3: `TestGetRejectsIndexMismatch` shape.**
+  `ops_test.go:488-516` hand-seeds `idx.Put("plans.task.t01",
+  index.Entry{Type: "ghost", ...})` then `idx.Save(root)`. Address
+  resolves to type `task`; index records type `ghost`.
+  `verifyTypeAgainstIndex` (`helpers.go:103-119`) returns
+  `fmt.Errorf("%w: ...(run \`ta index rebuild\`)", ErrIndexMismatch)`.
+  Test asserts BOTH `errors.Is(err, ops.ErrIndexMismatch)` (line
+  510) AND `strings.Contains(err.Error(), "ta index rebuild")`
+  (line 513). Both load-bearing assertions present.
+
+- **REFUTED 4: `TestGetTolerantOfMissingIndexEntry` shape.**
+  `ops_test.go:525-536` seeds via `seedNTasks(t, 1)` which creates
+  `.ta/schema.toml` and `plans.toml` but no index file.
+  `verifyTypeAgainstIndex` calls `index.Load(projectRoot)`;
+  `index.go:73-86` short-circuits `fs.ErrNotExist` to a fresh empty
+  `Index{FormatVersion: 1, Records: {}}`, returning `nil, nil`.
+  `idx.Get(canonical)` returns `entry, false`; the helper returns
+  nil. Test asserts `err == nil` and bytes contain
+  `[plans.task.t01]`. Inverse contract correctly locked.
+
+- **REFUTED 5: cross-test cache pollution.**
+  `seedNTasks` at `ops_test.go:39-42` calls
+  `t.Cleanup(ops.ResetDefaultCacheForTest)` AND
+  `ops.ResetDefaultCacheForTest()` upfront. Both new tests
+  (`TestGetRejectsIndexMismatch` and
+  `TestGetTolerantOfMissingIndexEntry`) reuse `seedNTasks(t, 1)`
+  so each test gets a fresh `t.TempDir()` root AND a clean
+  package-level `defaultCache`. No leakage across siblings.
+
+- **REFUTED 6: imports drift.**
+  `ops_test.go:3-14` imports `errors` (used by
+  `errors.Is(err, ops.ErrIndexMismatch)` at line 510), `time`
+  (used by `time.Now().UTC()` at line 497), and
+  `internal/index` (used by `index.Load`, `index.Entry` at lines
+  493-498). All three new imports referenced; compile would
+  reject a stray import (and `mage check` exit 0 confirms it
+  doesn't).
+
+- **REFUTED 7: WORKLOG drift.**
+  Phase 9.6 closeout (QA Falsification certificate) ends at line
+  6741. Phase 9.7 entry begins at line 6743 with the documented
+  H2 header `## 12.17.9 Phase 9.7 — TEST SUITE AUDIT (2026-04-25)`
+  (date header is the audit-day in PST, ahead of 2026-04-24
+  current date — acceptable per WORKLOG style which records the
+  drop-end date, not the orchestration day). Append-only;
+  preserves ordering with prior phases (Phase 9.5 → 9.6 → 9.7).
+
+- **REFUTED 8: source files modified.**
+  WORKLOG line 6912 explicitly states "Source files (\`*.go\`
+  non-test) touched: none." Diff stat relayed by orchestrator: 4
+  files modified, +393 / 0; the three modified files visible in
+  the working tree are `internal/ops/ops_test.go`,
+  `cmd/ta/commands_test.go`,
+  `internal/mcpsrv/server_test.go` — all
+  `*_test.go`. WORKLOG.md is the fourth (this Markdown file
+  itself). AUDIT-only scope held.
+
+- **REFUTED 9: `--type` flag enforcement on Update/Delete.**
+  `--type` is OPTIONAL on Update/Delete per
+  `helpers.go:85-95` (the empty-typeName branch returns nil).
+  All four mismatch tests on Update/Delete explicitly pass
+  `--type ghost` (CLI: lines 295, 326) or `"type": "ghost"` (MCP:
+  lines 351, 382), forcing the helper through the disagreement
+  branch. The disjunction `typeName == "" || typeName ==
+  addr.Type` is the tested predicate; passing "ghost" against
+  "task" forces the inequality.
+
+- **REFUTED 10: address grammar in test fixtures.**
+  All seven new tests use the post-Phase-9.2 file-relpath
+  grammar: `plans.task.t01` (ops_test.go), `plans.task.t1`
+  (commands_test.go, server_test.go). No `plan_db.task.<id>`
+  (legacy three-segment) or `<db>.<instance>.<type>.<id>` (legacy
+  four-segment) shapes appear in any new fixture. The
+  `cliTaskSchema` / `tomlTaskSchema` / `limitAllSchema` declare
+  `paths = ["plans.toml"]` (Phase 9.1 array model).
+
+- **REFUTED 11: `verifyTypeAgainstIndex` precedes file read.**
+  Vector inside vector: does `ops.Get` actually hit the index
+  check before reading the file? Inspection of `ops.go:64-80`:
+  resolve → ParseAddress → `verifyTypeAgainstAddress` (line 74) →
+  `verifyTypeAgainstIndex` (line 77) → `ResolveRead` (line 80) →
+  `os.ReadFile`. Index check fires before any file I/O on the
+  data file — the disagreement-path test reaches the sentinel
+  without filesystem races.
+
+- **REFUTED 12: `mage install` invocation.**
+  No `mage install` anywhere in the diff (test files only) or
+  WORKLOG entry. `mage` discipline preserved.
+
+- **REFUTED 13: raw `go` invocations.**
+  No `go test` / `go build` / `go vet` in test files or WORKLOG
+  entry. `mage check` cited as the verification gate.
+
+### Conclusion (FALSIFICATION certificate)
+
+- **Premises**: Phase 9.7 task description claims AUDIT-only
+  scope (no `*.go` non-test edits); 7 net-new test functions
+  spread 3+2+2 across CLI / MCP / endpoint surfaces; tests lock
+  type-mismatch atomic-rollback symmetrically and the
+  `verifyTypeAgainstIndex` disagreement-path; WORKLOG appended
+  cleanly after Phase 9.6.
+- **Evidence**: full `Read` of `internal/ops/ops_test.go` (537
+  lines), Phase 9.7 test region of `cmd/ta/commands_test.go`
+  (lines 200-340), Phase 9.7 test region of
+  `internal/mcpsrv/server_test.go` (lines 280-394),
+  `internal/ops/errors.go` (89 lines), `internal/ops/helpers.go`
+  (170 lines), `internal/ops/ops.go:1-100` (Get function +
+  verifyType call ordering), `internal/index/index.go:1-130`
+  (Load missing-file → empty-Index branch); `Read` of WORKLOG
+  surrounding lines (Phase 9.6 falsification close at
+  6680-6741, Phase 9.7 audit body at 6743-6919);
+  orchestrator-relayed `mage fmt` clean and `mage check` exit
+  0 (13 packages, +393 / 0; 4 files: 3 test files + WORKLOG)
+  confirm compile + race + tidy.
+- **Trace or cases**: 13 attack vectors enumerated above, every
+  one REFUTED on inspection of the live working tree.
+- **Conclusion**: PASS. No CONFIRMED counterexample produced.
+- **Unknowns**: None blocking. Soft note (vector 1): the three
+  CLI Update/Delete/Create type-mismatch tests use
+  `strings.Contains(err.Error(), "type mismatch")` rather than
+  `errors.Is(err, ops.ErrTypeMismatch)`. Substring is correct
+  on the MCP surface (sentinel identity is lost in transit
+  through `firstText(t, res)`); on the CLI surface a future
+  hardening could swap to `errors.Is` since `cmd.Execute()`
+  returns the wrapped typed error directly. Advisory only —
+  the load-bearing assertions (byte-identity / non-existence)
+  remain tight under either form. Recorded for retrospective.
+  The Phase 9.7 description itself flags the
+  `verifyTypeAgainstIndex` write-side fault-injection deferral
+  (helpers.go writeIndexEntry / deleteIndexEntry recovery hint
+  surface); not a Phase 9.7 blocker per task description.
+
+### Hylla Feedback
+
+N/A — review touched Go test files only and WORKLOG markdown
+narrative. Bash was denied for the entirety of this review, so
+Hylla was unavailable; all counterexample attempts were reduced
+to direct `Read` inspection of the working tree at HEAD
+`e0e47b3`. Evidence chain pure-`Read`-only with one sibling
+`Edit` (this WORKLOG entry).

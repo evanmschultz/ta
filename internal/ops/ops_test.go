@@ -1,12 +1,15 @@
 package ops_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/evanmschultz/ta/internal/index"
 	"github.com/evanmschultz/ta/internal/ops"
 )
 
@@ -470,5 +473,64 @@ func TestGetSingleRecordUnchanged(t *testing.T) {
 	}
 	if res.Fields != nil {
 		t.Errorf("Fields should be nil when fields=nil: %+v", res.Fields)
+	}
+}
+
+// ---- §12.17.9 Phase 9.4 verifyTypeAgainstIndex ---------------------
+
+// TestGetRejectsIndexMismatch closes the Phase 9.7 audit gap flagged by
+// Phase 9.4 falsification: `verifyTypeAgainstIndex` had no
+// disagreement-path test. Hand-seed `.ta/index.toml` with a type that
+// does NOT match the on-disk record's type segment, then call ops.Get
+// on the canonical address. The expected outcome is ErrIndexMismatch
+// with a `ta index rebuild` recovery hint, and the on-disk record is
+// not read past the index check.
+func TestGetRejectsIndexMismatch(t *testing.T) {
+	root := seedNTasks(t, 1)
+	// Hand-seed the index with a wrong-type entry for plans.task.t01.
+	// The address resolves to type=task; the index records type=ghost.
+	// The disagreement must surface ErrIndexMismatch.
+	idx, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("index.Load: %v", err)
+	}
+	now := time.Now().UTC()
+	idx.Put("plans.task.t01", index.Entry{
+		Type:    "ghost",
+		Created: now,
+		Updated: now,
+	})
+	if err := idx.Save(root); err != nil {
+		t.Fatalf("index.Save: %v", err)
+	}
+	_, err = ops.Get(root, "plans.task.t01", "", nil)
+	if err == nil {
+		t.Fatalf("expected ErrIndexMismatch when index disagrees with address type")
+	}
+	if !errors.Is(err, ops.ErrIndexMismatch) {
+		t.Errorf("expected errors.Is(err, ErrIndexMismatch), got %v", err)
+	}
+	if !strings.Contains(err.Error(), "ta index rebuild") {
+		t.Errorf("error should nudge toward `ta index rebuild`: %v", err)
+	}
+}
+
+// TestGetTolerantOfMissingIndexEntry locks the inverse contract: an
+// index that has NO entry for the canonical address is NOT an error.
+// PLAN §12.17.9 Phase 9.4: missing-from-index is tolerated because the
+// address grammar still carries the type segment; only an explicit
+// disagreement triggers ErrIndexMismatch. Without this test the
+// disagreement-path test above could degrade silently if a future
+// refactor flipped the missing-entry branch.
+func TestGetTolerantOfMissingIndexEntry(t *testing.T) {
+	root := seedNTasks(t, 1)
+	// No index seeded; the file does not exist on disk. ops.Get must
+	// still succeed and return the record bytes verbatim.
+	res, err := ops.Get(root, "plans.task.t01", "", nil)
+	if err != nil {
+		t.Fatalf("Get with missing index file: %v", err)
+	}
+	if !strings.Contains(string(res.Bytes), "[plans.task.t01]") {
+		t.Errorf("Get without index returned unexpected bytes: %q", res.Bytes)
 	}
 }

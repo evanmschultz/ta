@@ -246,6 +246,98 @@ func TestCreateCmdInlineDataNonInteractiveRegression(t *testing.T) {
 	}
 }
 
+// TestCreateCmdRejectsTypeMismatch is the CLI parity for the MCP
+// TestCreateRejectsTypeMismatch lock. PLAN §12.17.9 Phase 9.7 audit
+// gap: the `verifyTypeAgainstAddress` contract was exercised end-to-end
+// only on the MCP surface; the CLI shares the helper but lacked a
+// dedicated CLI test. A `--type` flag that disagrees with the address
+// type segment must error and not write the record.
+func TestCreateCmdRejectsTypeMismatch(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newCreateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.task.t1",
+		"--type", "ghost",
+		"--data", `{"id": "T1", "status": "todo"}`,
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected --type ghost to error against plans.task.t1")
+	}
+	if !strings.Contains(err.Error(), "type mismatch") {
+		t.Errorf("error should mention type mismatch: %v", err)
+	}
+	dataPath := filepath.Join(root, "plans.toml")
+	if _, statErr := os.Stat(dataPath); statErr == nil {
+		t.Errorf("rejected create wrote plans.toml; create must abort before mkdir+write")
+	}
+}
+
+// TestUpdateCmdRejectsTypeMismatch is the CLI symmetric Phase 9.4 lock.
+// PLAN §12.17.9 Phase 9.7 audit. The `--type` flag must surface a clean
+// type-mismatch error before any disk mutation.
+func TestUpdateCmdRejectsTypeMismatch(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	initial := []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
+	if err := os.WriteFile(dataPath, initial, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newUpdateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.task.t1",
+		"--type", "ghost",
+		"--data", `{"status": "done"}`,
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected --type ghost to error against plans.task.t1")
+	}
+	if !strings.Contains(err.Error(), "type mismatch") {
+		t.Errorf("error should mention type mismatch: %v", err)
+	}
+	after, _ := os.ReadFile(dataPath)
+	if !bytes.Equal(after, initial) {
+		t.Errorf("rejected update touched bytes:\n--- before ---\n%s\n--- after ---\n%s", initial, after)
+	}
+}
+
+// TestDeleteCmdRejectsTypeMismatch is the CLI symmetric Phase 9.4 lock.
+// PLAN §12.17.9 Phase 9.7 audit. Disagreement must error before splice.
+func TestDeleteCmdRejectsTypeMismatch(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	initial := []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
+	if err := os.WriteFile(dataPath, initial, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newDeleteCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.task.t1",
+		"--type", "ghost",
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected --type ghost to error against plans.task.t1")
+	}
+	if !strings.Contains(err.Error(), "type mismatch") {
+		t.Errorf("error should mention type mismatch: %v", err)
+	}
+	after, _ := os.ReadFile(dataPath)
+	if !bytes.Equal(after, initial) {
+		t.Errorf("rejected delete touched bytes:\n--- before ---\n%s\n--- after ---\n%s", initial, after)
+	}
+}
+
 // TestUpdateCmdRequiresDataOffTTY mirrors the create-side check for
 // the off-TTY update escape path.
 func TestUpdateCmdRequiresDataOffTTY(t *testing.T) {
