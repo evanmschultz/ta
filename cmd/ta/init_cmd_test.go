@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/pelletier/go-toml/v2"
+
+	"github.com/evanmschultz/ta/internal/schema"
 	"github.com/evanmschultz/ta/internal/templates"
 )
 
@@ -539,5 +543,298 @@ func TestInitCmdJSONImpliesNonInteractive(t *testing.T) {
 	_, _, err = runInitCmd(t, "--path", target, "--template", "schema", "--json", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("template + --json should succeed non-interactively: %v", err)
+	}
+}
+
+// twoDBSchema declares two distinct dbs (`plans` + `notes`) so the
+// Phase 9.5 subset tests can exercise pick-one, pick-both, pick-none.
+// The bodies match the meta-schema (paths + format + at least one
+// type with at least one field per type) so a round-trip parse via
+// `schema.LoadBytes` succeeds.
+const twoDBSchema = `
+[plans]
+paths = ["plans.toml"]
+format = "toml"
+description = "Planning db."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+required = true
+
+[notes]
+paths = ["notes.toml"]
+format = "toml"
+description = "Notes db."
+
+[notes.note]
+description = "A free-form note."
+
+[notes.note.fields.id]
+type = "string"
+required = true
+
+[notes.note.fields.body]
+type = "string"
+`
+
+// TestSubsetSchemaSelectsOnlyNamedDBs locks the Phase 9.5 contract:
+// `subsetSchema` returns bytes containing only the requested dbs, the
+// resulting bytes round-trip through `schema.LoadBytes` cleanly, and
+// every selected db's `paths`, `format`, types, and field metadata
+// survive intact. The test also exercises the round-trip via
+// `toml.Unmarshal` so accidental key drops or rewrites surface here.
+func TestSubsetSchemaSelectsOnlyNamedDBs(t *testing.T) {
+	bodies := loadTwoDBBodies(t)
+
+	cases := []struct {
+		name     string
+		selected []string
+	}{
+		{"plans only", []string{"plans"}},
+		{"notes only", []string{"notes"}},
+		{"both, sorted in", []string{"notes", "plans"}}, // sort happens inside
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buf, err := subsetSchema(bodies, tc.selected)
+			if err != nil {
+				t.Fatalf("subsetSchema: %v", err)
+			}
+			reg, err := schema.LoadBytes(buf)
+			if err != nil {
+				t.Fatalf("LoadBytes: %v\nbytes:\n%s", err, buf)
+			}
+			gotNames := make([]string, 0, len(reg.DBs))
+			for n := range reg.DBs {
+				gotNames = append(gotNames, n)
+			}
+			sort.Strings(gotNames)
+			wantNames := append([]string(nil), tc.selected...)
+			sort.Strings(wantNames)
+			if !sliceEqual(gotNames, wantNames) {
+				t.Errorf("dbs = %v, want %v", gotNames, wantNames)
+			}
+			// Each selected db must keep its meta-fields and a non-empty
+			// type set with non-empty field metadata.
+			for _, n := range tc.selected {
+				db := reg.DBs[n]
+				if len(db.Paths) == 0 {
+					t.Errorf("db %q lost paths", n)
+				}
+				if db.Format == "" {
+					t.Errorf("db %q lost format", n)
+				}
+				if len(db.Types) == 0 {
+					t.Errorf("db %q lost types", n)
+				}
+				for tn, tt := range db.Types {
+					if len(tt.Fields) == 0 {
+						t.Errorf("db %q type %q lost fields", n, tn)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader locks
+// the Phase 9.5 zero-selection contract: writing zero dbs produces a
+// comment-only header that the cascade resolver tolerates (parses to
+// an empty registry without erroring) and that points the user at
+// `ta schema --action=create` for next steps.
+func TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader(t *testing.T) {
+	bodies := loadTwoDBBodies(t)
+
+	buf, err := buildProjectSchemaBytes(bodies, nil)
+	if err != nil {
+		t.Fatalf("buildProjectSchemaBytes(nil): %v", err)
+	}
+	got := string(buf)
+	if !strings.HasPrefix(got, "#") {
+		t.Errorf("empty-selection bytes should start with a comment line; got:\n%s", got)
+	}
+	if !strings.Contains(got, "ta schema --action=create") {
+		t.Errorf("empty-selection bytes missing remediation pointer; got:\n%s", got)
+	}
+	// Empty registry must parse cleanly via LoadBytes — the cascade
+	// resolver downstream consumes whatever LoadBytes returns.
+	reg, err := schema.LoadBytes(buf)
+	if err != nil {
+		t.Fatalf("empty-selection bytes failed LoadBytes: %v\n%s", err, buf)
+	}
+	if len(reg.DBs) != 0 {
+		t.Errorf("empty-selection registry should have no dbs, got %d", len(reg.DBs))
+	}
+	// Same path through the public surface.
+	buf2, err := buildProjectSchemaBytes(bodies, []string{})
+	if err != nil {
+		t.Fatalf("buildProjectSchemaBytes([]): %v", err)
+	}
+	if string(buf2) != got {
+		t.Errorf("nil and empty-slice selections produced different bytes")
+	}
+}
+
+// TestSchemaSourceLabel locks the report-label format for the new
+// flow so JSON consumers can pattern-match on the prefix.
+func TestSchemaSourceLabel(t *testing.T) {
+	if got := schemaSourceLabel(nil); got != "(empty)" {
+		t.Errorf("zero-selection label = %q, want (empty)", got)
+	}
+	if got := schemaSourceLabel([]string{"plans"}); got != "dbs:plans" {
+		t.Errorf("single label = %q", got)
+	}
+	if got := schemaSourceLabel([]string{"plans", "notes"}); got != "dbs:notes,plans" {
+		t.Errorf("multi label not sorted: %q", got)
+	}
+}
+
+// TestCollectHomeDBsMergeAndCollision exercises the cross-template
+// db merge path: `extras.toml` declares a `notes` db that the earlier
+// `schema.toml` already owns, so the duplicate is skipped with a
+// stderr warning rather than overwriting. Templates that contribute
+// only new dbs are merged in cleanly.
+func TestCollectHomeDBsMergeAndCollision(t *testing.T) {
+	// Read both files via the production cache shape.
+	cache := map[string][]byte{
+		"schema": []byte(twoDBSchema),
+		"extras": []byte(extraDBSchema),
+	}
+	templateNames := []string{"extras", "schema"} // alphabetical, as templates.List returns
+	var errBuf bytes.Buffer
+
+	bodies, infos, err := collectHomeDBs(templateNames, cache, &errBuf)
+	if err != nil {
+		t.Fatalf("collectHomeDBs: %v", err)
+	}
+	wantDBs := map[string]bool{"plans": false, "notes": false, "audits": false}
+	for n := range bodies {
+		if _, ok := wantDBs[n]; ok {
+			wantDBs[n] = true
+		} else {
+			t.Errorf("unexpected db %q in merged set", n)
+		}
+	}
+	for n, seen := range wantDBs {
+		if !seen {
+			t.Errorf("db %q missing from merged set", n)
+		}
+	}
+	// Infos must be sorted by name.
+	prev := ""
+	for _, i := range infos {
+		if prev != "" && i.name < prev {
+			t.Errorf("infos not sorted: %v", infos)
+		}
+		prev = i.name
+	}
+	// Collision must be reported on stderr.
+	if !strings.Contains(errBuf.String(), "duplicate db skipped") {
+		t.Errorf("collision warning missing from stderr: %q", errBuf.String())
+	}
+	// Collision keeps the earlier (alphabetical-first) template's
+	// version: extras.toml's `notes` body wins because "extras" < "schema".
+	notesBody := bodies["notes"]
+	if d, _ := notesBody["description"].(string); !strings.Contains(d, "extras") {
+		t.Errorf("notes body should be from extras.toml (first-wins); description=%q", d)
+	}
+}
+
+// extraDBSchema is a second template overlapping with twoDBSchema on
+// `notes` (collision case) and adding a brand-new `audits` db (clean
+// merge case).
+const extraDBSchema = `
+[notes]
+paths = ["extras-notes.toml"]
+format = "toml"
+description = "Notes db (from extras.toml)."
+
+[notes.note]
+description = "Free-form note variant."
+
+[notes.note.fields.id]
+type = "string"
+required = true
+
+[audits]
+paths = ["audits.toml"]
+format = "toml"
+description = "Audit trail db."
+
+[audits.event]
+description = "An audit event."
+
+[audits.event.fields.id]
+type = "string"
+required = true
+`
+
+// loadTwoDBBodies parses twoDBSchema once and returns the per-db raw
+// body map the picker path uses. Helper keeps each picker test free
+// of TOML-parsing boilerplate.
+func loadTwoDBBodies(t *testing.T) map[string]map[string]any {
+	t.Helper()
+	var raw map[string]any
+	if err := toml.Unmarshal([]byte(twoDBSchema), &raw); err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+	out := make(map[string]map[string]any, len(raw))
+	for k, v := range raw {
+		body, ok := v.(map[string]any)
+		if !ok {
+			t.Fatalf("twoDBSchema key %q not a table", k)
+		}
+		out[k] = body
+	}
+	return out
+}
+
+func sliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestInitCmdMultiTemplateProjectInitCopiesFullFile exercises the
+// `--template <name>` shortcut against a multi-db home library: when
+// the user names a template explicitly, the full file is copied
+// verbatim (Phase 9.4 behaviour). Phase 9.5 only changed the
+// interactive picker — `--template` stays a full-file shortcut.
+func TestInitCmdMultiTemplateProjectInitCopiesFullFile(t *testing.T) {
+	homeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(twoDBSchema), 0o644); err != nil {
+		t.Fatalf("seed home schema: %v", err)
+	}
+	restore := templates.SetRootForTest(homeRoot)
+	t.Cleanup(restore)
+
+	target := t.TempDir()
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	got, err := os.ReadFile(filepath.Join(target, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	// Both dbs must be present — `--template` is a full-file copy.
+	if !strings.Contains(string(got), "[plans]") {
+		t.Errorf("plans db missing: %s", got)
+	}
+	if !strings.Contains(string(got), "[notes]") {
+		t.Errorf("notes db missing: %s", got)
 	}
 }

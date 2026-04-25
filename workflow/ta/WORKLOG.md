@@ -5618,3 +5618,462 @@ evidence came from `Read` of the live working tree
 `internal/mcpsrv/{tools,server_test}.go`,
 `cmd/ta/{commands,commands_test}.go`, `magefile.go`,
 `workflow/ta/WORKLOG.md`).
+
+## 12.17.9 Phase 9.5 — `ta init` db-picker redesign (2026-04-24)
+
+### 1. Goal
+
+Replace Phase 9.4's single-select-over-template-files picker with a
+multi-select-over-dbs picker that subsumes §12.17.5 [F1]. Interactive
+`ta init` now lets the user pick zero or more dbs from the union of
+db declarations across the home library; the project schema is
+reconstructed from the selected subset. `--template <name>` retains
+the legacy full-file copy behaviour as the non-interactive shortcut.
+
+### 2. Locked-design summary
+
+- **Today (Phase 9.4)**: `pickTemplate` shows `huh.NewSelect[string]`
+  over file basenames in `~/.ta/*.toml`; chosen file is copied
+  verbatim to `<project>/.ta/schema.toml`.
+- **Phase 9.5 target**: `pickDBs` shows `huh.NewMultiSelect[string]`
+  over the union of db names declared across `~/.ta/*.toml`. User
+  picks zero or more by name. Selected dbs (with their `paths`,
+  `format`, `description`, types, type fields, defaults) are
+  reconstructed into the project schema via
+  `pelletier/go-toml/v2.Marshal(map[string]any)` plus a
+  `schema.LoadBytes` round-trip validation gate. Zero selection
+  writes a comment-only header pointing the user at
+  `ta schema --action=create`.
+- `--template <name>` non-interactive shortcut: unchanged (full-file
+  copy from the named home template).
+- Empty home guard: unchanged (`emptyHomeError` still fires when
+  zero templates exist).
+
+### 3. Files changed
+
+- `cmd/ta/init_cmd.go`:
+  - Imported `internal/schema` (new dependency for `LoadBytes`
+    re-validation).
+  - Added `emptyProjectSchemaHeader` constant — the comment-only
+    body written on zero selection. Includes
+    `ta schema --action=create` remediation hint.
+  - Updated `cmd.Long` description to surface the new picker shape
+    while keeping the `--template` shortcut documented.
+  - Refactored `chooseSchema`: same three-path skeleton (explicit
+    flag, off-TTY default, interactive picker) but the interactive
+    path now flows through `collectHomeDBs → pickDBs →
+    buildProjectSchemaBytes → schemaSourceLabel` instead of
+    `pickTemplate`. Stale "or fix: add file=, directory=,
+    collection=" hint replaced with the §12.17.9-correct
+    `paths = [...]` hint.
+  - Removed `pickTemplate`. Added:
+    - `dbPickerInfo` struct (db name + display label).
+    - `collectHomeDBs(templateNames, cache, errOut)` — merges every
+      template's top-level db tables into a single name → raw body
+      map. Same-name collisions are first-wins (alphabetically
+      earliest template owns it) with a stderr warning naming both
+      sides so the user can resolve manually.
+    - `metaFieldDescription` constant (mirrors the unexported
+      `schema.metaFieldDescription` for the description-display
+      lookup; tiny stable string).
+    - `pickDBs(infos)` — runs `huh.NewMultiSelect[string]()` with
+      the per-db option list and a static `Description` line
+      reminding the user that zero is fine.
+    - `buildProjectSchemaBytes(bodies, selected)` — dispatches to
+      empty-header bytes for zero selection or `subsetSchema` for
+      one-or-more.
+    - `subsetSchema(bodies, selected)` — marshals the selected
+      subset via `toml.Marshal(map[string]any)` and re-validates
+      via `schema.LoadBytes`. Cross-db `paths` overlap (a real
+      possibility when picking dbs from two templates) surfaces as
+      a wrapped `ErrOverlappingPaths`.
+    - `schemaSourceLabel(selected)` — returns `(empty)` for zero
+      selection, `dbs:<csv>` (sorted) for one or more. Goes into
+      the JSON `schema_source` field.
+- `cmd/ta/init_cmd_test.go`:
+  - Imports updated: added `sort`, `pelletier/go-toml/v2`,
+    `internal/schema`.
+  - New `twoDBSchema` and `extraDBSchema` fixtures: two-db and
+    overlapping-collision shapes for picker testing.
+  - New tests:
+    - `TestSubsetSchemaSelectsOnlyNamedDBs` — pick-one and
+      pick-both cases; verifies meta-fields and types survive.
+    - `TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader`
+      — zero-selection comment-only output; round-trip via
+      `schema.LoadBytes` confirms an empty registry parses cleanly.
+    - `TestSchemaSourceLabel` — locks the JSON-report label format.
+    - `TestCollectHomeDBsMergeAndCollision` — cross-template merge
+      with one collision (first-wins) and one new db.
+    - `TestInitCmdMultiTemplateProjectInitCopiesFullFile` — the
+      `--template <name>` shortcut still copies the entire file
+      verbatim (both dbs present).
+  - Existing `TestInitErrorsWhenHomeEmpty`,
+    `TestInitSucceedsWhenHomeHasSchema`,
+    `TestInitCmdNonInteractiveWithoutTemplateErrors`,
+    `TestInitCmdJSONImpliesNonInteractive` paths unchanged: their
+    flag combinations short-circuit before the new picker code.
+
+### 4. Open question — cross-db references
+
+The task description flagged the case where one selected db's types
+reference field values that name another db (cross-db link via field
+description or convention). Phase 9.5 takes the locked-design
+simplest answer: each selected db is included verbatim along with
+its full type / field tree, and any cross-db reference becomes the
+user's problem (the dangling-reference db simply isn't routed by
+the cascade resolver). No DESIGN BLOCKER — the schema model itself
+has no first-class cross-db reference primitive to break.
+
+### 5. Verification (orchestrator-run)
+
+- `mage fmt` (NEVER raw `gofmt`).
+- `mage check` (covers `mage fmt`, `mage vet`, `mage tidy`,
+  `mage test` with race + coverage gate).
+
+### 6. Hylla Feedback
+
+N/A — task touched Go code (`cmd/ta/init_cmd.go`,
+`cmd/ta/init_cmd_test.go`) and Markdown
+(`workflow/ta/WORKLOG.md`). All evidence came from `Read` on the
+live working tree at HEAD `052959b` (uncommitted Phase 9.4 deltas
+not yet ingested) plus Context7 lookup of huh v2 MultiSelect's
+`Description` method to confirm the API surface.
+
+## 12.17.9 Phase 9.5 — `ta init` db-picker redesign — QA PROOF REVIEW (2026-04-24)
+
+### 1. Verdict
+
+PASS. The uncommitted working tree at HEAD `052959b` (3 files,
+653 / 44) implements the locked-design Phase 9.5 db-picker exactly:
+`pickTemplate` is gone, `chooseSchema` flows through the new
+`collectHomeDBs → pickDBs → buildProjectSchemaBytes →
+schemaSourceLabel` pipeline, the `--template <name>` non-interactive
+shortcut is unchanged, and zero-selection writes the comment-only
+header that round-trips through `schema.LoadBytes` to an empty
+registry. The orchestrator-relayed `mage fmt` clean and `mage check`
+exit 0 (13 packages green) confirm the delta compiles and the test
+matrix passes.
+
+### 2. Evidence (PROOF certificate)
+
+- **Premises**: (a) `pickTemplate` is removed from the codebase;
+  (b) the new helpers `collectHomeDBs`, `pickDBs`,
+  `buildProjectSchemaBytes`, `subsetSchema`, `schemaSourceLabel`,
+  and `emptyProjectSchemaHeader` exist with correct signatures;
+  (c) `chooseSchema` calls them in the correct order on the TTY
+  path; (d) `--template <name>` still copies the full file; (e)
+  zero-selection writes a comment-only header that LoadBytes
+  parses as an empty registry; (f) cross-template merge is
+  first-wins-by-alphabetical-template with a stderr warning; (g)
+  `subsetSchema` round-trip-validates via `pelletier.Marshal` →
+  `schema.LoadBytes`; (h) `huh.NewMultiSelect[string]` is wired
+  with `Title` / `Description` / `Options` / `Value` correctly;
+  (i) `initReport.SchemaSource` doc lists three forms and the
+  emitter renders `(empty)` and `dbs:<sorted-csv>` correctly.
+- **Evidence**: `cmd/ta/init_cmd.go:31-33` (header constant);
+  `:213-327` (`chooseSchema` rewrite, no `pickTemplate` call);
+  `:366-454` (`collectHomeDBs` + `dbPickerInfo`); `:466-483`
+  (`pickDBs` using `huh.NewMultiSelect[string]`); `:492-525`
+  (`buildProjectSchemaBytes` + `subsetSchema` with `LoadBytes`
+  re-validation); `:530-537` (`schemaSourceLabel`); `:60-67`
+  (`SchemaSource` doc with three forms). Test fixtures and
+  assertions: `init_cmd_test.go:554-585` (`twoDBSchema`),
+  `:587-645` (`TestSubsetSchemaSelectsOnlyNamedDBs`), `:647-683`
+  (`TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader`),
+  `:687-697` (`TestSchemaSourceLabel`), `:704-748`
+  (`TestCollectHomeDBsMergeAndCollision`), `:753-777`
+  (`extraDBSchema`), `:816-840`
+  (`TestInitCmdMultiTemplateProjectInitCopiesFullFile`).
+  Existing `--template`-based tests (lines 47-201, 232-346,
+  348-456, 462-547) preserved verbatim; flag combinations
+  short-circuit before the new picker code so they remain green.
+  Orchestrator-relayed `mage fmt` clean + `mage check` exit 0
+  (13 packages) confirm the delta builds and tests pass.
+  Context7 `/charmbracelet/huh/v2.0.0` confirms the
+  `NewMultiSelect[string]() . Title() . Options() . Value()`
+  shape used in `pickDBs`.
+- **Trace or cases**:
+  1. **`--template <name>` shortcut** — `chooseSchema:214` calls
+     `loadTemplate(f.template)` and returns `(name, data, nil)`
+     unchanged. `TestInitCmdTemplateJSONNoMCP` and
+     `TestInitCmdMultiTemplateProjectInitCopiesFullFile` exercise
+     the path; both pass per `mage check`.
+  2. **Off-TTY without `--template` and no default** —
+     `:241-249` errors with the loud "no template selected"
+     message containing "examples/" and "ta schema --action=
+     create". `TestInitCmdNonInteractiveWithoutTemplateErrors`
+     exercises this; the assertion strings ("examples/", "ta
+     schema --action=create", absence of "--blank") match the
+     error literal verbatim.
+  3. **Off-TTY with `bootstrap.default_template`** — `:242-247`
+     resolves the named template via `loadTemplate` and returns
+     it as a `<template-name>` source. Unchanged from Phase 9.4.
+  4. **Empty home library** — `:234-236` and `:297-299` both
+     route to `emptyHomeError(errOut, root)`, which emits the
+     laslig notice with "home library is empty", "examples/",
+     and "ta template save" pointers, then returns a Go error
+     containing "empty" and "examples/".
+     `TestInitErrorsWhenHomeEmpty` validates every assertion.
+  5. **TTY interactive with non-empty library** — `:257-278`
+     validates each candidate, caches bytes, filters malformed
+     entries with stderr warnings, optionally prompts deletion;
+     `:306-309` calls `collectHomeDBs(validNames, cache,
+     errOut)` to merge db tables. The merge iterates
+     templateNames in input order (already alphabetical from
+     `templates.List`), sorts dbName keys within each template
+     for deterministic collision reporting, takes first-wins on
+     duplicate dbName (warn-and-skip on later templates), and
+     populates `descs` from the body's `description` field for
+     display. Returns the bodies map, sorted infos slice, and
+     nil error.
+  6. **Zero-selection (interactive)** —
+     `buildProjectSchemaBytes(bodies, selected)` at `:492-497`
+     returns `[]byte(emptyProjectSchemaHeader)` when
+     `len(selected) == 0`. The header begins with `#`, contains
+     `ta schema --action=create`, and parses through
+     `schema.LoadBytes` to a zero-db registry — confirmed by
+     `TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader`.
+     `schemaSourceLabel(selected)` returns `"(empty)"`.
+  7. **One-or-more selection (interactive)** — `:506-525`
+     `subsetSchema` sorts the selection, walks it,
+     `toml.Marshal`s the subset map, then re-validates via
+     `schema.LoadBytes`. A bad selection (paths-overlap, etc.)
+     surfaces here as a wrapped error.
+     `TestSubsetSchemaSelectsOnlyNamedDBs` exercises plans-only,
+     notes-only, and both-sorted; assertions verify
+     paths/format/types/fields survive intact.
+     `TestSchemaSourceLabel` confirms the `dbs:<csv>` form is
+     sorted regardless of selection-order.
+  8. **Cross-template collision** —
+     `TestCollectHomeDBsMergeAndCollision` seeds `extras` and
+     `schema`; alphabetical-first `extras` wins the `notes`
+     collision; the `notes` body's description contains
+     "extras" (asserted on stderr buffer); `audits` is added
+     cleanly; the `extras` notes body description literal
+     ("Notes db (from extras.toml).") matches the expected
+     "extras" substring.
+  9. **`--json` non-interactive guard** — `:117` sets
+     `nonInterRq = f.template != "" || f.asJSON`, so `--json`
+     alone forces the off-TTY branch; without `--template`
+     this hits the loud error from case 2.
+     `TestInitCmdJSONImpliesNonInteractive` validates both
+     halves (error without template, success with template).
+- **Conclusion**: PASS. Every locked-design contract is
+  realized in the working tree, every new test pins the
+  contract, every legacy test still passes, and `mage check`
+  green confirms compilation + race + coverage gates clear.
+- **Unknowns**: None blocking. The `pickTemplate` symbol's
+  removal is verified by full-file read of `init_cmd.go` and
+  by the `mage check` green signal — any orphan caller would
+  fail compilation.
+
+### 3. Hylla Feedback
+
+N/A — review touched Go (`cmd/ta/init_cmd.go`,
+`cmd/ta/init_cmd_test.go`) and Markdown (`workflow/ta/WORKLOG.md`)
+on a working tree uncommitted at HEAD `052959b` (Hylla ingest
+would not reflect these deltas yet). Evidence sourced from `Read`
+on the live tree plus Context7 `/charmbracelet/huh/v2.0.0` for
+the MultiSelect API shape and `Read` of `internal/schema/load.go`,
+`internal/schema/meta.go`, and `internal/templates/templates.go`
+for cross-package contracts (`LoadBytes`, `metaFieldDescription`
+literal, `templates.List` sort order).
+
+## 12.17.9 Phase 9.5 — `ta init` db-picker redesign — QA FALSIFICATION REVIEW (2026-04-24)
+
+### 1. Verdict
+
+PASS. No CONFIRMED counterexamples produced after attacking 12
+vectors against the uncommitted working tree at HEAD `052959b`
+(3 files: `cmd/ta/init_cmd.go`, `cmd/ta/init_cmd_test.go`,
+`workflow/ta/WORKLOG.md`). Every attempted attack either REFUTED
+on inspection of the live tree or matched a documented locked-design
+behaviour. The orchestrator-relayed `mage fmt` clean and
+`mage check` exit 0 (13 packages green) confirm the delta builds
+and the test matrix passes.
+
+### 2. Attack vectors and outcomes
+
+- **2.1 `pickTemplate` removal (REFUTED).** Full read of
+  `init_cmd.go` (977 lines) shows zero `pickTemplate` references.
+  The replacement pipeline `collectHomeDBs → pickDBs →
+  buildProjectSchemaBytes → schemaSourceLabel` is wired in
+  `chooseSchema:213-327`. `template_cmd.go` uses its own
+  `promptTemplateName` / `promptConfirm` helpers and never
+  referenced `pickTemplate`. `init_cmd_test.go` references no
+  `pickTemplate` symbol — the new tests target `subsetSchema`,
+  `buildProjectSchemaBytes`, `collectHomeDBs`, and
+  `schemaSourceLabel` directly. The orchestrator-relayed
+  `mage check` exit 0 confirms compilation, so no orphan caller
+  could remain undetected.
+
+- **2.2 `huh.NewMultiSelect[string]` v2 API correctness
+  (REFUTED).** `go doc charm.land/huh/v2 MultiSelect` enumerates
+  `Title(string)`, `Description(string)`, `Options(...Option[T])`,
+  `Value(*[]T)`, and `Run() error` with the exact signatures used
+  in `pickDBs:472-478`. Generic-type parameter is `comparable`;
+  `string` satisfies it. Context7
+  `/charmbracelet/huh/v2.0.0` cross-confirms via the README.
+
+- **2.3 Zero-selection comment-only schema parses (REFUTED).**
+  `emptyProjectSchemaHeader` (lines 31-33) is three `#`-prefixed
+  lines (no top-level keys). `toml.Unmarshal` of comment-only
+  bytes leaves `var raw map[string]any` nil. `buildRegistry(nil)`
+  iterates zero entries, calls `checkPathsOverlap` on an empty
+  registry (zero entries, zero comparisons, returns nil), and
+  emits `Registry{DBs: map[string]DB{}}` (load.go:101-130).
+  `TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader`
+  (lines 652-683) explicitly asserts `len(reg.DBs) == 0` after
+  `LoadBytes`.
+
+- **2.4 Subset round-trip catches `ErrOverlappingPaths`
+  (REFUTED — wiring correct, negative test absent but not
+  required).** `subsetSchema:506-525` calls `toml.Marshal(subset)`
+  then `schema.LoadBytes(buf)`. `schema.LoadBytes →
+  buildRegistry → checkPathsOverlap` (load.go:368-401) flags any
+  cross-db `paths` overlap and returns
+  `%w: ErrOverlappingPaths`. The error is wrapped as
+  `"init: subset schema invalid (overlap or meta-schema
+  violation): %w"`. No negative-overlap test exists in the new
+  test suite, but the wiring is structurally complete and the
+  locked design only requires the round-trip catch — which it
+  does for any LoadBytes-rejecting selection (overlap, missing
+  paths, missing format, etc.).
+
+- **2.5 Cross-template merge first-wins deterministic
+  (REFUTED).** `templates.List` (templates.go:69-94) uses
+  `sort.Strings(out)` so `validNames` arrives at `collectHomeDBs`
+  alphabetically sorted. `collectHomeDBs:399-440` walks
+  `templateNames` in input order (alphabetical), and within each
+  template sorts dbName keys (`slices.Sort(names)` line 416)
+  before the collision check — deterministic on every run.
+  Collision: `existingOwner, dup := owner[dbName]` at line 424
+  emits a stderr warning naming both sides and skips the later
+  body. Test `TestCollectHomeDBsMergeAndCollision`
+  (init_cmd_test.go:704-748) asserts `extras` (alphabetical-first)
+  wins the `notes` collision; the `audits` clean-merge case
+  passes; the warning string is asserted.
+
+- **2.6 Existing flag-driven tests bypass huh (REFUTED).**
+  `runInitCmd` (init_cmd_test.go:35-45) seeds `bytes.NewReader(nil)`
+  for stdin, which is non-TTY. `interactive` (init_cmd.go:746-748)
+  delegates to `ttyInteractive` (758-763) which checks
+  `term.IsTerminal(os.Stdin.Fd())` against the process-level
+  descriptor. `os.Stdin.Fd()` in a `go test` runner is generally
+  not a TTY (test runs piped under mage), so `ttyInteractive`
+  returns false and the picker never fires. Tests that pass
+  `--template <name>` flow through the early-return at
+  `chooseSchema:214-220` before any TTY check; tests that omit
+  `--template` and `--json` (e.g.
+  `TestInitCmdNonInteractiveWithoutTemplateErrors`) hit the
+  off-TTY no-default error at line 249, exactly as asserted. No
+  test path can reach `pickDBs`'s `form.Run()` under `mage test`.
+
+- **2.7 `emptyHomeError` still fires for empty home (REFUTED).**
+  `chooseSchema:234-236` and `:297-299` both route to
+  `emptyHomeError(errOut, root)`. `TestInitErrorsWhenHomeEmpty`
+  (init_cmd_test.go:268-302) asserts the laslig notice contains
+  "home library is empty" + "examples/" + "ta template save",
+  and the returned error contains "empty" + "examples/". The
+  literal at lines 350-364 satisfies all assertions.
+
+- **2.8 `schemaSourceLabel` formats correctly (REFUTED).**
+  Lines 530-537: empty selection → `"(empty)"`; one-or-more →
+  `"dbs:" + strings.Join(sorted, ",")`. `TestSchemaSourceLabel`
+  (init_cmd_test.go:687-697) asserts: `nil` → `"(empty)"`,
+  `["plans"]` → `"dbs:plans"`, `["plans","notes"]` →
+  `"dbs:notes,plans"` (sort-stable, comma-joined). The
+  `initReport.SchemaSource` doc (init_cmd.go:60-67) lists exactly
+  these three forms.
+
+- **2.9 `bootstrap.default_template` off-TTY path unchanged
+  (REFUTED).** `chooseSchema:241-249`: when off-TTY without
+  `--template`, if `cfg.Bootstrap.DefaultTemplate != ""` the
+  named template is loaded via `loadTemplate(name)` (full-file
+  byte copy) and `(name, data, nil)` is returned — full-file
+  shortcut intact, no merge, no picker. Same call shape as Phase
+  9.4.
+
+- **2.10 Subset map ordering — non-determinism leak
+  (REFUTED).** `subsetSchema:507-516` builds
+  `subset := make(map[string]any, len(selected))`, iterates
+  `sorted` (locally re-sorted via `slices.Sort`) to populate
+  the map. Map insertion order in Go is irrelevant to iteration
+  order. The output determinism comes from
+  `pelletier/go-toml/v2.Marshal`, which sorts top-level
+  `map[string]any` keys alphabetically (verified empirically by
+  the project's existing reliance on go-toml output stability in
+  golden tests). Nested `map[string]any` values are likewise
+  sorted at every level. The pre-loop `slices.Sort(sorted)` is
+  trace-clarifying, not load-bearing — the comment at lines
+  503-505 is correct. No golden-output test exists for
+  `subsetSchema`, so even hypothetical map-iteration-order leak
+  would not flake any present test.
+
+- **2.11 Schema validation on selected db with empty `paths`
+  (REFUTED).** `templates.Load` (templates.go:136-149) calls
+  `schema.LoadBytes` which calls `buildDB` (load.go:182-198):
+  `paths == nil` and `len(paths) == 0` are both rejected before
+  the template ever reaches `validNames`. A db with empty
+  `paths` is filtered at the per-template scan
+  (chooseSchema:262-275) and surfaces as a stderr "malformed
+  template skipped" warning. The picker only sees fully-validated
+  dbs.
+
+- **2.12 WORKLOG integrity (REFUTED).** Phase 9.4 builder + QA
+  closeout block ends at line 5620; blank line 5621; Phase 9.5
+  builder block (sections 1-6) starts line 5622 and ends line
+  5740; blank line 5741; Phase 9.5 QA Proof block (sections 1-3)
+  starts line 5742 and ends line 5880. This QA Falsification
+  block appends after — pure append, no in-place edit, no header
+  collision.
+
+### 3. Conclusion (FALSIFICATION certificate)
+
+- **Premises**: the locked-design Phase 9.5 contract per task
+  description: `pickDBs` is `huh.NewMultiSelect[string]` over
+  the union-of-dbs, `--template` retains full-file shortcut,
+  zero-selection writes comment-only schema, subset
+  round-trip-validates via `LoadBytes`, cross-template merge
+  first-wins, `emptyHomeError` preserved, `schemaSourceLabel`
+  formats correctly, off-TTY default-template path unchanged.
+- **Evidence**: full read of `cmd/ta/init_cmd.go` (lines 1-977)
+  + `cmd/ta/init_cmd_test.go` (lines 1-841); cross-package reads
+  of `internal/schema/load.go` (paths-overlap detector, empty-
+  registry semantics) and `internal/templates/templates.go`
+  (sort.Strings on List, validateName guard); `go doc
+  charm.land/huh/v2 MultiSelect` confirms `Title` / `Description`
+  / `Options` / `Value` / `Run` signatures; Context7
+  `/charmbracelet/huh/v2.0.0` cross-confirms; `go doc
+  github.com/pelletier/go-toml/v2` confirms `Marshal` /
+  `Unmarshal` shape (sort order undocumented in package doc but
+  empirically alphabetical and not load-bearing for any present
+  test); WORKLOG line-range read confirms append-only structure;
+  orchestrator-relayed `mage fmt` + `mage check` exit 0 (13
+  packages) confirm compilation + race + coverage gates.
+- **Trace or cases**: 12 attack vectors enumerated above,
+  every one REFUTED on inspection of the live tree.
+- **Conclusion**: PASS. No CONFIRMED counterexample produced.
+- **Unknowns**: None blocking. The `pelletier/go-toml/v2`
+  Marshal map-key ordering is undocumented in the package's
+  GoDoc but is empirically alphabetical and is in any case not
+  load-bearing for any present test (no golden-bytes assertions
+  on `subsetSchema` output). If a future test introduces a
+  golden assertion on subset output bytes, that test would need
+  to either pin the go-toml v2 version or use an order-stable
+  marshaler — but the current test suite asserts via
+  round-trip-Registry, which is order-agnostic.
+
+### 4. Hylla Feedback
+
+N/A — review touched Go (`cmd/ta/init_cmd.go`,
+`cmd/ta/init_cmd_test.go`) and Markdown (`workflow/ta/WORKLOG.md`)
+on an uncommitted working tree at HEAD `052959b` (Hylla ingest
+would not reflect these deltas yet). Evidence sourced from
+`Read` on the live tree, `go doc` on `charm.land/huh/v2` and
+`github.com/pelletier/go-toml/v2`, plus Context7
+`/charmbracelet/huh/v2.0.0`. `Read` of `pelletier/go-toml/v2`
+mod-cache marshaler.go was denied by the sandbox, so map-key
+ordering is grounded in `go doc` + project-wide empirical
+behaviour rather than direct source inspection — flagged as a
+non-blocking Unknown above.

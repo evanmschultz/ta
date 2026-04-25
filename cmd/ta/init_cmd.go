@@ -18,8 +18,19 @@ import (
 
 	"github.com/evanmschultz/ta/internal/fsatomic"
 	"github.com/evanmschultz/ta/internal/render"
+	"github.com/evanmschultz/ta/internal/schema"
 	"github.com/evanmschultz/ta/internal/templates"
 )
+
+// emptyProjectSchemaHeader is the comment-only body written to
+// `<project>/.ta/schema.toml` when the user selects zero dbs from the
+// Phase 9.5 db-multi-select. The cascade resolver tolerates a registry
+// with no dbs (Lookup returns ok=false; nothing routes there); the
+// remediation hints in the comment guide the user toward
+// `ta schema --action=create` or hand-editing.
+const emptyProjectSchemaHeader = "# Project schema — no dbs declared yet.\n" +
+	"# Run `ta schema --action=create --kind=db --name=<name> --data='{...}'`\n" +
+	"# to declare a db, or copy from examples/ in the ta repo.\n"
 
 // claudeMCPFileName is the canonical `.mcp.json` filename Claude Code
 // reads from the project root (V2-PLAN §14.4).
@@ -45,9 +56,18 @@ type initFlags struct {
 
 // initReport is the structured outcome of `ta init`. The --json emit
 // shape mirrors it verbatim (V2-PLAN §14 bootstrap contract).
+//
+// SchemaSource takes one of three shapes per PLAN §12.17.9 Phase 9.5:
+//
+//   - "<template-name>" — the user passed `--template <name>` (or an
+//     off-TTY `bootstrap.default_template`). The full file was copied.
+//   - "dbs:<sorted-csv>" — interactive picker; the listed dbs were
+//     reconstructed into the project schema.
+//   - "(empty)" — interactive picker with zero dbs selected; a
+//     comment-only schema was written.
 type initReport struct {
 	Path          string `json:"path"`
-	SchemaSource  string `json:"schema_source"` // "<template-name>"
+	SchemaSource  string `json:"schema_source"`
 	ClaudeWritten bool   `json:"claude_written"`
 	CodexWritten  bool   `json:"codex_written"`
 }
@@ -69,9 +89,14 @@ func newInitCmd() *cobra.Command {
 		Short: "Bootstrap a project directory with a schema and MCP configs",
 		Long: "Bootstrap a project directory from the `~/.ta/` template " +
 			"library. With a TTY and no flags, runs an interactive huh " +
-			"picker; with flags, runs non-interactively. Writes " +
-			"`<path>/.ta/schema.toml` from the chosen template, and by " +
-			"default writes `<path>/.mcp.json` (Claude Code) and " +
+			"multi-select over every db declared across the home library " +
+			"(PLAN §12.17.9 Phase 9.5); the chosen dbs are reconstructed " +
+			"into `<path>/.ta/schema.toml`. Selecting zero dbs writes a " +
+			"comment-only schema you can fill in later via " +
+			"`ta schema --action=create`. With `--template <name>`, the " +
+			"selected home template is copied verbatim (the legacy " +
+			"non-interactive shortcut). By default also writes " +
+			"`<path>/.mcp.json` (Claude Code) and " +
 			"`<path>/.codex/config.toml` (Codex). Per-path " +
 			"defaults can be set in `<path>/.ta/config.toml` (V2-PLAN §14.5); " +
 			"`ta init` does NOT create that file itself — edit it by hand to " +
@@ -162,19 +187,29 @@ func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) er
 	return emitInitReport(out, report, f.asJSON)
 }
 
-// chooseSchema resolves which schema bytes to write: explicit
-// --template flag, bootstrap default, or huh picker on TTY. Returns the
-// source label used for the report ("<template-name>"). `errOut`
-// receives per-template warnings when the picker path encounters a
-// malformed entry (typical case: legacy pre-v2 `~/.ta/schema.toml`);
-// the malformed template is filtered out of the picker, the user sees
-// the warning on stderr, and the rest of the library still shows up.
+// chooseSchema resolves which schema bytes to write. Three paths:
 //
-// When no `--template` flag is passed, the home library must contain
-// at least one `.toml` template. Per V2-PLAN §12.17.5 [D2]
-// (2026-04-24 amendment), a home with zero templates raises a
-// laslig-structured "home library is empty" notice pointing at
-// `examples/` + `mage install` so the user has a clear next step.
+//  1. Explicit `--template <name>`: full-file copy of the named home
+//     template (Phase 9.4 behaviour, retained as the non-interactive
+//     shortcut). Source label = "<template-name>".
+//  2. Off-TTY with `bootstrap.default_template`: full-file copy of the
+//     default template. Source label = "<template-name>".
+//  3. TTY interactive (no `--template` and no off-TTY default): NEW
+//     Phase 9.5 db-multi-select path. The picker shows the union of
+//     all dbs declared across home templates; the user selects zero or
+//     more by name; the project schema is reconstructed from those
+//     dbs' raw TOML bodies. Source label = "dbs:<csv>" or "(empty)".
+//
+// `errOut` receives per-template warnings when the picker path
+// encounters a malformed entry (typical case: legacy pre-v2
+// `~/.ta/schema.toml`); the malformed template is filtered out of the
+// option set, the user sees the warning on stderr, and the rest of the
+// library still shows up.
+//
+// Per V2-PLAN §12.17.5 [D2] / §12.17.9 Phase 9.5: a home with zero
+// templates raises a laslig-structured "home library is empty" notice
+// pointing at `examples/` + `mage install` so the user has a clear
+// next step.
 func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstrapConfig) (string, []byte, error) {
 	if f.template != "" {
 		data, err := loadTemplate(f.template)
@@ -232,7 +267,7 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 				fmt.Sprintf("~/.ta/%s.toml is not a valid schema", n),
 				[]string{
 					fmt.Sprintf("delete: ta template delete %s", n),
-					"or fix: add file=, directory=, or collection= at the top of the file",
+					"or fix: declare `paths = [...]` at the top of each db (PLAN §12.17.9)",
 				},
 			)
 			invalid = append(invalid, n)
@@ -263,20 +298,32 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 		return "", nil, emptyHomeError(errOut, root)
 	}
 
-	choice, err := pickTemplate(validNames, cfg.Bootstrap.DefaultTemplate)
+	// Phase 9.5: the interactive picker is now a multi-select over the
+	// union of dbs declared across all valid home templates. Collect
+	// each db's raw TOML body keyed by db name; the picker's option
+	// list is the sorted set of db names; reconstruction marshals the
+	// selected subset.
+	dbBodies, dbInfos, err := collectHomeDBs(validNames, cache, errOut)
 	if err != nil {
 		return "", nil, err
 	}
-	if data, ok := cache[choice]; ok {
-		return choice, data, nil
+	if len(dbBodies) == 0 {
+		// Every template parsed but none declared a db (highly unusual
+		// — the meta-schema requires at least one). Surface the same
+		// empty-home guidance.
+		return "", nil, emptyHomeError(errOut, root)
 	}
-	// Defensive fallback: picker somehow returned a name we did not
-	// validate. Re-load directly — validation will fire again.
-	data, err := loadTemplate(choice)
+
+	selected, err := pickDBs(dbInfos)
 	if err != nil {
 		return "", nil, err
 	}
-	return choice, data, nil
+
+	body, err := buildProjectSchemaBytes(dbBodies, selected)
+	if err != nil {
+		return "", nil, err
+	}
+	return schemaSourceLabel(selected), body, nil
 }
 
 func loadTemplate(name string) ([]byte, error) {
@@ -316,32 +363,177 @@ func emptyHomeError(errOut io.Writer, root string) error {
 	return fmt.Errorf("init: home library is empty at %s; see examples/ in the ta repo", root)
 }
 
-// pickTemplate runs the huh single-select over the library names.
-// Pre-selects the bootstrap-config default if set.
-func pickTemplate(names []string, def string) (string, error) {
-	opts := make([]huh.Option[string], 0, len(names))
-	for _, n := range names {
-		opts = append(opts, huh.NewOption(n, n))
+// dbPickerInfo carries one row of the Phase 9.5 db-multi-select option
+// list: the db's name (the bound value), and a one-line display label
+// combining the db name with a short description excerpt when present.
+// Source-template tracking is intentionally absent from the picker —
+// dbs are de-duplicated by name across the home library, so the user
+// picks dbs, not "this db from this template".
+type dbPickerInfo struct {
+	name        string
+	displayName string // "<dbname> — <description>" or just "<dbname>"
+}
+
+// collectHomeDBs walks the validated home templates and merges every
+// db declaration into two parallel structures:
+//
+//   - bodies: dbName → raw `map[string]any` body for that db (the
+//     ready-to-marshal form that preserves field-level defaults, enum
+//     literals, and any future schema fields without lossy
+//     round-tripping through the typed Registry).
+//   - infos: sorted slice of {name, displayName} rows the picker needs.
+//
+// Same-named dbs across templates collide on first-wins: the
+// alphabetically earliest template owns the body, later templates'
+// versions are skipped with a stderr warning so the user knows their
+// `~/.ta/extras.toml` `[plans]` block was ignored in favour of
+// `~/.ta/schema.toml` `[plans]`. This keeps the merge deterministic
+// without requiring the user to resolve the collision before the
+// picker runs.
+func collectHomeDBs(templateNames []string, cache map[string][]byte, errOut io.Writer) (map[string]map[string]any, []dbPickerInfo, error) {
+	bodies := make(map[string]map[string]any)
+	owner := make(map[string]string) // dbName → template that contributed body
+	descs := make(map[string]string)
+
+	warn := render.New(errOut)
+	for _, tn := range templateNames {
+		buf, ok := cache[tn]
+		if !ok {
+			continue
+		}
+		var raw map[string]any
+		if err := toml.Unmarshal(buf, &raw); err != nil {
+			// Unreachable in practice — templates.Load already parsed
+			// + validated. Treat as a malformed-template slip.
+			return nil, nil, fmt.Errorf("init: parse cached template %q: %w", tn, err)
+		}
+		// Sort db names within one template so collision detection is
+		// deterministic across repeat runs.
+		names := make([]string, 0, len(raw))
+		for k := range raw {
+			names = append(names, k)
+		}
+		slices.Sort(names)
+		for _, dbName := range names {
+			body, ok := raw[dbName].(map[string]any)
+			if !ok {
+				// LoadBytes already rejected non-table top-level
+				// entries; defensive skip.
+				continue
+			}
+			if existingOwner, dup := owner[dbName]; dup {
+				_ = warn.Notice(
+					laslig.NoticeWarningLevel,
+					"duplicate db skipped",
+					fmt.Sprintf("db %q in ~/.ta/%s.toml shadows the one in ~/.ta/%s.toml; keeping the earlier definition",
+						dbName, tn, existingOwner),
+					nil,
+				)
+				continue
+			}
+			bodies[dbName] = body
+			owner[dbName] = tn
+			if d, ok := body[metaFieldDescription].(string); ok {
+				descs[dbName] = d
+			}
+		}
 	}
 
-	var choice string
-	if def != "" && slices.Contains(names, def) {
-		// Pre-select the default by seeding the bound variable; huh
-		// uses the initial value to highlight the matching option.
-		choice = def
+	infos := make([]dbPickerInfo, 0, len(bodies))
+	for name := range bodies {
+		display := name
+		if d := strings.TrimSpace(descs[name]); d != "" {
+			display = name + " — " + d
+		}
+		infos = append(infos, dbPickerInfo{name: name, displayName: display})
 	}
-	sel := huh.NewSelect[string]().
-		Title("Pick a schema template").
-		Options(opts...).
-		Value(&choice)
-	form := huh.NewForm(huh.NewGroup(sel))
+	slices.SortFunc(infos, func(a, b dbPickerInfo) int {
+		return strings.Compare(a.name, b.name)
+	})
+	return bodies, infos, nil
+}
+
+// metaFieldDescription is the db-level `description` key on a schema
+// table. Mirrors the unexported `schema.metaFieldDescription` constant
+// — tiny stable string, not worth widening the schema package surface
+// just to avoid the duplicate literal.
+const metaFieldDescription = "description"
+
+// pickDBs runs the huh multi-select over the home-library db catalogue.
+// Returns the selected db names in the order huh wrote them (huh
+// preserves option-list order in the bound slice). Selecting zero is a
+// valid outcome — the empty-schema branch handles it downstream.
+func pickDBs(infos []dbPickerInfo) ([]string, error) {
+	opts := make([]huh.Option[string], 0, len(infos))
+	for _, i := range infos {
+		opts = append(opts, huh.NewOption(i.displayName, i.name))
+	}
+	var selected []string
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewMultiSelect[string]().
+			Title("Pick dbs to include in this project (space to toggle, enter to confirm)").
+			Description("Selecting zero is fine — you can declare dbs later via `ta schema --action=create`.").
+			Options(opts...).
+			Value(&selected),
+	))
 	if err := form.Run(); err != nil {
-		return "", fmt.Errorf("template picker: %w", err)
+		return nil, fmt.Errorf("db picker: %w", err)
 	}
-	if choice == "" {
-		return "", errors.New("init: no template chosen")
+	return selected, nil
+}
+
+// buildProjectSchemaBytes returns the bytes to write to
+// `<project>/.ta/schema.toml` given the home-library db bodies and the
+// user's selection. Zero selection writes the comment-only header;
+// any other selection marshals the selected subset and re-validates
+// the round-trip via schema.LoadBytes so a bad selection (e.g.
+// overlapping `paths` across two selected dbs) surfaces here rather
+// than at next read.
+func buildProjectSchemaBytes(bodies map[string]map[string]any, selected []string) ([]byte, error) {
+	if len(selected) == 0 {
+		return []byte(emptyProjectSchemaHeader), nil
 	}
-	return choice, nil
+	return subsetSchema(bodies, selected)
+}
+
+// subsetSchema marshals the named subset of bodies into TOML bytes and
+// re-validates the result via schema.LoadBytes. Iterates selected in
+// sorted order so repeat runs over the same selection produce
+// byte-identical output (pelletier/go-toml/v2 marshals map[string]any
+// keys in their natural map-iteration order, but a sorted intermediate
+// `map[string]any` would still be re-iterated by go-toml in
+// sorted-string order — sorting up front keeps the trace explicit).
+func subsetSchema(bodies map[string]map[string]any, selected []string) ([]byte, error) {
+	subset := make(map[string]any, len(selected))
+	sorted := append([]string(nil), selected...)
+	slices.Sort(sorted)
+	for _, name := range sorted {
+		body, ok := bodies[name]
+		if !ok {
+			return nil, fmt.Errorf("init: db %q missing from home library", name)
+		}
+		subset[name] = body
+	}
+	buf, err := toml.Marshal(subset)
+	if err != nil {
+		return nil, fmt.Errorf("init: marshal subset schema: %w", err)
+	}
+	if _, err := schema.LoadBytes(buf); err != nil {
+		return nil, fmt.Errorf("init: subset schema invalid (overlap or meta-schema violation): %w", err)
+	}
+	return buf, nil
+}
+
+// schemaSourceLabel returns the SchemaSource value for the init report
+// when the user took the multi-select path. "(empty)" for zero
+// selection, "dbs:<csv>" for one or more (sorted for determinism).
+func schemaSourceLabel(selected []string) string {
+	if len(selected) == 0 {
+		return "(empty)"
+	}
+	sorted := append([]string(nil), selected...)
+	slices.Sort(sorted)
+	return "dbs:" + strings.Join(sorted, ",")
 }
 
 // writeSchema handles the .ta/schema.toml write: directory creation,
