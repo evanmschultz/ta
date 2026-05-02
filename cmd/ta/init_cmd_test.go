@@ -15,8 +15,11 @@ import (
 	"github.com/evanmschultz/ta/internal/templates"
 )
 
-// seedTemplateLibrary creates a tmpdir library containing one template
-// named `schema` and injects it as the templates.Root for the test.
+// seedTemplateLibrary creates a tmpdir library containing a single
+// `~/.ta/schema.toml` with the `plans` db (from cliTaskSchema) and
+// injects the dir as templates.Root for the test. Post-F15 the home
+// is one file aggregating dbs by name; the historical `schema`
+// per-template name is gone.
 func seedTemplateLibrary(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -48,7 +51,7 @@ func TestInitCmdTemplateJSONNoMCP(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
 
-	out, errOut, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex", "--json")
+	out, errOut, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude", "--no-codex", "--json")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -64,8 +67,8 @@ func TestInitCmdTemplateJSONNoMCP(t *testing.T) {
 	if report.Path != target {
 		t.Errorf("path = %q, want %q", report.Path, target)
 	}
-	if report.SchemaSource != "schema" {
-		t.Errorf("schema_source = %q, want schema", report.SchemaSource)
+	if report.SchemaSource != "plans" {
+		t.Errorf("schema_source = %q, want plans", report.SchemaSource)
 	}
 	if report.ClaudeWritten || report.CodexWritten {
 		t.Errorf("expected no MCP writes: %+v", report)
@@ -91,7 +94,7 @@ func TestInitCmdTemplateWritesBothMCPConfigs(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
 
-	_, errOut, err := runInitCmd(t, "--path", target, "--template", "schema")
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "plans")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -140,7 +143,7 @@ func TestInitCmdExistingSchemaWithoutForceErrors(t *testing.T) {
 		t.Fatalf("pre-seed: %v", err)
 	}
 
-	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude", "--no-codex")
 	if err == nil {
 		t.Fatal("expected error when schema exists without --force")
 	}
@@ -166,7 +169,7 @@ func TestInitCmdExistingSchemaWithForceOverwrites(t *testing.T) {
 		t.Fatalf("pre-seed: %v", err)
 	}
 
-	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--force", "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "plans", "--force", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -188,7 +191,7 @@ func TestInitCmdBootstrapConfigSuppressesClaude(t *testing.T) {
 		t.Fatalf("seed config: %v", err)
 	}
 
-	_, errOut, err := runInitCmd(t, "--path", target, "--template", "schema")
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "plans")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -200,14 +203,12 @@ func TestInitCmdBootstrapConfigSuppressesClaude(t *testing.T) {
 	}
 }
 
-// TestInitCmdRelativePathResolvesAgainstCwd locks in the V2-PLAN §12.17.5
-// [A1] semantics: relative --path values resolve via filepath.Abs rather
-// than erroring. The relative target is created under cwd and a schema
-// is written into it. Pre-[A1] the positional [path] arg required
-// absolute paths; post-[A1] --path accepts either form.
+// TestInitCmdRelativePathResolvesAgainstCwd locks in V2-PLAN §12.17.5
+// [A1]: relative --path values resolve via filepath.Abs rather than
+// erroring. The relative target is created under cwd and a schema is
+// written into it.
 func TestInitCmdRelativePathResolvesAgainstCwd(t *testing.T) {
 	seedTemplateLibrary(t)
-	// chdir to a throwaway dir so the relative path resolves there.
 	parent := t.TempDir()
 	prev, err := os.Getwd()
 	if err != nil {
@@ -218,11 +219,10 @@ func TestInitCmdRelativePathResolvesAgainstCwd(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(prev) })
 
-	_, errOut, err := runInitCmd(t, "--path", "relative/path", "--template", "schema", "--no-claude", "--no-codex")
+	_, errOut, err := runInitCmd(t, "--path", "relative/path", "--template", "plans", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("relative --path should resolve against cwd: %v stderr=%s", err, errOut)
 	}
-	// Schema must land under the resolved absolute path.
 	absTarget := filepath.Join(parent, "relative", "path")
 	if _, err := os.Stat(filepath.Join(absTarget, ".ta", "schema.toml")); err != nil {
 		t.Errorf("schema not written under resolved path: %v", err)
@@ -234,16 +234,13 @@ func TestInitCmdMissingTemplateErrors(t *testing.T) {
 	target := t.TempDir()
 	_, _, err := runInitCmd(t, "--path", target, "--template", "ghost", "--no-claude", "--no-codex")
 	if err == nil {
-		t.Fatal("expected error for missing template")
+		t.Fatal("expected error for missing db")
 	}
 }
 
 func TestInitCmdNonInteractiveWithoutTemplateErrors(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
-	// No --template; stdin is not a TTY (test context). Library has
-	// templates so the empty-home guard does not fire — the test
-	// exercises the off-TTY ambiguous-selection error instead.
 	_, _, err := runInitCmd(t, "--path", target, "--no-claude", "--no-codex")
 	if err == nil {
 		t.Fatal("expected error running non-interactive without --template")
@@ -255,19 +252,17 @@ func TestInitCmdNonInteractiveWithoutTemplateErrors(t *testing.T) {
 	if !strings.Contains(msg, "examples/") {
 		t.Errorf("error missing examples/ pointer: %v", err)
 	}
-	if !strings.Contains(msg, "ta schema --action=create") {
-		t.Errorf("error missing CLI-build pointer: %v", err)
+	if !strings.Contains(msg, "ta template save") {
+		t.Errorf("error missing template-save pointer: %v", err)
 	}
 }
 
 // TestInitErrorsWhenHomeEmpty locks in the V2-PLAN §12.17.5 [D2]
-// 2026-04-24 amendment: when `~/.ta/` is empty (no schema.toml and no
-// other templates), `ta init` without `--template` errors with a
-// laslig-structured notice pointing at `examples/` instead of silently
-// falling through to the picker.
+// 2026-04-24 amendment: when `~/.ta/schema.toml` is missing or empty,
+// `ta init` without `--template` errors with a laslig-structured
+// notice pointing at `examples/` instead of silently falling through
+// to the picker.
 func TestInitErrorsWhenHomeEmpty(t *testing.T) {
-	// Empty template library: use SetRootForTest directly instead of
-	// seedTemplateLibrary so the root has zero .toml files.
 	emptyRoot := t.TempDir()
 	restore := templates.SetRootForTest(emptyRoot)
 	t.Cleanup(restore)
@@ -284,8 +279,6 @@ func TestInitErrorsWhenHomeEmpty(t *testing.T) {
 	if !strings.Contains(msg, "examples/") {
 		t.Errorf("error missing 'examples/' pointer: %v", err)
 	}
-	// The laslig Notice emitted to stderr must also carry the key
-	// remediation pointers so a human reader sees them in the banner.
 	if !strings.Contains(errOut, "home library is empty") {
 		t.Errorf("stderr missing laslig notice title: %s", errOut)
 	}
@@ -295,20 +288,15 @@ func TestInitErrorsWhenHomeEmpty(t *testing.T) {
 	if !strings.Contains(errOut, "ta template save") {
 		t.Errorf("stderr notice missing template-save remediation: %s", errOut)
 	}
-	// No schema file should land in the target when the guard fires.
 	if _, err := os.Stat(filepath.Join(target, ".ta", "schema.toml")); !os.IsNotExist(err) {
 		t.Errorf("schema.toml written despite empty-home guard firing: %v", err)
 	}
 }
 
-// TestInitSucceedsWhenHomeHasSchema is the positive counterpart to
-// TestInitErrorsWhenHomeEmpty: when `~/.ta/schema.toml` exists (the
-// `mage install` output), `ta init --template schema` succeeds and the
-// guard does not fire. Verifies that a populated home + explicit
-// template resolves normally after the [D2] changes.
+// TestInitSucceedsWhenHomeHasSchema is the positive counterpart: when
+// `~/.ta/schema.toml` exists with a `plans` db, `ta init --template
+// plans` succeeds.
 func TestInitSucceedsWhenHomeHasSchema(t *testing.T) {
-	// Seed ~/.ta/schema.toml via SetRootForTest — mimics what a user
-	// would have after running `mage install`.
 	homeRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(cliTaskSchema), 0o644); err != nil {
 		t.Fatalf("seed home schema: %v", err)
@@ -317,7 +305,7 @@ func TestInitSucceedsWhenHomeHasSchema(t *testing.T) {
 	t.Cleanup(restore)
 
 	target := t.TempDir()
-	_, errOut, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -327,7 +315,7 @@ func TestInitSucceedsWhenHomeHasSchema(t *testing.T) {
 		t.Fatalf("read project schema: %v", err)
 	}
 	if !strings.Contains(string(data), "[plans.task]") {
-		t.Errorf("schema body not carried from home template: %s", data)
+		t.Errorf("schema body not carried from home: %s", data)
 	}
 }
 
@@ -336,7 +324,7 @@ func TestInitCmdCreatesMissingTarget(t *testing.T) {
 	parent := t.TempDir()
 	target := filepath.Join(parent, "new-project")
 
-	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -363,7 +351,7 @@ func TestInitCmdPreservesExistingTaEntryInMCPJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(target, ".mcp.json"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -387,7 +375,7 @@ func TestInitCmdMergesTaEntryIntoExistingMCPJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(target, ".mcp.json"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-codex")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-codex")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -420,7 +408,7 @@ func TestInitCmdPreservesExistingCodexTaBlock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -441,7 +429,7 @@ func TestInitCmdMergesTaBlockIntoExistingCodexConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -487,11 +475,7 @@ func TestContainsTableWhitespaceVariants(t *testing.T) {
 }
 
 // TestInitCmdCodexWhitespaceVariantNotDuplicated is the end-to-end
-// version of TestContainsTableWhitespaceVariants: a pre-existing
-// whitespace-variant [mcp_servers.ta] block must be detected so
-// mergeCodexMCP leaves the file untouched rather than appending a
-// duplicate canonical block (invalid TOML under the single-instance
-// rule).
+// version of TestContainsTableWhitespaceVariants.
 func TestInitCmdCodexWhitespaceVariantNotDuplicated(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
@@ -499,36 +483,26 @@ func TestInitCmdCodexWhitespaceVariantNotDuplicated(t *testing.T) {
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// Whitespace-variant header per TOML v1.0.0 — equivalent to
-	// [mcp_servers.ta] but not byte-identical.
 	existing := "[ mcp_servers.ta ]\ncommand = \"custom-ta\"\n"
 	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude")
+	_, _, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(codexDir, "config.toml"))
 	if string(got) != existing {
-		t.Errorf("whitespace-variant codex config modified (should be untouched):\ngot:  %q\nwant: %q", got, existing)
+		t.Errorf("whitespace-variant codex config modified:\ngot:  %q\nwant: %q", got, existing)
 	}
-	// A canonical [mcp_servers.ta] must NOT have been appended.
 	if strings.Count(string(got), "[mcp_servers.ta]") > 0 {
 		t.Errorf("duplicate canonical block appended: %s", got)
 	}
 }
 
-// TestInitCmdJSONImpliesNonInteractive locks in the §12.14 LOW-2 fix:
-// --json on a stdin-less runner must not fall into a missing-template
-// error via a picker that cannot complete. Before the fix, nonInterRq
-// was set only by --template so --json alone dropped into
-// pickTemplate's missing-template branch. After the fix, --json
-// satisfies nonInterRq on its own — and without --template, the
-// command errors loudly with the same "missing template" diagnostic
-// the no-flag-no-tty path uses. The assertion here is that --json does
-// not SILENTLY do something surprising (like hang on an unrunnable
-// picker); a loud error is the correct non-interactive behaviour.
+// TestInitCmdJSONImpliesNonInteractive: --json on a stdin-less runner
+// must not fall into a missing-template error via a picker that
+// cannot complete.
 func TestInitCmdJSONImpliesNonInteractive(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
@@ -536,20 +510,17 @@ func TestInitCmdJSONImpliesNonInteractive(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error (non-interactive without --template); got nil")
 	}
-	if !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected 'template' in error; got: %v", err)
-	}
 	// Template flag + --json should succeed on the non-interactive path.
-	_, _, err = runInitCmd(t, "--path", target, "--template", "schema", "--json", "--no-claude", "--no-codex")
+	_, _, err = runInitCmd(t, "--path", target, "--template", "plans", "--json", "--no-claude", "--no-codex")
 	if err != nil {
 		t.Fatalf("template + --json should succeed non-interactively: %v", err)
 	}
 }
 
 // twoDBSchema declares two distinct dbs (`plans` + `notes`) so the
-// Phase 9.5 subset tests can exercise pick-one, pick-both, pick-none.
-// The bodies match the meta-schema (paths + format + at least one
-// type with at least one field per type) so a round-trip parse via
+// subset tests can exercise pick-one, pick-both, pick-none. The
+// bodies match the meta-schema (paths + at least one type with at
+// least one field per type) so a round-trip parse via
 // `schema.LoadBytes` succeeds.
 const twoDBSchema = `
 [plans]
@@ -582,12 +553,10 @@ required = true
 type = "string"
 `
 
-// TestSubsetSchemaSelectsOnlyNamedDBs locks the Phase 9.5 contract:
-// `subsetSchema` returns bytes containing only the requested dbs, the
-// resulting bytes round-trip through `schema.LoadBytes` cleanly, and
-// every selected db's `paths`, `format`, types, and field metadata
-// survive intact. The test also exercises the round-trip via
-// `toml.Unmarshal` so accidental key drops or rewrites surface here.
+// TestSubsetSchemaSelectsOnlyNamedDBs locks the multi-select subset
+// contract: subsetSchema returns bytes containing only the requested
+// dbs, the resulting bytes round-trip cleanly, and every selected
+// db's metadata survives intact.
 func TestSubsetSchemaSelectsOnlyNamedDBs(t *testing.T) {
 	bodies := loadTwoDBBodies(t)
 
@@ -619,8 +588,6 @@ func TestSubsetSchemaSelectsOnlyNamedDBs(t *testing.T) {
 			if !sliceEqual(gotNames, wantNames) {
 				t.Errorf("dbs = %v, want %v", gotNames, wantNames)
 			}
-			// Each selected db must keep its meta-fields and a non-empty
-			// type set with non-empty field metadata.
 			for _, n := range tc.selected {
 				db := reg.DBs[n]
 				if len(db.Paths) == 0 {
@@ -642,11 +609,8 @@ func TestSubsetSchemaSelectsOnlyNamedDBs(t *testing.T) {
 	}
 }
 
-// TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader locks
-// the Phase 9.5 zero-selection contract: writing zero dbs produces a
-// comment-only header that the cascade resolver tolerates (parses to
-// an empty registry without erroring) and that points the user at
-// `ta schema --action=create` for next steps.
+// TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader: zero
+// dbs produces a comment-only header that LoadBytes tolerates.
 func TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader(t *testing.T) {
 	bodies := loadTwoDBBodies(t)
 
@@ -661,8 +625,6 @@ func TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader(t *testing.T) 
 	if !strings.Contains(got, "ta schema --action=create") {
 		t.Errorf("empty-selection bytes missing remediation pointer; got:\n%s", got)
 	}
-	// Empty registry must parse cleanly via LoadBytes — the cascade
-	// resolver downstream consumes whatever LoadBytes returns.
 	reg, err := schema.LoadBytes(buf)
 	if err != nil {
 		t.Fatalf("empty-selection bytes failed LoadBytes: %v\n%s", err, buf)
@@ -670,7 +632,6 @@ func TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader(t *testing.T) 
 	if len(reg.DBs) != 0 {
 		t.Errorf("empty-selection registry should have no dbs, got %d", len(reg.DBs))
 	}
-	// Same path through the public surface.
 	buf2, err := buildProjectSchemaBytes(bodies, []string{})
 	if err != nil {
 		t.Fatalf("buildProjectSchemaBytes([]): %v", err)
@@ -680,8 +641,7 @@ func TestBuildProjectSchemaBytesEmptySelectionWritesCommentHeader(t *testing.T) 
 	}
 }
 
-// TestSchemaSourceLabel locks the report-label format for the new
-// flow so JSON consumers can pattern-match on the prefix.
+// TestSchemaSourceLabel locks the report-label format.
 func TestSchemaSourceLabel(t *testing.T) {
 	if got := schemaSourceLabel(nil); got != "(empty)" {
 		t.Errorf("zero-selection label = %q, want (empty)", got)
@@ -694,87 +654,88 @@ func TestSchemaSourceLabel(t *testing.T) {
 	}
 }
 
-// TestCollectHomeDBsMergeAndCollision exercises the cross-template
-// db merge path: `extras.toml` declares a `notes` db that the earlier
-// `schema.toml` already owns, so the duplicate is skipped with a
-// stderr warning rather than overwriting. Templates that contribute
-// only new dbs are merged in cleanly.
-func TestCollectHomeDBsMergeAndCollision(t *testing.T) {
-	// Read both files via the production cache shape.
-	cache := map[string][]byte{
-		"schema": []byte(twoDBSchema),
-		"extras": []byte(extraDBSchema),
+// TestInitCmdTemplateExtractsOneDBFromMultiDBHome exercises the F15
+// `--template <db>` semantics against a multi-db home: when the user
+// names a db explicitly, the project schema contains JUST that db
+// (not the full home file).
+func TestInitCmdTemplateExtractsOneDBFromMultiDBHome(t *testing.T) {
+	homeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(twoDBSchema), 0o644); err != nil {
+		t.Fatalf("seed home schema: %v", err)
 	}
-	templateNames := []string{"extras", "schema"} // alphabetical, as templates.List returns
-	var errBuf bytes.Buffer
+	restore := templates.SetRootForTest(homeRoot)
+	t.Cleanup(restore)
 
-	bodies, infos, err := collectHomeDBs(templateNames, cache, &errBuf)
+	target := t.TempDir()
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude", "--no-codex")
 	if err != nil {
-		t.Fatalf("collectHomeDBs: %v", err)
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
-	wantDBs := map[string]bool{"plans": false, "notes": false, "audits": false}
-	for n := range bodies {
-		if _, ok := wantDBs[n]; ok {
-			wantDBs[n] = true
-		} else {
-			t.Errorf("unexpected db %q in merged set", n)
-		}
+	got, err := os.ReadFile(filepath.Join(target, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
 	}
-	for n, seen := range wantDBs {
-		if !seen {
-			t.Errorf("db %q missing from merged set", n)
-		}
+	if !strings.Contains(string(got), "[plans]") {
+		t.Errorf("plans db missing: %s", got)
 	}
-	// Infos must be sorted by name.
-	prev := ""
-	for _, i := range infos {
-		if prev != "" && i.name < prev {
-			t.Errorf("infos not sorted: %v", infos)
-		}
-		prev = i.name
-	}
-	// Collision must be reported on stderr.
-	if !strings.Contains(errBuf.String(), "duplicate db skipped") {
-		t.Errorf("collision warning missing from stderr: %q", errBuf.String())
-	}
-	// Collision keeps the earlier (alphabetical-first) template's
-	// version: extras.toml's `notes` body wins because "extras" < "schema".
-	notesBody := bodies["notes"]
-	if d, _ := notesBody["description"].(string); !strings.Contains(d, "extras") {
-		t.Errorf("notes body should be from extras.toml (first-wins); description=%q", d)
+	// The other db (notes) MUST NOT have been carried over.
+	if strings.Contains(string(got), "[notes]") {
+		t.Errorf("notes db leaked into project schema: %s", got)
 	}
 }
 
-// extraDBSchema is a second template overlapping with twoDBSchema on
-// `notes` (collision case) and adding a brand-new `audits` db (clean
-// merge case).
-const extraDBSchema = `
-[notes]
-paths = ["extras-notes.toml"]
-description = "Notes db (from extras.toml)."
+// TestInitCmdTemplateLegacyFilenameFailsLoudly: pre-F15 callers
+// passing a multi-db filename (e.g. `--template schema`) when the
+// home schema declares dbs by name break loudly via ErrDBNotFound.
+// The "schema" filename used to be a per-template basename;
+// post-F15 it is a db-name and won't be present unless the user
+// declared a db literally named "schema".
+func TestInitCmdTemplateLegacyFilenameFailsLoudly(t *testing.T) {
+	homeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(cliTaskSchema), 0o644); err != nil {
+		t.Fatalf("seed home schema: %v", err)
+	}
+	restore := templates.SetRootForTest(homeRoot)
+	t.Cleanup(restore)
 
-[notes.note]
-description = "Free-form note variant."
+	target := t.TempDir()
+	_, _, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
+	if err == nil {
+		t.Fatal("expected ErrDBNotFound for legacy filename masquerading as db-name")
+	}
+	if !strings.Contains(err.Error(), "schema") {
+		t.Errorf("error should name the missing db: %v", err)
+	}
+}
 
-[notes.note.fields.id]
-type = "string"
-required = true
+// TestInitCmdLegacyTemplateFilesEmitsWarning: pre-F15 leftover files
+// like `~/.ta/myproj.toml` are detected and warned about on stderr.
+func TestInitCmdLegacyTemplateFilesEmitsWarning(t *testing.T) {
+	homeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(cliTaskSchema), 0o644); err != nil {
+		t.Fatalf("seed home schema: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(homeRoot, "myproj.toml"), []byte("# legacy"), 0o644); err != nil {
+		t.Fatalf("seed legacy: %v", err)
+	}
+	restore := templates.SetRootForTest(homeRoot)
+	t.Cleanup(restore)
 
-[audits]
-paths = ["audits.toml"]
-description = "Audit trail db."
-
-[audits.event]
-description = "An audit event."
-
-[audits.event.fields.id]
-type = "string"
-required = true
-`
+	target := t.TempDir()
+	_, errOut, err := runInitCmd(t, "--path", target, "--template", "plans", "--no-claude", "--no-codex")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	if !strings.Contains(errOut, "legacy template files detected") {
+		t.Errorf("stderr missing legacy warning: %s", errOut)
+	}
+	if !strings.Contains(errOut, "myproj.toml") {
+		t.Errorf("stderr legacy warning should name the file: %s", errOut)
+	}
+}
 
 // loadTwoDBBodies parses twoDBSchema once and returns the per-db raw
-// body map the picker path uses. Helper keeps each picker test free
-// of TOML-parsing boilerplate.
+// body map the picker path uses.
 func loadTwoDBBodies(t *testing.T) map[string]map[string]any {
 	t.Helper()
 	var raw map[string]any
@@ -802,35 +763,4 @@ func sliceEqual(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-// TestInitCmdMultiTemplateProjectInitCopiesFullFile exercises the
-// `--template <name>` shortcut against a multi-db home library: when
-// the user names a template explicitly, the full file is copied
-// verbatim (Phase 9.4 behaviour). Phase 9.5 only changed the
-// interactive picker — `--template` stays a full-file shortcut.
-func TestInitCmdMultiTemplateProjectInitCopiesFullFile(t *testing.T) {
-	homeRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(twoDBSchema), 0o644); err != nil {
-		t.Fatalf("seed home schema: %v", err)
-	}
-	restore := templates.SetRootForTest(homeRoot)
-	t.Cleanup(restore)
-
-	target := t.TempDir()
-	_, errOut, err := runInitCmd(t, "--path", target, "--template", "schema", "--no-claude", "--no-codex")
-	if err != nil {
-		t.Fatalf("execute: %v stderr=%s", err, errOut)
-	}
-	got, err := os.ReadFile(filepath.Join(target, ".ta", "schema.toml"))
-	if err != nil {
-		t.Fatalf("read schema: %v", err)
-	}
-	// Both dbs must be present — `--template` is a full-file copy.
-	if !strings.Contains(string(got), "[plans]") {
-		t.Errorf("plans db missing: %s", got)
-	}
-	if !strings.Contains(string(got), "[notes]") {
-		t.Errorf("notes db missing: %s", got)
-	}
 }

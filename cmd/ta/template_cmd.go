@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"charm.land/huh/v2"
+	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
 	"github.com/evanmschultz/ta/internal/fsatomic"
@@ -19,22 +21,26 @@ import (
 )
 
 // newTemplateCmd is the parent for `ta template *`. Children are the
-// read-only `list` / `show` pair from §12.13 plus the write-side
-// `save` / `apply` / `delete` trio from §12.15 / §12.16. Every child
-// honors the same TTY-vs-flag discipline as `ta init` (see V2-PLAN
-// §14.3 / §14.6).
+// read-only `list` / `show` pair plus the write-side
+// `save` / `apply` / `delete` trio. Every child honors the same
+// TTY-vs-flag discipline as `ta init`.
+//
+// Post-F15 the home library is a single `~/.ta/schema.toml` file that
+// aggregates dbs by name. Each subcommand operates on db-names rather
+// than per-template files; legacy `~/.ta/<name>.toml` files are
+// detected and warned about (no auto-migration).
 func newTemplateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template",
-		Short: "Manage the ~/.ta template library",
+		Short: "Manage the ~/.ta/schema.toml template library",
 		Long: "Inspect and manage the global schema template library at " +
-			"`~/.ta/`. Each `.toml` file is one template; `ta init` picks " +
-			"from this library to bootstrap a new project.\n\n" +
-			"Children: `list` (enumerate), `show <name>` (inspect), " +
-			"`save [name]` (promote `<cwd>/.ta/schema.toml` to a template), " +
-			"`apply <name> [path]` (write a template into a project), " +
-			"`delete <name>` (remove a template).",
-		Example:       "  ta template list\n  ta template show schema\n  ta template save\n  ta template apply schema\n  ta template delete old",
+			"`~/.ta/schema.toml`. The file aggregates one or more dbs by name; " +
+			"`ta init` picks from this set to bootstrap a new project.\n\n" +
+			"Children: `list` (enumerate dbs), `show <db>` (inspect one db), " +
+			"`save [<db>...]` (merge dbs from `<cwd>/.ta/schema.toml` into " +
+			"`~/.ta/schema.toml`), `apply <db> [--path <project>]` (extract " +
+			"one db into a project schema), `delete <db>` (remove a db).",
+		Example:       "  ta template list\n  ta template show plans\n  ta template save\n  ta template save plans notes\n  ta template apply plans\n  ta template delete plans",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -48,20 +54,19 @@ func newTemplateCmd() *cobra.Command {
 	return cmd
 }
 
+// ---- list ------------------------------------------------------------
+
 func newTemplateListCmd() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:     "list",
-		Short:   "List every template in ~/.ta/",
-		Long:    "Prints the sorted names of every `<name>.toml` template under `~/.ta/`. With --json emits `{\"templates\": [...]}` for agent consumption.",
+		Short:   "List every db declared in ~/.ta/schema.toml",
+		Long:    "Prints the sorted names of every db declared in `~/.ta/schema.toml`. With --json emits `{\"dbs\": [...]}` for agent consumption. Detected legacy `~/.ta/<name>.toml` files (pre-F15 leftovers) trigger a warning notice on stderr.",
 		Example: "  ta template list\n  ta template list --json",
 		Args:    cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			root, err := templates.Root()
-			if err != nil {
-				return err
-			}
-			names, err := templates.List(root)
+			emitLegacyWarning(c.ErrOrStderr())
+			names, err := templates.ListDBs()
 			if err != nil {
 				return err
 			}
@@ -71,9 +76,13 @@ func newTemplateListCmd() *cobra.Command {
 				}
 				enc := json.NewEncoder(c.OutOrStdout())
 				enc.SetIndent("", "  ")
-				return enc.Encode(map[string]any{"templates": names})
+				return enc.Encode(map[string]any{"dbs": names})
 			}
-			return render.New(c.OutOrStdout()).List(root, names, "(no templates)")
+			root, err := templates.Root()
+			if err != nil {
+				return err
+			}
+			return render.New(c.OutOrStdout()).List(root, names, "(no dbs)")
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -82,21 +91,45 @@ func newTemplateListCmd() *cobra.Command {
 	return cmd
 }
 
+// emitLegacyWarning surfaces a one-line laslig warning on stderr when
+// `~/.ta/` carries legacy per-template files alongside schema.toml.
+// Per F15 design decision #4: warn-only, no auto-migration.
+func emitLegacyWarning(errOut io.Writer) {
+	files, err := templates.LegacyTemplateFiles()
+	if err != nil || len(files) == 0 {
+		return
+	}
+	root, _ := templates.Root()
+	_ = render.New(errOut).Notice(
+		laslig.NoticeWarningLevel,
+		"legacy template files detected",
+		fmt.Sprintf("ignoring %d legacy template file(s) in %s; merge into schema.toml or remove",
+			len(files), root),
+		legacyFileNames(files),
+	)
+}
+
+func legacyFileNames(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, filepath.Base(p))
+	}
+	return out
+}
+
+// ---- show ------------------------------------------------------------
+
 func newTemplateShowCmd() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:     "show <name>",
-		Short:   "Print the bytes of one template",
-		Long:    "Reads `~/.ta/<name>.toml`, validates it through the schema meta-schema, and renders its bytes as a glamour-highlighted TOML code block. With --json emits `{\"template\": \"<name>\", \"bytes\": \"<raw>\"}`. A malformed template errors loudly per V2-PLAN §14.6.",
-		Example: "  ta template show schema\n  ta template show myproj --json",
+		Use:     "show <db>",
+		Short:   "Print the bytes of one db from ~/.ta/schema.toml",
+		Long:    "Reads `~/.ta/schema.toml`, slices out the named db, and renders its bytes as a glamour-highlighted TOML code block. With --json emits `{\"db\": \"<name>\", \"bytes\": \"<raw>\"}`. A missing db errors loudly with templates.ErrDBNotFound.",
+		Example: "  ta template show plans\n  ta template show plans --json",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
-			root, err := templates.Root()
-			if err != nil {
-				return err
-			}
-			data, err := templates.Load(root, name)
+			data, err := templates.ShowDB(name)
 			if err != nil {
 				return err
 			}
@@ -104,8 +137,8 @@ func newTemplateShowCmd() *cobra.Command {
 				enc := json.NewEncoder(c.OutOrStdout())
 				enc.SetIndent("", "  ")
 				return enc.Encode(map[string]any{
-					"template": name,
-					"bytes":    string(data),
+					"db":    name,
+					"bytes": string(data),
 				})
 			}
 			return renderTemplateBody(c.OutOrStdout(), name, data)
@@ -129,50 +162,53 @@ func renderTemplateBody(w io.Writer, name string, data []byte) error {
 // ---- save ------------------------------------------------------------
 
 // templateSaveReport is the --json emit shape for `ta template save`.
-// Mirrors V2-PLAN §14.3 "save [name]" contract.
+// Mirrors the SaveResult buckets so agents can distinguish written
+// from skipped from conflicted dbs.
 type templateSaveReport struct {
-	Name    string `json:"name"`
-	Source  string `json:"source"`
-	Written bool   `json:"written"`
+	Source    string   `json:"source"`
+	Written   []string `json:"written"`
+	Skipped   []string `json:"skipped"`
+	Conflicts []string `json:"conflicts"`
 }
 
 func newTemplateSaveCmd() *cobra.Command {
-	var force bool
+	var overwrite bool
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "save [name]",
-		Short: "Promote <cwd>/.ta/schema.toml to a ~/.ta/<name>.toml template",
+		Use:   "save [<db>...]",
+		Short: "Merge dbs from <cwd>/.ta/schema.toml into ~/.ta/schema.toml",
 		Long: "Reads `<cwd>/.ta/schema.toml`, validates it through the meta-schema, " +
-			"and copies the bytes verbatim to `~/.ta/<name>.toml`. With no `name` " +
-			"argument on a TTY, prompts via huh. Off-TTY without `name` errors loudly. " +
-			"If `~/.ta/<name>.toml` already exists, confirms via huh on a TTY or " +
-			"requires `--force` off-TTY. Validation is redundant with " +
-			"`templates.Save` (which re-validates internally) — kept to produce a " +
-			"line/column error pointing at `<cwd>/.ta/schema.toml` before the " +
-			"promotion attempt.",
+			"and merges the named dbs into `~/.ta/schema.toml`. With no positional " +
+			"args, every db declared in the project schema is merged. With one or more " +
+			"positional db names, only the named subset is merged. " +
+			"Same-name conflicts: on a TTY without `--overwrite`, a single huh.Confirm " +
+			"asks whether to replace the conflicting home dbs (yes = all, no = skip " +
+			"all). Off-TTY without `--overwrite`, conflicts are auto-skipped. " +
+			"`--overwrite` forces replacement on every conflict, no prompt. " +
+			"After the merge, the result is re-validated through schema.LoadBytes " +
+			"to enforce cross-db invariants (overlapping paths, id collisions); " +
+			"a failure leaves `~/.ta/schema.toml` byte-identical.",
 		Example: `  ta template save
-  ta template save myproj
-  ta template save myproj --force --json`,
-		Args: cobra.MaximumNArgs(1),
+  ta template save plans
+  ta template save plans notes
+  ta template save plans --overwrite --json`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			var name string
-			if len(args) == 1 {
-				name = args[0]
-			}
-			return runTemplateSave(c.OutOrStdout(), name, force, asJSON)
+			return runTemplateSave(c.OutOrStdout(), args, overwrite, asJSON)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing template without prompting")
+	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace same-name dbs in ~/.ta/schema.toml without prompting")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered notice")
 	return cmd
 }
 
-// runTemplateSave orchestrates the save flow: resolve the source schema,
-// validate it, resolve/prompt the template name, honor existing-target
-// flow, write, emit report.
-func runTemplateSave(out io.Writer, name string, force, asJSON bool) error {
+// runTemplateSave orchestrates the save flow: read project schema,
+// pre-validate, do a dry-run merge to surface conflicts, prompt or
+// auto-decide based on TTY + flags, then call SaveDBs with the
+// resolved Overwrite decision and emit the report.
+func runTemplateSave(out io.Writer, names []string, overwrite, asJSON bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("resolve cwd: %w", err)
@@ -185,62 +221,131 @@ func runTemplateSave(out io.Writer, name string, force, asJSON bool) error {
 		}
 		return fmt.Errorf("read %s: %w", sourcePath, err)
 	}
-	// Pre-validate so a malformed project schema errors with a line/column
-	// pointing at sourcePath BEFORE templates.Save runs (which would
-	// surface the same error but wrapped with the destination path).
+	// Pre-validate so a malformed project schema errors with a
+	// line/column pointing at sourcePath BEFORE templates.SaveDBs
+	// runs (which would surface the same error wrapped at the home
+	// path).
 	if _, err := schema.LoadBytes(data); err != nil {
 		return fmt.Errorf("save: validate %s: %w", sourcePath, err)
 	}
 
-	// nonInteractive gates both the empty-name prompt and the
-	// overwrite-confirm. A supplied positional name does NOT belong in
-	// this gate: it resolves the empty-name branch (we skip the
-	// prompt) but a TTY user still expects to see the confirm when the
-	// template already exists. Conflating the two caused the QA
-	// falsification §12.16 MEDIUM-2 finding where
-	// `ta template save foo` (TTY, target exists, no --force) skipped
-	// the confirm and fell to the off-TTY error path.
-	nonInteractive := force || asJSON
-	if name == "" {
-		if !ttyInteractive(nonInteractive) {
-			return errors.New("save: no template name supplied; pass it as a positional arg or run on a TTY for the prompt")
+	// Validate every requested name eagerly so the user sees a
+	// per-name validation error (with name context) rather than a
+	// generic "templates: invalid db name: ..." from the second pass
+	// inside SaveDBs.
+	for _, n := range names {
+		if err := validateDBNameForCLI(n); err != nil {
+			return err
 		}
-		picked, err := promptTemplateName()
+	}
+
+	// Conflict-prompt path: detect conflicts BEFORE the real merge so
+	// we can prompt once (TTY) or auto-skip (off-TTY). Avoids calling
+	// SaveDBs twice (which would write on the first call when there
+	// are zero conflicts and then see all dbs as conflicts on the
+	// second). Conflicts are simply (project dbs ∩ home dbs).
+	nonInteractive := overwrite || asJSON
+	resolveOverwrite := overwrite
+	if !overwrite {
+		conflicts, err := detectSaveConflicts(data, names)
 		if err != nil {
 			return err
 		}
-		name = picked
-	}
-
-	root, err := templates.Root()
-	if err != nil {
-		return err
-	}
-	destPath := filepath.Join(root, name+".toml")
-	if _, err := os.Stat(destPath); err == nil {
-		switch {
-		case force:
-			// fall through to overwrite
-		case ttyInteractive(nonInteractive):
-			ok, err := promptConfirm(fmt.Sprintf("Overwrite existing template %q?", name))
+		if len(conflicts) > 0 && ttyInteractive(nonInteractive) {
+			ok, err := promptSaveConflicts(conflicts)
 			if err != nil {
 				return err
 			}
-			if !ok {
-				return fmt.Errorf("save: template %q exists; aborted (pass --force to overwrite without prompt)", name)
+			if ok {
+				resolveOverwrite = true
 			}
-		default:
-			return fmt.Errorf("save: template %q exists; pass --force to overwrite", name)
 		}
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat %s: %w", destPath, err)
 	}
 
-	if err := templates.Save(root, name, data); err != nil {
+	res, err := templates.SaveDBs(data, names, templates.SaveOptions{Overwrite: resolveOverwrite})
+	if err != nil {
 		return err
 	}
-	report := templateSaveReport{Name: name, Source: sourcePath, Written: true}
+
+	report := templateSaveReport{
+		Source:    sourcePath,
+		Written:   res.Written,
+		Skipped:   res.Skipped,
+		Conflicts: res.Conflicts,
+	}
 	return emitTemplateSaveReport(out, report, asJSON)
+}
+
+// validateDBNameForCLI front-loads name validation with a
+// CLI-friendly error wrapper. SaveDBs would otherwise emit the same
+// rejection but the pre-validation makes the diagnostic appear before
+// any other work.
+func validateDBNameForCLI(name string) error {
+	if name == "" {
+		return errors.New("save: empty db name")
+	}
+	return nil
+}
+
+// detectSaveConflicts returns the sorted set of db names that would
+// collide between the project schema and the current home schema,
+// scoped to the (possibly empty) names filter. Used by runTemplateSave
+// to size the huh prompt without performing a write. Loading the
+// project Registry costs one parse on bytes already validated upstream
+// — cheap relative to the round-trip risk of double-calling SaveDBs.
+func detectSaveConflicts(projectBytes []byte, names []string) ([]string, error) {
+	projectReg, err := schema.LoadBytes(projectBytes)
+	if err != nil {
+		return nil, fmt.Errorf("save: validate project schema: %w", err)
+	}
+	homeReg, _, err := templates.LoadHome()
+	if err != nil {
+		return nil, err
+	}
+	if len(homeReg.DBs) == 0 {
+		return nil, nil
+	}
+	wanted := make(map[string]struct{})
+	if len(names) == 0 {
+		for n := range projectReg.DBs {
+			wanted[n] = struct{}{}
+		}
+	} else {
+		for _, n := range names {
+			if _, ok := projectReg.DBs[n]; ok {
+				wanted[n] = struct{}{}
+			}
+		}
+	}
+	var conflicts []string
+	for n := range wanted {
+		if _, dup := homeReg.DBs[n]; dup {
+			conflicts = append(conflicts, n)
+		}
+	}
+	sort.Strings(conflicts)
+	return conflicts, nil
+}
+
+// promptSaveConflicts asks (once, sized to the conflict count)
+// whether to overwrite every conflicting home db. Per F15 design
+// decision #3 + plan §3: a single yes/no prompt scales better than
+// per-db prompts when the user already filtered via positional args.
+func promptSaveConflicts(conflicts []string) (bool, error) {
+	title := fmt.Sprintf("Overwrite %d existing db(s) in ~/.ta/schema.toml? [%s]",
+		len(conflicts), strings.Join(conflicts, ", "))
+	var ok bool
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().
+			Title(title).
+			Affirmative("Overwrite").
+			Negative("Skip").
+			Value(&ok),
+	))
+	if err := form.Run(); err != nil {
+		return false, fmt.Errorf("save-conflict prompt: %w", err)
+	}
+	return ok, nil
 }
 
 func emitTemplateSaveReport(w io.Writer, r templateSaveReport, asJSON bool) error {
@@ -252,13 +357,27 @@ func emitTemplateSaveReport(w io.Writer, r templateSaveReport, asJSON bool) erro
 	detail := []string{
 		fmt.Sprintf("source: %s", r.Source),
 	}
-	return render.New(w).Success("ta template save", r.Name, detail)
+	if len(r.Written) > 0 {
+		detail = append(detail, "written: "+strings.Join(r.Written, ", "))
+	}
+	if len(r.Skipped) > 0 {
+		detail = append(detail, "skipped: "+strings.Join(r.Skipped, ", "))
+	}
+	if len(r.Conflicts) > 0 {
+		detail = append(detail, "conflicts: "+strings.Join(r.Conflicts, ", "))
+	}
+	headline := strings.Join(r.Written, ", ")
+	if headline == "" {
+		headline = "(none written)"
+	}
+	return render.New(w).Success("ta template save", headline, detail)
 }
 
 // ---- apply -----------------------------------------------------------
 
 // templateApplyReport is the --json emit shape for `ta template apply`.
-// Mirrors V2-PLAN §14.3 "apply <name> [path]" contract.
+// Apply extracts one db from `~/.ta/schema.toml` and writes a
+// project-side schema containing just that db.
 type templateApplyReport struct {
 	Name    string `json:"name"`
 	Target  string `json:"target"`
@@ -269,18 +388,19 @@ func newTemplateApplyCmd() *cobra.Command {
 	var force bool
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "apply <name>",
-		Short: "Copy ~/.ta/<name>.toml into <path>/.ta/schema.toml",
-		Long: "Writes the template bytes verbatim to `<path>/.ta/schema.toml`. " +
-			"--path defaults to cwd; relative or absolute accepted (V2-PLAN " +
-			"§12.17.5 [A1]). Creates the `.ta/` directory if missing. " +
+		Use:   "apply <db>",
+		Short: "Extract one db from ~/.ta/schema.toml into <path>/.ta/schema.toml",
+		Long: "Reads the named db from `~/.ta/schema.toml`, marshals a project " +
+			"schema containing just that db, and writes it to " +
+			"`<path>/.ta/schema.toml`. --path defaults to cwd; relative or " +
+			"absolute accepted. Creates the `.ta/` directory if missing. " +
 			"If the target already exists, confirms via huh on a TTY or " +
 			"requires `--force` off-TTY. Schema-only — does NOT touch " +
 			"`.mcp.json` / `.codex/config.toml` (use `ta init` for a full " +
-			"bootstrap) per V2-PLAN §14.3.",
-		Example: `  ta template apply schema
-  ta template apply schema --path /abs/path/proj
-  ta template apply schema --path /abs/path --force --json`,
+			"bootstrap).",
+		Example: `  ta template apply plans
+  ta template apply plans --path /abs/path/proj
+  ta template apply plans --path /abs/path --force --json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
@@ -300,11 +420,7 @@ func newTemplateApplyCmd() *cobra.Command {
 }
 
 func runTemplateApply(out io.Writer, name, target string, force, asJSON bool) error {
-	root, err := templates.Root()
-	if err != nil {
-		return err
-	}
-	data, err := templates.Load(root, name)
+	data, err := templates.ShowDB(name)
 	if err != nil {
 		return err
 	}
@@ -366,12 +482,15 @@ func newTemplateDeleteCmd() *cobra.Command {
 	var force bool
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "delete <name>",
-		Short: "Remove a template from ~/.ta/",
-		Long: "Removes `~/.ta/<name>.toml`. Confirms via huh on a TTY; " +
-			"requires `--force` off-TTY. Missing templates error loudly.",
-		Example: `  ta template delete old-schema
-  ta template delete old-schema --force`,
+		Use:   "delete <db>",
+		Short: "Remove one db from ~/.ta/schema.toml",
+		Long: "Removes the named db from `~/.ta/schema.toml`. Confirms via huh " +
+			"on a TTY; requires `--force` off-TTY. Missing dbs error loudly " +
+			"with templates.ErrDBNotFound. Removing the last db rewrites the " +
+			"file as a comment-only header so subsequent commands see an " +
+			"explicit empty-registry state.",
+		Example: `  ta template delete old-plans
+  ta template delete old-plans --force`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			return runTemplateDelete(c.OutOrStdout(), args[0], force, asJSON)
@@ -385,19 +504,14 @@ func newTemplateDeleteCmd() *cobra.Command {
 }
 
 func runTemplateDelete(out io.Writer, name string, force, asJSON bool) error {
-	root, err := templates.Root()
-	if err != nil {
-		return err
-	}
-	// Check existence up front so the "missing" error is loud, matching
-	// the templates.Delete behavior but letting us produce a cleaner
-	// message before the confirm prompt even runs.
-	destPath := filepath.Join(root, name+".toml")
-	if _, err := os.Stat(destPath); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("delete: template %q not found at %s", name, destPath)
+	// Existence check up front so the "missing" error is loud and
+	// crisp before any prompting. Using ShowDB is a cheap probe — it
+	// validates the name and surfaces ErrDBNotFound.
+	if _, err := templates.ShowDB(name); err != nil {
+		if errors.Is(err, templates.ErrDBNotFound) {
+			return fmt.Errorf("delete: db %q not found in ~/.ta/schema.toml", name)
 		}
-		return fmt.Errorf("stat %s: %w", destPath, err)
+		return err
 	}
 
 	nonInteractive := force || asJSON
@@ -405,18 +519,18 @@ func runTemplateDelete(out io.Writer, name string, force, asJSON bool) error {
 	case force:
 		// fall through to delete
 	case ttyInteractive(nonInteractive):
-		ok, err := promptConfirm(fmt.Sprintf("Delete template %q?", name))
+		ok, err := promptConfirm(fmt.Sprintf("Delete db %q from ~/.ta/schema.toml?", name))
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("delete: aborted; template %q left in place", name)
+			return fmt.Errorf("delete: aborted; db %q left in place", name)
 		}
 	default:
-		return fmt.Errorf("delete: template %q requires --force off a TTY", name)
+		return fmt.Errorf("delete: db %q requires --force off a TTY", name)
 	}
 
-	if err := templates.Delete(root, name); err != nil {
+	if err := templates.DeleteDB(name); err != nil {
 		return err
 	}
 	report := templateDeleteReport{Name: name, Deleted: true}
@@ -434,27 +548,8 @@ func emitTemplateDeleteReport(w io.Writer, r templateDeleteReport, asJSON bool) 
 
 // ---- shared huh helpers ---------------------------------------------
 
-// promptTemplateName runs a huh.Input for the new template name.
-func promptTemplateName() (string, error) {
-	var name string
-	form := huh.NewForm(huh.NewGroup(
-		huh.NewInput().
-			Title("Save as template name:").
-			Value(&name),
-	))
-	if err := form.Run(); err != nil {
-		return "", fmt.Errorf("name prompt: %w", err)
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "", errors.New("save: empty template name")
-	}
-	return name, nil
-}
-
-// promptConfirm is the shared huh.Confirm used by save/apply/delete.
-// init_cmd.go has its own confirmOverwrite; kept separate because the
-// title phrasing differs per command.
+// promptConfirm is the shared huh.Confirm used by apply/delete (and
+// by init via confirmOverwrite, kept separate for title phrasing).
 func promptConfirm(title string) (bool, error) {
 	var ok bool
 	form := huh.NewForm(huh.NewGroup(

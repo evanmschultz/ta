@@ -22,6 +22,12 @@ import (
 	"github.com/evanmschultz/ta/internal/templates"
 )
 
+// metaFieldDescription is the db-level `description` key on a schema
+// table. Mirrors the unexported `schema.metaFieldDescription` constant
+// — tiny stable string, not worth widening the schema package surface
+// just to avoid the duplicate literal.
+const metaFieldDescription = "description"
+
 // emptyProjectSchemaHeader is the comment-only body written to
 // `<project>/.ta/schema.toml` when the user selects zero dbs from the
 // Phase 9.5 db-multi-select. The cascade resolver tolerates a registry
@@ -87,22 +93,22 @@ func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Bootstrap a project directory with a schema and MCP configs",
-		Long: "Bootstrap a project directory from the `~/.ta/` template " +
-			"library. With a TTY and no flags, runs an interactive huh " +
-			"multi-select over every db declared across the home library " +
-			"(PLAN §12.17.9 Phase 9.5); the chosen dbs are reconstructed " +
-			"into `<path>/.ta/schema.toml`. Selecting zero dbs writes a " +
-			"comment-only schema you can fill in later via " +
-			"`ta schema --action=create`. With `--template <name>`, the " +
-			"selected home template is copied verbatim (the legacy " +
-			"non-interactive shortcut). By default also writes " +
+		Long: "Bootstrap a project directory from the `~/.ta/schema.toml` " +
+			"template library. With a TTY and no flags, runs an interactive " +
+			"huh multi-select over every db declared in the home library; " +
+			"the chosen dbs are reconstructed into `<path>/.ta/schema.toml`. " +
+			"Selecting zero dbs writes a comment-only schema you can fill " +
+			"in later via `ta schema --action=create`. With " +
+			"`--template <db>`, exactly that one db is extracted from the " +
+			"home schema (post-F15 the flag selects a db-name, not a " +
+			"per-template filename). By default also writes " +
 			"`<path>/.mcp.json` (Claude Code) and " +
 			"`<path>/.codex/config.toml` (Codex). Per-path " +
 			"defaults can be set in `<path>/.ta/config.toml` (V2-PLAN §14.5); " +
 			"`ta init` does NOT create that file itself — edit it by hand to " +
 			"tune future `ta init` runs on the same path. --path defaults to " +
 			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
-		Example: "  ta init\n  ta init --path /abs/path/to/new-project --template schema\n  ta init --path /abs/path --template schema --no-codex --json",
+		Example: "  ta init\n  ta init --path /abs/path/to/new-project --template plans\n  ta init --path /abs/path --template plans --no-codex --json",
 		Args:    cobra.NoArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			target, err := resolveCLIPath(c)
@@ -120,7 +126,7 @@ func newInitCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	cmd.Flags().StringVar(&f.template, "template", "", "name of a template under ~/.ta/ (skips huh picker)")
+	cmd.Flags().StringVar(&f.template, "template", "", "name of one db in ~/.ta/schema.toml (skips huh picker)")
 	cmd.Flags().BoolVar(&f.noClaude, "no-claude", false, "skip .mcp.json generation")
 	cmd.Flags().BoolVar(&f.noCodex, "no-codex", false, "skip .codex/config.toml generation")
 	cmd.Flags().BoolVar(&f.force, "force", false, "overwrite an existing .ta/schema.toml without prompting")
@@ -189,169 +195,167 @@ func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) er
 
 // chooseSchema resolves which schema bytes to write. Three paths:
 //
-//  1. Explicit `--template <name>`: full-file copy of the named home
-//     template (Phase 9.4 behaviour, retained as the non-interactive
-//     shortcut). Source label = "<template-name>".
-//  2. Off-TTY with `bootstrap.default_template`: full-file copy of the
-//     default template. Source label = "<template-name>".
-//  3. TTY interactive (no `--template` and no off-TTY default): NEW
-//     Phase 9.5 db-multi-select path. The picker shows the union of
-//     all dbs declared across home templates; the user selects zero or
-//     more by name; the project schema is reconstructed from those
-//     dbs' raw TOML bodies. Source label = "dbs:<csv>" or "(empty)".
+//  1. Explicit `--template <db>`: extract that one db from
+//     `~/.ta/schema.toml` and emit a project schema containing just
+//     that db. F15 reinterpreted the flag from "filename" to
+//     "db-name"; pre-F15 callers passing a multi-template filename
+//     break loudly via templates.ErrDBNotFound. Source label = "<db>".
+//  2. Off-TTY with `bootstrap.default_template`: same single-db
+//     extract using the configured db name. Source label = "<db>".
+//  3. TTY interactive (no `--template` and no off-TTY default): the
+//     picker is a multi-select over every db declared in
+//     `~/.ta/schema.toml`; the project schema is reconstructed from
+//     the selected subset. Source label = "dbs:<csv>" or "(empty)".
 //
-// `errOut` receives per-template warnings when the picker path
-// encounters a malformed entry (typical case: legacy pre-v2
-// `~/.ta/schema.toml`); the malformed template is filtered out of the
-// option set, the user sees the warning on stderr, and the rest of the
-// library still shows up.
+// `errOut` receives a one-line laslig warning if any legacy
+// `~/.ta/<name>.toml` files remain alongside `schema.toml` (pre-F15
+// leftovers, ignored per F15 design decision).
 //
-// Per V2-PLAN §12.17.5 [D2] / §12.17.9 Phase 9.5: a home with zero
-// templates raises a laslig-structured "home library is empty" notice
-// pointing at `examples/` + `mage install` so the user has a clear
-// next step.
+// Per V2-PLAN §12.17.5 [D2]: a home with zero dbs raises a
+// laslig-structured "home library is empty" notice pointing at
+// `examples/` + the new `ta template save` flow.
 func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstrapConfig) (string, []byte, error) {
+	emitInitLegacyWarning(errOut)
+
 	if f.template != "" {
-		data, err := loadTemplate(f.template)
+		body, err := loadHomeDBSubset(f.template)
 		if err != nil {
 			return "", nil, err
 		}
-		return f.template, data, nil
+		return f.template, body, nil
 	}
 
-	// No explicit --template flag. Before asking the user anything,
-	// confirm the home library has at least one template — picking
-	// from an empty picker (or silently falling through to the
-	// non-interactive error) is worse UX than naming the problem.
-	root, err := templates.Root()
+	// Load home once. Missing file or zero-db registry both raise the
+	// empty-home guidance — picking from an empty picker (or silently
+	// falling through to the non-interactive error) is worse UX than
+	// naming the problem.
+	reg, raw, err := templates.LoadHome()
 	if err != nil {
 		return "", nil, err
 	}
-	names, err := templates.List(root)
-	if err != nil {
-		return "", nil, err
-	}
-	if len(names) == 0 {
+	if len(reg.DBs) == 0 {
+		root, _ := templates.Root()
 		return "", nil, emptyHomeError(errOut, root)
 	}
 
-	// No explicit flag. On a TTY run the picker; off-TTY honor bootstrap
-	// default if set, else error loudly (non-interactive with no
-	// template selection is ambiguous).
+	// No explicit flag. On a TTY run the picker; off-TTY honor
+	// bootstrap default if set, else error loudly (non-interactive
+	// with no db selection is ambiguous).
 	if !interactive(in, out, f) {
 		if cfg.Bootstrap.DefaultTemplate != "" {
-			data, err := loadTemplate(cfg.Bootstrap.DefaultTemplate)
+			body, err := loadHomeDBSubset(cfg.Bootstrap.DefaultTemplate)
 			if err != nil {
 				return "", nil, err
 			}
-			return cfg.Bootstrap.DefaultTemplate, data, nil
+			return cfg.Bootstrap.DefaultTemplate, body, nil
 		}
-		return "", nil, errors.New("init: no template selected. Populate ~/.ta/ first (see examples/ in the ta repo, or build a schema with `ta schema --action=create`), or run on a TTY for the picker.")
+		return "", nil, errors.New("init: no db selected. Populate ~/.ta/schema.toml first (see examples/ in the ta repo, or run `ta template save` from a project), or run on a TTY for the picker.")
 	}
 
-	// Validate each candidate once. A template that fails schema
-	// validation (e.g. a legacy pre-MVP `~/.ta/schema.toml` left over
-	// from the old cascade era) is filtered out of the picker with a
-	// styled warning so a single bad file does not block bootstrap.
-	// Cache bytes so the post-pick path does not re-read and re-parse.
-	validNames := make([]string, 0, len(names))
-	cache := make(map[string][]byte, len(names))
-	var invalid []string
-	warn := render.New(errOut)
-	for _, n := range names {
-		data, err := templates.Load(root, n)
-		if err != nil {
-			_ = warn.Notice(
-				laslig.NoticeWarningLevel,
-				"malformed template skipped",
-				fmt.Sprintf("~/.ta/%s.toml is not a valid schema", n),
-				[]string{
-					fmt.Sprintf("delete: ta template delete %s", n),
-					"or fix: declare `paths = [...]` at the top of each db (PLAN §12.17.9)",
-				},
-			)
-			invalid = append(invalid, n)
-			continue
-		}
-		validNames = append(validNames, n)
-		cache[n] = data
-	}
-
-	// Offer inline deletion of malformed templates so the user can act
-	// on the warnings without exiting the picker first. Only fires on
-	// a TTY — non-interactive flows (--json, off-TTY) just see the
-	// warnings and move on.
-	if len(invalid) > 0 {
-		if ok, err := promptDeleteMalformed(invalid); err != nil {
-			return "", nil, err
-		} else if ok {
-			deleted := deleteMalformed(errOut, root, invalid)
-			summarizeMalformedDelete(warn, deleted, len(invalid))
-		}
-	}
-
-	// After malformed-skip, every remaining candidate is a real schema.
-	// If none survived (e.g. fresh `mage install` left an empty
-	// schema.toml as the only candidate), surface the same empty-home
-	// guidance instead of opening an empty picker.
-	if len(validNames) == 0 {
-		return "", nil, emptyHomeError(errOut, root)
-	}
-
-	// Phase 9.5: the interactive picker is now a multi-select over the
-	// union of dbs declared across all valid home templates. Collect
-	// each db's raw TOML body keyed by db name; the picker's option
-	// list is the sorted set of db names; reconstruction marshals the
-	// selected subset.
-	dbBodies, dbInfos, err := collectHomeDBs(validNames, cache, errOut)
-	if err != nil {
-		return "", nil, err
-	}
-	if len(dbBodies) == 0 {
-		// Every template parsed but none declared a db (highly unusual
-		// — the meta-schema requires at least one). Surface the same
-		// empty-home guidance.
-		return "", nil, emptyHomeError(errOut, root)
-	}
-
-	selected, err := pickDBs(dbInfos)
+	bodies, infos, err := homeDBPickerInputs(raw)
 	if err != nil {
 		return "", nil, err
 	}
 
-	body, err := buildProjectSchemaBytes(dbBodies, selected)
+	selected, err := pickDBs(infos)
+	if err != nil {
+		return "", nil, err
+	}
+
+	body, err := buildProjectSchemaBytes(bodies, selected)
 	if err != nil {
 		return "", nil, err
 	}
 	return schemaSourceLabel(selected), body, nil
 }
 
-func loadTemplate(name string) ([]byte, error) {
-	root, err := templates.Root()
-	if err != nil {
-		return nil, err
+// emitInitLegacyWarning surfaces a one-line laslig warning when
+// `~/.ta/` carries legacy per-template files alongside schema.toml.
+// Same shape as cmd/ta/template_cmd.go's emitLegacyWarning — kept
+// separate so init does not depend on a template-cmd helper. Per F15
+// design decision #4: warn-only, no auto-migration.
+func emitInitLegacyWarning(errOut io.Writer) {
+	files, err := templates.LegacyTemplateFiles()
+	if err != nil || len(files) == 0 {
+		return
 	}
-	return templates.Load(root, name)
+	root, _ := templates.Root()
+	bases := make([]string, 0, len(files))
+	for _, p := range files {
+		bases = append(bases, filepath.Base(p))
+	}
+	_ = render.New(errOut).Notice(
+		laslig.NoticeWarningLevel,
+		"legacy template files detected",
+		fmt.Sprintf("ignoring %d legacy template file(s) in %s; merge into schema.toml or remove",
+			len(files), root),
+		bases,
+	)
+}
+
+// loadHomeDBSubset extracts one db's body from `~/.ta/schema.toml`
+// and emits project-schema bytes containing just that db. Returns
+// templates.ErrDBNotFound when the named db is absent, including the
+// "F15 loud break" case where a pre-F15 caller passed a filename
+// instead of a db-name.
+func loadHomeDBSubset(name string) ([]byte, error) {
+	return templates.ShowDB(name)
+}
+
+// homeDBPickerInputs decodes the home schema bytes into the {dbName →
+// body} map and the picker rows the multi-select consumes. Replaces
+// the pre-F15 cross-template merge: dbs are now uniquely keyed by name
+// in one file, no first-wins shadow needed.
+func homeDBPickerInputs(raw []byte) (map[string]map[string]any, []dbPickerInfo, error) {
+	var rawMap map[string]any
+	if err := toml.Unmarshal(raw, &rawMap); err != nil {
+		return nil, nil, fmt.Errorf("init: parse home schema: %w", err)
+	}
+	bodies := make(map[string]map[string]any, len(rawMap))
+	for k, v := range rawMap {
+		body, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		bodies[k] = body
+	}
+
+	infos := make([]dbPickerInfo, 0, len(bodies))
+	for name, body := range bodies {
+		display := name
+		if d, ok := body[metaFieldDescription].(string); ok {
+			d = strings.TrimSpace(d)
+			if d != "" {
+				display = name + " — " + d
+			}
+		}
+		infos = append(infos, dbPickerInfo{name: name, displayName: display})
+	}
+	slices.SortFunc(infos, func(a, b dbPickerInfo) int {
+		return strings.Compare(a.name, b.name)
+	})
+	return bodies, infos, nil
 }
 
 // emptyHomeError emits a laslig-structured "home library is empty"
-// notice to errOut and returns a Go error carrying the same pointers
-// (examples/ + mage install) so non-laslig surfaces — fang's error
-// printer, piped stderr, test buffers — still expose the remediation
-// path. Notice-on-stderr + error-return mirrors the idiom in
-// summarizeMalformedDelete: the visual banner is for humans, the
-// returned error keeps mage / scripted callers aware that ta exited
-// non-zero. Per V2-PLAN §12.17.5 [D2] (2026-04-24 amendment).
+// notice to errOut and returns a Go error carrying the same
+// remediation pointers so non-laslig surfaces — fang's error printer,
+// piped stderr, test buffers — still expose the path forward. Per
+// V2-PLAN §12.17.5 [D2] (2026-04-24 amendment); F15 updated the
+// guidance from "examples/ + mage install" to "examples/ +
+// `ta template save` from a project" since `mage install` now copies
+// a delivery binary, not a home schema.
 func emptyHomeError(errOut io.Writer, root string) error {
 	rr := render.New(errOut)
 	schemaPath := filepath.Join(root, "schema.toml")
 	_ = rr.Notice(
 		laslig.NoticeErrorLevel,
 		"home library is empty",
-		fmt.Sprintf("ta init needs at least one schema source but %s has no usable "+
-			"schema or templates. Sample schemas live in the ta repo under "+
-			"examples/ — copy one in, or build a schema with the CLI and "+
-			"promote it via `ta template save`.", root),
+		fmt.Sprintf("ta init needs at least one schema source but %s has no "+
+			"declared dbs. Sample schemas live in the ta repo under "+
+			"examples/ — copy one in, build a schema with the CLI and "+
+			"promote it via `ta template save`, or hand-edit "+
+			"`%s`.", root, schemaPath),
 		[]string{
 			"Copy a sample: cp examples/schema.toml " + schemaPath,
 			"Or hand-edit: $EDITOR " + schemaPath,
@@ -363,101 +367,13 @@ func emptyHomeError(errOut io.Writer, root string) error {
 	return fmt.Errorf("init: home library is empty at %s; see examples/ in the ta repo", root)
 }
 
-// dbPickerInfo carries one row of the Phase 9.5 db-multi-select option
-// list: the db's name (the bound value), and a one-line display label
-// combining the db name with a short description excerpt when present.
-// Source-template tracking is intentionally absent from the picker —
-// dbs are de-duplicated by name across the home library, so the user
-// picks dbs, not "this db from this template".
+// dbPickerInfo carries one row of the multi-select option list: the
+// db's name (the bound value), and a one-line display label combining
+// the db name with a short description excerpt when present.
 type dbPickerInfo struct {
 	name        string
 	displayName string // "<dbname> — <description>" or just "<dbname>"
 }
-
-// collectHomeDBs walks the validated home templates and merges every
-// db declaration into two parallel structures:
-//
-//   - bodies: dbName → raw `map[string]any` body for that db (the
-//     ready-to-marshal form that preserves field-level defaults, enum
-//     literals, and any future schema fields without lossy
-//     round-tripping through the typed Registry).
-//   - infos: sorted slice of {name, displayName} rows the picker needs.
-//
-// Same-named dbs across templates collide on first-wins: the
-// alphabetically earliest template owns the body, later templates'
-// versions are skipped with a stderr warning so the user knows their
-// `~/.ta/extras.toml` `[plans]` block was ignored in favour of
-// `~/.ta/schema.toml` `[plans]`. This keeps the merge deterministic
-// without requiring the user to resolve the collision before the
-// picker runs.
-func collectHomeDBs(templateNames []string, cache map[string][]byte, errOut io.Writer) (map[string]map[string]any, []dbPickerInfo, error) {
-	bodies := make(map[string]map[string]any)
-	owner := make(map[string]string) // dbName → template that contributed body
-	descs := make(map[string]string)
-
-	warn := render.New(errOut)
-	for _, tn := range templateNames {
-		buf, ok := cache[tn]
-		if !ok {
-			continue
-		}
-		var raw map[string]any
-		if err := toml.Unmarshal(buf, &raw); err != nil {
-			// Unreachable in practice — templates.Load already parsed
-			// + validated. Treat as a malformed-template slip.
-			return nil, nil, fmt.Errorf("init: parse cached template %q: %w", tn, err)
-		}
-		// Sort db names within one template so collision detection is
-		// deterministic across repeat runs.
-		names := make([]string, 0, len(raw))
-		for k := range raw {
-			names = append(names, k)
-		}
-		slices.Sort(names)
-		for _, dbName := range names {
-			body, ok := raw[dbName].(map[string]any)
-			if !ok {
-				// LoadBytes already rejected non-table top-level
-				// entries; defensive skip.
-				continue
-			}
-			if existingOwner, dup := owner[dbName]; dup {
-				_ = warn.Notice(
-					laslig.NoticeWarningLevel,
-					"duplicate db skipped",
-					fmt.Sprintf("db %q in ~/.ta/%s.toml shadows the one in ~/.ta/%s.toml; keeping the earlier definition",
-						dbName, tn, existingOwner),
-					nil,
-				)
-				continue
-			}
-			bodies[dbName] = body
-			owner[dbName] = tn
-			if d, ok := body[metaFieldDescription].(string); ok {
-				descs[dbName] = d
-			}
-		}
-	}
-
-	infos := make([]dbPickerInfo, 0, len(bodies))
-	for name := range bodies {
-		display := name
-		if d := strings.TrimSpace(descs[name]); d != "" {
-			display = name + " — " + d
-		}
-		infos = append(infos, dbPickerInfo{name: name, displayName: display})
-	}
-	slices.SortFunc(infos, func(a, b dbPickerInfo) int {
-		return strings.Compare(a.name, b.name)
-	})
-	return bodies, infos, nil
-}
-
-// metaFieldDescription is the db-level `description` key on a schema
-// table. Mirrors the unexported `schema.metaFieldDescription` constant
-// — tiny stable string, not worth widening the schema package surface
-// just to avoid the duplicate literal.
-const metaFieldDescription = "description"
 
 // pickDBs runs the huh multi-select over the home-library db catalogue.
 // Returns the selected db names in the order huh wrote them (huh
@@ -576,87 +492,6 @@ func confirmOverwrite(path string) (bool, error) {
 		return false, fmt.Errorf("confirm prompt: %w", err)
 	}
 	return ok, nil
-}
-
-// promptDeleteMalformed asks whether to remove the set of malformed
-// templates identified during the picker scan. Runs a single huh
-// Confirm sized to the count — one-off wording for a single entry
-// reads better than the generic plural form.
-func promptDeleteMalformed(names []string) (bool, error) {
-	title := fmt.Sprintf("Delete %d malformed template(s)?", len(names))
-	if len(names) == 1 {
-		title = fmt.Sprintf("Delete malformed template %q?", names[0])
-	}
-	var ok bool
-	form := huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().
-			Title(title).
-			Affirmative("Delete").
-			Negative("Skip").
-			Value(&ok),
-	))
-	if err := form.Run(); err != nil {
-		return false, fmt.Errorf("delete-malformed prompt: %w", err)
-	}
-	return ok, nil
-}
-
-// deleteMalformed removes each named template from root. Failures are
-// logged to errOut but do NOT abort the sweep — a permission error on
-// one template should not block deleting the others. Returns the count
-// of successful deletions.
-func deleteMalformed(errOut io.Writer, root string, names []string) int {
-	var deleted int
-	for _, n := range names {
-		if err := templates.Delete(root, n); err != nil {
-			fmt.Fprintf(errOut, "failed to delete %q: %v\n", n, err)
-			continue
-		}
-		deleted++
-	}
-	return deleted
-}
-
-// summarizeMalformedDelete emits one laslig Notice reporting the
-// outcome of the sweep. Three cases cover all delete-count arithmetic:
-// success (every template removed), partial (some removed, some
-// failed), and failure (zero removed). Count-aware noun matches the
-// reported number; pluralization is explicit so `1 template` does not
-// render as `1 template(s)`.
-func summarizeMalformedDelete(warn *render.Renderer, deleted, total int) {
-	noun := pluralize("template", deleted)
-	switch {
-	case deleted == total:
-		_ = warn.Notice(
-			laslig.NoticeSuccessLevel,
-			"malformed "+pluralize("template", total)+" removed",
-			fmt.Sprintf("deleted %d %s from ~/.ta/", deleted, noun),
-			nil,
-		)
-	case deleted > 0:
-		_ = warn.Notice(
-			laslig.NoticeWarningLevel,
-			"partial delete",
-			fmt.Sprintf("removed %d of %d; see stderr for per-template failures", deleted, total),
-			nil,
-		)
-	default:
-		_ = warn.Notice(
-			laslig.NoticeErrorLevel,
-			"delete failed",
-			fmt.Sprintf("none of the %d malformed %s could be removed; see stderr for details", total, pluralize("template", total)),
-			nil,
-		)
-	}
-}
-
-// pluralize returns noun or noun+"s" based on count. Simple English
-// pluralization — one-off call site, not worth importing a helper.
-func pluralize(noun string, n int) string {
-	if n == 1 {
-		return noun
-	}
-	return noun + "s"
 }
 
 // promptMCPToggles offers the two MCP-target toggles via a single
