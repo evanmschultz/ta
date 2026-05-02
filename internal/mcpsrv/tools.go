@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/evanmschultz/ta/internal/db"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/schema"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -111,13 +112,21 @@ func deleteTool() mcp.Tool {
 	return mcp.NewTool(
 		"delete",
 		mcp.WithDescription(
-			"Remove a record. Never touches the schema. Pass a full id to remove one record; pass an id prefix that maps to one concrete file to remove the whole file. An id prefix that maps to multiple files (multi-file glob) refuses with an unscoped-glob error.",
+			"Remove a record or a whole file. Never touches the schema. Pass a full id to remove one record. Pass a bare file-relpath that uniquely identifies one concrete file to remove the whole file (REQUIRES force=true — no TTY available on MCP). A file-relpath that resolves through a glob mount to multiple files refuses with an unscoped-glob error. Set verbose=true to include `remaining_in_file` (count of records left in the affected file) in the response.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Record id to remove (e.g. `plans.demo-1`).")),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (`plans.demo-1`) or bare file-relpath (`plans`) to remove.")),
 		mcp.WithString(
 			"type",
 			mcp.Description("Optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id."),
+		),
+		mcp.WithBoolean(
+			"force",
+			mcp.Description("Required for file-level delete (whole-file removal). MCP has no TTY for interactive confirmation, so file-level delete refuses unless force=true. Ignored for record-level delete."),
+		),
+		mcp.WithBoolean(
+			"verbose",
+			mcp.Description("Optional. When true, the response includes `remaining_in_file` — the number of records left in the affected file after the delete (zero for file-level delete)."),
 		),
 	)
 }
@@ -204,6 +213,21 @@ type mutationSuccess struct {
 	Action      string   `json:"action"`
 	SchemaPaths []string `json:"schema_paths,omitempty"`
 	TargetPath  string   `json:"target_path,omitempty"`
+}
+
+// deleteSuccess extends mutationSuccess with F20's verbose payload:
+// RemainingInFile is the number of records left in the affected file
+// after the delete (zero for file-level delete). The pointer shape
+// keeps the field omitted from non-verbose responses so wire shape
+// stays minimal when the caller did not ask for it.
+type deleteSuccess struct {
+	Path            string   `json:"path"`
+	ID              string   `json:"id"`
+	Action          string   `json:"action"`
+	SchemaPaths     []string `json:"schema_paths,omitempty"`
+	TargetPath      string   `json:"target_path,omitempty"`
+	Level           string   `json:"level,omitempty"`
+	RemainingInFile *int     `json:"remaining_in_file,omitempty"`
 }
 
 type fieldsResult struct {
@@ -401,17 +425,42 @@ func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		return errRes, nil
 	}
 	typeName := req.GetString("type", "")
-	targetPath, sources, err := ops.Delete(path, id, typeName)
+	force := req.GetBool("force", false)
+	verbose := req.GetBool("verbose", false)
+	res, err := ops.DeleteWithOptions(path, id, typeName, ops.DeleteOptions{Force: force, Verbose: verbose})
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	return mcp.NewToolResultJSON(mutationSuccess{
+	out := deleteSuccess{
 		Path:        path,
 		ID:          id,
 		Action:      "delete",
-		SchemaPaths: sources,
-		TargetPath:  targetPath,
-	})
+		SchemaPaths: res.Sources,
+		TargetPath:  res.FilePath,
+		Level:       deleteLevelName(res.Level),
+	}
+	if verbose {
+		n := res.RemainingInFile
+		out.RemainingInFile = &n
+	}
+	return mcp.NewToolResultJSON(out)
+}
+
+// deleteLevelName maps the resolver's delete-level enum to the
+// JSON-serialized name used in the MCP response. The name is part of
+// the wire shape so MCP clients can branch on file-vs-record without
+// re-parsing the id.
+func deleteLevelName(level db.DeleteLevel) string {
+	switch level {
+	case db.LevelRecord:
+		return "record"
+	case db.LevelFile:
+		return "file"
+	case db.LevelGlobRoot:
+		return "glob_root"
+	default:
+		return ""
+	}
 }
 
 // searchHit is one entry in the search result payload. ID is the full

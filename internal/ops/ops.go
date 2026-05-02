@@ -345,63 +345,188 @@ func overlayPatch(existing, patch map[string]any, st schema.SectionType) (map[st
 	return merged, nil
 }
 
-// Delete removes a single record.
+// DeleteOptions controls optional behavior of DeleteWithOptions. Force
+// authorizes file-level delete (whole-file removal) when the resolved
+// id addresses one concrete file rather than one record. Verbose
+// requests post-delete verification of the file's remaining-record
+// count and is honored by the caller (CLI / MCP) rather than by the
+// ops layer; the field exists on the options struct so both surfaces
+// share one shape.
+type DeleteOptions struct {
+	// Force authorizes file-level delete (whole-file removal) without
+	// an interactive confirmation. Required for file-level delete on
+	// non-TTY callers (and for the MCP delete tool unconditionally,
+	// since MCP has no TTY available). Ignored for record-level delete.
+	Force bool
+
+	// Verbose has no behavioral effect inside ops; it is propagated
+	// onto DeleteResult so callers can render extra detail. Kept on
+	// DeleteOptions so CLI / MCP wiring stays symmetric.
+	Verbose bool
+}
+
+// DeleteResult is the structured result of DeleteWithOptions. FilePath
+// is the absolute file path of the affected file (the file the deleted
+// record lived in for record-level delete, the deleted file for
+// file-level delete). Sources is the schema-source provenance list,
+// same as other mutation endpoints. Level is the resolved delete level
+// (record or file). RemainingInFile is the post-delete count of
+// records remaining in the file, sourced from the index.
+type DeleteResult struct {
+	FilePath        string
+	Sources         []string
+	Level           db.DeleteLevel
+	RemainingInFile int
+}
+
+// Delete is the legacy 3-return-value entry point retained for
+// callers that do not need the file-level path. It is a thin shim over
+// DeleteWithOptions(zero opts). Force defaults to false, so file-level
+// ids hit ErrFileDeleteRequiresForce — which is the correct safe
+// default for any caller still on the old shape.
 func Delete(path, id, typeName string) (string, []string, error) {
+	res, err := DeleteWithOptions(path, id, typeName, DeleteOptions{})
+	return res.FilePath, res.Sources, err
+}
+
+// DeleteWithOptions removes a record or a whole file under F19. The id
+// resolves to one of three levels via db.Resolver.ResolveDelete:
+//
+//   - LevelRecord (full id with bracket-key): splice the record bytes
+//     out of the backing file and remove the index entry. Same as the
+//     pre-F19 contract.
+//   - LevelFile (bare file-relpath that uniquely identifies one
+//     concrete file): delete the file from disk, then prune every
+//     index entry whose canonical id begins with `<file-relpath>.`.
+//     Requires opts.Force=true; otherwise ErrFileDeleteRequiresForce
+//     fires before any disk mutation. The CLI gates the prompt off-TTY
+//     and converts an interactive `huh.Confirm=true` into Force=true;
+//     the MCP delete tool requires force=true unconditionally because
+//     it has no TTY available.
+//   - LevelGlobRoot (bare file-relpath that resolves to multiple
+//     concrete files via a glob mount): refuses with
+//     ErrUnscopedGlobDelete; the caller must narrow the id.
+//
+// File-level delete is non-atomic by design (per F19 dev decision):
+// os.Remove first, then index cleanup. On disk-remove success + index
+// cleanup failure the wrapped error includes the "file removed; run
+// `ta index rebuild`" recovery hint — paralleling the existing
+// record-level-delete semantics.
+func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteResult, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
-		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
+		return DeleteResult{}, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	resolved, dbDecl, err := resolver.ResolveID(id)
+	resolved, dbDecl, level, err := resolver.ResolveDelete(id)
 	if err != nil {
-		if errors.Is(err, db.ErrUnknownType) {
-			return "", resolution.Sources, err
+		if errors.Is(err, db.ErrUnscopedGlobDelete) {
+			return DeleteResult{Sources: resolution.Sources, Level: db.LevelGlobRoot},
+				fmt.Errorf("%w: %v", ErrUnscopedGlobDelete, err)
 		}
-		return "", resolution.Sources, fmt.Errorf(
-			"%w: %q does not address a single record (%v)",
-			ErrAmbiguousDelete, id, err)
+		return DeleteResult{Sources: resolution.Sources}, err
 	}
-	if resolved.BracketKey == "" {
-		return "", resolution.Sources, fmt.Errorf(
-			"%w: %q is a scope-prefix, not a single record",
-			ErrAmbiguousDelete, id)
+
+	switch level {
+	case db.LevelRecord:
+		return deleteRecord(path, resolution.Sources, resolver, dbDecl, resolved, id, typeName)
+	case db.LevelFile:
+		if !opts.Force {
+			return DeleteResult{Sources: resolution.Sources, Level: db.LevelFile, FilePath: resolved.FilePath},
+				fmt.Errorf("%w: %q addresses one whole file (%s)",
+					ErrFileDeleteRequiresForce, id, resolved.FilePath)
+		}
+		return deleteFile(path, resolution.Sources, resolved)
+	default:
+		// LevelGlobRoot is handled by the err branch above; any other
+		// value is a programmer error.
+		return DeleteResult{Sources: resolution.Sources}, fmt.Errorf(
+			"ops: DeleteWithOptions: unexpected level %d for id %q", level, id)
 	}
-	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
-	if err != nil {
-		return "", resolution.Sources, err
+}
+
+// deleteRecord is the record-level delete path. It mirrors the pre-F19
+// flow: validate type cross-check (when typeName is supplied), splice
+// the record bytes out of the backing file, prune the index entry,
+// then return the post-delete count of records remaining in the same
+// file (file-scoped, per F20 lock).
+func deleteRecord(path string, sources []string, resolver *db.Resolver, dbDecl schema.DB, resolved db.Resolved, id, typeName string) (DeleteResult, error) {
+	if _, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl)); err != nil {
+		return DeleteResult{Sources: sources, Level: db.LevelRecord}, err
 	}
 	_, _, filePath, err := resolver.ResolveRead(id)
 	if err != nil {
-		return "", nil, err
+		return DeleteResult{Sources: sources, Level: db.LevelRecord}, err
 	}
 	buf, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+			return DeleteResult{Sources: sources, Level: db.LevelRecord},
+				fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
 		}
-		return "", nil, fmt.Errorf("read %s: %w", filePath, err)
+		return DeleteResult{Sources: sources, Level: db.LevelRecord},
+			fmt.Errorf("read %s: %w", filePath, err)
 	}
 	backend, err := buildBackend(dbDecl, resolved)
 	if err != nil {
-		return "", nil, err
+		return DeleteResult{Sources: sources, Level: db.LevelRecord}, err
 	}
 	backendSection := backendSectionPath(dbDecl, resolved)
 	sec, ok, err := backend.Find(buf, backendSection)
 	if err != nil {
-		return "", nil, fmt.Errorf("locate %q: %w", id, err)
+		return DeleteResult{Sources: sources, Level: db.LevelRecord},
+			fmt.Errorf("locate %q: %w", id, err)
 	}
 	if !ok {
-		return "", nil, fmt.Errorf("%w: %q", ErrRecordNotFound, id)
+		return DeleteResult{Sources: sources, Level: db.LevelRecord},
+			fmt.Errorf("%w: %q", ErrRecordNotFound, id)
 	}
 	newBuf := spliceOut(buf, sec.Range)
 	if err := toml.WriteAtomic(filePath, newBuf); err != nil {
-		return "", nil, err
+		return DeleteResult{Sources: sources, Level: db.LevelRecord}, err
 	}
 	if err := deleteIndexEntry(path, resolved); err != nil {
-		return filePath, resolution.Sources, err
+		return DeleteResult{FilePath: filePath, Sources: sources, Level: db.LevelRecord}, err
 	}
-	_ = bareType // bareType unused after the resolveTypeForID gate; kept for symmetry
-	return filePath, resolution.Sources, nil
+	remaining, _ := countRecordsInFile(path, resolved.FileRelPath)
+	return DeleteResult{
+		FilePath:        filePath,
+		Sources:         sources,
+		Level:           db.LevelRecord,
+		RemainingInFile: remaining,
+	}, nil
+}
+
+// deleteFile is the file-level delete path. Per F19's locked
+// non-atomic semantics: os.Remove first, then prune every index entry
+// whose canonical id begins with `<file-relpath>.`. A cleanup failure
+// after a successful disk remove returns a wrapped error with the
+// `ta index rebuild` recovery hint.
+func deleteFile(path string, sources []string, resolved db.Resolved) (DeleteResult, error) {
+	if _, err := os.Stat(resolved.FilePath); err != nil {
+		if os.IsNotExist(err) {
+			return DeleteResult{Sources: sources, Level: db.LevelFile, FilePath: resolved.FilePath},
+				fmt.Errorf("%w: %s", ErrFileNotFound, resolved.FilePath)
+		}
+		return DeleteResult{Sources: sources, Level: db.LevelFile, FilePath: resolved.FilePath},
+			fmt.Errorf("stat %s: %w", resolved.FilePath, err)
+	}
+	if err := os.Remove(resolved.FilePath); err != nil {
+		return DeleteResult{Sources: sources, Level: db.LevelFile, FilePath: resolved.FilePath},
+			fmt.Errorf("remove %s: %w", resolved.FilePath, err)
+	}
+	if err := deleteIndexEntriesByFile(path, resolved.FileRelPath); err != nil {
+		return DeleteResult{FilePath: resolved.FilePath, Sources: sources, Level: db.LevelFile}, err
+	}
+	// Post-delete the file is gone; remaining-in-file count is zero by
+	// definition. Return the explicit zero so the verbose path can
+	// surface it without a special case.
+	return DeleteResult{
+		FilePath:        resolved.FilePath,
+		Sources:         sources,
+		Level:           db.LevelFile,
+		RemainingInFile: 0,
+	}, nil
 }
 
 // SearchHit mirrors search.Result at the ops boundary.

@@ -389,3 +389,61 @@ func TestPutNormalizesTimestampsToUTC(t *testing.T) {
 		t.Errorf("Updated.Location = %v, want UTC", got.Updated.Location())
 	}
 }
+
+// TestDeleteByFile covers F19's helper: removes every entry whose
+// canonical id begins with `<fileRelPath>.`. Entries on other files
+// must survive.
+func TestDeleteByFile(t *testing.T) {
+	idx := &index.Index{FormatVersion: index.FormatVersion, Records: map[string]index.Entry{}}
+	now := time.Now().UTC()
+	for _, k := range []string{"plans.a", "plans.b", "plans.c", "notes.x", "notes.y"} {
+		idx.Put(k, index.Entry{Type: "task", Created: now, Updated: now})
+	}
+	removed := idx.DeleteByFile("plans")
+	if removed != 3 {
+		t.Errorf("removed = %d, want 3", removed)
+	}
+	for _, k := range []string{"plans.a", "plans.b", "plans.c"} {
+		if _, ok := idx.Get(k); ok {
+			t.Errorf("entry %q survived DeleteByFile", k)
+		}
+	}
+	for _, k := range []string{"notes.x", "notes.y"} {
+		if _, ok := idx.Get(k); !ok {
+			t.Errorf("entry %q was incorrectly removed", k)
+		}
+	}
+}
+
+// TestDeleteByFileEmptyArgIsNoOp protects against accidental wipe-all
+// when the caller passes an empty file-relpath.
+func TestDeleteByFileEmptyArgIsNoOp(t *testing.T) {
+	idx := &index.Index{FormatVersion: index.FormatVersion, Records: map[string]index.Entry{}}
+	now := time.Now().UTC()
+	idx.Put("plans.a", index.Entry{Type: "task", Created: now, Updated: now})
+	if removed := idx.DeleteByFile(""); removed != 0 {
+		t.Errorf("removed = %d, want 0 for empty file-relpath", removed)
+	}
+	if _, ok := idx.Get("plans.a"); !ok {
+		t.Error("entry incorrectly removed by empty file-relpath")
+	}
+}
+
+// TestCountByFile counts entries whose canonical id begins with
+// `<fileRelPath>.`.
+func TestCountByFile(t *testing.T) {
+	idx := &index.Index{FormatVersion: index.FormatVersion, Records: map[string]index.Entry{}}
+	now := time.Now().UTC()
+	for _, k := range []string{"plans.a", "plans.b", "notes.x"} {
+		idx.Put(k, index.Entry{Type: "task", Created: now, Updated: now})
+	}
+	if got := idx.CountByFile("plans"); got != 2 {
+		t.Errorf("CountByFile(plans) = %d, want 2", got)
+	}
+	if got := idx.CountByFile("notes"); got != 1 {
+		t.Errorf("CountByFile(notes) = %d, want 1", got)
+	}
+	if got := idx.CountByFile("unknown"); got != 0 {
+		t.Errorf("CountByFile(unknown) = %d, want 0", got)
+	}
+}

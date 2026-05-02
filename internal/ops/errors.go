@@ -16,9 +16,21 @@ var (
 	// not exist.
 	ErrFileNotFound = errors.New("ops: file not found")
 
-	// ErrAmbiguousDelete is returned by delete when the caller names a
-	// scope-prefix id rather than a single record.
-	ErrAmbiguousDelete = errors.New("ops: ambiguous delete on scope-prefix id")
+	// ErrUnscopedGlobDelete is returned by delete when an id resolves
+	// (via glob expansion of a db's paths slice) to multiple concrete
+	// files. Per F19 (and the post-F10 paths-slice model), file-level
+	// delete is allowed when the id uniquely identifies one concrete
+	// file; an id that matches multiple files refuses with this error.
+	// The caller must narrow the id to one specific file.
+	ErrUnscopedGlobDelete = errors.New("ops: id matches multiple files")
+
+	// ErrFileDeleteRequiresForce is returned by delete when the caller
+	// names a file-level id (one whole file) without setting Force=true
+	// in DeleteOptions. The CLI surfaces this off-TTY (where huh.Confirm
+	// cannot prompt); the MCP delete tool surfaces it whenever
+	// `force=true` is omitted (no TTY is ever available on the MCP
+	// transport).
+	ErrFileDeleteRequiresForce = errors.New("ops: file-level delete requires --force / force=true")
 
 	// ErrReservedName is returned by schema(action=create|update|delete)
 	// when name targets a reserved identifier such as "ta_schema".

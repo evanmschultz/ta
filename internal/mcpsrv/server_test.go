@@ -317,3 +317,115 @@ func TestSearchHits(t *testing.T) {
 		}
 	}
 }
+
+// TestDeleteToolFileLevelRequiresForce locks F19's MCP rule: file-
+// level delete (bare file-relpath) refuses without `force=true`,
+// because MCP has no TTY for interactive confirmation.
+func TestDeleteToolFileLevelRequiresForce(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	if err := os.WriteFile(filepath.Join(fx.projectRoot, "plans.toml"),
+		[]byte("[plans.t1]\nid = \"t1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Without force.
+	res := callTool(t, c, "delete", map[string]any{
+		"path": fx.projectRoot,
+		"id":   "plans",
+	})
+	if !res.IsError {
+		t.Fatalf("expected error for file-level delete without force; body: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "force") {
+		t.Errorf("error should mention force=true: %s", firstText(t, res))
+	}
+	// File still on disk.
+	if _, err := os.Stat(filepath.Join(fx.projectRoot, "plans.toml")); err != nil {
+		t.Errorf("plans.toml missing after refused delete: %v", err)
+	}
+}
+
+// TestDeleteToolFileLevelWithForce confirms force=true authorizes
+// file-level delete on the MCP surface and returns level="file".
+func TestDeleteToolFileLevelWithForce(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	if err := os.WriteFile(filepath.Join(fx.projectRoot, "plans.toml"),
+		[]byte("[plans.t1]\nid = \"t1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res := callTool(t, c, "delete", map[string]any{
+		"path":  fx.projectRoot,
+		"id":    "plans",
+		"force": true,
+	})
+	if res.IsError {
+		t.Fatalf("delete errored: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), `"level":"file"`) {
+		t.Errorf("response missing level=file: %s", firstText(t, res))
+	}
+	if _, err := os.Stat(filepath.Join(fx.projectRoot, "plans.toml")); !os.IsNotExist(err) {
+		t.Errorf("plans.toml still exists after force file-level delete: %v", err)
+	}
+}
+
+// TestDeleteToolVerboseEmitsRemainingInFile locks F20's MCP shape: a
+// verbose record-level delete returns `remaining_in_file` with the
+// post-delete count of records remaining in the same file.
+func TestDeleteToolVerboseEmitsRemainingInFile(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	for _, id := range []string{"plans.t1", "plans.t2", "plans.t3"} {
+		callTool(t, c, "create", map[string]any{
+			"path": fx.projectRoot,
+			"id":   id,
+			"type": "plans.task",
+			"data": map[string]any{"id": id, "status": "todo"},
+		})
+	}
+	res := callTool(t, c, "delete", map[string]any{
+		"path":    fx.projectRoot,
+		"id":      "plans.t1",
+		"verbose": true,
+	})
+	if res.IsError {
+		t.Fatalf("delete errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"remaining_in_file":2`) {
+		t.Errorf("response missing remaining_in_file=2: %s", body)
+	}
+	if !strings.Contains(body, `"level":"record"`) {
+		t.Errorf("response missing level=record: %s", body)
+	}
+}
+
+// TestDeleteToolNonVerboseOmitsRemainingInFile confirms the
+// `remaining_in_file` field is omitted from the wire shape when
+// `verbose` is unset (or false).
+func TestDeleteToolNonVerboseOmitsRemainingInFile(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"id":   "plans.t1",
+		"type": "plans.task",
+		"data": map[string]any{"id": "t1", "status": "todo"},
+	})
+	res := callTool(t, c, "delete", map[string]any{
+		"path": fx.projectRoot,
+		"id":   "plans.t1",
+	})
+	if res.IsError {
+		t.Fatalf("delete errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if strings.Contains(body, "remaining_in_file") {
+		t.Errorf("non-verbose response should omit remaining_in_file: %s", body)
+	}
+}
+
+// _ keeps json import satisfied for any future structured assertions
+// added to the delete tests; harmless if unused today.
+var _ = json.Marshal

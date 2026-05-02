@@ -220,3 +220,37 @@ func deleteIndexEntry(projectRoot string, resolved db.Resolved) error {
 	}
 	return nil
 }
+
+// deleteIndexEntriesByFile removes every index entry whose canonical
+// id begins with `<fileRelPath>.` after a successful file-level delete
+// (F19). Per the locked non-atomic semantics: the disk file is removed
+// first; an index-load or index-save failure here surfaces with the
+// "file removed; run `ta index rebuild`" hint so the operator can
+// reconcile.
+func deleteIndexEntriesByFile(projectRoot, fileRelPath string) error {
+	idx, err := index.Load(projectRoot)
+	if err != nil {
+		return fmt.Errorf("ops: load index: %w (file removed from disk; run `ta index rebuild`)", err)
+	}
+	idx.DeleteByFile(fileRelPath)
+	if err := idx.Save(projectRoot); err != nil {
+		return fmt.Errorf("ops: save index: %w (file removed from disk; run `ta index rebuild`)", err)
+	}
+	return nil
+}
+
+// countRecordsInFile returns the number of index entries whose
+// canonical id begins with `<fileRelPath>.`. Used by DeleteWithOptions
+// to populate DeleteResult.RemainingInFile per F20 (the verbose-flag
+// remaining-count is file-scoped). Returns 0 (and a nil error) when
+// the index file is absent.
+func countRecordsInFile(projectRoot, fileRelPath string) (int, error) {
+	idx, err := tryLoadIndex(projectRoot)
+	if err != nil {
+		return 0, err
+	}
+	if idx == nil {
+		return 0, nil
+	}
+	return idx.CountByFile(fileRelPath), nil
+}

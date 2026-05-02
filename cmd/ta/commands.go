@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/huh/v2"
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
@@ -488,18 +489,25 @@ func newUpdateCmd() *cobra.Command {
 
 func newDeleteCmd() *cobra.Command {
 	var typeName string
+	var force bool
+	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "delete <id>",
 		Short: "Remove a record or file; mirrors MCP tool `delete`.",
 		Long: "Remove a record (bytes spliced out) by full id, or remove a " +
-			"whole file by passing an id prefix that maps to one concrete " +
-			"file. An id prefix that maps to multiple files (multi-file " +
-			"glob) refuses with an unscoped-glob error. --type is optional " +
-			"and cross-checks the supplied type against the index entry " +
-			"for the id. --path defaults to cwd; relative or absolute " +
-			"accepted.",
+			"whole file by passing a bare file-relpath that uniquely " +
+			"identifies one concrete file. A file-relpath that resolves " +
+			"through a glob mount to multiple concrete files refuses with " +
+			"an unscoped-glob error. File-level delete prompts for " +
+			"confirmation on a TTY; pass --force to skip the prompt for " +
+			"non-interactive callers. --verbose echoes the deleted id, the " +
+			"absolute file it lived in, and the count of records remaining " +
+			"in that file. --type is optional and cross-checks the " +
+			"supplied type against the index entry for the id. --path " +
+			"defaults to cwd; relative or absolute accepted.",
 		Example: `  ta delete plans.task-001
-  ta delete --path /abs/proj plans
+  ta delete --force plans
+  ta delete --verbose plans.task-001
   ta delete workflow.drop-3.db.task-001`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
@@ -510,16 +518,66 @@ func newDeleteCmd() *cobra.Command {
 				return err
 			}
 			id := args[0]
-			targetPath, sources, err := runDelete(path, id, typeName)
+			res, err := runDelete(path, id, typeName, ops.DeleteOptions{Force: force, Verbose: verbose})
+			if err == nil || !errors.Is(err, ops.ErrFileDeleteRequiresForce) {
+				if err != nil {
+					return err
+				}
+				return emitDeleteNotice(c.OutOrStdout(), id, res, verbose)
+			}
+			// File-level delete needs Force; on TTY, surface a
+			// huh.Confirm and (on yes) retry with Force=true. Off-TTY,
+			// the original ErrFileDeleteRequiresForce surfaces.
+			if !ttyInteractive(false) {
+				return err
+			}
+			ok, confirmErr := confirmFileDelete(id, res.FilePath)
+			if confirmErr != nil {
+				return confirmErr
+			}
+			if !ok {
+				return fmt.Errorf("delete %q cancelled", id)
+			}
+			res, err = runDelete(path, id, typeName, ops.DeleteOptions{Force: true, Verbose: verbose})
 			if err != nil {
 				return err
 			}
-			return noticeMutation(c.OutOrStdout(), "deleted", id, targetPath, sources)
+			return emitDeleteNotice(c.OutOrStdout(), id, res, verbose)
 		},
 	}
 	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
+	cmd.Flags().BoolVar(&force, "force", false, "skip the interactive confirmation prompt on file-level delete")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the deleted id, its file path, and the count of records remaining in that file")
 	addPathFlag(cmd)
 	return cmd
+}
+
+// confirmFileDelete prompts the user to confirm a file-level delete.
+// Wraps a huh.Confirm so the prompt body matches the existing
+// confirmOverwrite shape used by `ta init` (consistent visual idiom).
+func confirmFileDelete(id, filePath string) (bool, error) {
+	var ok bool
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().
+			Title(fmt.Sprintf("Delete entire file %s (id=%q)?", filePath, id)).
+			Value(&ok),
+	))
+	if err := form.Run(); err != nil {
+		return false, fmt.Errorf("confirm prompt: %w", err)
+	}
+	return ok, nil
+}
+
+// emitDeleteNotice renders the post-delete laslig SUCCESS notice. The
+// non-verbose form mirrors noticeMutation; with --verbose the body
+// adds two lines: the absolute file path and the count of records
+// remaining in that file.
+func emitDeleteNotice(w io.Writer, id string, res ops.DeleteResult, verbose bool) error {
+	if !verbose {
+		return noticeMutation(w, "deleted", id, res.FilePath, res.Sources)
+	}
+	body := fmt.Sprintf("%s\n%s\nremaining in file: %d", id, res.FilePath, res.RemainingInFile)
+	return render.New(w).Success("deleted", body, res.Sources)
 }
 
 func newSchemaCmd() *cobra.Command {
@@ -1011,8 +1069,12 @@ func runUpdate(path, id, typeName string, data map[string]any) (string, []string
 	return ops.Update(path, id, typeName, data)
 }
 
-func runDelete(path, id, typeName string) (string, []string, error) {
-	return ops.Delete(path, id, typeName)
+// runDelete is the F19/F20 entry point used by `ta delete`. It threads
+// DeleteOptions (Force / Verbose) into the ops layer and returns the
+// structured DeleteResult so the CLI can render the verbose-mode
+// "remaining in file" line without re-loading the index.
+func runDelete(path, id, typeName string, opts ops.DeleteOptions) (ops.DeleteResult, error) {
+	return ops.DeleteWithOptions(path, id, typeName, opts)
 }
 
 func runSchemaMutate(path, action, kind, name string, data map[string]any) ([]string, error) {

@@ -393,6 +393,47 @@ func (idx *Index) Delete(canonical string) {
 	delete(idx.Records, canonical)
 }
 
+// DeleteByFile removes every entry whose canonical id begins with
+// `<fileRelPath>.` (the file-relpath followed by a dot separator). The
+// file-relpath itself is the segment shared by every record stored in
+// one concrete file under F10 (PLAN §12.17.9): the bracket on disk is
+// the canonical id, and every id starts with the file-relpath. Returns
+// the number of entries removed. No-op when fileRelPath is empty or the
+// index is empty.
+func (idx *Index) DeleteByFile(fileRelPath string) int {
+	if idx == nil || idx.Records == nil || fileRelPath == "" {
+		return 0
+	}
+	prefix := fileRelPath + "."
+	removed := 0
+	for k := range idx.Records {
+		if strings.HasPrefix(k, prefix) {
+			delete(idx.Records, k)
+			removed++
+		}
+	}
+	return removed
+}
+
+// CountByFile returns the number of entries whose canonical id begins
+// with `<fileRelPath>.`. Used by file-level delete to report the count
+// of records remaining in a file (the count will be zero after a
+// file-level delete; the helper is also used for record-level delete to
+// report siblings remaining in the same file).
+func (idx *Index) CountByFile(fileRelPath string) int {
+	if idx == nil || idx.Records == nil || fileRelPath == "" {
+		return 0
+	}
+	prefix := fileRelPath + "."
+	n := 0
+	for k := range idx.Records {
+		if strings.HasPrefix(k, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
 // Walk yields every entry in canonical-address order. fn returns true
 // to continue iteration, false to stop.
 func (idx *Index) Walk(fn func(canonical string, e Entry) bool) {

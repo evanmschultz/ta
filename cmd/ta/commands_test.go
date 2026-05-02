@@ -482,6 +482,93 @@ func TestDeleteCmdRemovesRecord(t *testing.T) {
 	}
 }
 
+// TestDeleteCmdFileLevelWithForce locks F19's file-level delete CLI
+// path: passing a bare file-relpath plus --force removes the whole
+// file. Off-TTY (the test harness is non-interactive), --force is
+// the only way to authorize the file-level branch.
+func TestDeleteCmdFileLevelWithForce(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	if err := os.WriteFile(dataPath, []byte("[plans.a]\nid = \"A\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newDeleteCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "--force", "plans"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(dataPath); !os.IsNotExist(err) {
+		t.Errorf("plans.toml still exists after --force file-level delete: err=%v", err)
+	}
+}
+
+// TestDeleteCmdFileLevelWithoutForceOffTTY locks F19's safety gate:
+// off-TTY (the test harness's case), file-level delete refuses
+// without --force and does NOT touch disk.
+func TestDeleteCmdFileLevelWithoutForceOffTTY(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := []byte("[plans.a]\nid = \"A\"\nstatus = \"todo\"\n")
+	if err := os.WriteFile(dataPath, body, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cmd := newDeleteCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "plans"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error for off-TTY file-level delete without --force")
+	}
+	if !errors.Is(err, ops.ErrFileDeleteRequiresForce) {
+		t.Errorf("err = %v, want ErrFileDeleteRequiresForce", err)
+	}
+	got, _ := os.ReadFile(dataPath)
+	if string(got) != string(body) {
+		t.Errorf("plans.toml mutated despite refusal:\nbefore: %s\nafter: %s", body, got)
+	}
+}
+
+// TestDeleteCmdVerboseEmitsRemainingCount locks F20's verbose CLI
+// output: the post-delete laslig SUCCESS notice carries the
+// "remaining in file" line.
+func TestDeleteCmdVerboseEmitsRemainingCount(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := "[plans.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.b]\nid = \"B\"\nstatus = \"todo\"\n\n[plans.c]\nid = \"C\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Seed the index so the file-scoped count is accurate post-delete.
+	for _, id := range []string{"plans.a", "plans.b", "plans.c"} {
+		if _, _, err := ops.Update(root, id, "", map[string]any{}); err != nil {
+			t.Fatalf("seed index for %q: %v", id, err)
+		}
+	}
+	cmd := newDeleteCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "--verbose", "plans.a"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "remaining in file") {
+		t.Errorf("stdout missing 'remaining in file' line:\n%s", got)
+	}
+	if !strings.Contains(got, "2") {
+		t.Errorf("stdout missing remaining count '2':\n%s", got)
+	}
+	if !strings.Contains(got, "plans.toml") {
+		t.Errorf("stdout missing file path 'plans.toml':\n%s", got)
+	}
+}
+
 // ---- get CLI --------------------------------------------------------
 
 // TestGetCmdRendersAllDeclaredFields locks in the §12.17.5 [B3] contract:
