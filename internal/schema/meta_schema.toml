@@ -92,3 +92,25 @@ description = "Optional default value. Not applied during validation; informatio
 [ta_schema.field.fields.format]
 type = "string"
 description = "Optional format hint (e.g. 'markdown'). Informational; informs alternate renderers."
+
+[ta_schema.field.fields.element_type]
+type = "string"
+description = "When type = \"array\", the per-element type. One of the seven primitives (string, integer, float, boolean, datetime, table; \"array\" is reserved and rejected — nested arrays are not supported in v1), or a registered alias name from [<schema>.types.<alias>]. Required when element_fields is present (and must equal the literal \"table\" in that case). Forbidden on non-array fields."
+
+[ta_schema.field.fields.element_fields]
+type = "table"
+description = "When element_type = \"table\", the per-element field shape. Each sub-key is itself a [field] body (recursive; arbitrary nesting depth). Forbidden when element_type is anything other than \"table\". Required fields inside element_fields apply to every element of the array."
+
+# ----------------------------------------------------------------------------
+# Aliases — reusable record-shape declarations under [<schema>.types.<alias>].
+# At load time, every alias body (description + fields map, same shape as
+# a record type) is parsed and stashed in a Registry-wide alias table.
+# Fields that set element_type = "<alias>" are inlined with the alias's
+# resolved fields before validation runs. Visibility is Registry-wide
+# (every db in the loaded schema), so one db can declare a shape and
+# another db reference it. Aliases must not shadow the seven primitive
+# type names (string, integer, float, boolean, datetime, array, table);
+# cycles (A → B → A or self-reference) are rejected at load.
+# ----------------------------------------------------------------------------
+[ta_schema.types]
+description = "Optional table of named record-shape aliases declared at [<schema>.types.<alias>]. Each alias is a record-type-shaped body (description + fields map) reusable via element_type = \"<alias>\". Aliases must not shadow primitives; cycles are rejected at load."

@@ -71,29 +71,7 @@ func (r Registry) Validate(sectionPath string, data map[string]any) error {
 			})
 			continue
 		}
-		actual := describeType(val)
-		if !valueMatchesType(field.Type, val) {
-			failures = append(failures, &FieldFailure{
-				Field:        name,
-				Kind:         FailureTypeMismatch,
-				Message:      fmt.Sprintf("field %q has type %q, expected %q", name, actual, field.Type),
-				Description:  field.Description,
-				ExpectedType: field.Type,
-				ActualType:   actual,
-			})
-			continue
-		}
-		if len(field.Enum) > 0 && !enumContains(field.Enum, val) {
-			failures = append(failures, &FieldFailure{
-				Field:         name,
-				Kind:          FailureEnumMismatch,
-				Message:       fmt.Sprintf("field %q value %v is not in allowed set", name, val),
-				Description:   field.Description,
-				AllowedValues: field.Enum,
-				ExpectedType:  field.Type,
-				ActualType:    actual,
-			})
-		}
+		failures = append(failures, validateField(name, field, val)...)
 	}
 
 	if len(failures) == 0 {
@@ -106,6 +84,174 @@ func (r Registry) Validate(sectionPath string, data map[string]any) error {
 		return failures[i].Field < failures[j].Field
 	})
 	return &ValidationError{SectionPath: sectionPath, Failures: failures}
+}
+
+// validateField checks one field's value against its Field declaration,
+// recursing into array elements when ElementType / ElementFields are
+// declared. The path argument carries the bracketed/dotted accumulated
+// field-path used for FieldFailure.Field. Top-level callers pass the
+// bare field name; recursion appends "[i]" for array indices and
+// "." + sub-name for nested table fields. All emitted failures use the
+// fully-qualified path so agents can locate the offending leaf without
+// re-walking the data.
+func validateField(path string, field Field, val any) []*FieldFailure {
+	actual := describeType(val)
+	if !valueMatchesType(field.Type, val) {
+		return []*FieldFailure{{
+			Field:        path,
+			Kind:         FailureTypeMismatch,
+			Message:      fmt.Sprintf("field %q has type %q, expected %q", path, actual, field.Type),
+			Description:  field.Description,
+			ExpectedType: field.Type,
+			ActualType:   actual,
+		}}
+	}
+	if len(field.Enum) > 0 && !enumContains(field.Enum, val) {
+		return []*FieldFailure{{
+			Field:         path,
+			Kind:          FailureEnumMismatch,
+			Message:       fmt.Sprintf("field %q value %v is not in allowed set", path, val),
+			Description:   field.Description,
+			AllowedValues: field.Enum,
+			ExpectedType:  field.Type,
+			ActualType:    actual,
+		}}
+	}
+	// Array recursion: walk each element against ElementType (when set)
+	// and ElementFields (when set). An empty array is valid — zero
+	// elements means zero per-element failures.
+	if field.Type == TypeArray && (field.ElementType != "" || len(field.ElementFields) > 0) {
+		return validateArrayElements(path, field, val)
+	}
+	return nil
+}
+
+// validateArrayElements walks every element of val (which has already
+// matched TypeArray) against the field's per-element constraints.
+// Failure paths use the bracket form: "<path>[<i>]". Element-fields
+// recursion produces "<path>[<i>].<sub>" paths via validateField.
+func validateArrayElements(path string, field Field, val any) []*FieldFailure {
+	rv := reflect.ValueOf(val)
+	if !(rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array) {
+		// Belt-and-suspenders: caller already type-checked, but if the
+		// element walker is reached on a non-array we surface a clean
+		// type-mismatch on the parent rather than panicking.
+		return []*FieldFailure{{
+			Field:        path,
+			Kind:         FailureTypeMismatch,
+			Message:      fmt.Sprintf("field %q has type %q, expected %q", path, describeType(val), TypeArray),
+			ExpectedType: TypeArray,
+			ActualType:   describeType(val),
+		}}
+	}
+	var out []*FieldFailure
+	for i := range rv.Len() {
+		elemPath := fmt.Sprintf("%s[%d]", path, i)
+		elem := rv.Index(i).Interface()
+
+		switch field.ElementType {
+		case TypeTable:
+			// Table element: must be map; ElementFields constrains the
+			// per-element shape (missing required, type mismatch on
+			// sub-fields, unknown sub-fields).
+			if !valueMatchesType(TypeTable, elem) {
+				out = append(out, &FieldFailure{
+					Field:        elemPath,
+					Kind:         FailureTypeMismatch,
+					Message:      fmt.Sprintf("field %q has type %q, expected %q", elemPath, describeType(elem), TypeTable),
+					ExpectedType: TypeTable,
+					ActualType:   describeType(elem),
+				})
+				continue
+			}
+			if len(field.ElementFields) > 0 {
+				out = append(out, validateElementTable(elemPath, field.ElementFields, elem)...)
+			}
+		case "":
+			// No element_type declared: nothing more to check past the
+			// outer array type-check.
+		default:
+			// Primitive element: type-check each leaf.
+			if !valueMatchesType(field.ElementType, elem) {
+				out = append(out, &FieldFailure{
+					Field:        elemPath,
+					Kind:         FailureTypeMismatch,
+					Message:      fmt.Sprintf("field %q has type %q, expected %q", elemPath, describeType(elem), field.ElementType),
+					Description:  field.Description,
+					ExpectedType: field.ElementType,
+					ActualType:   describeType(elem),
+				})
+			}
+		}
+	}
+	return out
+}
+
+// validateElementTable runs missing-required + per-sub-field checks on
+// one array-element table value. Sub-field failures inherit the
+// elemPath as their prefix so the final FieldFailure.Field reads
+// "<parent>[<i>].<sub>".
+func validateElementTable(elemPath string, fields map[string]Field, val any) []*FieldFailure {
+	rv := reflect.ValueOf(val)
+	if rv.Kind() != reflect.Map {
+		return []*FieldFailure{{
+			Field:        elemPath,
+			Kind:         FailureTypeMismatch,
+			Message:      fmt.Sprintf("field %q has type %q, expected %q", elemPath, describeType(val), TypeTable),
+			ExpectedType: TypeTable,
+			ActualType:   describeType(val),
+		}}
+	}
+	// Materialize map into map[string]any for uniform key access.
+	flat := make(map[string]any, rv.Len())
+	for _, k := range rv.MapKeys() {
+		ks, ok := k.Interface().(string)
+		if !ok {
+			return []*FieldFailure{{
+				Field:   elemPath,
+				Kind:    FailureTypeMismatch,
+				Message: fmt.Sprintf("field %q has non-string map key %v", elemPath, k.Interface()),
+			}}
+		}
+		flat[ks] = rv.MapIndex(k).Interface()
+	}
+
+	var out []*FieldFailure
+	// Missing required.
+	for _, fname := range sortedKeys(fields) {
+		sub := fields[fname]
+		if !sub.Required {
+			continue
+		}
+		if _, present := flat[fname]; present {
+			continue
+		}
+		subPath := elemPath + "." + fname
+		out = append(out, &FieldFailure{
+			Field:         subPath,
+			Kind:          FailureMissingRequired,
+			Message:       fmt.Sprintf("missing required field %q", subPath),
+			Description:   sub.Description,
+			AllowedValues: sub.Enum,
+			ExpectedType:  sub.Type,
+		})
+	}
+	// Per-sub-field validation (type/enum/element recursion) and unknown
+	// sub-field detection.
+	for _, fname := range sortedKeys(flat) {
+		sub, known := fields[fname]
+		subPath := elemPath + "." + fname
+		if !known {
+			out = append(out, &FieldFailure{
+				Field:   subPath,
+				Kind:    FailureUnknownField,
+				Message: fmt.Sprintf("unknown field %q", subPath),
+			})
+			continue
+		}
+		out = append(out, validateField(subPath, sub, flat[fname])...)
+	}
+	return out
 }
 
 func valueMatchesType(t Type, v any) bool {

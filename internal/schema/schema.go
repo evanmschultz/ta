@@ -102,6 +102,18 @@ type Field struct {
 	// applied during validation; callers that want defaulting behaviour must
 	// merge it in explicitly.
 	Default any
+	// ElementType is the per-element type of an array field. When Type
+	// is "array" and ElementType is non-empty, validation walks each
+	// array element against this type. The literal "table" pairs with
+	// ElementFields to declare per-element table shape; any other value
+	// must be one of the seven primitives or a registered alias name
+	// (which the loader inlines as ElementType + ElementFields before
+	// validation runs). Empty when no per-element constraint is declared.
+	ElementType Type
+	// ElementFields is the per-element table shape used when
+	// ElementType == "table". Each entry is itself a Field, so nesting
+	// is unbounded. Empty when ElementType is a primitive or unset.
+	ElementFields map[string]Field
 }
 
 // SectionType is a named collection of fields, e.g. "build_task" or

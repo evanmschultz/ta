@@ -251,6 +251,417 @@ required = true
 	}
 }
 
+// ----------------------------------------------------------------------------
+// F21 — typed array elements + element_fields + type aliases
+// ----------------------------------------------------------------------------
+
+func TestLoadElementTypePrimitive(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.paths]
+type = "array"
+element_type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	f := reg.DBs["plans"].Types["task"].Fields["paths"]
+	if f.ElementType != TypeString {
+		t.Errorf("ElementType = %q, want string", f.ElementType)
+	}
+	if len(f.ElementFields) != 0 {
+		t.Errorf("ElementFields = %v, want empty", f.ElementFields)
+	}
+}
+
+func TestLoadElementTypeRejectsUnknownPrimitive(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.paths]
+type = "array"
+element_type = "color"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for unknown element_type")
+	}
+	if !errors.Is(err, ErrUnknownElementType) {
+		t.Errorf("err = %v, want ErrUnknownElementType", err)
+	}
+}
+
+func TestLoadElementTypeOnNonArrayRejected(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+element_type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for element_type on non-array field")
+	}
+	if !strings.Contains(err.Error(), "element_type is only valid on type = \"array\"") {
+		t.Errorf("error should mention non-array rejection: %v", err)
+	}
+}
+
+func TestLoadElementTypeRejectsArrayOfArrays(t *testing.T) {
+	// element_type = "array" is rejected outright in v1; nested
+	// arrays of arrays would require a recursive element walker the
+	// load contract has no syntax for.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.matrix]
+type = "array"
+element_type = "array"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for element_type = \"array\"")
+	}
+	if !errors.Is(err, ErrUnknownElementType) {
+		t.Errorf("err = %v, want ErrUnknownElementType", err)
+	}
+	if !strings.Contains(err.Error(), "nested arrays") {
+		t.Errorf("error should mention nested arrays: %v", err)
+	}
+}
+
+func TestLoadElementFieldsRequiresTableElement(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.things]
+type = "array"
+element_type = "string"
+
+[plans.task.fields.things.element_fields.id]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for element_fields without element_type=table")
+	}
+	if !strings.Contains(err.Error(), "element_fields requires element_type = \"table\"") {
+		t.Errorf("error should explain the requirement: %v", err)
+	}
+}
+
+func TestLoadElementFieldsNested(t *testing.T) {
+	// matrix: array of tables; each table has cells: array of strings.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.matrix]
+type = "array"
+element_type = "table"
+
+[plans.task.fields.matrix.element_fields.row_id]
+type = "string"
+required = true
+
+[plans.task.fields.matrix.element_fields.cells]
+type = "array"
+element_type = "string"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	f := reg.DBs["plans"].Types["task"].Fields["matrix"]
+	if f.ElementType != TypeTable {
+		t.Errorf("ElementType = %q, want table", f.ElementType)
+	}
+	cells, ok := f.ElementFields["cells"]
+	if !ok {
+		t.Fatal("missing cells sub-field")
+	}
+	if cells.Type != TypeArray || cells.ElementType != TypeString {
+		t.Errorf("cells: type=%q element_type=%q", cells.Type, cells.ElementType)
+	}
+}
+
+func TestLoadAliasBasic(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.types.ChecklistItem]
+description = "A checklist line item."
+
+[plans.types.ChecklistItem.fields.id]
+type = "string"
+required = true
+
+[plans.types.ChecklistItem.fields.text]
+type = "string"
+required = true
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.start_criteria]
+type = "array"
+element_type = "ChecklistItem"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	f := reg.DBs["plans"].Types["task"].Fields["start_criteria"]
+	if f.ElementType != TypeTable {
+		t.Errorf("ElementType after inlining = %q, want table", f.ElementType)
+	}
+	if _, ok := f.ElementFields["id"]; !ok {
+		t.Errorf("inlined alias missing id sub-field; got %v", f.ElementFields)
+	}
+	if _, ok := f.ElementFields["text"]; !ok {
+		t.Errorf("inlined alias missing text sub-field; got %v", f.ElementFields)
+	}
+	// `types` is the alias namespace, NOT a record type, so it must
+	// not surface as a SectionType.
+	if _, isType := reg.DBs["plans"].Types["types"]; isType {
+		t.Error("`types` leaked as a record type")
+	}
+}
+
+func TestLoadAliasCycleSelf(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.types.A]
+description = "x"
+
+[plans.types.A.fields.next]
+type = "array"
+element_type = "A"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected cycle error for self-referential alias")
+	}
+	if !errors.Is(err, ErrAliasCycle) {
+		t.Errorf("err = %v, want ErrAliasCycle", err)
+	}
+}
+
+func TestLoadAliasCycleMutual(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.types.A]
+description = "x"
+
+[plans.types.A.fields.toB]
+type = "array"
+element_type = "B"
+
+[plans.types.B]
+description = "x"
+
+[plans.types.B.fields.toA]
+type = "array"
+element_type = "A"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected cycle error for mutual alias chain")
+	}
+	if !errors.Is(err, ErrAliasCycle) {
+		t.Errorf("err = %v, want ErrAliasCycle", err)
+	}
+}
+
+func TestLoadAliasShadowsPrimitive(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.types.string]
+description = "Forbidden."
+
+[plans.types.string.fields.body]
+type = "string"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected shadow-primitive error")
+	}
+	if !errors.Is(err, ErrAliasShadowsPrimitive) {
+		t.Errorf("err = %v, want ErrAliasShadowsPrimitive", err)
+	}
+}
+
+func TestLoadAliasUnknownReference(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.start_criteria]
+type = "array"
+element_type = "Ghost"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected unknown-element-type error for ghost alias")
+	}
+	if !errors.Is(err, ErrUnknownElementType) {
+		t.Errorf("err = %v, want ErrUnknownElementType", err)
+	}
+}
+
+func TestLoadAliasReferencedFromAlias(t *testing.T) {
+	// A has a field whose element_type is B; both expand cleanly.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.types.B]
+description = "leaf alias"
+
+[plans.types.B.fields.label]
+type = "string"
+required = true
+
+[plans.types.A]
+description = "alias referencing another alias"
+
+[plans.types.A.fields.children]
+type = "array"
+element_type = "B"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.tree]
+type = "array"
+element_type = "A"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	tree := reg.DBs["plans"].Types["task"].Fields["tree"]
+	if tree.ElementType != TypeTable {
+		t.Errorf("tree.ElementType = %q, want table", tree.ElementType)
+	}
+	children, ok := tree.ElementFields["children"]
+	if !ok {
+		t.Fatal("tree missing children sub-field after alias expansion")
+	}
+	if children.Type != TypeArray || children.ElementType != TypeTable {
+		t.Errorf("children: type=%q elem=%q (want array/table)",
+			children.Type, children.ElementType)
+	}
+	if _, ok := children.ElementFields["label"]; !ok {
+		t.Errorf("children missing label sub-field; got %v", children.ElementFields)
+	}
+}
+
+func TestLoadAliasDuplicateNameAcrossDBs(t *testing.T) {
+	// Aliases share a Registry-wide namespace; declaring the same
+	// name in two dbs is a load-time error.
+	src := `
+[a]
+paths = ["a.toml"]
+
+[a.types.Shared]
+description = "x"
+
+[a.types.Shared.fields.id]
+type = "string"
+required = true
+
+[a.thing]
+description = "x"
+
+[a.thing.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["b.toml"]
+
+[b.types.Shared]
+description = "x"
+
+[b.types.Shared.fields.id]
+type = "string"
+required = true
+
+[b.thing]
+description = "x"
+
+[b.thing.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected duplicate-alias error")
+	}
+	if !strings.Contains(err.Error(), "already declared") {
+		t.Errorf("error should mention duplicate: %v", err)
+	}
+}
+
 func TestLoadOverlappingPaths(t *testing.T) {
 	src := `
 [a]

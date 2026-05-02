@@ -36,7 +36,18 @@ const (
 // and AllowedValues are only populated when relevant to the specific Kind.
 type FieldFailure struct {
 	// Field is the name of the offending field, as it appeared (or would
-	// have appeared) in the section data map.
+	// have appeared) in the section data map. Per F21 the Field grammar
+	// is now extended with bracket and dot tokens for failures inside
+	// typed-array and element-table fields:
+	//
+	//   - Flat scalar (unchanged):       "status"
+	//   - Array element:                 "paths[2]"
+	//   - Table element field:           "completion_checklist[1].complete"
+	//   - Nested array element field:    "matrix[3].cells[7]"
+	//
+	// "[<int>]" is a zero-based array index; ".<name>" is a table
+	// field access. There is never a leading dot — the top-level
+	// segment is the bare field identifier.
 	Field string `json:"field"`
 	// Kind categorizes the failure; see the FailureKind constants.
 	Kind FailureKind `json:"kind"`

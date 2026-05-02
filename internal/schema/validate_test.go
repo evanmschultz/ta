@@ -316,6 +316,333 @@ func TestValidateTypeMatrix(t *testing.T) {
 	}
 }
 
+// ----------------------------------------------------------------------------
+// F21 — typed array elements + element_fields + alias inlining
+// ----------------------------------------------------------------------------
+
+const f21PrimitiveArraySchema = `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "Task with a typed array."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.paths]
+type = "array"
+element_type = "string"
+`
+
+func TestValidateElementTypeMismatch(t *testing.T) {
+	reg, err := Load(strings.NewReader(f21PrimitiveArraySchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.x", map[string]any{
+		"id":    "TASK-001",
+		"paths": []any{"a", 2, "c"},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	if len(ve.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1", len(ve.Failures))
+	}
+	f := ve.Failures[0]
+	if f.Field != "paths[1]" {
+		t.Errorf("field = %q, want paths[1]", f.Field)
+	}
+	if f.Kind != FailureTypeMismatch {
+		t.Errorf("kind = %q, want type_mismatch", f.Kind)
+	}
+	if f.ExpectedType != TypeString {
+		t.Errorf("expected_type = %q, want string", f.ExpectedType)
+	}
+}
+
+func TestValidateElementTypePassthrough(t *testing.T) {
+	reg, err := Load(strings.NewReader(f21PrimitiveArraySchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.x", map[string]any{
+		"id":    "TASK-001",
+		"paths": []any{"a", "b", "c"},
+	})
+	if err != nil {
+		t.Errorf("homogeneous string array should validate, got %v", err)
+	}
+}
+
+const f21ElementFieldsSchema = `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "Task with an array of typed tables."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.completion_checklist]
+type = "array"
+element_type = "table"
+
+[plans.task.fields.completion_checklist.element_fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.completion_checklist.element_fields.text]
+type = "string"
+required = true
+
+[plans.task.fields.completion_checklist.element_fields.complete]
+type = "boolean"
+required = true
+`
+
+func TestValidateElementFieldsMissingRequired(t *testing.T) {
+	reg, err := Load(strings.NewReader(f21ElementFieldsSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.x", map[string]any{
+		"id": "TASK-001",
+		"completion_checklist": []any{
+			map[string]any{"id": "ok", "text": "first", "complete": true},
+			map[string]any{"id": "missing-complete", "text": "second"},
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	if len(ve.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1: %+v", len(ve.Failures), ve.Failures)
+	}
+	f := ve.Failures[0]
+	if f.Field != "completion_checklist[1].complete" {
+		t.Errorf("field = %q, want completion_checklist[1].complete", f.Field)
+	}
+	if f.Kind != FailureMissingRequired {
+		t.Errorf("kind = %q, want missing_required", f.Kind)
+	}
+}
+
+func TestValidateElementFieldsTypeMismatch(t *testing.T) {
+	reg, err := Load(strings.NewReader(f21ElementFieldsSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.x", map[string]any{
+		"id": "TASK-001",
+		"completion_checklist": []any{
+			map[string]any{"id": "a", "text": "first", "complete": true},
+			map[string]any{"id": "b", "text": "second", "complete": "yes"},
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	if len(ve.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1: %+v", len(ve.Failures), ve.Failures)
+	}
+	f := ve.Failures[0]
+	if f.Field != "completion_checklist[1].complete" {
+		t.Errorf("field = %q, want completion_checklist[1].complete", f.Field)
+	}
+	if f.Kind != FailureTypeMismatch {
+		t.Errorf("kind = %q, want type_mismatch", f.Kind)
+	}
+	if f.ExpectedType != TypeBoolean || f.ActualType != "string" {
+		t.Errorf("types: expected=%q actual=%q", f.ExpectedType, f.ActualType)
+	}
+}
+
+func TestValidateElementFieldsUnknownField(t *testing.T) {
+	reg, err := Load(strings.NewReader(f21ElementFieldsSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.x", map[string]any{
+		"id": "TASK-001",
+		"completion_checklist": []any{
+			map[string]any{"id": "a", "text": "first", "complete": true, "mystery": 7},
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	if len(ve.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1: %+v", len(ve.Failures), ve.Failures)
+	}
+	f := ve.Failures[0]
+	if f.Field != "completion_checklist[0].mystery" {
+		t.Errorf("field = %q, want completion_checklist[0].mystery", f.Field)
+	}
+	if f.Kind != FailureUnknownField {
+		t.Errorf("kind = %q, want unknown_field", f.Kind)
+	}
+}
+
+func TestValidateNestedElementFields(t *testing.T) {
+	// matrix is array of tables; each table has a cells array of strings.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.matrix]
+type = "array"
+element_type = "table"
+
+[plans.task.fields.matrix.element_fields.row_id]
+type = "string"
+required = true
+
+[plans.task.fields.matrix.element_fields.cells]
+type = "array"
+element_type = "string"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.x", map[string]any{
+		"id": "TASK-001",
+		"matrix": []any{
+			map[string]any{"row_id": "r0", "cells": []any{"a", "b"}},
+			map[string]any{"row_id": "r1", "cells": []any{"c", "d"}},
+			map[string]any{"row_id": "r2", "cells": []any{"e", 99, "g", "h"}},
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	if len(ve.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1: %+v", len(ve.Failures), ve.Failures)
+	}
+	if got := ve.Failures[0].Field; got != "matrix[2].cells[1]" {
+		t.Errorf("field = %q, want matrix[2].cells[1]", got)
+	}
+}
+
+func TestValidateEmptyArrayPasses(t *testing.T) {
+	reg, err := Load(strings.NewReader(f21ElementFieldsSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.x", map[string]any{
+		"id":                   "TASK-001",
+		"completion_checklist": []any{},
+	})
+	if err != nil {
+		t.Errorf("empty array should validate, got %v", err)
+	}
+}
+
+func TestValidateAliasResolution(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.types.ChecklistItem]
+description = "Reusable shape."
+
+[plans.types.ChecklistItem.fields.id]
+type = "string"
+required = true
+
+[plans.types.ChecklistItem.fields.text]
+type = "string"
+required = true
+
+[plans.types.ChecklistItem.fields.complete]
+type = "boolean"
+required = true
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.start_criteria]
+type = "array"
+element_type = "ChecklistItem"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	good := reg.Validate("plans.task.x", map[string]any{
+		"id": "TASK-001",
+		"start_criteria": []any{
+			map[string]any{"id": "1", "text": "first", "complete": true},
+			map[string]any{"id": "2", "text": "second", "complete": false},
+		},
+	})
+	if good != nil {
+		t.Fatalf("alias-backed validation should pass, got %v", good)
+	}
+
+	bad := reg.Validate("plans.task.x", map[string]any{
+		"id": "TASK-001",
+		"start_criteria": []any{
+			map[string]any{"id": "1", "text": "first"}, // missing complete
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(bad, &ve) {
+		t.Fatalf("expected ValidationError, got %v", bad)
+	}
+	if len(ve.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1: %+v", len(ve.Failures), ve.Failures)
+	}
+	if got := ve.Failures[0].Field; got != "start_criteria[0].complete" {
+		t.Errorf("field = %q, want start_criteria[0].complete", got)
+	}
+}
+
+func TestValidationErrorJSONForBracketedPath(t *testing.T) {
+	reg, err := Load(strings.NewReader(f21ElementFieldsSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.x", map[string]any{
+		"id": "TASK-001",
+		"completion_checklist": []any{
+			map[string]any{"id": "a", "text": "first"}, // missing complete
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	data, mErr := json.Marshal(ve)
+	if mErr != nil {
+		t.Fatalf("marshal: %v", mErr)
+	}
+	if !strings.Contains(string(data), `"field":"completion_checklist[0].complete"`) {
+		t.Errorf("marshalled JSON missing bracketed path; got %s", data)
+	}
+}
+
 func TestValidateDatetimeFromString(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
