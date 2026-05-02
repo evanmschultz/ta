@@ -57,6 +57,33 @@ type = "integer"
 enum = [1, 2, 3, 4, 5, 6]
 description = "MD-only: the ATX heading level (1..6) this type's records occupy. Required when the owning db's inferred format is 'md'; must be absent when format is 'toml'. Each heading level must be unique within a given MD db."
 
+[ta_schema.type.fields.extends]
+type = "string"
+description = "Optional name of a base ([<db>.bases.<name>]) whose fields this type inherits. Bases-only target — concrete record types are not extensible. The base's fields are merged into the type at load time; same-named child fields wholesale replace the base's declarations. The keyword is discarded after flattening; the Registry carries only the fully-resolved field set."
+
+# ----------------------------------------------------------------------------
+# kind = "base" — the data shape of `schema(action="create"|"update",
+# kind="base", name="<db>.<base>", data=...)`. A base is a reusable field
+# bundle declared at [<db>.bases.<name>]; concrete types and other bases
+# inherit it via `extends = "<base>"`. Bases live in their own per-db
+# table separate from aliases ([<db>.types.<alias>]) and concrete types
+# ([<db>.<type>]); a name may not appear simultaneously as a base and an
+# alias. A base must declare at least one field of its own OR an
+# `extends` pointing at another base; an empty body is rejected. Cycles
+# (A → B → A or self-reference) are rejected at load.
+# ----------------------------------------------------------------------------
+[ta_schema.base]
+description = "A reusable field bundle declared at [<db>.bases.<name>]. Concrete record types and other bases inherit it via `extends`. Bases live in their own per-db table; the namespace is Registry-wide so any db can extend a base declared in any other db. Bases are flattened into their inheritors at load time and the `extends` keyword is then discarded — the Registry carries only the resolved field sets on concrete types."
+
+[ta_schema.base.fields.description]
+type = "string"
+format = "markdown"
+description = "Human-readable description of the base. Surfaced through the `schema` tool; documentation only — bases never appear as concrete record types in the resolved Registry."
+
+[ta_schema.base.fields.extends]
+type = "string"
+description = "Optional name of another base whose fields this base inherits. Forms a chain (A extends B extends C); cycles are rejected at load. A base without `extends` is the root of an inheritance chain."
+
 # ----------------------------------------------------------------------------
 # kind = "field" — the data shape of `schema(action="create"|"update",
 # kind="field", name="<db>.<type>.<field>", data=...)`. `type` required;
@@ -110,7 +137,20 @@ description = "When element_type = \"table\", the per-element field shape. Each 
 # (every db in the loaded schema), so one db can declare a shape and
 # another db reference it. Aliases must not shadow the seven primitive
 # type names (string, integer, float, boolean, datetime, array, table);
-# cycles (A → B → A or self-reference) are rejected at load.
+# cycles (A → B → A or self-reference) are rejected at load. Aliases do
+# NOT support `extends` — composition for aliases happens via element_type
+# chains; bases use `extends`.
 # ----------------------------------------------------------------------------
 [ta_schema.types]
-description = "Optional table of named record-shape aliases declared at [<schema>.types.<alias>]. Each alias is a record-type-shaped body (description + fields map) reusable via element_type = \"<alias>\". Aliases must not shadow primitives; cycles are rejected at load."
+description = "Optional table of named record-shape aliases declared at [<schema>.types.<alias>]. Each alias is a record-type-shaped body (description + fields map) reusable via element_type = \"<alias>\". Aliases must not shadow primitives; cycles are rejected at load. Aliases do not support `extends`."
+
+# ----------------------------------------------------------------------------
+# Bases — reusable field bundles declared under [<schema>.bases.<name>].
+# Concrete record types and other bases inherit them via `extends`. Bases
+# live in their own per-db table; the namespace is Registry-wide. A name
+# may not appear simultaneously as a base and an alias. Bases compose via
+# `extends`; aliases compose via element_type — the two mechanisms do not
+# cross. Cycles in the extends chain are rejected at load.
+# ----------------------------------------------------------------------------
+[ta_schema.bases]
+description = "Optional table of named bases declared at [<schema>.bases.<name>]. Each base is a reusable field bundle inherited by concrete types or other bases via `extends`. Bases are flattened into their inheritors at load time; `extends` is discarded after flattening. Cycles are rejected at load."

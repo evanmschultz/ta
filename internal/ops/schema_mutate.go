@@ -7,6 +7,8 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
 	pelletier "github.com/pelletier/go-toml/v2"
@@ -48,13 +50,11 @@ func ComputePathsMutation(currentPaths []string, appendEntry, removeEntry string
 		return out, nil
 	}
 	if appendEntry != "" {
-		for _, p := range currentPaths {
-			if p == appendEntry {
-				// Idempotent: already present, return unchanged copy.
-				out := make([]string, len(currentPaths))
-				copy(out, currentPaths)
-				return out, nil
-			}
+		if slices.Contains(currentPaths, appendEntry) {
+			// Idempotent: already present, return unchanged copy.
+			out := make([]string, len(currentPaths))
+			copy(out, currentPaths)
+			return out, nil
 		}
 		out := make([]string, 0, len(currentPaths)+1)
 		out = append(out, currentPaths...)
@@ -134,9 +134,9 @@ func MutateDBPaths(projectPath, dbName, appendEntry, removeEntry string) ([]stri
 //     resolved schema paths (so callers can surface the cascade sources
 //     in their response).
 //
-// action ∈ {create, update, delete}; kind ∈ {db, type, field}; name is
-// the dotted address per §3.3. For delete actions the caller passes
-// data=nil — the handler above enforces the distinction.
+// action ∈ {create, update, delete}; kind ∈ {db, type, field, base};
+// name is the dotted address per §3.3. For delete actions the caller
+// passes data=nil — the handler above enforces the distinction.
 func MutateSchema(projectPath, action, kind, name string, data map[string]any) ([]string, error) {
 	// Guard: the meta-schema literal is embedded, not user-mutable.
 	if name == schema.MetaSchemaPath || strings.HasPrefix(name, schema.MetaSchemaPath+".") {
@@ -221,8 +221,10 @@ func applyMutation(projectPath, action, kind, name string, data map[string]any, 
 		return applyTypeMutation(projectPath, action, name, data, root)
 	case "field":
 		return applyFieldMutation(action, name, data, root)
+	case "base":
+		return applyBaseMutation(action, name, data, root)
 	default:
-		return fmt.Errorf("schema: unknown kind %q (want db|type|field)", kind)
+		return fmt.Errorf("schema: unknown kind %q (want db|type|field|base)", kind)
 	}
 }
 
@@ -377,6 +379,152 @@ func applyFieldMutation(action, name string, data map[string]any, root map[strin
 		return nil
 	}
 	return fmt.Errorf("schema: unknown action %q", action)
+}
+
+// applyBaseMutation handles kind=base mutations. `name` is the dotted
+// form `<db>.<base-name>` (parallel to kind=type's `<db>.<type>`). The
+// data payload accepts `description`, `extends`, and a nested `fields`
+// table — the same shape buildBaseDecl parses at load time.
+//
+// Semantics by action:
+//   - create: insert a fresh [<db>.bases.<base-name>] block. Fails if
+//     the base already exists.
+//   - update: replace the entire block (description, extends, fields)
+//     with the supplied payload. Fails if the base does not exist.
+//   - delete: remove the block. Fails with ErrBaseStillReferenced when
+//     any concrete type or other base extends the target — the message
+//     lists every referrer so the caller can break the chain
+//     deliberately. The post-mutation atomic-rollback re-validate in
+//     MutateSchema also catches this from the bottom up; the explicit
+//     check here surfaces a dedicated sentinel and clearer message.
+func applyBaseMutation(action, name string, data map[string]any, root map[string]any) error {
+	dbName, baseName, rest := splitTwo(name)
+	if dbName == "" || baseName == "" || rest != "" {
+		return fmt.Errorf("schema: base name %q must be '<db>.<base>'", name)
+	}
+	dbAny, ok := root[dbName]
+	if !ok {
+		return fmt.Errorf("%w: db %q", ErrUnknownSchemaTarget, dbName)
+	}
+	dbMap, ok := dbAny.(map[string]any)
+	if !ok {
+		return fmt.Errorf("schema: db %q has non-table entry", dbName)
+	}
+	bases := ensureBasesTable(dbMap)
+
+	switch action {
+	case "create":
+		if _, exists := bases[baseName]; exists {
+			return fmt.Errorf("schema: base %q already exists on db %q", baseName, dbName)
+		}
+		bases[baseName] = cloneMap(data)
+		return nil
+	case "update":
+		if _, exists := bases[baseName]; !exists {
+			return fmt.Errorf("%w: base %q on db %q", ErrUnknownSchemaTarget, baseName, dbName)
+		}
+		bases[baseName] = cloneMap(data)
+		return nil
+	case "delete":
+		if _, exists := bases[baseName]; !exists {
+			return fmt.Errorf("%w: base %q on db %q", ErrUnknownSchemaTarget, baseName, dbName)
+		}
+		referrers := findBaseReferrers(baseName, root, dbName, baseName)
+		if len(referrers) > 0 {
+			return fmt.Errorf(
+				"%w: base %q on db %q referenced by [%s]",
+				ErrBaseStillReferenced, baseName, dbName, strings.Join(referrers, ", "))
+		}
+		delete(bases, baseName)
+		return nil
+	}
+	return fmt.Errorf("schema: unknown action %q", action)
+}
+
+// ensureBasesTable returns dbMap["bases"] as a map[string]any,
+// creating the sub-table when missing. Mirrors ensureFieldsTable.
+func ensureBasesTable(dbMap map[string]any) map[string]any {
+	basesAny, ok := dbMap["bases"]
+	if !ok {
+		bases := map[string]any{}
+		dbMap["bases"] = bases
+		return bases
+	}
+	bases, ok := basesAny.(map[string]any)
+	if !ok {
+		bases = map[string]any{}
+		dbMap["bases"] = bases
+	}
+	return bases
+}
+
+// findBaseReferrers walks the in-memory schema map looking for any
+// concrete record type or other base whose `extends` key resolves to
+// the base named target. Returns each referrer in dotted form
+// (`<db>.<symbol>`) so the caller can render a deterministic
+// ErrBaseStillReferenced message. The (excludeDB, excludeBase) pair
+// names the base being deleted itself — its own `extends` key, if
+// any, is irrelevant to the delete and is filtered out.
+//
+// Bases live in a Registry-wide namespace (per F22), so the scan
+// crosses every db rather than restricting to the target db.
+func findBaseReferrers(target string, root map[string]any, excludeDB, excludeBase string) []string {
+	var referrers []string
+	dbNames := make([]string, 0, len(root))
+	for n := range root {
+		dbNames = append(dbNames, n)
+	}
+	sort.Strings(dbNames)
+	for _, dbName := range dbNames {
+		dbMap, ok := root[dbName].(map[string]any)
+		if !ok {
+			continue
+		}
+		// Concrete record types: every non-meta sub-table at the db
+		// level is a record-type body that may carry extends.
+		typeNames := make([]string, 0, len(dbMap))
+		for k := range dbMap {
+			typeNames = append(typeNames, k)
+		}
+		sort.Strings(typeNames)
+		for _, key := range typeNames {
+			if key == "paths" || key == "description" || key == "types" || key == "bases" {
+				continue
+			}
+			body, ok := dbMap[key].(map[string]any)
+			if !ok {
+				continue
+			}
+			ext, _ := body["extends"].(string)
+			if ext == target {
+				referrers = append(referrers, dbName+"."+key)
+			}
+		}
+		// Other bases.
+		basesAny, ok := dbMap["bases"].(map[string]any)
+		if !ok {
+			continue
+		}
+		baseNames := make([]string, 0, len(basesAny))
+		for k := range basesAny {
+			baseNames = append(baseNames, k)
+		}
+		sort.Strings(baseNames)
+		for _, bname := range baseNames {
+			if dbName == excludeDB && bname == excludeBase {
+				continue
+			}
+			body, ok := basesAny[bname].(map[string]any)
+			if !ok {
+				continue
+			}
+			ext, _ := body["extends"].(string)
+			if ext == target {
+				referrers = append(referrers, dbName+".bases."+bname)
+			}
+		}
+	}
+	return referrers
 }
 
 // dbHasDataOnDisk returns true when any backing file for the target db

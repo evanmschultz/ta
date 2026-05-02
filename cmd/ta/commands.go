@@ -680,7 +680,7 @@ func newSchemaCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&action, "action", "get", "one of get | create | update | delete")
-	cmd.Flags().StringVar(&kind, "kind", "", "db | type | field (for action != get)")
+	cmd.Flags().StringVar(&kind, "kind", "", "db | type | field | base (for action != get)")
 	cmd.Flags().StringVar(&name, "name", "", "dotted schema address (for action != get)")
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON payload (for action create|update)")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON payload from file; use `-` for stdin")

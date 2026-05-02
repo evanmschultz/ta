@@ -174,7 +174,7 @@ func schemaTool() mcp.Tool {
 	return mcp.NewTool(
 		"schema",
 		mcp.WithDescription(
-			"Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema). action=create|update|delete uses 'kind' (db / type / field) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload). Sugar (PLAN §12.17.9 Phase 9.6): on action=update + kind=db, 'paths_append' / 'paths_remove' mutate the db's paths slice incrementally — single-entry strings, mutually exclusive with each other and with a 'data' payload carrying a 'paths' key.",
+			"Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema). action=create|update|delete uses 'kind' (db / type / field / base) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload). kind=base addresses a reusable field bundle at [<db>.bases.<name>]; data accepts 'description', 'extends' (another base name), and a nested 'fields' table. Sugar (PLAN §12.17.9 Phase 9.6): on action=update + kind=db, 'paths_append' / 'paths_remove' mutate the db's paths slice incrementally — single-entry strings, mutually exclusive with each other and with a 'data' payload carrying a 'paths' key.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString(
@@ -182,8 +182,8 @@ func schemaTool() mcp.Tool {
 			mcp.Description("One of get | create | update | delete. Defaults to get."),
 		),
 		mcp.WithString("scope", mcp.Description("action=get: optional '<db>' | '<db>.<type>' | 'ta_schema'.")),
-		mcp.WithString("kind", mcp.Description("action=create|update|delete: one of db | type | field.")),
-		mcp.WithString("name", mcp.Description("action=create|update|delete: dotted address — '<db>', '<db>.<type>', or '<db>.<type>.<field>'.")),
+		mcp.WithString("kind", mcp.Description("action=create|update|delete: one of db | type | field | base.")),
+		mcp.WithString("name", mcp.Description("action=create|update|delete: dotted address — '<db>', '<db>.<type>', '<db>.<type>.<field>', or '<db>.<base>' (kind=base).")),
 		mcp.WithObject(
 			"data",
 			mcp.Description("action=create|update: kind-specific meta-schema payload."),

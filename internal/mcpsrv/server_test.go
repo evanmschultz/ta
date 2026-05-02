@@ -231,6 +231,88 @@ func TestSchemaMetaSchema(t *testing.T) {
 	}
 }
 
+// TestSchemaMutateBaseRoundTrip exercises kind=base over the wire:
+// create → confirm via schema get → delete. Covers the F22 contract
+// that bases are first-class addressable via schema(action=…) parallel
+// to kind=type.
+func TestSchemaMutateBaseRoundTrip(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "create",
+		"kind":   "base",
+		"name":   "plans.NodeBase",
+		"data": map[string]any{
+			"description": "Common cascade-node fields.",
+			"fields": map[string]any{
+				"parent_id": map[string]any{
+					"type": "string",
+				},
+				"title": map[string]any{
+					"type":     "string",
+					"required": true,
+				},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("schema create base errored: %s", firstText(t, res))
+	}
+
+	// Confirm landed by reading the on-disk schema.toml. The MCP get
+	// path doesn't surface bases as concrete types in dbView so we
+	// verify by reading the raw schema bytes the same way an agent
+	// debugging a write would.
+	raw, err := os.ReadFile(filepath.Join(fx.projectRoot, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	if !strings.Contains(string(raw), "[plans.bases.NodeBase]") {
+		t.Errorf("schema.toml missing [plans.bases.NodeBase] after MCP create:\n%s", raw)
+	}
+
+	// Delete via MCP. No referrers so it must succeed.
+	res = callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "delete",
+		"kind":   "base",
+		"name":   "plans.NodeBase",
+	})
+	if res.IsError {
+		t.Fatalf("schema delete base errored: %s", firstText(t, res))
+	}
+	raw, err = os.ReadFile(filepath.Join(fx.projectRoot, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema after delete: %v", err)
+	}
+	if strings.Contains(string(raw), "NodeBase") {
+		t.Errorf("schema.toml still mentions NodeBase after delete:\n%s", raw)
+	}
+}
+
+// TestSchemaMutateBaseUnknownKindIsError confirms `kind=banana` (or
+// any unknown kind) surfaces an error on the wire — the dispatch
+// rejection line in applyMutation's default branch.
+func TestSchemaMutateBaseUnknownKindIsError(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "create",
+		"kind":   "banana",
+		"name":   "plans.X",
+		"data":   map[string]any{},
+	})
+	if !res.IsError {
+		t.Fatal("expected error on unknown kind")
+	}
+	if !strings.Contains(firstText(t, res), "db|type|field|base") {
+		t.Errorf("error should advertise db|type|field|base: %s", firstText(t, res))
+	}
+}
+
 func TestStartupRefusesMalformedSchema(t *testing.T) {
 	t.Cleanup(ops.ResetDefaultCacheForTest)
 	root := t.TempDir()

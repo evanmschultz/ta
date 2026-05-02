@@ -1,6 +1,7 @@
 package ops_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -301,5 +302,253 @@ func TestMutateDBPathsUnknownDBErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ghost") {
 		t.Errorf("error missing db name: %v", err)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// F22 — kind=base wire surface (schema mutate dispatch)
+// ----------------------------------------------------------------------------
+
+// TestMutateSchemaBaseCreate exercises action=create + kind=base end
+// to end. The base lands at [<db>.bases.<name>] in the on-disk
+// schema.toml and re-validates cleanly via the standard atomic-rollback
+// pipeline.
+func TestMutateSchemaBaseCreate(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	data := map[string]any{
+		"description": "Common cascade-node fields.",
+		"fields": map[string]any{
+			"parent_id": map[string]any{
+				"type": "string",
+			},
+			"title": map[string]any{
+				"type":     "string",
+				"required": true,
+			},
+		},
+	}
+	if _, err := ops.MutateSchema(root, "create", "base", "plans.NodeBase", data); err != nil {
+		t.Fatalf("MutateSchema base create: %v", err)
+	}
+	resolution, err := ops.ResolveProject(root)
+	if err != nil {
+		t.Fatalf("ResolveProject: %v", err)
+	}
+	// Bases are not surfaced as concrete types on Registry.DBs[].Types,
+	// so verify by reading the on-disk file directly.
+	raw, err := os.ReadFile(filepath.Join(root, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	if !strings.Contains(string(raw), "[plans.bases.NodeBase]") {
+		t.Errorf("schema.toml missing [plans.bases.NodeBase] block; got:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "title") {
+		t.Errorf("schema.toml missing title field on base; got:\n%s", raw)
+	}
+	_ = resolution
+}
+
+// TestMutateSchemaBaseCreateDuplicateRefuses proves a second create
+// with the same dotted name fails (the base already exists).
+func TestMutateSchemaBaseCreateDuplicateRefuses(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	data := map[string]any{
+		"fields": map[string]any{
+			"id": map[string]any{
+				"type": "string",
+			},
+		},
+	}
+	if _, err := ops.MutateSchema(root, "create", "base", "plans.NodeBase", data); err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	_, err := ops.MutateSchema(root, "create", "base", "plans.NodeBase", data)
+	if err == nil {
+		t.Fatal("expected duplicate-base error on second create")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error missing duplicate context: %v", err)
+	}
+}
+
+// TestMutateSchemaBaseUpdate replaces the entire base body via
+// action=update. The pre-existing extends/description/fields are
+// dropped wholesale and the new payload lands.
+func TestMutateSchemaBaseUpdate(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	createData := map[string]any{
+		"description": "v1",
+		"fields": map[string]any{
+			"v1_field": map[string]any{
+				"type": "string",
+			},
+		},
+	}
+	if _, err := ops.MutateSchema(root, "create", "base", "plans.NodeBase", createData); err != nil {
+		t.Fatalf("create base: %v", err)
+	}
+	updateData := map[string]any{
+		"description": "v2",
+		"fields": map[string]any{
+			"v2_field": map[string]any{
+				"type":     "string",
+				"required": true,
+			},
+		},
+	}
+	if _, err := ops.MutateSchema(root, "update", "base", "plans.NodeBase", updateData); err != nil {
+		t.Fatalf("update base: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	if !strings.Contains(string(raw), "v2") {
+		t.Errorf("schema missing v2 description after update; got:\n%s", raw)
+	}
+	if strings.Contains(string(raw), "v1_field") {
+		t.Errorf("schema still carries v1_field — update did not wholesale-replace; got:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "v2_field") {
+		t.Errorf("schema missing v2_field after update; got:\n%s", raw)
+	}
+}
+
+// TestMutateSchemaBaseUpdateUnknownRefuses proves update on a base
+// that does not exist surfaces ErrUnknownSchemaTarget.
+func TestMutateSchemaBaseUpdateUnknownRefuses(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	data := map[string]any{
+		"fields": map[string]any{
+			"id": map[string]any{"type": "string"},
+		},
+	}
+	_, err := ops.MutateSchema(root, "update", "base", "plans.Ghost", data)
+	if err == nil {
+		t.Fatal("expected unknown-target error")
+	}
+	if !errors.Is(err, ops.ErrUnknownSchemaTarget) {
+		t.Errorf("err = %v, want ErrUnknownSchemaTarget", err)
+	}
+}
+
+// TestMutateSchemaBaseDelete removes the [<db>.bases.<name>] block.
+// No referrers means the delete is unconditional.
+func TestMutateSchemaBaseDelete(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	data := map[string]any{
+		"fields": map[string]any{
+			"id": map[string]any{"type": "string"},
+		},
+	}
+	if _, err := ops.MutateSchema(root, "create", "base", "plans.Solo", data); err != nil {
+		t.Fatalf("create base: %v", err)
+	}
+	if _, err := ops.MutateSchema(root, "delete", "base", "plans.Solo", nil); err != nil {
+		t.Fatalf("delete base: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	if strings.Contains(string(raw), "Solo") {
+		t.Errorf("Solo base still present after delete; got:\n%s", raw)
+	}
+}
+
+// TestMutateSchemaBaseDeleteWhileReferencedRefuses proves delete
+// fails with ErrBaseStillReferenced when at least one concrete type
+// or other base extends the target. The error message lists every
+// referrer so the caller can break the chain deliberately.
+func TestMutateSchemaBaseDeleteWhileReferencedRefuses(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	if _, err := ops.MutateSchema(root, "create", "base", "plans.NodeBase", map[string]any{
+		"fields": map[string]any{
+			"id": map[string]any{"type": "string"},
+		},
+	}); err != nil {
+		t.Fatalf("create base: %v", err)
+	}
+	// Make plans.task extend NodeBase. Update overwrites the type body.
+	if _, err := ops.MutateSchema(root, "update", "type", "plans.task", map[string]any{
+		"description": "A unit of work.",
+		"extends":     "NodeBase",
+	}); err != nil {
+		t.Fatalf("update task to extend NodeBase: %v", err)
+	}
+	_, err := ops.MutateSchema(root, "delete", "base", "plans.NodeBase", nil)
+	if err == nil {
+		t.Fatal("expected ErrBaseStillReferenced")
+	}
+	if !errors.Is(err, ops.ErrBaseStillReferenced) {
+		t.Errorf("err = %v, want ErrBaseStillReferenced", err)
+	}
+	if !strings.Contains(err.Error(), "plans.task") {
+		t.Errorf("error should list referrer plans.task: %v", err)
+	}
+}
+
+// TestMutateSchemaBaseDeleteUnknownRefuses proves delete on a
+// non-existent base surfaces ErrUnknownSchemaTarget.
+func TestMutateSchemaBaseDeleteUnknownRefuses(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	_, err := ops.MutateSchema(root, "delete", "base", "plans.Ghost", nil)
+	if err == nil {
+		t.Fatal("expected unknown-target error")
+	}
+	if !errors.Is(err, ops.ErrUnknownSchemaTarget) {
+		t.Errorf("err = %v, want ErrUnknownSchemaTarget", err)
+	}
+}
+
+// TestMutateSchemaBaseRejectsBareName proves a non-dotted name
+// (no '<db>.<base>' decomposition) is rejected with a clear message.
+func TestMutateSchemaBaseRejectsBareName(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	_, err := ops.MutateSchema(root, "create", "base", "NodeBase", map[string]any{
+		"fields": map[string]any{
+			"id": map[string]any{"type": "string"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected name-shape error")
+	}
+	if !strings.Contains(err.Error(), "<db>.<base>") {
+		t.Errorf("error should mention <db>.<base> shape: %v", err)
+	}
+}
+
+// TestMutateSchemaBaseRejectsTooManySegments proves a 3-segment
+// name (`db.base.something`) is rejected.
+func TestMutateSchemaBaseRejectsTooManySegments(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	_, err := ops.MutateSchema(root, "create", "base", "plans.NodeBase.Extra", map[string]any{
+		"fields": map[string]any{
+			"id": map[string]any{"type": "string"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected name-shape error")
+	}
+	if !strings.Contains(err.Error(), "<db>.<base>") {
+		t.Errorf("error should mention <db>.<base> shape: %v", err)
+	}
+}
+
+// TestMutateSchemaBaseUnknownDBRefuses proves create against an
+// undeclared db surfaces ErrUnknownSchemaTarget.
+func TestMutateSchemaBaseUnknownDBRefuses(t *testing.T) {
+	root := newPathsSugarFixture(t)
+	_, err := ops.MutateSchema(root, "create", "base", "ghost.NodeBase", map[string]any{
+		"fields": map[string]any{
+			"id": map[string]any{"type": "string"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected unknown-db error")
+	}
+	if !errors.Is(err, ops.ErrUnknownSchemaTarget) {
+		t.Errorf("err = %v, want ErrUnknownSchemaTarget", err)
 	}
 }

@@ -84,4 +84,12 @@ var (
 	// type name (e.g. `task`) where the contract requires the
 	// db-qualified form (`plans.task`). Per F10.
 	ErrTypeNotQualified = errors.New("ops: type must be db-qualified (e.g. `plans.task`)")
+
+	// ErrBaseStillReferenced is returned by schema(action=delete,
+	// kind=base) when the target base is still referenced by any
+	// concrete type or other base via `extends`. The error message
+	// names every referrer so the caller can break the chain
+	// deliberately. Per F22 the wire surface for kind=base mirrors
+	// kind=type's "delete-only-when-unused" discipline.
+	ErrBaseStillReferenced = errors.New("ops: base still referenced via extends")
 )

@@ -676,3 +676,103 @@ required = true
 		})
 	}
 }
+
+// ----------------------------------------------------------------------------
+// F22 — schema inheritance via `extends`
+// ----------------------------------------------------------------------------
+
+// TestValidateAfterExtendsRequiredFromBase confirms a required field
+// inherited from a base behaves identically to a field declared
+// directly on the type. The Registry only ever sees the flattened
+// SectionType.Fields, so the required check is unaware of provenance.
+func TestValidateAfterExtendsRequiredFromBase(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.NodeBase]
+
+[plans.bases.NodeBase.fields.title]
+type = "string"
+required = true
+
+[plans.task]
+description = "x"
+extends = "NodeBase"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.t1", map[string]any{
+		"id": "t1",
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	var titleFailure *FieldFailure
+	for _, f := range ve.Failures {
+		if f.Field == "title" {
+			titleFailure = f
+			break
+		}
+	}
+	if titleFailure == nil {
+		t.Fatalf("expected missing-required failure on inherited title; got %+v", ve.Failures)
+	}
+	if titleFailure.Kind != FailureMissingRequired {
+		t.Errorf("kind = %q, want missing_required", titleFailure.Kind)
+	}
+}
+
+// TestValidateAfterExtendsOverriddenEnum confirms the child's narrowed
+// enum is enforced on the resolved type. A value present in the base's
+// wider enum but absent from the child's narrowed enum must fail.
+func TestValidateAfterExtendsOverriddenEnum(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.WithStatus]
+
+[plans.bases.WithStatus.fields.status]
+type = "string"
+enum = ["todo", "doing", "done"]
+required = true
+
+[plans.task]
+description = "x"
+extends = "WithStatus"
+
+[plans.task.fields.status]
+type = "string"
+enum = ["todo", "doing"]
+required = true
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// "done" is in the base enum but NOT in the child's narrowed
+	// enum; child wholesale-replace means the value is rejected.
+	err = reg.Validate("plans.task.t1", map[string]any{
+		"id":     "t1",
+		"status": "done",
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	if len(ve.Failures) != 1 || ve.Failures[0].Kind != FailureEnumMismatch {
+		t.Fatalf("failures = %+v", ve.Failures)
+	}
+}

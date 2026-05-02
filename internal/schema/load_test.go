@@ -2,6 +2,7 @@ package schema
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -690,5 +691,944 @@ required = true
 	}
 	if !errors.Is(err, ErrOverlappingPaths) {
 		t.Errorf("err = %v, want ErrOverlappingPaths", err)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// F22 — schema inheritance via `extends` keyword
+// ----------------------------------------------------------------------------
+
+func TestExtendsHappyPathSingleLevel(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.NodeBase]
+description = "Common cascade-node fields."
+
+[plans.bases.NodeBase.fields.parent_id]
+type = "string"
+
+[plans.bases.NodeBase.fields.title]
+type = "string"
+required = true
+
+[plans.task]
+description = "x"
+extends = "NodeBase"
+
+[plans.task.fields.status]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	task := reg.DBs["plans"].Types["task"]
+	for _, want := range []string{"parent_id", "title", "status"} {
+		if _, ok := task.Fields[want]; !ok {
+			t.Errorf("missing field %q after extends; got %v", want, task.Fields)
+		}
+	}
+	if !task.Fields["title"].Required {
+		t.Error("inherited title should keep required=true")
+	}
+}
+
+func TestExtendsHappyPathMultiLevel(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.NodeBase]
+
+[plans.bases.NodeBase.fields.parent_id]
+type = "string"
+
+[plans.bases.ActionItem]
+extends = "NodeBase"
+
+[plans.bases.ActionItem.fields.role]
+type = "string"
+required = true
+
+[plans.bases.QAItem]
+extends = "ActionItem"
+
+[plans.bases.QAItem.fields.outcome]
+type = "string"
+
+[plans.task]
+description = "x"
+extends = "QAItem"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	task := reg.DBs["plans"].Types["task"]
+	for _, want := range []string{"parent_id", "role", "outcome", "id"} {
+		if _, ok := task.Fields[want]; !ok {
+			t.Errorf("missing field %q after multi-level extends; got %v", want, task.Fields)
+		}
+	}
+}
+
+func TestExtendsOverrideField(t *testing.T) {
+	// Base declares `status` enum {todo, doing, done}; child narrows
+	// to {todo, doing}. Wholesale replace — child enum wins.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.WithStatus]
+
+[plans.bases.WithStatus.fields.status]
+type = "string"
+enum = ["todo", "doing", "done"]
+required = true
+
+[plans.task]
+description = "x"
+extends = "WithStatus"
+
+[plans.task.fields.status]
+type = "string"
+enum = ["todo", "doing"]
+required = true
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	status := reg.DBs["plans"].Types["task"].Fields["status"]
+	if got := len(status.Enum); got != 2 {
+		t.Errorf("status.Enum length = %d, want 2 (child wholesale-replaces)", got)
+	}
+}
+
+func TestExtendsOverridesAreWholesale(t *testing.T) {
+	// Base sets required=true and format=markdown; child redeclares
+	// with only type — required must drop to false, format must drop.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.WithBody]
+
+[plans.bases.WithBody.fields.body]
+type = "string"
+required = true
+format = "markdown"
+
+[plans.task]
+description = "x"
+extends = "WithBody"
+
+[plans.task.fields.body]
+type = "string"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	body := reg.DBs["plans"].Types["task"].Fields["body"]
+	if body.Required {
+		t.Error("body.Required should drop to false on wholesale replace")
+	}
+	if body.Format != "" {
+		t.Errorf("body.Format should drop to empty, got %q", body.Format)
+	}
+}
+
+func TestExtendsDeepCloneIndependence(t *testing.T) {
+	// Mutating a flattened child field's Enum slice must NOT alter the
+	// state visible through any other inheriting type. Two children
+	// inheriting the same base each get their own copy.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.WithFlags]
+
+[plans.bases.WithFlags.fields.tags]
+type = "array"
+element_type = "string"
+
+[plans.task]
+description = "x"
+extends = "WithFlags"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.note]
+description = "x"
+extends = "WithFlags"
+
+[plans.note.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	taskTags := reg.DBs["plans"].Types["task"].Fields["tags"]
+	noteTags := reg.DBs["plans"].Types["note"].Fields["tags"]
+	if &taskTags == &noteTags {
+		t.Fatal("task and note tags share the same struct — clone broke")
+	}
+	// A defensive check: mutate task ElementFields (would-be aliasing
+	// surface) and confirm note unaffected. tags has no ElementFields
+	// here, so set a sentinel and verify isolation.
+	taskField := reg.DBs["plans"].Types["task"].Fields["tags"]
+	taskField.ElementFields = map[string]Field{"sentinel": {Name: "sentinel"}}
+	reg.DBs["plans"].Types["task"].Fields["tags"] = taskField
+	noteAfter := reg.DBs["plans"].Types["note"].Fields["tags"]
+	if _, leaked := noteAfter.ElementFields["sentinel"]; leaked {
+		t.Error("mutation on task tags leaked into note tags — base fields aren't deep-cloned per inheritor")
+	}
+}
+
+func TestExtendsCycleDetectionSelfReference(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.A]
+extends = "A"
+
+[plans.bases.A.fields.x]
+type = "string"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected ErrExtendsCycle for self-referential base")
+	}
+	if !errors.Is(err, ErrExtendsCycle) {
+		t.Errorf("err = %v, want ErrExtendsCycle", err)
+	}
+	if !strings.Contains(err.Error(), "A → A") {
+		t.Errorf("error should show cycle path A → A: %v", err)
+	}
+}
+
+func TestExtendsCycleDetectionMutual(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.A]
+extends = "B"
+
+[plans.bases.A.fields.x]
+type = "string"
+
+[plans.bases.B]
+extends = "A"
+
+[plans.bases.B.fields.y]
+type = "string"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected ErrExtendsCycle for mutual base chain")
+	}
+	if !errors.Is(err, ErrExtendsCycle) {
+		t.Errorf("err = %v, want ErrExtendsCycle", err)
+	}
+}
+
+func TestExtendsCycleDetectionLong(t *testing.T) {
+	// A → B → C → D → A
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.A]
+extends = "B"
+
+[plans.bases.A.fields.a]
+type = "string"
+
+[plans.bases.B]
+extends = "C"
+
+[plans.bases.B.fields.b]
+type = "string"
+
+[plans.bases.C]
+extends = "D"
+
+[plans.bases.C.fields.c]
+type = "string"
+
+[plans.bases.D]
+extends = "A"
+
+[plans.bases.D.fields.d]
+type = "string"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected ErrExtendsCycle for 4-step chain")
+	}
+	if !errors.Is(err, ErrExtendsCycle) {
+		t.Errorf("err = %v, want ErrExtendsCycle", err)
+	}
+	// The chain message must capture every node visited; deterministic
+	// order is per-walk, but each name appears at least once.
+	for _, name := range []string{"A", "B", "C", "D"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("cycle message missing node %q: %v", name, err)
+		}
+	}
+}
+
+func TestExtendsUnknownBase(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+extends = "Bogus"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected ErrUnknownBase for nonexistent base")
+	}
+	if !errors.Is(err, ErrUnknownBase) {
+		t.Errorf("err = %v, want ErrUnknownBase", err)
+	}
+}
+
+func TestExtendsEmptyBaseRejected(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.Empty]
+description = "no fields, no extends"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected ErrEmptyBase for empty base body")
+	}
+	if !errors.Is(err, ErrEmptyBase) {
+		t.Errorf("err = %v, want ErrEmptyBase", err)
+	}
+}
+
+func TestExtendsBasesAcrossDBs(t *testing.T) {
+	// db1 declares the base; db2's type extends it. Bases share a
+	// Registry-wide namespace so the cross-db reference works.
+	src := `
+[a]
+paths = ["a.toml"]
+
+[a.bases.Shared]
+
+[a.bases.Shared.fields.shared_id]
+type = "string"
+required = true
+
+[a.thing]
+description = "x"
+
+[a.thing.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["b.toml"]
+
+[b.thing]
+description = "x"
+extends = "Shared"
+
+[b.thing.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	bThing := reg.DBs["b"].Types["thing"]
+	if _, ok := bThing.Fields["shared_id"]; !ok {
+		t.Errorf("b.thing missing inherited shared_id field; got %v", bThing.Fields)
+	}
+}
+
+func TestExtendsDuplicateBaseName(t *testing.T) {
+	// Bases share a Registry-wide namespace; declaring the same name
+	// in two dbs is a load-time error.
+	src := `
+[a]
+paths = ["a.toml"]
+
+[a.bases.Dupe]
+
+[a.bases.Dupe.fields.id]
+type = "string"
+
+[a.thing]
+description = "x"
+
+[a.thing.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["b.toml"]
+
+[b.bases.Dupe]
+
+[b.bases.Dupe.fields.id]
+type = "string"
+
+[b.thing]
+description = "x"
+
+[b.thing.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected duplicate-base error")
+	}
+	if !strings.Contains(err.Error(), "already declared") {
+		t.Errorf("error should mention duplicate: %v", err)
+	}
+}
+
+func TestExtendsLoadDeterminism(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.NodeBase]
+
+[plans.bases.NodeBase.fields.parent_id]
+type = "string"
+
+[plans.bases.NodeBase.fields.title]
+type = "string"
+required = true
+
+[plans.bases.ActionItem]
+extends = "NodeBase"
+
+[plans.bases.ActionItem.fields.role]
+type = "string"
+required = true
+
+[plans.task]
+description = "x"
+extends = "ActionItem"
+
+[plans.task.fields.status]
+type = "string"
+required = true
+`
+	reg1, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load 1: %v", err)
+	}
+	reg2, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load 2: %v", err)
+	}
+	if !reflect.DeepEqual(reg1, reg2) {
+		t.Errorf("repeated loads differ — flatten is not deterministic")
+	}
+}
+
+func TestExtendsBaseWithArrayFieldElementTypeAlias(t *testing.T) {
+	// Base declares a field whose element_type names an alias. Type
+	// extends that base. Phase ordering (B.0 before B) means the
+	// alias inlines correctly into the inherited field.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.types.ChecklistItem]
+description = "Reusable shape."
+
+[plans.types.ChecklistItem.fields.id]
+type = "string"
+required = true
+
+[plans.types.ChecklistItem.fields.text]
+type = "string"
+required = true
+
+[plans.bases.WithChecklist]
+
+[plans.bases.WithChecklist.fields.items]
+type = "array"
+element_type = "ChecklistItem"
+
+[plans.task]
+description = "x"
+extends = "WithChecklist"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	items := reg.DBs["plans"].Types["task"].Fields["items"]
+	if items.ElementType != TypeTable {
+		t.Errorf("items.ElementType = %q, want table (alias inlined)", items.ElementType)
+	}
+	if _, ok := items.ElementFields["id"]; !ok {
+		t.Errorf("items.ElementFields missing id from alias; got %v", items.ElementFields)
+	}
+	if _, ok := items.ElementFields["text"]; !ok {
+		t.Errorf("items.ElementFields missing text from alias; got %v", items.ElementFields)
+	}
+}
+
+func TestExtendsConcreteTypeNotExtensible(t *testing.T) {
+	// extends names an existing concrete record type. Bases-only
+	// per F22 — surface ErrExtendsTargetNotBase.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.parent]
+description = "concrete type"
+
+[plans.parent.fields.id]
+type = "string"
+required = true
+
+[plans.child]
+description = "extends a concrete type"
+extends = "parent"
+
+[plans.child.fields.note]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected ErrExtendsTargetNotBase")
+	}
+	if !errors.Is(err, ErrExtendsTargetNotBase) {
+		t.Errorf("err = %v, want ErrExtendsTargetNotBase", err)
+	}
+}
+
+func TestExtendsOnFieldRejected(t *testing.T) {
+	// extends on a field body is not a recognized field-key; the
+	// existing unknown-key path must reject it.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+extends = "Something"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected unknown-field-key error for extends on a field body")
+	}
+	if !strings.Contains(err.Error(), "unknown key") {
+		t.Errorf("error should be unknown-key: %v", err)
+	}
+}
+
+func TestExtendsAliasRejectsExtends(t *testing.T) {
+	// An alias body cannot use extends; surface
+	// ErrAliasExtendsNotAllowed.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.NodeBase]
+
+[plans.bases.NodeBase.fields.id]
+type = "string"
+
+[plans.types.MyAlias]
+extends = "NodeBase"
+
+[plans.types.MyAlias.fields.label]
+type = "string"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected ErrAliasExtendsNotAllowed")
+	}
+	if !errors.Is(err, ErrAliasExtendsNotAllowed) {
+		t.Errorf("err = %v, want ErrAliasExtendsNotAllowed", err)
+	}
+}
+
+func TestExtendsBaseAliasNameCollision(t *testing.T) {
+	// Same name appears in [<db>.bases] and [<db>.types]; reject.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.Dupe]
+
+[plans.bases.Dupe.fields.x]
+type = "string"
+
+[plans.types.Dupe]
+
+[plans.types.Dupe.fields.y]
+type = "string"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected ErrBaseAliasNameCollision")
+	}
+	if !errors.Is(err, ErrBaseAliasNameCollision) {
+		t.Errorf("err = %v, want ErrBaseAliasNameCollision", err)
+	}
+}
+
+func TestExtendsTypeWithOnlyExtendsAndDescription(t *testing.T) {
+	// A type may declare zero own fields when it extends a base that
+	// supplies them. Required-field check on the resolved type.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.NodeBase]
+
+[plans.bases.NodeBase.fields.id]
+type = "string"
+required = true
+
+[plans.task]
+description = "task that's just a NodeBase rename"
+extends = "NodeBase"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	task := reg.DBs["plans"].Types["task"]
+	if _, ok := task.Fields["id"]; !ok {
+		t.Errorf("task missing inherited id field; got %v", task.Fields)
+	}
+	if !task.Fields["id"].Required {
+		t.Error("inherited id should be required")
+	}
+}
+
+func TestExtendsBaseWithoutExtendsAllowed(t *testing.T) {
+	// A base without `extends` is the root of a chain — explicitly
+	// allowed.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.Root]
+description = "Root of an inheritance chain."
+
+[plans.bases.Root.fields.id]
+type = "string"
+required = true
+
+[plans.task]
+description = "x"
+extends = "Root"
+
+[plans.task.fields.note]
+type = "string"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	task := reg.DBs["plans"].Types["task"]
+	if _, ok := task.Fields["id"]; !ok {
+		t.Errorf("task missing inherited id field; got %v", task.Fields)
+	}
+	if _, ok := task.Fields["note"]; !ok {
+		t.Errorf("task missing own note field; got %v", task.Fields)
+	}
+}
+
+// TestExtendsBaseNameCollisionMatrix locks the F22 cross-namespace
+// collision rule: a declared base name MUST NOT match any other
+// declared symbol (alias, base, concrete type) anywhere in the
+// Registry. Bases are global symbols so the discipline holds across
+// dbs.
+//
+// The pure base-vs-base case is covered by collectBases (with a
+// "duplicate base" message); the pure base-vs-alias case is covered
+// by checkBaseAliasCollision (with ErrBaseAliasNameCollision). The
+// remaining shapes — base-vs-concrete-type — are surfaced through
+// ErrBaseNameCollision by checkBaseNameCollisions.
+func TestExtendsBaseNameCollisionMatrix(t *testing.T) {
+	cases := []struct {
+		name    string
+		src     string
+		wantErr error
+	}{
+		{
+			name: "base name shadows concrete type in same db",
+			src: `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.NodeBase]
+
+[plans.bases.NodeBase.fields.x]
+type = "string"
+
+[plans.NodeBase]
+description = "concrete type sharing the base name"
+
+[plans.NodeBase.fields.id]
+type = "string"
+required = true
+`,
+			wantErr: ErrBaseNameCollision,
+		},
+		{
+			name: "base name shadows concrete type in different db",
+			src: `
+[a]
+paths = ["a.toml"]
+
+[a.someType]
+description = "concrete in a"
+
+[a.someType.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["b.toml"]
+
+[b.bases.someType]
+
+[b.bases.someType.fields.x]
+type = "string"
+
+[b.thing]
+description = "x"
+
+[b.thing.fields.id]
+type = "string"
+required = true
+`,
+			wantErr: ErrBaseNameCollision,
+		},
+		{
+			// Alias-vs-base same db — prior F22 behaviour, must still
+			// trip ErrBaseAliasNameCollision (the more specific
+			// message), not ErrBaseNameCollision.
+			name: "base name collides with alias in same db",
+			src: `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.Dupe]
+
+[plans.bases.Dupe.fields.x]
+type = "string"
+
+[plans.types.Dupe]
+
+[plans.types.Dupe.fields.y]
+type = "string"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`,
+			wantErr: ErrBaseAliasNameCollision,
+		},
+		{
+			// Alias-vs-base different db — Registry-wide alias namespace
+			// means the same name in [a.types.X] and [b.bases.X] also
+			// trips the alias-vs-base check.
+			name: "base name collides with alias in different db",
+			src: `
+[a]
+paths = ["a.toml"]
+
+[a.types.SharedShape]
+
+[a.types.SharedShape.fields.x]
+type = "string"
+
+[a.thing]
+description = "x"
+
+[a.thing.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["b.toml"]
+
+[b.bases.SharedShape]
+
+[b.bases.SharedShape.fields.y]
+type = "string"
+
+[b.task]
+description = "x"
+
+[b.task.fields.id]
+type = "string"
+required = true
+`,
+			wantErr: ErrBaseAliasNameCollision,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(strings.NewReader(tc.src))
+			if err == nil {
+				t.Fatalf("expected %v, got nil", tc.wantErr)
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("err = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestExtendsDeepCloneEnumIndependence proves the F22 cloneField
+// deep-copy of Enum keeps siblings inheriting from the same base
+// independent. The pre-fix code aliased the same backing []any across
+// all flattened children, so anyone mutating a child's resolved Enum
+// (e.g. via ValidationError.Failures[].AllowedValues) would corrupt
+// every sibling's view.
+func TestExtendsDeepCloneEnumIndependence(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.WithStatus]
+
+[plans.bases.WithStatus.fields.status]
+type = "string"
+enum = ["todo", "doing", "done"]
+required = true
+
+[plans.task]
+description = "x"
+extends = "WithStatus"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.note]
+description = "x"
+extends = "WithStatus"
+
+[plans.note.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	taskStatus := reg.DBs["plans"].Types["task"].Fields["status"]
+	noteStatus := reg.DBs["plans"].Types["note"].Fields["status"]
+	if len(taskStatus.Enum) != 3 || len(noteStatus.Enum) != 3 {
+		t.Fatalf("expected length-3 enums on both siblings; task=%v note=%v",
+			taskStatus.Enum, noteStatus.Enum)
+	}
+	// Mutate task's resolved Enum. If the slice is aliased back to
+	// the cached base copy, note's Enum will see the same change.
+	taskStatus.Enum[0] = "MUTATED"
+	if noteStatus.Enum[0] == "MUTATED" {
+		t.Errorf(
+			"note.status.Enum aliased task.status.Enum — cloneField did not deep-copy Enum: note=%v",
+			noteStatus.Enum)
+	}
+	// Sanity: the registry's stored copy must also remain stable.
+	stored := reg.DBs["plans"].Types["note"].Fields["status"].Enum
+	if stored[0] == "MUTATED" {
+		t.Errorf(
+			"registry-stored note.status.Enum mutated through task — alias leak: stored=%v",
+			stored)
 	}
 }
