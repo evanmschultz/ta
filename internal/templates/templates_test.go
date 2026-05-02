@@ -13,7 +13,6 @@ import (
 const sampleTemplate = `
 [plans]
 paths = ["plans.toml"]
-format = "toml"
 description = "Example planning db."
 
 [plans.task]

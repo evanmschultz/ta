@@ -22,8 +22,7 @@
 # dbs unique to any level are additive. Paths must not overlap across dbs.
 
 [plans]
-paths = ["plans"]
-format = "toml"
+paths = ["plans.toml"]
 description = "A TOML db for tracking tasks and freeform notes."
 
 [plans.task]

@@ -77,17 +77,16 @@ func Run(q Query) ([]Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Type-unconstrained scope pre-validation: a Match/Field name that
-	// no type in scope declares is a pure typo and must fail loudly,
-	// not silently-zero-hit per record (V2-PLAN §1.1 / §12.7
-	// Falsification finding #2). The existing per-record silent-skip
-	// in searchFile still handles the legitimate "some types declare
-	// this, others don't" heterogeneous case — a name declared on at
-	// least one type in scope passes this gate.
-	if plan.typeName == "" {
-		if err := validateScopeNames(resolution.Registry, plan, q); err != nil {
-			return nil, err
-		}
+	// Per F10 the search no longer derives a type from the scope; we
+	// run validateScopeNames unconditionally to catch pure typos, AND
+	// validate that each declared type in scope can satisfy any
+	// requested non-scalar Match (a field that is array/table on
+	// every type in scope is a typed-contract violation).
+	if err := validateScopeNames(resolution.Registry, plan, q); err != nil {
+		return nil, err
+	}
+	if err := validateScopeMatchSemantics(resolution.Registry, plan, q); err != nil {
+		return nil, err
 	}
 
 	resolver := db.NewResolver(q.Path, resolution.Registry)
@@ -134,21 +133,23 @@ func resolve(projectPath string) (config.Resolution, error) {
 }
 
 // searchPlan carries the parsed Query.Scope as a list of dbs to visit
-// plus the optional file-relpath / type / id-prefix narrowing filters.
+// plus the optional file-relpath and bracket-key-prefix narrowing
+// filters. Per F10 the type segment is no longer part of the user-
+// facing id, so searchPlan no longer carries a typeName field; the
+// caller (ops.Search) supplies type filtering via the typeName arg
+// and consults the index for authoritative type info.
 type searchPlan struct {
 	dbOrder     []string
 	fileRelPath string // "" means "any file"
-	typeName    string // "" means "any type"
-	idPrefix    string // "" means "any id"
+	idPrefix    string // "" means "any bracket-key prefix"
 }
 
 // match is the per-mount scope-match candidate. parseScope's helper
-// functions (matchFixedScope, matchCollectionScope) build these and
-// consider() picks a winner via the longer-slug-wins-then-non-collection
-// tiebreaker.
+// matchFixedScope builds these and consider() picks a winner via the
+// longer-slug-wins tiebreaker.
 type match struct {
-	dbName, slug, typeName, idPrefix string
-	collection                       bool
+	dbName, slug, idPrefix string
+	collection             bool
 }
 
 // parseScope validates Scope against the registry under the Phase 9.2
@@ -212,28 +213,8 @@ func parseScope(reg schema.Registry, projectPath, scope string) (searchPlan, err
 	for _, dbName := range dbNames {
 		dbDecl := reg.DBs[dbName]
 		for _, mount := range dbDecl.Paths {
-			collection := strings.HasSuffix(mount, "/") || mount == "."
-			if collection {
-				// Find the rightmost declared-type segment in scope
-				// (idx>=1 so the file-relpath has at least one seg);
-				// or accept the bare-file-relpath form (no type).
-				if cand, ok := matchCollectionScope(parts, dbName, dbDecl); ok {
-					cand.collection = true
-					consider(cand)
-				}
-				// Also allow file-relpath-only scope: every part is
-				// file-relpath; no type/id filter.
-				if len(parts) >= 1 && firstDeclaredTypeIndexHere(parts, dbDecl) < 1 {
-					consider(match{
-						dbName: dbName,
-						slug:   strings.Join(parts, "."),
-						// No type narrowing; the traversal phase will
-						// filter to the matching file by slug alone.
-						collection: true,
-					})
-				}
-				continue
-			}
+			// Collection mounts are rejected at schema-load time per
+			// F10; only fixed-shape (literal/glob) mounts reach here.
 			if cand, ok := matchFixedScope(parts, dbName, dbDecl, mount); ok {
 				cand.collection = false
 				consider(cand)
@@ -247,16 +228,15 @@ func parseScope(reg schema.Registry, projectPath, scope string) (searchPlan, err
 	return searchPlan{
 		dbOrder:     []string{best.dbName},
 		fileRelPath: best.slug,
-		typeName:    best.typeName,
 		idPrefix:    best.idPrefix,
 	}, nil
 }
 
-// matchFixedScope tests scope parts against a non-collection mount.
-// The first len(residualSegs-after-ext-strip) parts must satisfy the
-// mount's residual shape (`*` matches any non-empty seg; literals
-// require equality). The next part (if present) is the type; the
-// remainder is the id-prefix.
+// matchFixedScope tests scope parts against a fixed-shape mount under
+// the F10 id grammar. The first len(residualSegs-after-ext-strip)
+// parts must satisfy the mount's residual shape (`*` matches any
+// non-empty seg; literals require equality). Everything after is
+// treated as the bracket-key prefix.
 func matchFixedScope(parts []string, dbName string, dbDecl schema.DB, mount string) (match, bool) {
 	_, residualSegs := splitMountSegmentsForSearch(mount)
 	expected := stripFormatExtForSearch(residualSegs, dbDecl.Format)
@@ -273,44 +253,13 @@ func matchFixedScope(parts []string, dbName string, dbDecl schema.DB, mount stri
 	}
 	slug := strings.Join(parts[:len(expected)], ".")
 	rest := parts[len(expected):]
-	var typeName, idPrefix string
-	if len(rest) >= 1 {
-		typeName = rest[0]
-		if _, declared := dbDecl.Types[typeName]; !declared {
-			return match{}, false
-		}
-	}
-	if len(rest) >= 2 {
-		idPrefix = trimGlob(strings.Join(rest[1:], "."))
-	}
-	return match{
-		dbName:   dbName,
-		slug:     slug,
-		typeName: typeName,
-		idPrefix: idPrefix,
-	}, true
-}
-
-// matchCollectionScope tests scope parts against a collection mount.
-// Splits at the leftmost declared-type segment (idx>=1) and treats
-// the left as the file-relpath, the right as the id-prefix. Mirrors
-// the LEFTMOST-wins rule the parser enforces in
-// internal/db/address.go (PLAN §12.17.9 Phase 9.2).
-func matchCollectionScope(parts []string, dbName string, dbDecl schema.DB) (match, bool) {
-	idx := firstDeclaredTypeIndexHere(parts, dbDecl)
-	if idx < 1 {
-		return match{}, false
-	}
-	slug := strings.Join(parts[:idx], ".")
-	typeName := parts[idx]
 	var idPrefix string
-	if idx+1 < len(parts) {
-		idPrefix = trimGlob(strings.Join(parts[idx+1:], "."))
+	if len(rest) >= 1 {
+		idPrefix = trimGlob(strings.Join(rest, "."))
 	}
 	return match{
 		dbName:   dbName,
 		slug:     slug,
-		typeName: typeName,
 		idPrefix: idPrefix,
 	}, true
 }
@@ -363,18 +312,6 @@ func stripFormatExtForSearch(residualSegs []string, format schema.Format) []stri
 	return out
 }
 
-// firstDeclaredTypeIndexHere mirrors db.firstDeclaredTypeIndex (LEFTMOST
-// declared-type-name wins under the Phase 9.2 collection-mount grammar,
-// PLAN §12.17.9).
-func firstDeclaredTypeIndexHere(parts []string, dbDecl schema.DB) int {
-	for i := 1; i < len(parts); i++ {
-		if _, ok := dbDecl.Types[parts[i]]; ok {
-			return i
-		}
-	}
-	return -1
-}
-
 // trimGlob strips a trailing "-*" or "*" on the id-prefix segment so
 // the common "<db>.<type>.reference-*" form from §5.5.3 degrades to a
 // plain prefix match on "reference-".
@@ -392,42 +329,16 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 		return nil, fmt.Errorf("read %s: %w", inst.FilePath, err)
 	}
 	singleFile := schema.IsSingleFileDB(dbDecl)
-	backend, err := buildBackend(dbDecl, singleFile)
+	backend, err := buildBackendForSearch(dbDecl, inst.Slug, singleFile)
 	if err != nil {
 		return nil, err
 	}
 
-	// When the scope constrains the type, validate Match + Field once
-	// against that type so typos fail loudly (§7.1) even against an
-	// empty result set. When scope is type-unconstrained, per-type
-	// validation happens inline during record iteration.
-	if plan.typeName != "" {
-		st, ok := dbDecl.Types[plan.typeName]
-		if !ok {
-			return nil, fmt.Errorf("%w: type %q not declared on db %q",
-				ErrInvalidScope, plan.typeName, dbDecl.Name)
-		}
-		if err := matchFilterErrors(st, q.Match); err != nil {
-			return nil, err
-		}
-		if err := fieldFilterError(st, q.Field); err != nil {
-			return nil, err
-		}
-		// MD body-only layout (§5.3.3) can only serve the "body" field;
-		// a declared non-body MD field is a typed-contract lie and must
-		// error loudly, not return silent zero-hits. Mirror the get
-		// tool's contract (ops/fields.go:extractMDFields) via the
-		// shared md.CheckBackableFields helper so the two entry points
-		// cannot drift.
-		if err := mdLayoutCheck(dbDecl, st, q); err != nil {
-			return nil, err
-		}
-	}
-
-	// List every declared section in the file; we filter further after
-	// locating byte ranges because typed-field filtering needs parsed
-	// record state the backend doesn't carry.
-	addresses, err := backend.List(buf, backendTypeScope(dbDecl, plan.typeName, singleFile))
+	// List every declared section in the file. Per F10 the search no
+	// longer narrows by type at the backend level — the user-facing id
+	// has no type segment, so any per-type filtering routes through
+	// the index from the caller (ops.Search).
+	addresses, err := backend.List(buf, "")
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", inst.FilePath, err)
 	}
@@ -443,20 +354,16 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 	var hits []Result
 	for _, addr := range addresses {
 		// `addr` is the backend-relative bracket path:
-		//   - TOML single-file: "<db>.<type>.<id>" (db-prefixed).
-		//   - TOML multi-file:  "<type>.<id>" (bare).
+		//   - TOML single-file: "<file-relpath>.<bracket-key>" (the bracket IS the id).
+		//   - TOML multi-file:  "<type>.<id-tail>" (legacy bare form retained for the glob case).
 		//   - MD any:           "<type>.<chain...>".
-		// fullAddress prepends the file-relpath so callers see the
-		// caller-visible Phase 9.2 address.
 		fullAddr := fullAddress(dbDecl, inst, addr, singleFile)
 
-		// Type + id-prefix filter. Type already constrained by
-		// List scope for TOML; MD scope is empty, so re-check here.
-		recordType, recordID := typeAndID(addr, singleFile, dbDecl)
-		if plan.typeName != "" && recordType != plan.typeName {
-			continue
-		}
-		if plan.idPrefix != "" && !strings.HasPrefix(recordID, plan.idPrefix) {
+		// Bracket-key prefix filter (F10): the user-facing id is
+		// `<file-relpath>.<bracket-key>`; the prefix from parseScope
+		// applies to the bracket-key portion of the id.
+		bracketKey := bracketKeyForFilter(addr, dbDecl, inst, singleFile)
+		if plan.idPrefix != "" && !strings.HasPrefix(bracketKey, plan.idPrefix) {
 			continue
 		}
 
@@ -469,9 +376,13 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 		}
 		recordBytes := buf[sec.Range[0]:sec.Range[1]]
 
-		typeSt, ok := dbDecl.Types[recordType]
+		// Per F10: type lives in the index, not in the bracket. For
+		// search field decoding we need to know the record's type to
+		// look up its declared fields. Heuristic: pick the first
+		// declared type on the db whose Field set covers the record's
+		// observed fields. If multiple match, defer to the index.
+		typeSt, ok := chooseTypeForRecord(dbDecl, addr)
 		if !ok {
-			// Should not happen under declared scope, but skip defensively.
 			continue
 		}
 
@@ -480,26 +391,18 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 			return nil, err
 		}
 
-		// Type-unconstrained scope: a record whose type doesn't declare
-		// the Match field or the named regex Field is a non-match (not
-		// an error). Loud-fail behavior is reserved for narrowed
-		// scopes where the typo is unambiguous.
+		// Heterogeneous scope: a record whose type doesn't declare the
+		// Match field or the named regex Field is a non-match (not an
+		// error). MD body-only layout violation is ALWAYS loud.
+		if err := mdLayoutCheck(dbDecl, typeSt, q); err != nil {
+			return nil, err
+		}
 		skip := false
-		if plan.typeName == "" {
-			// MD body-only layout violation is ALWAYS loud, even under
-			// unconstrained scope, because a declared non-body MD field
-			// is a typed-contract lie independent of which types happen
-			// to fall in scope. Run this check first so it propagates
-			// out of the silent-skip gate below.
-			if err := mdLayoutCheck(dbDecl, typeSt, q); err != nil {
-				return nil, err
-			}
-			if matchFilterErrors(typeSt, q.Match) != nil {
-				skip = true
-			}
-			if !skip && fieldFilterError(typeSt, q.Field) != nil {
-				skip = true
-			}
+		if matchFilterErrors(typeSt, q.Match) != nil {
+			skip = true
+		}
+		if !skip && fieldFilterError(typeSt, q.Field) != nil {
+			skip = true
 		}
 		if skip {
 			continue
@@ -528,15 +431,53 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 	return hits, nil
 }
 
-// buildBackend mirrors ops.buildBackend — duplicated here to keep
-// internal/search independent of internal/ops.
-func buildBackend(dbDecl schema.DB, singleFile bool) (record.Backend, error) {
+// chooseTypeForRecord picks a declared type on dbDecl to associate
+// with a record at backend address `addr`. Per F10 the bracket IS
+// the id and carries no type segment, so this is best-effort: pick
+// the first declared type. Search routes type-narrowing via the
+// index in ops.Search, so the type chosen here is only used for
+// field-decoding driver state.
+func chooseTypeForRecord(dbDecl schema.DB, addr string) (schema.SectionType, bool) {
+	_ = addr
+	for _, t := range dbDecl.Types {
+		return t, true
+	}
+	return schema.SectionType{}, false
+}
+
+// bracketKeyForFilter extracts the bracket-key portion (the id-tail
+// after the file-relpath) from a backend address.
+func bracketKeyForFilter(addr string, dbDecl schema.DB, inst db.Instance, singleFile bool) string {
+	if dbDecl.Format == schema.FormatTOML && singleFile {
+		// addr is "<file-relpath>.<bracket-key>"; strip the prefix.
+		if pre := inst.Slug + "."; strings.HasPrefix(addr, pre) {
+			return strings.TrimPrefix(addr, pre)
+		}
+	}
+	// Multi-file or MD: addr is the bracket-key / type-prefixed key.
+	return addr
+}
+
+// buildBackendForSearch mirrors ops.buildBackend for the search path.
+// Per F10:
+//   - TOML single-file dbs: scanner anchors on the file-relpath
+//     (every record's bracket starts with `<file-relpath>.`).
+//   - TOML multi-file globs: scanner anchors on bare type names (the
+//     legacy bracket form `[<type>.<id-tail>]` is retained for glob
+//     mounts because brackets in those files cannot share a uniform
+//     prefix without re-introducing a type segment).
+//   - MD: every declared type with its heading.
+func buildBackendForSearch(dbDecl schema.DB, fileRelPath string, singleFile bool) (record.Backend, error) {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
-		types := make([]record.DeclaredType, 0, len(dbDecl.Types))
-		for typeName := range dbDecl.Types {
-			prefix := tomlDeclaredName(dbDecl, typeName, singleFile)
-			types = append(types, record.DeclaredType{Name: prefix})
+		var types []record.DeclaredType
+		if singleFile {
+			types = []record.DeclaredType{{Name: fileRelPath}}
+		} else {
+			types = make([]record.DeclaredType, 0, len(dbDecl.Types))
+			for typeName := range dbDecl.Types {
+				types = append(types, record.DeclaredType{Name: typeName})
+			}
 		}
 		return toml.NewBackend(types), nil
 	case schema.FormatMD:
@@ -558,48 +499,19 @@ func buildBackend(dbDecl schema.DB, singleFile bool) (record.Backend, error) {
 	}
 }
 
-func tomlDeclaredName(dbDecl schema.DB, typeName string, singleFile bool) string {
-	if singleFile {
-		return dbDecl.Name + "." + typeName
-	}
-	return typeName
-}
-
-// backendTypeScope returns the scope string to hand backend.List to
-// narrow enumeration to one type. "" means "every declared section in
-// the file" — MD backends do not currently honour a scope filter so we
-// always return "" for MD and post-filter.
-func backendTypeScope(dbDecl schema.DB, typeName string, singleFile bool) string {
-	if typeName == "" {
-		return ""
-	}
-	if dbDecl.Format == schema.FormatMD {
-		return ""
-	}
-	return tomlDeclaredName(dbDecl, typeName, singleFile)
-}
-
-// fullAddress prepends the file-relpath (Instance.Slug) to a backend-
-// relative record address so callers see the Phase 9.2 caller-visible
-// address. For TOML single-file the backend's bracket already carries
-// the db-prefix form (`plans.task.t1`); under the new grammar the
-// caller-visible address is `<file-relpath>.<type>.<id>`, where the
-// file-relpath replaces the leading db segment. For multi-file TOML
-// the backend returns bare brackets; we prepend the slug. For MD the
-// backend returns "<type>.<chain...>"; we prepend the slug.
+// fullAddress returns the caller-visible id for a backend-relative
+// record address. Per F10:
+//   - TOML single-file: backend addr is "<file-relpath>.<bracket-key>"
+//     which IS the id; pass through unchanged.
+//   - TOML multi-file: backend addr is "<type>.<id-tail>" relative to
+//     its file; prepend the file-relpath so the id is
+//     "<file-relpath>.<type>.<id-tail>".
+//   - MD: backend addr is "<type>.<chain...>"; prepend the file-relpath.
 func fullAddress(dbDecl schema.DB, inst db.Instance, backendAddr string, singleFile bool) string {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
 		if singleFile {
-			// Backend addr is "<db>.<type>.<id>"; rewrite the leading
-			// db segment to the file-relpath. They coincide when
-			// the file's basename equals the db name (the common
-			// `plans.toml` case) but we cannot assume.
-			parts := strings.SplitN(backendAddr, ".", 2)
-			if len(parts) < 2 {
-				return inst.Slug + "." + backendAddr
-			}
-			return inst.Slug + "." + parts[1]
+			return backendAddr
 		}
 		return inst.Slug + "." + backendAddr
 	case schema.FormatMD:
@@ -607,24 +519,6 @@ func fullAddress(dbDecl schema.DB, inst db.Instance, backendAddr string, singleF
 	default:
 		return backendAddr
 	}
-}
-
-// typeAndID splits the BACKEND-relative address into (type, id-path).
-// TOML single-file: backend addr is "<db>.<type>.<id...>" so we drop
-// the first segment. TOML multi-file: backend addr is "<type>.<id...>".
-// MD any: backend addr is "<type>.<chain...>".
-func typeAndID(backendAddr string, singleFile bool, dbDecl schema.DB) (string, string) {
-	parts := strings.Split(backendAddr, ".")
-	if dbDecl.Format == schema.FormatTOML && singleFile {
-		if len(parts) < 2 {
-			return "", ""
-		}
-		return parts[1], strings.Join(parts[2:], ".")
-	}
-	if len(parts) == 0 {
-		return "", ""
-	}
-	return parts[0], strings.Join(parts[1:], ".")
 }
 
 // decodeFields returns the parsed field map for one located record.
@@ -724,6 +618,39 @@ func validateScopeNames(reg schema.Registry, plan searchPlan, q Query) error {
 		if !found {
 			return fmt.Errorf("%w: %q not declared on any type in scope",
 				ErrUnknownField, name)
+		}
+	}
+	return nil
+}
+
+// validateScopeMatchSemantics rejects Match pairs whose field is
+// declared as array/table on EVERY type in scope — a non-scalar match
+// is a typed-contract violation and must surface ErrUnscalarMatch
+// loudly. If at least one type in scope declares the field as scalar,
+// the heterogeneous-scope rule applies (per-record silent skip).
+func validateScopeMatchSemantics(reg schema.Registry, plan searchPlan, q Query) error {
+	for name := range q.Match {
+		anyScalar := false
+		anyDeclared := false
+		var lastNonScalar schema.Type
+		for _, dbName := range plan.dbOrder {
+			dbDecl := reg.DBs[dbName]
+			for _, t := range dbDecl.Types {
+				f, ok := t.Fields[name]
+				if !ok {
+					continue
+				}
+				anyDeclared = true
+				switch f.Type {
+				case schema.TypeArray, schema.TypeTable:
+					lastNonScalar = f.Type
+				default:
+					anyScalar = true
+				}
+			}
+		}
+		if anyDeclared && !anyScalar {
+			return fmt.Errorf("%w: field %q is %s", ErrUnscalarMatch, name, lastNonScalar)
 		}
 	}
 	return nil

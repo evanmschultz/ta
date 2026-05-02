@@ -270,7 +270,6 @@ func TestValidateIntegerRejectsFraction(t *testing.T) {
 const typeMatrixSchema = `
 [rows]
 paths = ["rows.toml"]
-format = "toml"
 
 [rows.row]
 description = "All supported types in one row."
@@ -321,7 +320,6 @@ func TestValidateDatetimeFromString(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
 paths = ["rows.toml"]
-format = "toml"
 
 [rows.row]
 description = "Datetime rows."

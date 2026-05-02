@@ -17,7 +17,6 @@ import (
 const pathsSugarSchema = `
 [plans]
 paths = ["plans.toml"]
-format = "toml"
 description = "Phase 9.6 sugar fixture."
 
 [plans.task]

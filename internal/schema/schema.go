@@ -7,29 +7,22 @@ import (
 
 // SingleFileMount reports whether mount is a single-file mount entry —
 // one that resolves to exactly one concrete file at expansion time.
-// Phase 9.2 (PLAN §12.17.9) treats a mount as single-file when it
-// contains no glob `*` and does not end with `/` (the dir-collection
-// suffix). Examples per the locked design:
+// Per F10 (PLAN §12.17.9), a mount is single-file when it has no glob
+// `*` and is not collection-shaped (collection mounts are rejected at
+// schema-load time so this condition only ever holds during schema
+// loading itself for the rejection path). Examples:
 //
-//   - "plans"               → single-file (resolves to "plans.<ext>").
-//   - "README"              → single-file.
-//   - "docs/api"            → single-file.
-//   - "workflow/*/db"       → multi-file (glob).
-//   - "docs/"               → multi-file (collection root).
+//   - "plans.toml"              → single-file.
+//   - "README.md"               → single-file.
+//   - "docs/api.md"             → single-file.
+//   - "workflow/*/db.toml"      → multi-file (glob).
 //
-// Single-file mounts emit db-prefixed brackets in their TOML payloads
-// (legacy `[plans.task.t1]`); multi-file mounts emit bare type-prefixed
-// brackets (`[build_task.task_001]`). The bracket-form choice is the
-// only place this helper drives behaviour outside the resolver.
+// Post-F10 the bracket form is uniform (`[<id>]` verbatim), so this
+// helper no longer drives bracket-form selection. It survives because
+// the index walker still needs to know whether a db has exactly one
+// concrete backing file (single-file dbs index the bare bracket as
+// the id; multi-file dbs prepend the file-relpath to form the id).
 func SingleFileMount(mount string) bool {
-	// `.` is the project-root collection mount: every file under root
-	// matches it. PLAN §12.17.9 Phase 9.2 treats it as a collection
-	// alongside trailing-slash forms; the address parser, resolver,
-	// and search package all branch on `mount == "."` as a collection
-	// indicator. Returning true here would diverge bracket-form
-	// selection from those call sites — Create would write a
-	// db-prefixed payload while search and schema_mutate would look
-	// for bare brackets.
 	if mount == "." {
 		return false
 	}
@@ -43,16 +36,10 @@ func SingleFileMount(mount string) bool {
 }
 
 // IsSingleFileDB reports whether db is declared with a single-entry
-// Paths slice that itself names a single concrete file (no glob, no
-// trailing slash). True only when SingleFileMount(db.Paths[0]) holds
-// and len(db.Paths) == 1. Multi-entry Paths slices are always
-// multi-file regardless of whether each entry is single-file-shaped.
-//
-// This drives bracket-form selection (db-prefixed vs bare) and
-// validation-form-vs-resolution-form decisions across packages that
-// previously branched on the deleted IsSingleFile / IsLegacyDirectory
-// trichotomy. Phase 9.4 may simplify it further once `<type>` moves
-// to a flag.
+// Paths slice that itself names a single concrete file (no glob).
+// Used by the index walker to decide whether the on-disk bracket
+// already IS the full id (single-file: yes) or whether the
+// file-relpath must be prepended (multi-file: yes).
 func IsSingleFileDB(db DB) bool {
 	if len(db.Paths) != 1 {
 		return false
@@ -134,14 +121,12 @@ type SectionType struct {
 }
 
 // DB is one database declared at the [<db>] root of a schema file. It
-// carries the db-scope meta-fields (paths, format, heading) plus the map
+// carries the db-scope meta-fields (paths, description) plus the map
 // of record types declared under it.
 //
-// Phase 9.1 (PLAN §12.17.9) replaces the prior Shape + Path fields with a
-// single Paths slice. Each entry is project-relative or home-relative
-// (`~/...`). Globs (`*`) are permitted in any one segment. Phase 9.2
-// builds the address parser + path resolver atop this model; Phase 9.1
-// only wires the schema model.
+// Per F10 (PLAN §12.17.9), Format is INFERRED from the file extension
+// on each Paths entry; it is not declared in the schema file. All
+// entries within one db must share the same recognized extension.
 type DB struct {
 	// Name is the db name, matching the first segment of each concrete
 	// section path that resolves to this db.

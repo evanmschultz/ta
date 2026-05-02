@@ -55,9 +55,8 @@ func TestInstancesGlob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Instances: %v", err)
 	}
-	slugs := slugsOf(got)
-	if len(slugs) != 2 {
-		t.Fatalf("got slugs %v, want 2", slugs)
+	if len(got) != 2 {
+		t.Fatalf("got %d instances, want 2 (%v)", len(got), slugsOf(got))
 	}
 	want := map[string]string{
 		"drop_1.db": filepath.Join(root, "workflow", "drop_1", "db.toml"),
@@ -72,60 +71,6 @@ func TestInstancesGlob(t *testing.T) {
 		if inst.FilePath != w {
 			t.Errorf("slug %q: FilePath = %q, want %q", inst.Slug, inst.FilePath, w)
 		}
-	}
-}
-
-func TestInstancesCollection(t *testing.T) {
-	root := t.TempDir()
-
-	writeFile(t, filepath.Join(root, "docs", "installation.md"), "# x\n")
-	writeFile(t, filepath.Join(root, "docs", "getting-started.md"), "# x\n")
-	writeFile(t, filepath.Join(root, "docs", "reference", "api.md"), "# x\n")
-	writeFile(t, filepath.Join(root, "docs", "tutorial", "first-steps.md"), "# x\n")
-	writeFile(t, filepath.Join(root, "docs", "a", "b", "c", "d.md"), "# x\n")
-
-	// Dotfile / dotdir / mismatched ext — skipped.
-	writeFile(t, filepath.Join(root, "docs", ".hidden.md"), "")
-	writeFile(t, filepath.Join(root, "docs", ".draft", "secret.md"), "")
-	writeFile(t, filepath.Join(root, "docs", "README.txt"), "")
-
-	r := NewResolver(root, testRegistry())
-	got, err := r.Instances("docs")
-	if err != nil {
-		t.Fatalf("Instances: %v", err)
-	}
-	want := map[string]string{
-		"installation":         filepath.Join(root, "docs", "installation.md"),
-		"getting-started":      filepath.Join(root, "docs", "getting-started.md"),
-		"reference.api":        filepath.Join(root, "docs", "reference", "api.md"),
-		"tutorial.first-steps": filepath.Join(root, "docs", "tutorial", "first-steps.md"),
-		"a.b.c.d":              filepath.Join(root, "docs", "a", "b", "c", "d.md"),
-	}
-	if len(got) != len(want) {
-		t.Fatalf("got %d instances, want %d (%v)", len(got), len(want), slugsOf(got))
-	}
-	for _, inst := range got {
-		w, ok := want[inst.Slug]
-		if !ok {
-			t.Errorf("unexpected slug %q", inst.Slug)
-			continue
-		}
-		if inst.FilePath != w {
-			t.Errorf("slug %q: FilePath = %q, want %q", inst.Slug, inst.FilePath, w)
-		}
-	}
-}
-
-func TestInstancesCollectionMissingRoot(t *testing.T) {
-	root := t.TempDir() // no docs/
-
-	r := NewResolver(root, testRegistry())
-	got, err := r.Instances("docs")
-	if err != nil {
-		t.Fatalf("Instances with missing root should yield empty, got err %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 instances, got %v", slugsOf(got))
 	}
 }
 
@@ -146,10 +91,10 @@ func TestInstancesUnknownDB(t *testing.T) {
 	r := NewResolver("/proj", testRegistry())
 	_, err := r.Instances("nope")
 	if err == nil {
-		t.Fatal("expected ErrUnknownDB")
+		t.Fatal("expected ErrIDDoesNotMatchAnyDB")
 	}
-	if !errors.Is(err, ErrUnknownDB) {
-		t.Errorf("expected ErrUnknownDB, got %v", err)
+	if !errors.Is(err, ErrIDDoesNotMatchAnyDB) {
+		t.Errorf("expected ErrIDDoesNotMatchAnyDB, got %v", err)
 	}
 }
 
@@ -158,7 +103,7 @@ func TestResolveReadSingleFile(t *testing.T) {
 	writeFile(t, filepath.Join(root, "README.md"), "# x\n")
 	r := NewResolver(root, testRegistry())
 
-	db, inst, abs, err := r.ResolveRead("README.section.installation")
+	db, inst, abs, err := r.ResolveRead("README.installation")
 	if err != nil {
 		t.Fatalf("ResolveRead: %v", err)
 	}
@@ -178,7 +123,7 @@ func TestResolveReadGlob(t *testing.T) {
 	writeFile(t, filepath.Join(root, "workflow", "ta", "db.toml"), "[a]\n")
 
 	r := NewResolver(root, testRegistry())
-	_, inst, abs, err := r.ResolveRead("ta.db.build_task.task_001")
+	_, inst, abs, err := r.ResolveRead("ta.db.task_001")
 	if err != nil {
 		t.Fatalf("ResolveRead: %v", err)
 	}
@@ -194,7 +139,7 @@ func TestResolveReadFileMissing(t *testing.T) {
 	root := t.TempDir()
 	r := NewResolver(root, testRegistry())
 
-	_, _, _, err := r.ResolveRead("ta.db.build_task.task_001")
+	_, _, _, err := r.ResolveRead("ta.db.task_001")
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -207,9 +152,9 @@ func TestResolveWriteRejectsHint(t *testing.T) {
 	root := t.TempDir()
 	r := NewResolver(root, testRegistry())
 
-	_, _, _, err := r.ResolveWrite("README.section.installation", "README.md")
+	_, _, _, err := r.ResolveWrite("README.installation", "README.md")
 	if err == nil {
-		t.Fatal("expected error: hint rejected under Phase 9.2 grammar")
+		t.Fatal("expected error: hint rejected under F10 grammar")
 	}
 	if !errors.Is(err, ErrPathHintMismatch) {
 		t.Errorf("expected ErrPathHintMismatch, got %v", err)
@@ -221,7 +166,7 @@ func TestResolveWriteDerivesPath(t *testing.T) {
 	r := NewResolver(root, testRegistry())
 
 	// Glob: target directory does not exist yet.
-	_, inst, abs, err := r.ResolveWrite("drop_9.db.build_task.task_001", "")
+	_, inst, abs, err := r.ResolveWrite("drop_9.db.task_001", "")
 	if err != nil {
 		t.Fatalf("ResolveWrite: %v", err)
 	}
@@ -231,35 +176,6 @@ func TestResolveWriteDerivesPath(t *testing.T) {
 	want := filepath.Join(root, "workflow", "drop_9", "db.toml")
 	if abs != want {
 		t.Errorf("abs = %q, want %q", abs, want)
-	}
-}
-
-func TestResolveWriteCollectionDerivesPath(t *testing.T) {
-	root := t.TempDir()
-	r := NewResolver(root, testRegistry())
-
-	_, _, abs, err := r.ResolveWrite("install.prereqs.section.title", "")
-	if err != nil {
-		t.Fatalf("ResolveWrite: %v", err)
-	}
-	want := filepath.Join(root, "docs", "install", "prereqs.md")
-	if abs != want {
-		t.Errorf("abs = %q, want %q", abs, want)
-	}
-}
-
-func TestResolveReadCollisionPropagates(t *testing.T) {
-	// Collection mount: two files yield the same dotted slug.
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "docs", "reference-api.md"), "# x\n")
-	writeFile(t, filepath.Join(root, "docs", "reference", "api.md"), "# x\n")
-
-	r := NewResolver(root, testRegistry())
-	_, err := r.Instances("docs")
-	// Under the new dot-segment slug, "reference-api" and "reference.api"
-	// are distinct — no collision. Confirm both surface.
-	if err != nil {
-		t.Fatalf("Instances: %v", err)
 	}
 }
 

@@ -34,7 +34,6 @@ func seedProject(t *testing.T, body string) string {
 const cacheTestSchema = `
 [plans]
 paths = ["plans.toml"]
-format = "toml"
 description = "cache-test db."
 
 [plans.task]
@@ -270,13 +269,11 @@ func TestCacheConcurrentReadersAreSafe(t *testing.T) {
 func TestStartupRefusesMalformedCascade(t *testing.T) {
 	t.Cleanup(ops.ResetDefaultCacheForTest)
 	ops.ResetDefaultCacheForTest()
-	// Malformed: legacy `file` key was retired in PLAN §12.17.9 Phase 9.1
-	// and now triggers ErrLegacyShapeKey at load — exercises the
-	// startup-refuse path the same way the prior missing-format case did.
+	// Malformed: missing `paths` is a hard load failure under F10
+	// (PLAN §12.17.9). Exercises the startup-refuse path.
 	broken := `
 [plans]
-file = "plans.toml"
-description = "uses retired legacy shape selector"
+description = "missing required paths slice"
 `
 	root := seedProject(t, broken)
 

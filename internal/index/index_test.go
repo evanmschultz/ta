@@ -102,7 +102,7 @@ func TestSaveEmitsFormatVersionAtTop(t *testing.T) {
 		t.Fatalf("read back: %v", err)
 	}
 	body := string(buf)
-	if !strings.Contains(body, "format_version = 1") {
+	if !strings.Contains(body, "format_version = 2") {
 		t.Errorf("missing format_version scalar in:\n%s", body)
 	}
 	// format_version must precede any bracket-table header so a future
@@ -158,7 +158,7 @@ func TestLoadParsesNestedTable(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	body := "format_version = 1\n\n[phase_1.db.t1]\ntype = \"build_task\"\ncreated = 2026-04-24T10:00:00Z\nupdated = 2026-04-24T10:30:00Z\n"
+	body := "format_version = 2\n\n[phase_1.db.t1]\ntype = \"build_task\"\ncreated = 2026-04-24T10:00:00Z\nupdated = 2026-04-24T10:30:00Z\n"
 	if err := os.WriteFile(filepath.Join(dir, "index.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}

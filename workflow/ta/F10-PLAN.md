@@ -183,80 +183,108 @@ In light of the id-vocabulary lock, also: rewrite `<file-relpath>.<id-tail>` fra
 
 Single commit. `MAGEFILE_JSON=1 mage check` green (sanity, no Go change).
 
-### T1 — ID Grammar + Resolved Struct + Backend Signatures (ATOMIC)
+### T1 — ID Grammar + Format Inference + Index v2 + Bracket Alignment + Walker + CLI/MCP (ATOMIC, ALL-IN-ONE)
 
-The atomic compile-or-broken slice. Tree must compile after this commit.
+One commit. Everything coherent. No partial states. No stop-gaps. After commit: tree compiles, all tests pass, on-disk bracket form aligned with id, index at format_version=2, walker correct, CLI + MCP surfaces consistent. Locked decisions:
 
-- `internal/db/address.go` rename to `internal/db/id.go`. Drop `Address.Type`. Rename `Address` struct → `Resolved`. Rewrite `Canonical()`. Rewrite `ParseAddress` → `ResolveID`. Retire `firstDeclaredTypeIndex`. Retire collection-mount runtime branches.
-- `internal/db/resolver.go`: delete `walkCollection`, delete collection-check in `expandMount`.
-- `internal/ops/errors.go`: add `ErrTypeUnresolved`, `ErrIndexMissing`, `ErrRecordNotFound`, `ErrTypeNotQualified`, `ErrFormatKeyForbidden`, `ErrCollectionMountUnsupported`, `ErrInconsistentPathFormats`, `ErrAmbiguousPathFormat`, `ErrIDCollisionAcrossTypes`. Rename existing: `ErrUnknownDB` → `ErrIDDoesNotMatchAnyDB`, `ErrBadAddress` → `ErrBadID`.
-- `internal/ops/helpers.go`: retire `verifyTypeAgainstAddress`; retire `verifyTypeAgainstIndex` tolerance; new `resolveTypeForID`; retire `deleteIndexEntry` `ErrUnknownFormatVersion` tolerance.
-- `internal/ops/backend.go`: `tomlBracketPath(id string) string` — id IS bracket. `backendSectionPath(id string)`, `tomlRelPathForFields(id string)`.
-- `internal/ops/ops.go`: every `addr.Type` rewrites; every `addr.X` becomes `resolved.X`; Create/Update/Get/Delete/Search call `resolveTypeForID`; `IsScopeAddress` predicate rewrites; Search type filter loads index map once.
-- `internal/ops/schema_mutate.go`: drop `"format"` emit + metaKey; reject incoming `data["format"]`.
-- `magefile.go:515,528`: id literal rewrite (drop type segment).
-- All test files in §3.2 rewrite simultaneously — including bracket-form fixtures (data files inside tests).
-- Verification: `MAGEFILE_JSON=1 mage check` green.
-- Single commit.
+- **Q1 — Magefile dogfood retires.** `Dogfood` target removed from `magefile.go`. Lines 515 and 528 (and the surrounding `Dogfood`-target function) deleted entirely. Dogfooding is via `mage install` + `ta init` + manual `ta create` against the cascade schema.
+- **Q2 — One slice, no intermediate states.** Format-version v2, `canonicalForBracket` rewrite, on-disk bracket alignment, walker cleanup, CLI/MCP surface — ALL in this commit. Anything that lands here breaks if any other piece hasn't landed; that is the point. No "T1 introduces a key-miss until T3."
+- **Q3 — `Resolved.BracketKey`.** `Address` struct renames to `Resolved`. `ID` field gone — the whole address IS the id; the field that holds the bracket-tail-after-file-relpath is `BracketKey`. `Type` field gone.
+- **Q4 — `format` is an unknown field.** No special-case rejection logic. The standard meta-schema validator already errors on unknown keys; `format` is removed from the meta-schema's recognized-keys set, so any input with `format` errors via the existing unknown-field path. Same fast-fail-loud-clear-message rule that applies to every other unknown field.
+- **Q5 — Everything consistent in this commit.** MCP `section` parameter renames to `id`. CLI positional named `id` everywhere. `--type` is db-qualified. Tool descriptions update. Goldens regen. cascade-methodology + examples README + E2E_FIXES audit happen here too.
 
-### T2 — Schema Loader Format Inference + ID-Uniqueness Invariant
+#### Files In Scope
 
-- `internal/schema/load.go`: derive format from first path extension; validate; reject collection mounts; reject extensionless paths; enforce `ErrIDCollisionAcrossTypes` per file scope.
-- `internal/schema/meta.go` / `meta_schema.toml`: drop self-declared `format`; drop meta-field declaration; rewrite description prose + history paragraph.
-- `examples/schema.toml`: rewrite paths + drop format.
-- `examples/schemas/cascade.toml`: drop every `format = "..."` line.
-- `examples/README.md`: remove `format = ` references.
-- All extensionless-paths fixtures rewrite.
-- Verification: `MAGEFILE_JSON=1 mage check` green.
-- Single commit.
+**`internal/db/`:**
+- `address.go` (rename to `id.go`) — drop `Address.Type` and `Address.ID`. Rename `Address` struct → `Resolved` with fields `DBName`, `FileRelPath`, `BracketKey`, `FilePath`, `Mount`, `SingleFileMount`. Rewrite `Canonical()` to emit `<FileRelPath>.<BracketKey>`. Rewrite `ParseAddress` → `ResolveID(id string) (Resolved, schema.DB, error)`. Drop `firstDeclaredTypeIndex`. Drop collection-mount runtime branches in `tryParseAgainstMount`. Doc comments rewritten in id vocabulary. Fix `slices.Contains` lint at line 86.
+- `resolver.go` — delete `walkCollection` and the collection-check branch in `expandMount`. Update `ResolveRead` / `ResolveWrite` to call `ResolveID`.
+- `errors.go` — rename `ErrUnknownDB` → `ErrIDDoesNotMatchAnyDB`, `ErrBadAddress` → `ErrBadID`. Keep `ErrUnknownType`, `ErrInstanceNotFound`, `ErrSlugCollision`, `ErrPathHintMismatch`. Drop `ErrUnsupportedShape` (no shape system anymore).
 
-### T3 — Index Format Bump + Canonical-Key Identity
+**`internal/ops/`:**
+- `errors.go` — add `ErrTypeUnresolved`, `ErrIndexMissing`, `ErrTypeNotQualified`, `ErrCollectionMountUnsupported`, `ErrInconsistentPathFormats`, `ErrAmbiguousPathFormat`, `ErrIDCollisionAcrossTypes`. Retire `ErrIndexMismatch`. Keep `ErrRecordNotFound`, `ErrTypeMismatch`, `ErrCannotClearRequired`, `ErrUnknownField`, `ErrUnsupportedFormat`. (`ErrFormatKeyForbidden` NOT added — `format` is just an unknown field per the meta-schema.)
+- `helpers.go` — retire `verifyTypeAgainstAddress`; retire `verifyTypeAgainstIndex`; new `resolveTypeForID(resolved Resolved, typeName string, requireType bool, projectRoot string) (string, error)` per the truth table in §2. Rewrite `validationPath`, `tomlRelPathForFields`, `writeIndexEntry`, `deleteIndexEntry` against `Resolved`. Drop `deleteIndexEntry`'s `ErrUnknownFormatVersion` tolerance.
+- `backend.go` — `tomlBracketPath` builds bracket from id (the bracket header IS the id). `backendSectionPath`, `tomlRelPathForFields` adapted. Single-file vs multi-file mount no longer changes bracket form: bracket = id, period.
+- `ops.go` — every `addr.Type` rewrites; every `addr.X` becomes `resolved.X`; Get/Update/Create/Delete/Search route through `resolveTypeForID`. `IsScopeAddress` predicate uses `resolved.BracketKey == ""`. Search post-walk type filter loads index map once.
+- `schema_mutate.go` — drop `"format"` from metaKey iteration. No special-case rejection — `format` is just unknown per meta-schema.
 
-- `internal/index/index.go`: `format_version = 2`. Comment update.
-- `internal/index/rebuild.go`: `canonicalForBracket` returns bracket-as-id (identity transform for single-file; file-relpath-prefixed for multi-file glob mounts).
-- Index test fixtures rewrite to v2 + new key shape.
-- Migration test: load v1 index → `ErrUnknownFormatVersion` → user runs `ta index rebuild` → v2 index produced → reads succeed.
-- Idempotent rebuild test: rebuilding v2 index produces byte-identical output.
-- Verification: `MAGEFILE_JSON=1 mage check` green.
-- Single commit.
+**`internal/schema/`:**
+- `load.go` — derive db format from first path extension; validate all paths share extension; reject collection mounts (`ErrCollectionMountUnsupported`); reject extensionless paths (`ErrAmbiguousPathFormat`); reject mixed extensions (`ErrInconsistentPathFormats`); enforce id-uniqueness across types per file (`ErrIDCollisionAcrossTypes`).
+- `meta.go` / `meta_schema.toml` — drop `[ta_schema.db.fields.format]` block (lines 28-32 of meta_schema.toml). Drop `format = "toml"` self-declaration on `[ta_schema]` root (line 16). Rewrite description prose to drop collection-mount + extensionless examples. Drop Phase-9.1 history paragraph; replace with current-state prose.
 
-### T4 — TOML Bracket Migration On Data Files
+**`internal/index/`:**
+- `index.go` — `format_version = 2`. Comment lines 53-54 update.
+- `rebuild.go` — `canonicalForBracket` returns bracket-as-id (identity for single-file mounts; file-relpath-prefixed for multi-file glob mounts). Walks each declared db's paths; for every existing bracket whose tail-segments include a type anchor, rewrites the file's bracket to drop the type segment via atomic write. Net effect: `ta index rebuild` migrates BOTH the index AND the data files to id-form in one operation.
+- Format-version mismatch fires `ErrUnknownFormatVersion` at load with one-shot rebuild remediation.
 
-The big new piece. Existing `plans.toml`-style files have `[plans.task.demo-1]`-form brackets. Post-T1+T2+T3 these still parse via the resolver because resolver is fixed, but the on-disk shape is wrong.
+**`internal/search/`:**
+- `search.go` — drop `firstDeclaredTypeIndexHere`; rewrite `parseScope` for id-prefix shape; drop `matchCollectionScope`; rewire `searchPlan.typeName` from scope-parse to caller-supplied. Walker just iterates `paths`, opens each file, scans bracket = id. Fix `slices.Contains` lint at line 183.
 
-- Rebuild walks each declared db's paths; opens each file; for every existing bracket whose form is `[<file-relpath>.<type>.<id>]`, rewrites to `[<file-relpath>.<id>]`. Atomic write per file.
-- New error: `ErrFileFormatTooOld` — fired when a read encounters a bracket that contains a type segment AND the index is at v2. Single-action remediation: `ta index rebuild`.
-- Migration semantics: rebuild also re-keys the index entries to match the new bracket form (already covered in T3 via canonical-key identity).
-- Test: project with mixed v1-shape data files → first read fires `ErrFileFormatTooOld` → `ta index rebuild` migrates files + index → reads succeed.
-- Verification: `MAGEFILE_JSON=1 mage check` green.
-- Single commit.
+**`cmd/ta/`:**
+- `commands.go` — positional argument named `id` everywhere (cobra Use strings + Example strings). `--type` flag accepts only db-qualified form (`plans.task`); bare-slug form rejects with `ErrTypeNotQualified`. `lookupDBAndType` rewrites to call `resolveTypeForID`.
+- `init_cmd.go` — audit for id-vocabulary leakage in cobra examples + default starter content.
 
-### T5 — Search + List-Sections Walker Cleanup (Subsumes Old F11)
+**`internal/mcpsrv/`:**
+- `tools.go` — MCP record-targeting parameter renamed `section` → `id` across every tool that takes one (`get`, `list_sections`, `search`, `create`, `update`, `delete`). Tool descriptions updated to id vocabulary. `dbView.Format` stays on read (derived from path extension). `type` parameter description: db-qualified form.
+- `server.go` — no source change (no grammar knowledge here).
 
-Once bracket form is uniform `<file-relpath>.<id-tail>`-shape (i.e. the id), the per-mount-shape decision in the walker collapses. F11's reason-to-exist (bracket-form misalignment) DISSOLVES. Walker just iterates each db's `paths`, opens each file, scans bracket = id.
+**`magefile.go`:**
+- `Dogfood` target deleted. `seedHomeSchema` review for id-vocabulary; if it referenced legacy bracket forms, update.
 
-- `internal/search/search.go`: drop `firstDeclaredTypeIndexHere`; rewrite `parseScope` for id-prefix shape; drop `matchCollectionScope`; rewire `searchPlan.typeName` from scope-parse to caller-supplied.
-- Walker tolerates missing literal paths (already correct in current code; add explicit regression tests).
-- F11 entry in `E2E_FIXES.md` retires.
-- Verification: `MAGEFILE_JSON=1 mage check` green.
-- Single commit.
+**`docs/`:**
+- `cascade-methodology.md` — final id-vocabulary audit.
+- `PLAN.md` — already at id vocabulary.
 
-### T6 — CLI + MCP Surface
+**`examples/`:**
+- `schemas/cascade.toml` — drop every `format = "..."` line. Verify all paths have extensions and are not collection mounts.
+- `schema.toml` (legacy MVP) — same: drop `format`, ensure paths have extensions. Convert any extensionless `paths = ["plans"]` to `paths = ["plans.toml"]`.
+- `README.md` — remove `format =` references.
 
-- `cmd/ta/commands.go`: positional `<id>` everywhere; `--type` db-qualified flag descriptions; cobra Long/Example strings rewrite.
-- `cmd/ta/commands_test.go` (71 hits): rewrite ids + `--type` values + bracket-form fixtures.
-- `cmd/ta/init_cmd.go` + `init_cmd_test.go`: audit + rewrite.
-- `internal/mcpsrv/tools.go`: `id` parameter (renamed from `section`); `dbView.Format` stays on read; `format=` rejected on input; `type` description db-qualified.
-- `internal/mcpsrv/server_test.go` (39 hits): rewrite.
-- Goldens: regen per §3.3.
-- Verification: `MAGEFILE_JSON=1 mage check` green.
-- Single commit.
+**`.ta/schema.toml` (in-repo dogfood schema)** — adapt to new shape if it has any `format` declarations or extensionless paths.
 
-### T7 — Docs Closeout
+**`workflow/ta/`** — currently empty (post-walkthrough cleanup). No work.
 
-- `docs/cascade-methodology.md`: audit id-vocabulary; verify §11 Canonical Node Shape.
-- `examples/README.md`: final pass.
-- `E2E_FIXES.md`: F10 close-out paragraph; F11 retirement note (subsumed by T5).
+**`E2E_FIXES.md`** — close-out F10 entry; F11 retirement note (bracket-form misalignment dissolves); F19/F20/F21/F22/F23/F24 entries unchanged for future slices.
+
+**Goldens (`cmd/ta/testdata/`):** regen as needed.
+
+**Test files (~14):** all bracket-form fixtures + id-string literals + `--type` values + `format =` declarations rewrite simultaneously. List per the tests audit:
+
+- `internal/db/address_test.go` (rename to `id_test.go`)
+- `internal/db/instance_test.go`
+- `internal/index/index_test.go`
+- `internal/index/rebuild_test.go`
+- `internal/ops/ops_test.go`
+- `internal/ops/dogfood_test.go` — review: this file may retire entirely if it tested the now-deleted `Dogfood` mage target. Keep tests that exercise real ops; delete dogfood-target-specific tests.
+- `internal/ops/cache_test.go`
+- `internal/ops/schema_mutate_test.go`
+- `internal/search/search_test.go`
+- `internal/render/renderer_test.go`
+- `internal/render/schema_flow_test.go`
+- `internal/mcpsrv/server_test.go`
+- `cmd/ta/commands_test.go`
+- `cmd/ta/init_cmd_test.go`
+- `internal/templates/templates_test.go`
+- `internal/schema/meta_test.go`
+
+#### Verification
+
+- `MAGEFILE_JSON=1 mage check` green.
+- Manual e2e sanity:
+  1. `mage install` → builds binary.
+  2. Fresh tempdir; `ta init --template plans` → bootstraps. Verify schema.toml shape; verify index.toml at `format_version = 2`.
+  3. `ta create plans.demo-1 --type plans.task --data='{"id":"demo-1","title":"first","status":"todo"}'` → succeeds. `cat plans.toml` shows `[plans.demo-1]` (NOT `[plans.task.demo-1]`).
+  4. `ta get plans.demo-1` → returns record.
+  5. `ta create plans.demo-2 --type task` → fails with `ErrTypeNotQualified`.
+  6. `ta schema --action=update --kind=db --name=plans --data 'format="toml"'` → fails with the standard unknown-field error (because `format` is unknown to the post-T1 meta-schema).
+  7. `ta delete plans.demo-1` → succeeds; index entry removed.
+  8. `ta init --path /tmp/scratch` against empty home → fires the empty-home D2 guard cleanly.
+- Single commit. Conventional-commit subject: `feat(id): drop type from id; align bracket=id; index v2; format-from-extension`. Subject-only per memory rule.
+
+### T2 — Docs Closeout
+
+- `docs/cascade-methodology.md`: final id-vocabulary audit (was already done in PLAN.md restructure; verify nothing slipped).
+- `examples/README.md`: final pass for id consistency.
+- `E2E_FIXES.md`: F10 close-out paragraph; F11 retirement note.
 - Verification: visual review.
 - Single commit.
 
@@ -293,9 +321,11 @@ The format-from-extension inference architecture introduced in T2 is the foundat
 
 ## 7. Sequencing Summary
 
-T0 (PLAN.md restructure — DONE) → T0a (PLAN.md QA fixes) → T1 (id grammar + Resolved struct + backend signatures + tests) → T2 (schema format inference + id-uniqueness) → T3 (index format v2) → T4 (TOML data file bracket migration) → T5 (walker cleanup; F11 retires) → T6 (CLI + MCP surface) → T7 (docs closeout)
+T0 (PLAN.md restructure — DONE) → T1 (atomic all-in-one: id grammar + Resolved struct + backend signatures + format inference + index v2 + canonicalForBracket + bracket alignment + walker cleanup + CLI/MCP surface + magefile dogfood deletion + tests + goldens) → T2 (docs closeout)
 
-Each T-task its own commit. `MAGEFILE_JSON=1 mage check` green before every commit. opus QA-twin pair (proof + falsification) review before every commit. No commit ships if either QA finds unmitigated counterexample.
+T1 is one commit. Tree compiles, mage check green, on-disk shape aligned with id, index at v2, walker correct, CLI + MCP surfaces consistent — all in the same commit. No partial states. Old F11 retires inside T1 (bracket-form misalignment dissolves).
+
+opus QA-twin pair (proof + falsification) review before every commit. No commit ships if either QA finds unmitigated counterexample.
 
 `mage install` is dev-only — never a verification target during this slice.
 

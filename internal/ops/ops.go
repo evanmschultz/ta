@@ -18,66 +18,52 @@ import (
 	"github.com/evanmschultz/ta/internal/search"
 )
 
-// Ops is the Go-level (non-MCP-shaped) API the data tools use. Both
-// the MCP handlers and the CLI commands route through these so the
-// two surfaces stay in lockstep.
+// Ops is the Go-level (non-MCP-shaped) API the data tools use.
 
-// resolveFromProjectDir routes every schema lookup through the
-// package-level defaultCache. The cache stats the cascade sources on
-// every call and re-resolves when any mtime has moved (V2-PLAN §4.6).
-// The "path is the project directory" contract from §3 is preserved
-// inside the cache's underlying loader (resolveFromProjectDirUncached).
 func resolveFromProjectDir(projectPath string) (config.Resolution, error) {
 	return defaultCache.Resolve(projectPath)
 }
 
-// ResolveProject is the exported V2 project-directory resolver. CLI
-// and MCP entry points share this so "path is the project directory"
-// holds uniformly across the tool surface. Goes through the cache so
-// long-running MCP sessions don't re-stat the whole cascade on every
-// call.
+// ResolveProject is the exported V2 project-directory resolver.
 func ResolveProject(projectPath string) (config.Resolution, error) {
 	return resolveFromProjectDir(projectPath)
 }
 
-// GetResult is the result shape returned by Get. Fields is nil unless
-// the caller requested a field projection; Bytes is always populated
-// with the located record's on-disk bytes.
+// GetResult is the result shape returned by Get.
 type GetResult struct {
 	FilePath string
 	Bytes    []byte
 	Fields   map[string]any
 }
 
-// Get reads one record. When fields is nil, GetResult.Bytes carries
-// the raw bytes; when non-nil, GetResult.Fields carries the named
-// field values.
-//
-// typeName is optional. When non-empty it must match the type segment
-// carried by the address; mismatches surface ErrTypeMismatch. When
-// empty, the address's type segment alone drives type resolution
-// (Phase 9.4 keeps the type in the address; a future grammar drop will
-// flip the index into the authoritative-source role). Either way, when
-// the index has an entry for the canonical address its recorded type
-// is cross-checked against the resolved type and a disagreement
-// surfaces ErrIndexMismatch with a `ta index rebuild` nudge.
-func Get(path, section, typeName string, fields []string) (GetResult, error) {
+// declaredTypeNames returns dbDecl's declared type names as a set.
+func declaredTypeNames(dbDecl schema.DB) map[string]struct{} {
+	out := make(map[string]struct{}, len(dbDecl.Types))
+	for n := range dbDecl.Types {
+		out[n] = struct{}{}
+	}
+	return out
+}
+
+// Get reads one record. Per F10 (PLAN §12.17.9): type is OPTIONAL on
+// read paths; the index is the authoritative type source. typeName,
+// when non-empty, MUST be db-qualified (e.g. `plans.task`); a bare
+// slug surfaces ErrTypeNotQualified.
+func Get(path, id, typeName string, fields []string) (GetResult, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return GetResult{}, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	addr, dbDecl, err := resolver.ParseAddress(section)
+	resolved, dbDecl, err := resolver.ResolveID(id)
 	if err != nil {
 		return GetResult{}, err
 	}
-	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
+	if err != nil {
 		return GetResult{}, err
 	}
-	if err := verifyTypeAgainstIndex(path, addr); err != nil {
-		return GetResult{}, err
-	}
-	_, _, filePath, err := resolver.ResolveRead(section)
+	_, _, filePath, err := resolver.ResolveRead(id)
 	if err != nil {
 		return GetResult{}, err
 	}
@@ -85,24 +71,24 @@ func Get(path, section, typeName string, fields []string) (GetResult, error) {
 	if err != nil {
 		return GetResult{}, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
+	backend, err := buildBackend(dbDecl, resolved)
 	if err != nil {
 		return GetResult{}, err
 	}
-	backendSection := backendSectionPath(dbDecl, addr)
+	backendSection := backendSectionPath(dbDecl, resolved)
 	sec, ok, err := backend.Find(buf, backendSection)
 	if err != nil {
-		return GetResult{}, fmt.Errorf("locate %q in %s: %w", section, filePath, err)
+		return GetResult{}, fmt.Errorf("locate %q in %s: %w", id, filePath, err)
 	}
 	if !ok {
-		return GetResult{}, fmt.Errorf("%w: %q in %s", ErrRecordNotFound, section, filePath)
+		return GetResult{}, fmt.Errorf("%w: %q in %s", ErrRecordNotFound, id, filePath)
 	}
 	res := GetResult{FilePath: filePath, Bytes: buf[sec.Range[0]:sec.Range[1]]}
 	if len(fields) == 0 {
 		return res, nil
 	}
-	relPath := tomlRelPathForFields(addr)
-	out, err := extractFields(buf, sec, dbDecl, addr.Type, relPath, fields)
+	relPath := tomlRelPathForFields(resolved)
+	out, err := extractFields(buf, sec, dbDecl, bareType, relPath, fields)
 	if err != nil {
 		return res, err
 	}
@@ -110,38 +96,26 @@ func Get(path, section, typeName string, fields []string) (GetResult, error) {
 	return res, nil
 }
 
-// GetAllFields reads one record and returns ALL declared fields that
-// the record carries on disk, plus the type schema so callers can build
-// typed render output (render.BuildFields). Missing declared fields are
-// silently omitted — this is the "no --fields specified, render
-// everything" contract used by `ta get` in the B3 unified-render flow
-// (V2-PLAN §12.17.5 [B3]). For MD body-only records only the "body"
-// field materializes; a declared non-body MD field is skipped rather
-// than erroring (cf. extractFields' strict mode, which is still the
-// right contract for user-specified field lists).
-//
-// typeName is optional; same cross-check rules as Get.
-func GetAllFields(path, section, typeName string) (GetResult, schema.SectionType, error) {
+// GetAllFields reads one record and returns ALL declared fields.
+func GetAllFields(path, id, typeName string) (GetResult, schema.SectionType, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return GetResult{}, schema.SectionType{}, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	addr, dbDecl, err := resolver.ParseAddress(section)
+	resolved, dbDecl, err := resolver.ResolveID(id)
 	if err != nil {
 		return GetResult{}, schema.SectionType{}, err
 	}
-	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
+	if err != nil {
 		return GetResult{}, schema.SectionType{}, err
 	}
-	if err := verifyTypeAgainstIndex(path, addr); err != nil {
-		return GetResult{}, schema.SectionType{}, err
-	}
-	typeSt, ok := dbDecl.Types[addr.Type]
+	typeSt, ok := dbDecl.Types[bareType]
 	if !ok {
-		return GetResult{}, schema.SectionType{}, fmt.Errorf("%w: type %q not declared on db %q", ErrUnknownField, addr.Type, dbDecl.Name)
+		return GetResult{}, schema.SectionType{}, fmt.Errorf("%w: type %q not declared on db %q", ErrUnknownField, bareType, dbDecl.Name)
 	}
-	_, _, filePath, err := resolver.ResolveRead(section)
+	_, _, filePath, err := resolver.ResolveRead(id)
 	if err != nil {
 		return GetResult{}, typeSt, err
 	}
@@ -149,20 +123,20 @@ func GetAllFields(path, section, typeName string) (GetResult, schema.SectionType
 	if err != nil {
 		return GetResult{}, typeSt, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
+	backend, err := buildBackend(dbDecl, resolved)
 	if err != nil {
 		return GetResult{}, typeSt, err
 	}
-	backendSection := backendSectionPath(dbDecl, addr)
+	backendSection := backendSectionPath(dbDecl, resolved)
 	sec, found, err := backend.Find(buf, backendSection)
 	if err != nil {
-		return GetResult{}, typeSt, fmt.Errorf("locate %q in %s: %w", section, filePath, err)
+		return GetResult{}, typeSt, fmt.Errorf("locate %q in %s: %w", id, filePath, err)
 	}
 	if !found {
-		return GetResult{}, typeSt, fmt.Errorf("%w: %q in %s", ErrRecordNotFound, section, filePath)
+		return GetResult{}, typeSt, fmt.Errorf("%w: %q in %s", ErrRecordNotFound, id, filePath)
 	}
 	res := GetResult{FilePath: filePath, Bytes: buf[sec.Range[0]:sec.Range[1]]}
-	relPath := tomlRelPathForFields(addr)
+	relPath := tomlRelPathForFields(resolved)
 	out, err := extractAllDeclaredFields(buf, sec, dbDecl, typeSt, relPath)
 	if err != nil {
 		return res, typeSt, err
@@ -171,47 +145,33 @@ func GetAllFields(path, section, typeName string) (GetResult, schema.SectionType
 	return res, typeSt, nil
 }
 
-// Create creates a new record. Returns the absolute file path that
-// was written plus the resolved schema source list for diagnostics.
-// Fails with ErrRecordExists when the record already exists.
-//
-// typeName is REQUIRED on Create per PLAN §12.17.9 Phase 9.4: the
-// `--type` flag (or MCP `type` argument) is the orthogonal authoritative
-// type source going forward. Empty typeName surfaces ErrTypeMismatch
-// up front so the failure is loud rather than silently falling through
-// to address-derived inference. typeName MUST also match the type
-// segment carried by the address grammar; a disagreement surfaces
-// ErrTypeMismatch.
-//
-// On success Create writes the bracket via the backend AND inserts an
-// entry into `.ta/index.toml` (load → Put → Save). The disk write is
-// the source of truth; an index-write failure surfaces a wrapped error
-// noting that the disk record landed but the index update did not —
-// the user runs `ta index rebuild` to reconcile.
-func Create(path, section, typeName string, data map[string]any) (string, []string, error) {
+// Create creates a new record. typeName is REQUIRED and must be
+// db-qualified (`<db>.<type>`).
+func Create(path, id, typeName string, data map[string]any) (string, []string, error) {
 	if typeName == "" {
-		return "", nil, fmt.Errorf("%w: create requires --type", ErrTypeMismatch)
+		return "", nil, fmt.Errorf("%w: create requires --type (db-qualified, e.g. `plans.task`)", ErrTypeMismatch)
 	}
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	addr, dbDecl, err := resolver.ParseAddress(section)
+	resolved, dbDecl, err := resolver.ResolveID(id)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
-		return "", nil, err
-	}
-	if err := resolution.Registry.Validate(validationPath(addr), data); err != nil {
-		return "", nil, err
-	}
-	_, _, filePath, err := resolver.ResolveWrite(section, "")
+	bareType, err := resolveTypeForID(resolved, typeName, true, path, declaredTypeNames(dbDecl))
 	if err != nil {
 		return "", nil, err
 	}
-	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
+	if err := resolution.Registry.Validate(validationPath(resolved, bareType), data); err != nil {
+		return "", nil, err
+	}
+	_, _, filePath, err := resolver.ResolveWrite(id, "")
+	if err != nil {
+		return "", nil, err
+	}
+	backend, err := buildBackend(dbDecl, resolved)
 	if err != nil {
 		return "", nil, err
 	}
@@ -219,24 +179,20 @@ func Create(path, section, typeName string, data map[string]any) (string, []stri
 	if err != nil {
 		return "", nil, err
 	}
-	backendSection := backendSectionPath(dbDecl, addr)
+	backendSection := backendSectionPath(dbDecl, resolved)
 	if _, exists, err := backend.Find(buf, backendSection); err != nil {
-		return "", nil, fmt.Errorf("pre-create probe %q: %w", section, err)
+		return "", nil, fmt.Errorf("pre-create probe %q: %w", id, err)
 	} else if exists {
-		return "", nil, fmt.Errorf("%w: %q", ErrRecordExists, section)
+		return "", nil, fmt.Errorf("%w: %q", ErrRecordExists, id)
 	}
 	emitted, err := backend.Emit(backendSection, record.Record(data))
 	if err != nil {
-		return "", nil, fmt.Errorf("emit %q: %w", section, err)
+		return "", nil, fmt.Errorf("emit %q: %w", id, err)
 	}
 	newBuf, err := backend.Splice(buf, backendSection, emitted)
 	if err != nil {
-		return "", nil, fmt.Errorf("splice %q: %w", section, err)
+		return "", nil, fmt.Errorf("splice %q: %w", id, err)
 	}
-	// Track whether we just created the instance dir so a WriteAtomic
-	// failure after MkdirAll succeeds does not leave orphan state on
-	// disk. os.Stat is best-effort; if it fails we skip the cleanup but
-	// still surface the write error.
 	dir := filepath.Dir(filePath)
 	dirCreated := false
 	if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
@@ -247,81 +203,45 @@ func Create(path, section, typeName string, data map[string]any) (string, []stri
 	}
 	if err := toml.WriteAtomic(filePath, newBuf); err != nil {
 		if dirCreated {
-			// Roll back the mkdir only when the dir we created is still
-			// empty — never prune a dir that already had siblings.
 			if entries, lstErr := os.ReadDir(dir); lstErr == nil && len(entries) == 0 {
 				_ = os.Remove(dir)
 			}
 		}
 		return "", nil, err
 	}
-	if err := writeIndexEntry(path, addr, typeName); err != nil {
+	if err := writeIndexEntry(path, resolved, bareType); err != nil {
 		return filePath, resolution.Sources, err
 	}
 	return filePath, resolution.Sources, nil
 }
 
-// Update applies a PATCH-style partial overlay to an existing record
-// (V2-PLAN §3.5, §12.17.5 [B1]). The incoming data map is NOT a full
-// replacement: provided fields overwrite their stored values; unspecified
-// fields retain their on-disk values byte-identically after the merged
-// record is re-emitted.
-//
-// Null-handling per the spec:
-//
-//   - `{"field": null}` on a NOT-required field removes the field from
-//     the merged record (and therefore from the emitted bytes).
-//   - `{"field": null}` on a required field with NO schema default
-//     returns ErrCannotClearRequired — required fields cannot be unset
-//     via Update.
-//   - `{"field": null}` on a required field WITH a schema default
-//     replaces the field with the declared default value at write time
-//     ("write-time freeze"; later schema default-value edits do not
-//     retroactively update existing records).
-//
-// Empty data (`{}`) short-circuits before overlay or re-validation: the
-// caller gets a clean success response and the on-disk bytes are not
-// touched. `update` is not a validator; if the stored record is
-// malformed, surface that on the next read, not here.
-//
-// After overlay, the merged record is validated against the type
-// schema. Any field-level validation failure rejects the whole update
-// atomically; the on-disk bytes are unchanged.
-//
-// Fails with ErrFileNotFound when the backing file does not exist. A
-// missing record in an existing file continues to be upserted (append)
-// under the non-empty-data path, matching the pre-PATCH behavior; empty
-// data on a missing record is a no-op and does not append.
-//
-// typeName is OPTIONAL. When non-empty it must match the type segment
-// in the address (and the index entry, if present); empty defers to
-// the address. PLAN §12.17.9 Phase 9.4. On success the index entry is
-// upserted via Put (Created preserved across update; Updated stamped to
-// now).
-func Update(path, section, typeName string, data map[string]any) (string, []string, error) {
+// Update applies a PATCH-style partial overlay to an existing record.
+func Update(path, id, typeName string, data map[string]any) (string, []string, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	addr, dbDecl, err := resolver.ParseAddress(section)
+	resolved, dbDecl, err := resolver.ResolveID(id)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+	// File-existence first so a missing backing file surfaces as
+	// ErrFileNotFound rather than as ErrIndexMissing / ErrTypeUnresolved.
+	_, _, filePath, err := resolver.ResolveRead(id)
+	if err != nil {
+		// ResolveRead returns ErrInstanceNotFound when the file is
+		// missing; surface that as ErrFileNotFound for parity with the
+		// pre-F10 contract.
+		if errors.Is(err, db.ErrInstanceNotFound) {
+			return "", nil, fmt.Errorf("%w: %v", ErrFileNotFound, err)
+		}
 		return "", nil, err
 	}
-	if err := verifyTypeAgainstIndex(path, addr); err != nil {
-		return "", nil, err
-	}
-	_, _, filePath, err := resolver.ResolveRead(section)
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
 	if err != nil {
 		return "", nil, err
 	}
-	// Empty-data short-circuit (§3.5 / §12.17.5 [B1]): confirm the file
-	// exists, then return a clean success without reading the file
-	// body, without re-validating the stored record, and without
-	// touching disk.
 	if len(data) == 0 {
 		if _, err := os.Stat(filePath); err != nil {
 			if os.IsNotExist(err) {
@@ -338,21 +258,18 @@ func Update(path, section, typeName string, data map[string]any) (string, []stri
 		}
 		return "", nil, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
+	backend, err := buildBackend(dbDecl, resolved)
 	if err != nil {
 		return "", nil, err
 	}
-	backendSection := backendSectionPath(dbDecl, addr)
+	backendSection := backendSectionPath(dbDecl, resolved)
 
-	// Load the existing record's declared fields into a map we can
-	// overlay onto. When the record is absent the merged map starts
-	// empty — pre-PATCH upsert-within-file semantics are preserved.
-	st, ok := dbDecl.Types[addr.Type]
+	st, ok := dbDecl.Types[bareType]
 	if !ok {
 		return "", nil, fmt.Errorf("%w: type %q on db %q",
-			ErrUnknownField, addr.Type, dbDecl.Name)
+			ErrUnknownField, bareType, dbDecl.Name)
 	}
-	existing, err := loadExistingFields(buf, backend, backendSection, dbDecl, addr, st)
+	existing, err := loadExistingFields(buf, backend, backendSection, dbDecl, resolved, bareType, st)
 	if err != nil {
 		return "", nil, err
 	}
@@ -360,32 +277,28 @@ func Update(path, section, typeName string, data map[string]any) (string, []stri
 	if err != nil {
 		return "", nil, err
 	}
-	if err := resolution.Registry.Validate(validationPath(addr), merged); err != nil {
+	if err := resolution.Registry.Validate(validationPath(resolved, bareType), merged); err != nil {
 		return "", nil, err
 	}
 
 	emitted, err := backend.Emit(backendSection, record.Record(merged))
 	if err != nil {
-		return "", nil, fmt.Errorf("emit %q: %w", section, err)
+		return "", nil, fmt.Errorf("emit %q: %w", id, err)
 	}
 	newBuf, err := backend.Splice(buf, backendSection, emitted)
 	if err != nil {
-		return "", nil, fmt.Errorf("splice %q: %w", section, err)
+		return "", nil, fmt.Errorf("splice %q: %w", id, err)
 	}
 	if err := toml.WriteAtomic(filePath, newBuf); err != nil {
 		return "", nil, err
 	}
-	if err := writeIndexEntry(path, addr, addr.Type); err != nil {
+	if err := writeIndexEntry(path, resolved, bareType); err != nil {
 		return filePath, resolution.Sources, err
 	}
 	return filePath, resolution.Sources, nil
 }
 
-// loadExistingFields returns the declared-field values currently
-// stored for the record located by backendSection, or an empty map if
-// the record does not yet exist in the backing file. Only keys
-// declared on the type's schema are surfaced.
-func loadExistingFields(buf []byte, backend record.Backend, backendSection string, dbDecl schema.DB, addr db.Address, st schema.SectionType) (map[string]any, error) {
+func loadExistingFields(buf []byte, backend record.Backend, backendSection string, dbDecl schema.DB, resolved db.Resolved, bareType string, st schema.SectionType) (map[string]any, error) {
 	sec, ok, err := backend.Find(buf, backendSection)
 	if err != nil {
 		return nil, fmt.Errorf("locate %q: %w", backendSection, err)
@@ -393,12 +306,12 @@ func loadExistingFields(buf []byte, backend record.Backend, backendSection strin
 	if !ok {
 		return map[string]any{}, nil
 	}
-	relPath := tomlRelPathForFields(addr)
+	relPath := tomlRelPathForFields(resolved)
 	declaredNames := make([]string, 0, len(st.Fields))
 	for name := range st.Fields {
 		declaredNames = append(declaredNames, name)
 	}
-	out, err := extractFields(buf, sec, dbDecl, addr.Type, relPath, declaredNames)
+	out, err := extractFields(buf, sec, dbDecl, bareType, relPath, declaredNames)
 	if err != nil {
 		return nil, err
 	}
@@ -408,19 +321,6 @@ func loadExistingFields(buf []byte, backend record.Backend, backendSection strin
 	return out, nil
 }
 
-// overlayPatch applies PATCH semantics to existing: each key in patch
-// overwrites the corresponding entry in a clone of existing. A nil
-// patch value triggers null-clear rules (§3.5):
-//
-//   - not-required field → key removed from the merged map.
-//   - required field with schema default → key replaced with the
-//     declared default value (literal write at update time).
-//   - required field with no schema default → ErrCannotClearRequired.
-//
-// Unknown-in-patch names with a non-nil value are passed through so
-// schema.Validate can surface them with its canonical unknown-field
-// failure. Unknown-in-patch names with a nil value are dropped (Emit
-// cannot serialize nil and schema.Validate would not run on it).
 func overlayPatch(existing, patch map[string]any, st schema.SectionType) (map[string]any, error) {
 	merged := make(map[string]any, len(existing)+len(patch))
 	maps.Copy(merged, existing)
@@ -445,52 +345,32 @@ func overlayPatch(existing, patch map[string]any, st schema.SectionType) (map[st
 	return merged, nil
 }
 
-// Delete removes a single record. PLAN §12.17.9 Phase 9.2 narrows the
-// endpoint to record-level only; whole-file / whole-instance / whole-db
-// deletes that the legacy address grammar tolerated now error with
-// ErrAmbiguousDelete (or the underlying parse failure when the section
-// does not address any concrete record under the new grammar). Phase
-// 9.4 will revisit coarser delete forms once the address grammar
-// settles.
-//
-// typeName is OPTIONAL. When non-empty it is cross-checked against the
-// address (and the index) before any disk mutation; mismatches surface
-// ErrTypeMismatch / ErrIndexMismatch and the file is untouched. PLAN
-// §12.17.9 Phase 9.4. After a successful splice the index entry for
-// the canonical address is removed via index.Delete + Save.
-func Delete(path, section, typeName string) (string, []string, error) {
+// Delete removes a single record.
+func Delete(path, id, typeName string) (string, []string, error) {
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	addr, dbDecl, err := resolver.ParseAddress(section)
+	resolved, dbDecl, err := resolver.ResolveID(id)
 	if err != nil {
-		// The Phase 9.2 grammar refuses to resolve any address shorter
-		// than <file-relpath>.<type>.<id>, so anything that previously
-		// addressed a whole file / instance / db now bounces here.
-		// Whole-shape deletes get ErrAmbiguousDelete (so callers can
-		// branch on the new contract); type-segment typos still surface
-		// the underlying ErrUnknownType for loud failure.
 		if errors.Is(err, db.ErrUnknownType) {
 			return "", resolution.Sources, err
 		}
 		return "", resolution.Sources, fmt.Errorf(
-			"%w: %q does not address a single record under Phase 9.2 grammar (%v)",
-			ErrAmbiguousDelete, section, err)
+			"%w: %q does not address a single record (%v)",
+			ErrAmbiguousDelete, id, err)
 	}
-	if addr.Type == "" || addr.ID == "" {
+	if resolved.BracketKey == "" {
 		return "", resolution.Sources, fmt.Errorf(
-			"%w: %q does not address a single record under Phase 9.2 grammar",
-			ErrAmbiguousDelete, section)
+			"%w: %q is a scope-prefix, not a single record",
+			ErrAmbiguousDelete, id)
 	}
-	if err := verifyTypeAgainstAddress(typeName, addr); err != nil {
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
+	if err != nil {
 		return "", resolution.Sources, err
 	}
-	if err := verifyTypeAgainstIndex(path, addr); err != nil {
-		return "", resolution.Sources, err
-	}
-	_, _, filePath, err := resolver.ResolveRead(section)
+	_, _, filePath, err := resolver.ResolveRead(id)
 	if err != nil {
 		return "", nil, err
 	}
@@ -501,50 +381,38 @@ func Delete(path, section, typeName string) (string, []string, error) {
 		}
 		return "", nil, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	backend, err := buildBackend(dbDecl, addr.SingleFileMount)
+	backend, err := buildBackend(dbDecl, resolved)
 	if err != nil {
 		return "", nil, err
 	}
-	backendSection := backendSectionPath(dbDecl, addr)
+	backendSection := backendSectionPath(dbDecl, resolved)
 	sec, ok, err := backend.Find(buf, backendSection)
 	if err != nil {
-		return "", nil, fmt.Errorf("locate %q: %w", section, err)
+		return "", nil, fmt.Errorf("locate %q: %w", id, err)
 	}
 	if !ok {
-		return "", nil, fmt.Errorf("%w: %q", ErrRecordNotFound, section)
+		return "", nil, fmt.Errorf("%w: %q", ErrRecordNotFound, id)
 	}
 	newBuf := spliceOut(buf, sec.Range)
 	if err := toml.WriteAtomic(filePath, newBuf); err != nil {
 		return "", nil, err
 	}
-	if err := deleteIndexEntry(path, addr); err != nil {
+	if err := deleteIndexEntry(path, resolved); err != nil {
 		return filePath, resolution.Sources, err
 	}
+	_ = bareType // bareType unused after the resolveTypeForID gate; kept for symmetry
 	return filePath, resolution.Sources, nil
 }
 
-// SearchHit mirrors search.Result at the ops boundary so callers
-// (MCP handler, CLI subcommand) can depend on ops alone.
+// SearchHit mirrors search.Result at the ops boundary.
 type SearchHit struct {
 	Section string
 	Bytes   []byte
 	Fields  map[string]any
 }
 
-// defaultListLimit is the endpoint-enforced default cap on ListSections
-// and Search when the caller passes limit <= 0 && all == false, per
-// docs/PLAN.md §3.2 / §3.7 / §12.17.5 [A2.1]+[A2.2]. The MCP surface
-// today is uncapped; moving the default into the endpoint means MCP
-// agents now also see 10-by-default unless they pass all=true or an
-// explicit limit. This is the F1-asymmetry fix §12.17.5 calls out —
-// release-note material, not a regression.
 const defaultListLimit = 10
 
-// resolveLimit applies the default-10 / all-wins rules for the endpoint
-// cap. Adapters (CLI cobra mutex, MCP handler guard) enforce the UX
-// "pass either limit or all, not both" rule; at the endpoint we stay
-// permissive — all == true beats any non-zero limit so library callers
-// see deterministic precedence.
 func resolveLimit(limit int, all bool) int {
 	if all {
 		return 0
@@ -555,24 +423,7 @@ func resolveLimit(limit int, all bool) int {
 	return defaultListLimit
 }
 
-// ListSections enumerates every record address reachable under `scope`
-// as full project-level dotted addresses (`<db>.<type>.<id-path>` for
-// single-instance dbs, `<db>.<instance>.<type>.<id-path>` for multi-
-// instance dbs). Scope grammar mirrors search (`<db>` | `<db>.<type>`
-// | `<db>.<instance>` | `<db>.<type>.<id-prefix>` |
-// `<db>.<instance>.<type>(.<id-prefix>)?`); empty scope walks the whole
-// project. Mirrors docs/PLAN.md §3.2 and the §12.17.5 [A2] CLI rewrite.
-//
-// `limit` caps the returned address count; `all == true` returns every
-// address in scope (limit ignored). `limit <= 0 && all == false`
-// substitutes the endpoint default (`defaultListLimit` = 10). CLI and
-// MCP adapters pass their incoming flag/param values through verbatim;
-// the endpoint owns the default. §12.17.5 [A2.1].
-//
-// Implemented as a zero-filter search: the walker in internal/search
-// already produces full addresses in file-parse order, so routing
-// through it keeps the address shape in lockstep with `search` and
-// `get` (§3.1 scope expansion).
+// ListSections enumerates every record id reachable under `scope`.
 func ListSections(path, scope string, limit int, all bool) ([]string, error) {
 	results, err := search.Run(search.Query{
 		Path:  path,
@@ -590,108 +441,66 @@ func ListSections(path, scope string, limit int, all bool) ([]string, error) {
 	return out, nil
 }
 
-// ScopeRecord is one record returned by GetScope. Mirrors SearchHit's
-// shape — full dotted address, raw on-disk bytes, and the decoded field
-// map for every declared field on the record type. Section is the
-// caller-visible address; Fields reflects the ops.GetScope `fields`
-// filter (nil = every declared field; non-nil = named subset with any
-// absent names silently omitted, matching search's optional-field
-// contract).
-//
-// GetScope is the multi-record half of §12.17.5 [B2]. Single-record
-// `ta get` callers continue to route through ops.Get and see the
-// unchanged GetResult shape (§12.17.5 [B2] backwards-compat lock).
+// ScopeRecord is one record returned by GetScope.
 type ScopeRecord struct {
 	Section string
 	Bytes   []byte
 	Fields  map[string]any
 }
 
-// IsScopeAddress reports whether section is a scope-prefix address
-// (e.g. `<file-relpath>` or `<file-relpath>.<type>`) rather than a
-// fully-qualified single-record address
-// (`<file-relpath>.<type>.<id-tail>`).
+// IsScopeAddress reports whether id is a scope-prefix id (e.g.
+// `<file-relpath>` alone) rather than a fully-qualified single-record
+// id (`<file-relpath>.<bracket-key>`).
 //
-// Phase 9.2 (PLAN §12.17.9) replaces the old segment-count + db-shape
-// heuristic with a parse-and-probe rule that keys off the new
-// file-relpath address grammar:
+// Per F10: a scope-prefix id is one whose ResolveID either:
 //
-//  1. `db.NewResolver.ParseAddress(section)` succeeds → fully-qualified
-//     record → return false.
-//  2. `ParseAddress` returns `db.ErrBadAddress` → section started
-//     matching a mount but ran out of segments before the id-tail →
-//     return true (scope).
-//  3. Other parse errors (e.g. `db.ErrUnknownDB` because section is
-//     too short to disambiguate which db's mount applies) → probe by
-//     extending section with one synthetic `<type>.<id>` per declared
-//     type. If any extended form parses cleanly, the original is a
-//     scope-prefix; otherwise the original is genuinely malformed and
-//     the underlying error propagates as ErrInvalidScope.
-//
-// An empty or empty-segment section is always rejected up front. The
-// caller surfaces a loud typo failure rather than silently treating a
-// mistyped address as "just a scope we couldn't walk".
-//
-// Mirrors the grammar search.parseScope / list_sections already accept
-// (V2-PLAN §3.1 amendment 2026-04-23 / §12.17.5 [B2]; PLAN §12.17.9
-// Phase 9.2 file-relpath grammar).
-func IsScopeAddress(path, section string) (bool, error) {
-	if section == "" {
-		return false, fmt.Errorf("%w: empty section", search.ErrInvalidScope)
+//  1. Succeeds with BracketKey == "" (the id is exactly the file-relpath
+//     of some mount); OR
+//  2. Fails with ErrBadID (the id matches a mount file-relpath but lacks
+//     a bracket-key); OR
+//  3. Fails with ErrIDDoesNotMatchAnyDB but extending it with one
+//     synthetic bracket-key segment makes it parse.
+func IsScopeAddress(path, id string) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("%w: empty id", search.ErrInvalidScope)
 	}
-	parts := strings.Split(section, ".")
+	parts := strings.Split(id, ".")
 	if slices.Contains(parts, "") {
-		return false, fmt.Errorf("%w: %q has empty segment", search.ErrInvalidScope, section)
+		return false, fmt.Errorf("%w: %q has empty segment", search.ErrInvalidScope, id)
 	}
 	resolution, err := resolveFromProjectDir(path)
 	if err != nil {
 		return false, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	addr, _, parseErr := resolver.ParseAddress(section)
+	resolved, _, parseErr := resolver.ResolveID(id)
 	if parseErr == nil {
-		// ParseAddress only returns success for full
-		// <file-relpath>.<type>.<id-tail> addresses, but defend the
-		// invariant explicitly so a future relaxation of the parser
-		// does not silently flip the scope-vs-record bit here.
-		if addr.Type != "" && addr.ID != "" {
+		if resolved.BracketKey != "" {
 			return false, nil
 		}
 		return true, nil
 	}
-	if errors.Is(parseErr, db.ErrBadAddress) {
+	if errors.Is(parseErr, db.ErrBadID) {
 		return true, nil
 	}
-	// Probe: try extending section with one synthetic <type>.<id> per
-	// declared type. A successful extension means the original section
-	// is a valid scope-prefix under that mount; anything else means the
-	// section truly does not bind to any registered db.
-	const probeID = "__ta_scope_probe__"
-	for _, dbDecl := range resolution.Registry.DBs {
-		for typeName := range dbDecl.Types {
-			extended := section + "." + typeName + "." + probeID
-			if _, _, err := resolver.ParseAddress(extended); err == nil {
-				return true, nil
-			}
+	// Probe: try extending id with one synthetic bracket-key per
+	// declared db. A successful extension means the original id is a
+	// valid scope-prefix.
+	const probeKey = "__ta_scope_probe__"
+	for range resolution.Registry.DBs {
+		extended := id + "." + probeKey
+		if _, _, err := resolver.ResolveID(extended); err == nil {
+			return true, nil
 		}
 	}
 	return false, fmt.Errorf("%w: %v", search.ErrInvalidScope, parseErr)
 }
 
-// GetScope enumerates every record under a scope-prefix section and
-// returns them in file-parse order. Fields filters the returned Fields
-// map per record (nil = every declared field). Limit caps the record
-// count with the same default-10 / all-wins contract as Search /
-// ListSections (see resolveLimit). Mirrors §12.17.5 [B2].
-//
-// Routes through search.Run with zero match/query/field filters so the
-// walker reuses one code path for every scope-expansion endpoint. The
-// CLI/MCP adapters enforce the `limit`/`all` mutex; the endpoint stays
-// permissive (all-wins) for library-caller determinism.
-func GetScope(path, section string, fields []string, limit int, all bool) ([]ScopeRecord, error) {
+// GetScope enumerates every record under a scope-prefix id.
+func GetScope(path, id string, fields []string, limit int, all bool) ([]ScopeRecord, error) {
 	results, err := search.Run(search.Query{
 		Path:  path,
-		Scope: section,
+		Scope: id,
 		Limit: resolveLimit(limit, all),
 		All:   all,
 	})
@@ -709,11 +518,6 @@ func GetScope(path, section string, fields []string, limit int, all bool) ([]Sco
 	return out, nil
 }
 
-// filterFields narrows values to the names subset. Empty names passes
-// through every decoded field; unknown names in `names` are simply
-// absent from the output (mirrors search's optional-field contract —
-// a named field that does not appear on the record type is not an
-// error at the scope-expansion level, it just doesn't materialize).
 func filterFields(values map[string]any, names []string) map[string]any {
 	if len(names) == 0 {
 		return values
@@ -727,25 +531,8 @@ func filterFields(values map[string]any, names []string) map[string]any {
 	return out
 }
 
-// Search executes a ta `search` query. scope, match, queryRegex, and
-// field are optional. queryRegex is compiled with regexp.Compile — pass
-// "" to skip the regex pass. `limit` caps the returned hit count;
-// `all == true` returns every hit. Default-10 / all-wins contract is
-// identical to ListSections (see resolveLimit). Mirrors docs/PLAN.md
-// §3.7 / §12.17.5 [A2.2].
-//
-// typeName is an OPTIONAL post-walk filter (PLAN §12.17.9 Phase 9.4):
-// when non-empty, hits whose parsed address.Type does not equal
-// typeName are dropped before the limit/all cap is applied. This is
-// the type-flag analogue of `--scope <db>.<type>`; callers that want
-// type narrowing without baking it into the scope string get the same
-// effect via the dedicated knob. The filter runs over decoded results
-// rather than the search walker so the existing internal/search
-// contract stays unchanged.
+// Search executes a ta `search` query.
 func Search(path, scope, typeName string, match map[string]any, queryRegex, field string, limit int, all bool) ([]SearchHit, error) {
-	// Apply the type filter post-walk; ask the walker for `all` so the
-	// cap fires AFTER filtering. Without this, an unfiltered limit=10
-	// could fetch 10 wrong-type rows and return 0 typed hits.
 	walkerLimit := limit
 	walkerAll := all
 	if typeName != "" {
@@ -773,26 +560,29 @@ func Search(path, scope, typeName string, match map[string]any, queryRegex, fiel
 	}
 	hits := make([]SearchHit, 0, len(results))
 	if typeName != "" {
-		resolution, rerr := resolveFromProjectDir(path)
-		if rerr != nil {
-			return nil, fmt.Errorf("resolve schema for %s: %w", path, rerr)
+		// Validate db-qualified shape and cross-check via the index.
+		dot := strings.Index(typeName, ".")
+		if dot < 0 {
+			return nil, fmt.Errorf("%w: got %q (search --type must be db-qualified)", ErrTypeNotQualified, typeName)
 		}
-		resolver := db.NewResolver(path, resolution.Registry)
+		bareType := typeName[dot+1:]
+		idx, _ := tryLoadIndex(path)
 		for _, r := range results {
-			addr, _, perr := resolver.ParseAddress(r.Section)
-			if perr != nil {
-				// A search hit whose address no longer parses cleanly
-				// is a real anomaly; skip it rather than poison the
-				// type filter, but keep the loud-fail discipline by
-				// surfacing the parse error to the caller.
-				return nil, fmt.Errorf("ops search: parse %q: %w", r.Section, perr)
+			if idx == nil {
+				// No index → cannot type-filter; surface no hits
+				// rather than silently passing every result.
+				continue
 			}
-			if addr.Type != typeName {
+			entry, ok := idx.Get(r.Section)
+			if !ok {
+				// Not indexed → cannot type-filter; skip silently.
+				continue
+			}
+			if entry.Type != bareType {
 				continue
 			}
 			hits = append(hits, SearchHit{Section: r.Section, Bytes: r.Bytes, Fields: r.Fields})
 		}
-		// Apply the original limit/all to the filtered slice.
 		if !all && limit > 0 && len(hits) > limit {
 			hits = hits[:limit]
 		} else if !all && limit <= 0 && len(hits) > defaultListLimit {

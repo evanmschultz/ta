@@ -3,42 +3,37 @@ package db
 import "errors"
 
 // Sentinel errors returned by the resolver. Callers use errors.Is to
-// branch on these; the wrapped error carries the concrete address, db
-// name, and paths for human-readable messages.
+// branch on these; the wrapped error carries the concrete id, db name,
+// and paths for human-readable messages.
 var (
-	// ErrUnknownDB is returned when the first address segment does not
-	// match any registered db.
-	ErrUnknownDB = errors.New("db: unknown db")
+	// ErrIDDoesNotMatchAnyDB is returned when no db's mount accepts the
+	// id. Was ErrUnknownDB pre-F10. Naming reflects the locked id model
+	// (PLAN §12.17.9 F10): the id is the user-facing handle; failing to
+	// resolve it means it does not bind to any registered db.
+	ErrIDDoesNotMatchAnyDB = errors.New("db: id does not match any db")
 
-	// ErrUnknownType is returned when the type segment does not match
-	// any declared record type on the resolved db.
+	// ErrUnknownType is returned when a caller-supplied type does not
+	// match any declared record type on the resolved db.
 	ErrUnknownType = errors.New("db: unknown type")
 
-	// ErrBadAddress is returned when the address has the wrong number
-	// of segments for the resolved db's shape, or is empty.
-	ErrBadAddress = errors.New("db: malformed address")
+	// ErrBadID is returned when the id has the wrong shape for any
+	// resolved db's mount, or is empty / has empty segments. Was
+	// ErrBadAddress pre-F10.
+	ErrBadID = errors.New("db: malformed id")
 
 	// ErrInstanceNotFound is returned by ResolveRead when the named
 	// file does not exist on disk (no matching backing file under any
-	// of the db's mounts). Phase 9.2 (PLAN §12.17.9) deprecated the
-	// term "instance" in favor of "file"; the user-visible message
-	// reads "file not found" while the sentinel name is retained for
-	// backwards compatibility with existing callers that branch on it.
+	// of the db's mounts).
 	ErrInstanceNotFound = errors.New("db: file not found")
 
 	// ErrSlugCollision is returned when two distinct filesystem paths
-	// produce the same slug for a file-per-instance db. The wrapping
-	// error text includes both paths per §5.5.2.
+	// produce the same slug for a multi-file glob db. The wrapping
+	// error text includes both paths.
 	ErrSlugCollision = errors.New("db: slug collision")
 
 	// ErrPathHintMismatch is returned by ResolveWrite when the caller
 	// supplies a path_hint that disagrees with the existing instance's
-	// on-disk location. Changing a path is a manual rename, not a tool
-	// operation (§5.5.2).
+	// on-disk location. F10: path-hint is rejected outright; the id
+	// derives the target file path.
 	ErrPathHintMismatch = errors.New("db: path_hint mismatch")
-
-	// ErrUnsupportedShape is returned when the resolver encounters a
-	// shape value it does not know how to handle. Should never fire in
-	// practice once the schema loader validates shapes.
-	ErrUnsupportedShape = errors.New("db: unsupported shape")
 )

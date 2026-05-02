@@ -554,7 +554,6 @@ func TestInitCmdJSONImpliesNonInteractive(t *testing.T) {
 const twoDBSchema = `
 [plans]
 paths = ["plans.toml"]
-format = "toml"
 description = "Planning db."
 
 [plans.task]
@@ -570,7 +569,6 @@ required = true
 
 [notes]
 paths = ["notes.toml"]
-format = "toml"
 description = "Notes db."
 
 [notes.note]
@@ -753,7 +751,6 @@ func TestCollectHomeDBsMergeAndCollision(t *testing.T) {
 const extraDBSchema = `
 [notes]
 paths = ["extras-notes.toml"]
-format = "toml"
 description = "Notes db (from extras.toml)."
 
 [notes.note]
@@ -765,7 +762,6 @@ required = true
 
 [audits]
 paths = ["audits.toml"]
-format = "toml"
 description = "Audit trail db."
 
 [audits.event]

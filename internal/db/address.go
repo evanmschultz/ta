@@ -3,91 +3,85 @@ package db
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
-// Address is the structured view of a dotted section path under the
-// PLAN §12.17.9 Phase 9.2 grammar:
+// Resolved is the structured view of an id. Per F10 (PLAN §12.17.9):
 //
-//	<file-relpath>.<type>.<id-tail>
+//	id := <FileRelPath>.<BracketKey>
 //
 // FileRelPath is the path-segments-after-the-mount-static-prefix joined
-// with `.` (extension stripped). Example: mount `["workflow/*/db"]`,
+// with `.` (extension stripped). Example: mount `["workflow/*/db.toml"]`,
 // file `workflow/ta/db.toml` → static prefix `workflow/`, residual
 // `ta/db.toml` → ext-stripped `ta/db` → dotted `ta.db`.
 //
-// Type stays in the address until Phase 9.4 moves it to a `--type`
-// flag. ID is the bracket-path tail joined with `.` so deep TOML
-// brackets (`[build_task.task_001]`) and single-segment MD slugs
-// (`installation`) round-trip through the same field.
+// BracketKey is the bracket-tail-after-file-relpath. Type does NOT live
+// in the id — it lives in the index. The whole id is the bracket header
+// on disk: `[plans.demo-1]` is one record, the id is `plans.demo-1`,
+// the FileRelPath is `plans` (file `plans.toml`), the BracketKey is
+// `demo-1`.
 //
 // DBName is the resolved db (the registry entry whose mount matched
 // the file-relpath segments). FilePath is the absolute on-disk path.
-type Address struct {
+type Resolved struct {
 	DBName      string
 	FileRelPath string
-	Type        string
-	ID          string
+	BracketKey  string
 	FilePath    string
 
 	// Mount is the mount-entry string from db.Paths that matched
-	// (e.g. "workflow/*/db"). Bracket-form selection (db-prefixed
-	// vs bare) and instance-relative path derivations look at this
-	// rather than re-deriving from db state.
+	// (e.g. "workflow/*/db.toml" or "plans.toml"). Bracket-form choice
+	// is no longer driven by the mount shape post-F10 — bracket = id —
+	// but the field is retained for callers that need the originating
+	// mount string (e.g. for error messages).
 	Mount string
 
-	// SingleFileMount is true when Mount resolves to exactly one
-	// concrete file (no glob, no trailing slash). Drives the
-	// bracket-form choice for TOML payloads. Mirrors
-	// schema.SingleFileMount(Mount).
+	// SingleFileMount records whether the mount resolves to exactly
+	// one concrete file. Post-F10 it does NOT drive bracket-form
+	// selection (bracket = id, period). It is retained so callers that
+	// need the mount-shape view (e.g. resolver.Instances enumeration)
+	// can see it without re-deriving from schema state.
 	SingleFileMount bool
 }
 
-// Canonical returns the round-trippable dotted-string form of addr.
-func (a Address) Canonical() string {
-	parts := make([]string, 0, 3)
-	if a.FileRelPath != "" {
-		parts = append(parts, a.FileRelPath)
+// Canonical returns the round-trippable id form of r. For scope-prefix
+// resolutions where BracketKey is empty, returns just FileRelPath.
+func (r Resolved) Canonical() string {
+	if r.BracketKey == "" {
+		return r.FileRelPath
 	}
-	parts = append(parts, a.Type)
-	if a.ID != "" {
-		parts = append(parts, a.ID)
+	if r.FileRelPath == "" {
+		return r.BracketKey
 	}
-	return strings.Join(parts, ".")
+	return r.FileRelPath + "." + r.BracketKey
 }
 
-// ParseAddress splits section under the new file-relpath grammar.
-// Iterates the registry's dbs in stable name order; for each db
-// iterates Paths entries; for each entry computes the static prefix
-// (everything up to the first `*`, or up to the last segment for non-
-// glob mounts) and the suffix shape (segments after the static prefix,
-// `*` matching one segment). The file-relpath portion of section is
-// matched against the mount's suffix shape; on success, the next
-// segment is the `<type>` and the rest is the `<id-tail>`. First
-// matching db wins.
+// ResolveID parses id under the F10 grammar and returns the Resolved
+// view + the matching db declaration. Iterates the registry's dbs in
+// stable name order; for each db iterates Paths entries; for each
+// entry computes the static prefix and matches the id's leading
+// segments against the mount's expected file-relpath shape. The
+// remaining segments form the BracketKey. First matching db wins.
 //
-// Returns ErrUnknownDB when no db's mount accepts the section (typo
-// at the file-relpath level), ErrUnknownType when the type segment is
-// not declared on the resolved db, and ErrBadAddress on grammar
-// violations (empty, leading/trailing/empty segments, too few
-// segments after the file-relpath portion).
+// Returns ErrBadID on grammar violations (empty, leading/trailing/
+// empty segments, missing bracket-key after file-relpath), and
+// ErrIDDoesNotMatchAnyDB when no mount accepts the id.
 //
 // FilePath is reconstructed by re-joining the mount's static prefix
-// with the file-relpath-derived directory plus the appropriate file
-// extension (db.Format).
-func (r *Resolver) ParseAddress(section string) (Address, schema.DB, error) {
-	if section == "" {
-		return Address{}, schema.DB{}, fmt.Errorf("%w: empty", ErrBadAddress)
+// with the file-relpath-derived directory plus the format extension
+// inferred from the mount.
+func (r *Resolver) ResolveID(id string) (Resolved, schema.DB, error) {
+	if id == "" {
+		return Resolved{}, schema.DB{}, fmt.Errorf("%w: empty", ErrBadID)
 	}
-	parts := strings.Split(section, ".")
-	for _, p := range parts {
-		if p == "" {
-			return Address{}, schema.DB{}, fmt.Errorf(
-				"%w: %q has empty segment", ErrBadAddress, section)
-		}
+	parts := strings.Split(id, ".")
+	if slices.Contains(parts, "") {
+		return Resolved{}, schema.DB{}, fmt.Errorf(
+			"%w: %q has empty segment", ErrBadID, id)
 	}
 
 	// Iterate dbs in stable order so first-match is deterministic.
@@ -97,154 +91,68 @@ func (r *Resolver) ParseAddress(section string) (Address, schema.DB, error) {
 	}
 	sort.Strings(dbNames)
 
-	// Two-phase match: non-collection (specific) mounts win over
-	// collection (catch-all) mounts. Within each phase, dbs are tried
-	// in stable name order. Phase 9.2 picks this tiebreaker because a
-	// collection root mounts every descendant file — without the
-	// preference, a section that could match both a single-file mount
-	// and a sibling collection would non-deterministically bind to the
-	// alphabetical-first db.
-	for _, collectionPhase := range []bool{false, true} {
-		for _, dbName := range dbNames {
-			dbDecl := r.registry.DBs[dbName]
-			for _, mount := range dbDecl.Paths {
-				isColl := strings.HasSuffix(mount, "/") || mount == "."
-				if isColl != collectionPhase {
-					continue
-				}
-				addr, ok, err := tryParseAgainstMount(parts, dbDecl, mount, r.root)
-				if err != nil {
-					return Address{}, schema.DB{}, err
-				}
-				if !ok {
-					continue
-				}
-				if _, declared := dbDecl.Types[addr.Type]; !declared {
-					return Address{}, schema.DB{}, fmt.Errorf(
-						"%w: %q on db %q",
-						ErrUnknownType, addr.Type, dbDecl.Name)
-				}
-				return addr, dbDecl, nil
+	for _, dbName := range dbNames {
+		dbDecl := r.registry.DBs[dbName]
+		for _, mount := range dbDecl.Paths {
+			res, ok, err := tryParseAgainstMount(parts, dbDecl, mount, r.root)
+			if err != nil {
+				return Resolved{}, schema.DB{}, err
 			}
+			if !ok {
+				continue
+			}
+			return res, dbDecl, nil
 		}
 	}
 
-	return Address{}, schema.DB{}, fmt.Errorf(
-		"%w: no db mount matches %q", ErrUnknownDB, section)
+	return Resolved{}, schema.DB{}, fmt.Errorf(
+		"%w: %q", ErrIDDoesNotMatchAnyDB, id)
 }
 
 // tryParseAgainstMount attempts to parse parts against one mount entry
-// of one db. Returns (addr, true, nil) on a successful match,
-// (zero, false, nil) when the mount's expected file-relpath shape
-// does not match parts, and (zero, false, err) for hard grammar
-// errors that should short-circuit the search (e.g. too few segments
-// AFTER a successful file-relpath match means ErrBadAddress).
-func tryParseAgainstMount(parts []string, dbDecl schema.DB, mount, root string) (Address, bool, error) {
-	// Expand `~/` once at the top so the staticPrefix split, the
-	// collection check, and the on-disk path build all see a literal
-	// home-anchored path rather than carrying a `~` segment forward.
-	// PLAN §12.17.9 Phase 9.2 treats `~/...` mounts as home-relative
-	// across both the address parser and the resolver; without this,
-	// `ResolveRead` / `ResolveWrite` would build `<root>/~/...` (a
-	// literal `~` directory under project root), corrupting the tree
-	// on Create. Mirrors the resolver.expandMount call site.
+// of one db under the F10 id grammar. Returns (resolved, true, nil)
+// on a successful match, (zero, false, nil) when the mount's expected
+// file-relpath shape does not match parts, and (zero, false, err) for
+// hard grammar errors.
+//
+// Collection mounts (`docs/`, `.`) are rejected at schema-load time
+// (ErrCollectionMountUnsupported); this helper assumes the mount has
+// a recognized extension.
+func tryParseAgainstMount(parts []string, dbDecl schema.DB, mount, root string) (Resolved, bool, error) {
 	base, mountAfterHome, err := resolveHome(root, mount)
 	if err != nil {
-		return Address{}, false, fmt.Errorf(
+		return Resolved{}, false, fmt.Errorf(
 			"db %q: mount %q: %w", dbDecl.Name, mount, err)
 	}
 	staticPrefix, residualSegs := splitMountSegments(mountAfterHome)
-	// `residualSegs` is the list of segments after the static prefix.
-	// Each segment is either `*` (matches any one path segment) or a
-	// literal. The mount's last residual segment is the file basename
-	// (sans extension) — for `workflow/*/db` it's `db`; for `plans` it
-	// is `plans`; for `docs/` it is "" (collection — every file under
-	// docs/ matches).
-	//
-	// The address must START with N segments matching residualSegs (one
-	// dotted segment per path segment), then carry at least <type> and
-	// <id> after.
-	collection := strings.HasSuffix(mountAfterHome, "/") || mountAfterHome == "."
 
-	if collection {
-		// Collection: any descendant file under staticPrefix matches.
-		// The address must have at least <type>.<id> + 1 file-relpath
-		// segment (the leaf file basename pre-ext). The locked design
-		// (PLAN §12.17.9 Phase 9.2) says LEFTMOST declared-type-name
-		// wins: scan parts from the left starting at index 1 (so the
-		// file-relpath has at least one segment); the first segment
-		// whose value matches a declared type name on dbDecl is the
-		// type segment. Everything before is file-relpath; everything
-		// after is id-tail.
-		idx := firstDeclaredTypeIndex(parts, dbDecl)
-		if idx < 1 {
-			// type must be at least at index 1 so file-relpath has at
-			// least one segment.
-			return Address{}, false, nil
-		}
-		fileRelSegs := parts[:idx]
-		typeName := parts[idx]
-		var idTail string
-		if idx+1 < len(parts) {
-			idTail = strings.Join(parts[idx+1:], ".")
-		}
-		// Build absolute file path from staticPrefix + fileRelSegs +
-		// last-segment-as-filename + extension.
-		filePath, ok := buildFilePathCollection(base, staticPrefix, fileRelSegs, dbDecl.Format)
-		if !ok {
-			return Address{}, false, nil
-		}
-		return Address{
-			DBName:          dbDecl.Name,
-			FileRelPath:     strings.Join(fileRelSegs, "."),
-			Type:            typeName,
-			ID:              idTail,
-			FilePath:        filePath,
-			Mount:           mount,
-			SingleFileMount: false,
-		}, true, nil
-	}
-
-	// Non-collection: residualSegs is fixed-length. The first
-	// len(residualSegs) parts must satisfy each segment.
-	//
-	// Literal segments match by string equality, with one tolerance:
-	// the mount's leaf segment may carry an explicit ".<format>"
-	// extension (e.g. `["plans.toml"]`). The address never carries
-	// the extension, so we ext-strip the leaf segment before
-	// comparing. Glob `*` matches anything non-empty.
+	// Schema-load enforces every mount has a recognized extension;
+	// strip it from the leaf residual segment so the id (which never
+	// carries the extension) compares cleanly.
 	expected := stripFormatExt(residualSegs, dbDecl.Format)
 	if len(parts) < len(expected)+1 {
-		// Need at least <type> after file-relpath.
-		return Address{}, false, nil
+		// Need at least one BracketKey segment after file-relpath.
+		return Resolved{}, false, nil
 	}
 	for i, seg := range expected {
 		if seg == "*" {
 			continue
 		}
 		if parts[i] != seg {
-			return Address{}, false, nil
+			return Resolved{}, false, nil
 		}
 	}
 	fileRelSegs := parts[:len(expected)]
-	if len(parts) < len(expected)+2 {
-		// We have <file-relpath>.<type> but no <id> — grammar error.
-		return Address{}, true, fmt.Errorf(
-			"%w: missing id-tail after type segment in %q",
-			ErrBadAddress, strings.Join(parts, "."))
-	}
-	typeName := parts[len(expected)]
-	idTail := strings.Join(parts[len(expected)+1:], ".")
+	bracketKey := strings.Join(parts[len(expected):], ".")
 
 	// Build absolute file path: staticPrefix + (fileRelSegs joined
 	// with "/") + extension.
 	filePath := buildFilePathFixed(base, staticPrefix, fileRelSegs, dbDecl.Format)
 
-	return Address{
+	return Resolved{
 		DBName:          dbDecl.Name,
 		FileRelPath:     strings.Join(fileRelSegs, "."),
-		Type:            typeName,
-		ID:              idTail,
+		BracketKey:      bracketKey,
 		FilePath:        filePath,
 		Mount:           mount,
 		SingleFileMount: schema.SingleFileMount(mount),
@@ -252,10 +160,7 @@ func tryParseAgainstMount(parts []string, dbDecl schema.DB, mount, root string) 
 }
 
 // stripFormatExt returns residualSegs with the format extension
-// stripped from the leaf segment if present. The mount's leaf segment
-// may be declared with or without the explicit extension; both forms
-// must produce the same file-relpath because the address never carries
-// the extension.
+// stripped from the leaf segment if present.
 func stripFormatExt(residualSegs []string, format schema.Format) []string {
 	if len(residualSegs) == 0 {
 		return residualSegs
@@ -275,25 +180,23 @@ func stripFormatExt(residualSegs []string, format schema.Format) []string {
 // staticPrefix is everything up to (and including) the slash before the
 // first `*`. If mount has no `*`, staticPrefix is everything before the
 // last slash (or "" if no slash). residualSegs is the path-segments
-// AFTER staticPrefix (excluding any trailing-slash collection marker).
+// AFTER staticPrefix.
 //
 // Examples:
-//   - "plans"           → "", ["plans"]
-//   - "workflow/*/db"   → "workflow/", ["*", "db"]
-//   - "docs/"           → "docs/", []
-//   - "docs/api"        → "docs/", ["api"]
-//   - "."               → "", []                 (treated as collection root at project root)
-//   - "README"          → "", ["README"]
+//   - "plans.toml"            → "", ["plans.toml"]
+//   - "workflow/*/db.toml"    → "workflow/", ["*", "db.toml"]
+//   - "docs/api.md"           → "docs/", ["api.md"]
+//   - "README.md"             → "", ["README.md"]
+//
+// Trailing-slash collection mounts and the "." project-root mount are
+// rejected at schema-load time post-F10 (ErrCollectionMountUnsupported).
+// They cannot reach this function because every well-formed registry
+// has been pre-validated; we still defend against them by returning a
+// single empty residual which makes any id parse fail downstream.
 func splitMountSegments(mount string) (string, []string) {
-	if mount == "." {
-		// Project-root collection: any file under root matches.
-		return "", []string{}
-	}
-	if strings.HasSuffix(mount, "/") {
-		// Collection: residualSegs is empty; staticPrefix is the dir.
+	if mount == "." || strings.HasSuffix(mount, "/") {
 		return mount, []string{}
 	}
-	// Find first `*` position by segment.
 	segs := strings.Split(mount, "/")
 	starIdx := -1
 	for i, s := range segs {
@@ -303,16 +206,12 @@ func splitMountSegments(mount string) (string, []string) {
 		}
 	}
 	if starIdx >= 0 {
-		// staticPrefix = everything up to (and including) the slash
-		// before the first `*`.
 		prefix := strings.Join(segs[:starIdx], "/")
 		if prefix != "" {
 			prefix += "/"
 		}
 		return prefix, segs[starIdx:]
 	}
-	// No `*`: static prefix is everything before the last segment;
-	// residual is the last segment alone (the file basename).
 	if len(segs) == 1 {
 		return "", segs
 	}
@@ -320,41 +219,10 @@ func splitMountSegments(mount string) (string, []string) {
 	return prefix, []string{segs[len(segs)-1]}
 }
 
-// firstDeclaredTypeIndex returns the smallest i in [1, len(parts)) such
-// that parts[i] is a declared type name on dbDecl, or -1 if none. The
-// locked Phase 9.2 design (PLAN §12.17.9) is LEFTMOST-wins so that an
-// address like `install.prereqs.section.title` parses as
-// file-relpath=`install.prereqs`, type=`section`, id=`title` rather
-// than greedily consuming as many segments as possible into the
-// file-relpath. Used by the collection mount-matcher to decide where
-// the file-relpath ends and the <type> begins.
-func firstDeclaredTypeIndex(parts []string, dbDecl schema.DB) int {
-	for i := 1; i < len(parts); i++ {
-		if _, ok := dbDecl.Types[parts[i]]; ok {
-			return i
-		}
-	}
-	return -1
-}
-
-// buildFilePathFixed constructs the absolute file path for a non-glob,
-// non-collection mount. fileRelSegs is the parsed file-relpath; for a
-// pure-literal mount these mirror the mount's residual segments. The
-// extension is derived from dbDecl.Format.
+// buildFilePathFixed constructs the absolute file path for a non-glob
+// mount. fileRelSegs is the parsed file-relpath; the extension is
+// derived from dbDecl.Format.
 func buildFilePathFixed(root, staticPrefix string, fileRelSegs []string, format schema.Format) string {
 	rel := staticPrefix + strings.Join(fileRelSegs, "/") + "." + string(format)
 	return filepath.Join(root, filepath.FromSlash(rel))
-}
-
-// buildFilePathCollection constructs the absolute file path for a
-// collection-rooted mount. staticPrefix is the collection root
-// (trailing slash); fileRelSegs is the dotted file-relpath split back
-// to path segments. The leaf segment is the basename; the extension
-// comes from dbDecl.Format. Returns ok=false when fileRelSegs is empty.
-func buildFilePathCollection(root, staticPrefix string, fileRelSegs []string, format schema.Format) (string, bool) {
-	if len(fileRelSegs) == 0 {
-		return "", false
-	}
-	rel := staticPrefix + strings.Join(fileRelSegs, "/") + "." + string(format)
-	return filepath.Join(root, filepath.FromSlash(rel)), true
 }

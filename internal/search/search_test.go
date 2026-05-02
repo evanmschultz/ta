@@ -16,7 +16,6 @@ import (
 const singleInstanceTOMLSchema = `
 [plans]
 paths = ["plans.toml"]
-format = "toml"
 description = "Single-instance planning db."
 
 [plans.task]
@@ -50,8 +49,7 @@ type = "array"
 
 const multiInstanceTOMLSchema = `
 [plan_db]
-paths = ["workflow/*/db"]
-format = "toml"
+paths = ["workflow/*/db.toml"]
 description = "Multi-file planning db."
 
 [plan_db.build_task]
@@ -88,13 +86,13 @@ func writeSchemaProject(t *testing.T, body string) string {
 func TestExactMatchOnStringField(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 owner = "alice"
 body = "alpha"
 
-[plans.task.t2]
+[plans.t2]
 id = "T2"
 status = "doing"
 owner = "bob"
@@ -106,7 +104,7 @@ body = "beta"
 
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Match: map[string]any{"owner": "alice"},
 	})
 	if err != nil {
@@ -115,20 +113,20 @@ body = "beta"
 	if len(hits) != 1 {
 		t.Fatalf("got %d hits, want 1: %+v", len(hits), hits)
 	}
-	if hits[0].Section != "plans.task.t1" {
-		t.Errorf("section = %q, want plans.task.t1", hits[0].Section)
+	if hits[0].Section != "plans.t1" {
+		t.Errorf("section = %q, want plans.t1", hits[0].Section)
 	}
 }
 
 func TestExactMatchOnIntegerField(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 priority = 1
 
-[plans.task.t2]
+[plans.t2]
 id = "T2"
 status = "doing"
 priority = 2
@@ -139,13 +137,13 @@ priority = 2
 
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Match: map[string]any{"priority": 2},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.task.t2" {
+	if len(hits) != 1 || hits[0].Section != "plans.t2" {
 		t.Fatalf("got %+v, want one hit on t2", hits)
 	}
 }
@@ -153,11 +151,11 @@ priority = 2
 func TestExactMatchOnEnum(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 
-[plans.task.t2]
+[plans.t2]
 id = "T2"
 status = "done"
 `
@@ -167,13 +165,13 @@ status = "done"
 
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Match: map[string]any{"status": "done"},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.task.t2" {
+	if len(hits) != 1 || hits[0].Section != "plans.t2" {
 		t.Fatalf("got %+v, want t2", hits)
 	}
 }
@@ -181,12 +179,12 @@ status = "done"
 func TestExactMatchOnBoolean(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 done = false
 
-[plans.task.t2]
+[plans.t2]
 id = "T2"
 status = "done"
 done = true
@@ -196,13 +194,13 @@ done = true
 	}
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Match: map[string]any{"done": true},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.task.t2" {
+	if len(hits) != 1 || hits[0].Section != "plans.t2" {
 		t.Fatalf("got %+v, want t2", hits)
 	}
 }
@@ -210,19 +208,19 @@ done = true
 func TestMatchAndRegexCombined(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 owner = "alice"
 body = "Rewrite the ATX scanner."
 
-[plans.task.t2]
+[plans.t2]
 id = "T2"
 status = "doing"
 owner = "alice"
 body = "Migrate the mcpsrv tools."
 
-[plans.task.t3]
+[plans.t3]
 id = "T3"
 status = "todo"
 owner = "alice"
@@ -234,7 +232,7 @@ body = "Write the search implementation."
 	re := regexp.MustCompile(`scanner`)
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Match: map[string]any{"status": "todo", "owner": "alice"},
 		Query: re,
 		Field: "body",
@@ -242,7 +240,7 @@ body = "Write the search implementation."
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.task.t1" {
+	if len(hits) != 1 || hits[0].Section != "plans.t1" {
 		t.Fatalf("got %+v, want one hit on t1", hits)
 	}
 }
@@ -250,13 +248,13 @@ body = "Write the search implementation."
 func TestRegexOnAllStringFields(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 owner = "alice"
 body = "alpha"
 
-[plans.task.t2]
+[plans.t2]
 id = "T2"
 status = "todo"
 owner = "beta-bot"
@@ -268,13 +266,13 @@ body = "generic"
 	re := regexp.MustCompile(`beta`)
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Query: re,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.task.t2" {
+	if len(hits) != 1 || hits[0].Section != "plans.t2" {
 		t.Fatalf("got %+v, want t2", hits)
 	}
 }
@@ -282,13 +280,13 @@ body = "generic"
 func TestRegexRestrictedByField(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 owner = "alice"
 body = "generic"
 
-[plans.task.t2]
+[plans.t2]
 id = "T2"
 status = "todo"
 owner = "bob"
@@ -302,21 +300,21 @@ body = "contains scanner"
 	// Scope to body — only t2's body matches.
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Query: re,
 		Field: "body",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.task.t2" {
+	if len(hits) != 1 || hits[0].Section != "plans.t2" {
 		t.Fatalf("body-restricted got %+v, want t2", hits)
 	}
 
 	// Scope to owner — no hit.
 	hits, err = search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Query: re,
 		Field: "owner",
 	})
@@ -465,7 +463,7 @@ func TestUnknownMatchFieldErrors(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	if err := os.WriteFile(filepath.Join(root, "plans.toml"),
 		[]byte(`
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 `), 0o644); err != nil {
@@ -473,7 +471,7 @@ status = "todo"
 	}
 	_, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Match: map[string]any{"nope": "x"},
 	})
 	if err == nil {
@@ -488,7 +486,7 @@ func TestUnknownRegexFieldErrors(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	if err := os.WriteFile(filepath.Join(root, "plans.toml"),
 		[]byte(`
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 `), 0o644); err != nil {
@@ -496,7 +494,7 @@ status = "todo"
 	}
 	_, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Query: regexp.MustCompile(`anything`),
 		Field: "ghost",
 	})
@@ -512,7 +510,7 @@ func TestMatchAgainstNonScalarErrors(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	if err := os.WriteFile(filepath.Join(root, "plans.toml"),
 		[]byte(`
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 tags = ["x"]
@@ -521,7 +519,7 @@ tags = ["x"]
 	}
 	_, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Match: map[string]any{"tags": []any{"x"}},
 	})
 	if err == nil {
@@ -551,18 +549,18 @@ func TestInvalidScopeUnknownDB(t *testing.T) {
 func TestNoFiltersReturnsAllRecords(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 
-[plans.task.t2]
+[plans.t2]
 id = "T2"
 status = "doing"
 `
 	if err := os.WriteFile(filepath.Join(root, "plans.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	hits, err := search.Run(search.Query{Path: root, Scope: "plans.task"})
+	hits, err := search.Run(search.Query{Path: root, Scope: "plans"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -576,7 +574,6 @@ status = "doing"
 const mdSchema = `
 [readme]
 paths = ["README.md"]
-format = "md"
 description = "MD db."
 
 [readme.title]
@@ -651,36 +648,39 @@ func TestInvalidScopeEmptyFirstSegment(t *testing.T) {
 }
 
 func TestScopeSingleInstanceTypeTypo(t *testing.T) {
+	// F10: `plans.ghost` is a valid scope-prefix (file-relpath "plans"
+	// + bracket-key prefix "ghost"); it returns zero matches rather
+	// than erroring.
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
-	_, err := search.Run(search.Query{Path: root, Scope: "plans.ghost"})
-	if err == nil {
-		t.Fatal("expected error")
+	results, err := search.Run(search.Query{Path: root, Scope: "plans.ghost"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
-	if !errors.Is(err, search.ErrInvalidScope) {
-		t.Errorf("err = %v, want ErrInvalidScope", err)
+	if len(results) != 0 {
+		t.Errorf("len(results) = %d, want 0", len(results))
 	}
 }
 
 func TestScopeSingleInstanceWithIDPrefix(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 
-[plans.task.other]
+[plans.other]
 id = "O1"
 status = "todo"
 `
 	if err := os.WriteFile(filepath.Join(root, "plans.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	hits, err := search.Run(search.Query{Path: root, Scope: "plans.task.t"})
+	hits, err := search.Run(search.Query{Path: root, Scope: "plans.t"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	// "t" prefix matches "t1" but not "other".
-	if len(hits) != 1 || hits[0].Section != "plans.task.t1" {
+	if len(hits) != 1 || hits[0].Section != "plans.t1" {
 		t.Errorf("got %+v, want t1", hits)
 	}
 }
@@ -701,17 +701,19 @@ func TestMultiInstanceScopeUnionAcrossFiles(t *testing.T) {
 }
 
 func TestMultiInstanceScopeUnknownTypeErrors(t *testing.T) {
+	// F10: scope no longer carries a type segment; `drop_1.db.ghost`
+	// is a valid scope-prefix that simply yields zero hits.
 	root := writeSchemaProject(t, multiInstanceTOMLSchema)
 	seedMultiInstance(t, root)
-	_, err := search.Run(search.Query{
+	results, err := search.Run(search.Query{
 		Path:  root,
 		Scope: "drop_1.db.ghost",
 	})
-	if err == nil {
-		t.Fatal("expected error")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
-	if !errors.Is(err, search.ErrInvalidScope) {
-		t.Errorf("err = %v, want ErrInvalidScope", err)
+	if len(results) != 0 {
+		t.Errorf("len(results) = %d, want 0", len(results))
 	}
 }
 
@@ -720,7 +722,7 @@ func TestMultiInstanceScopeUnknownTypeErrors(t *testing.T) {
 func TestNumericMatchFloatVsInt(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 priority = 3
@@ -731,7 +733,7 @@ priority = 3
 	// Pass match as float64 to simulate JSON decoding.
 	hits, err := search.Run(search.Query{
 		Path:  root,
-		Scope: "plans.task",
+		Scope: "plans",
 		Match: map[string]any{"priority": float64(3)},
 	})
 	if err != nil {
@@ -747,14 +749,14 @@ priority = 3
 func TestResultBytesAreRawRecord(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
 	body := `
-[plans.task.t1]
+[plans.t1]
 id = "T1"
 status = "todo"
 `
 	if err := os.WriteFile(filepath.Join(root, "plans.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	hits, err := search.Run(search.Query{Path: root, Scope: "plans.task"})
+	hits, err := search.Run(search.Query{Path: root, Scope: "plans"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -762,7 +764,7 @@ status = "todo"
 		t.Fatalf("got %+v", hits)
 	}
 	raw := string(hits[0].Bytes)
-	for _, want := range []string{"[plans.task.t1]", `id = "T1"`, `status = "todo"`} {
+	for _, want := range []string{"[plans.t1]", `id = "T1"`, `status = "todo"`} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("raw bytes missing %q: %q", want, raw)
 		}
@@ -778,7 +780,6 @@ status = "todo"
 const mdSchemaWithNonBodyField = `
 [readme]
 paths = ["README.md"]
-format = "md"
 description = "MD db with a declared non-body field."
 
 [readme.section]
@@ -838,7 +839,7 @@ func TestSearchMDNonBodyFieldErrors(t *testing.T) {
 // strict" discipline hole (V2-PLAN §12.7 Falsification finding #2).
 func TestSearchUnconstrainedScopeUnknownFieldErrors(t *testing.T) {
 	root := writeSchemaProject(t, singleInstanceTOMLSchema)
-	body := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
+	body := "[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
 	if err := os.WriteFile(filepath.Join(root, "plans.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

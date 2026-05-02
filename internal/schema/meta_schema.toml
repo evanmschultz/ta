@@ -7,34 +7,31 @@
 #
 # The meta-schema itself is stored as a single-instance TOML db at
 # .ta/meta_schema.toml — conceptually. In practice the literal is embedded
-# in the ta binary and never resolved from disk. See V2-PLAN §4.7, §3.3,
-# and PLAN §12.17.9 (Phase 9.1 paths-shape model migration).
+# in the ta binary and never resolved from disk.
+#
+# Per F10 (PLAN §12.17.9): db format is INFERRED from the file extension
+# on each `paths` entry; `format` is NOT a declared meta-field on `[<db>]`.
+# Collection mounts (trailing `/`, `.`) are rejected; use globs instead
+# (e.g. `docs/*.md`).
 # ============================================================================
 
 [ta_schema]
 paths = ["ta_schema.toml"]
-format = "toml"
-description = "Meta-schema: the three kinds (db, type, field) an agent constructs via the `schema` tool, and the meta-schema rules enforced on `schema.toml` at load time. See V2-PLAN §4.1, §4.7, and PLAN §12.17.9."
+description = "Meta-schema: the three kinds (db, type, field) an agent constructs via the `schema` tool, and the meta-schema rules enforced on `schema.toml` at load time."
 
 # ----------------------------------------------------------------------------
 # kind = "db" — the data shape of `schema(action="create"|"update", kind="db",
-# name="<db>", data=...)`. `paths` is required (length 1+); `format` is
-# required; `description` is recommended. Per PLAN §12.17.9 Phase 9.1 the old
-# `file` / `directory` / `collection` selector keys are removed.
+# name="<db>", data=...)`. `paths` is required (length 1+); `description` is
+# recommended. Per F10 the `format` field is gone — format is inferred from
+# the file extension on each path.
 # ----------------------------------------------------------------------------
 [ta_schema.db]
-description = "A database. Mounted at one or more on-disk paths via the `paths` slice; each entry is project-relative or home-relative (`~/...`). Glob `*` is allowed for one segment per entry."
-
-[ta_schema.db.fields.format]
-type = "string"
-required = true
-enum = ["toml", "md"]
-description = "Canonical on-disk format. Binds this db to one backend."
+description = "A database. Mounted at one or more on-disk paths via the `paths` slice; each entry is project-relative or home-relative (`~/...`). Glob `*` is allowed for one segment per entry. Format is inferred from the file extension."
 
 [ta_schema.db.fields.paths]
 type = "array"
 required = true
-description = "Mount paths (length 1+). Each entry is project-relative or home-relative; glob `*` is allowed for one segment per entry. Examples: ['plans.toml'], ['workflow/*/db'], ['docs/'], ['~/.ta/projects/myproj/workflow/*/db']. Paths must not overlap with any other db's paths slice (PLAN §12.17.9)."
+description = "Mount paths (length 1+). Each entry must have a recognized file extension (.toml or .md); all entries in one db must share the same extension. Examples: ['plans.toml'], ['workflow/*/db.toml'], ['docs/*.md'], ['~/.ta/projects/myproj/workflow/*/db.toml']. Trailing-slash collection mounts and the `.` project-root mount are not supported. Paths must not overlap with any other db's paths slice."
 
 [ta_schema.db.fields.description]
 type = "string"
@@ -44,7 +41,7 @@ description = "Human-readable description of the db. Surfaced through the `schem
 # ----------------------------------------------------------------------------
 # kind = "type" — the data shape of `schema(action="create"|"update",
 # kind="type", name="<db>.<type>", data=...)`. `description` required;
-# `heading` required when the owning db has format = "md".
+# `heading` required when the owning db's inferred format is "md".
 # ----------------------------------------------------------------------------
 [ta_schema.type]
 description = "A record type under a db. Corresponds to one [<db>.<type>] sub-table."
@@ -58,7 +55,7 @@ description = "Human-readable description of the type. Surfaced through the `sch
 [ta_schema.type.fields.heading]
 type = "integer"
 enum = [1, 2, 3, 4, 5, 6]
-description = "MD-only: the ATX heading level (1..6) this type's records occupy. Required when the owning db has format = 'md'; must be absent when format = 'toml'. Each heading level must be unique within a given MD db."
+description = "MD-only: the ATX heading level (1..6) this type's records occupy. Required when the owning db's inferred format is 'md'; must be absent when format is 'toml'. Each heading level must be unique within a given MD db."
 
 # ----------------------------------------------------------------------------
 # kind = "field" — the data shape of `schema(action="create"|"update",
@@ -94,4 +91,4 @@ description = "Optional default value. Not applied during validation; informatio
 
 [ta_schema.field.fields.format]
 type = "string"
-description = "Optional format hint (e.g. 'markdown'). Informational; informs alternate renderers per V2-PLAN §13."
+description = "Optional format hint (e.g. 'markdown'). Informational; informs alternate renderers."

@@ -10,7 +10,6 @@ import (
 const taskConfig = `
 [plans]
 paths = ["plans.toml"]
-format = "toml"
 description = "A unit of work"
 
 [plans.task]

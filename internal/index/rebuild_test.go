@@ -22,8 +22,7 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 const singleFileSchema = `[plans]
-paths = ["plans"]
-format = "toml"
+paths = ["plans.toml"]
 description = "single-file db"
 
 [plans.task]
@@ -41,8 +40,7 @@ description = "title"
 `
 
 const multiFileSchema = `[plan_db]
-paths = ["workflow/*/db"]
-format = "toml"
+paths = ["workflow/*/db.toml"]
 description = "multi-instance per drop"
 
 [plan_db.build_task]
@@ -55,8 +53,7 @@ description = "id"
 `
 
 const mdSchema = `[docs]
-paths = ["docs/"]
-format = "md"
+paths = ["docs/*.md"]
 description = "docs collection"
 
 [docs.section]

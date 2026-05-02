@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/evanmschultz/ta/internal/db"
+	"github.com/evanmschultz/ta/internal/index"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/schema"
@@ -218,17 +219,17 @@ func renderRawRecord(r *render.Renderer, path, section string, raw []byte) error
 	return r.Markdown(body)
 }
 
-// dbFormatFor looks up the db format for the address's first segment.
+// dbFormatFor looks up the db format for the id's mount.
 // Used to pick a render branch (TOML fenced vs MD pass-through).
-func dbFormatFor(path, section string) (schema.Format, error) {
+func dbFormatFor(path, id string) (schema.Format, error) {
 	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return "", err
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	_, dbDecl, err := resolver.ParseAddress(section)
+	_, dbDecl, err := resolver.ResolveID(id)
 	if err != nil {
-		return "", fmt.Errorf("address %q: %w", section, err)
+		return "", fmt.Errorf("id %q: %w", id, err)
 	}
 	return dbDecl.Format, nil
 }
@@ -236,15 +237,12 @@ func dbFormatFor(path, section string) (schema.Format, error) {
 // buildRenderFields pairs the MCP-decoded field values with their
 // schema types so the renderer can dispatch string vs scalar vs
 // structured rendering.
-func buildRenderFields(path, section string, values map[string]any, names []string) ([]render.RenderField, error) {
+func buildRenderFields(path, id string, values map[string]any, names []string) ([]render.RenderField, error) {
 	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve schema: %w", err)
 	}
-	// Resolve type for the address. The Phase 9.2 grammar
-	// `<file-relpath>.<type>.<id>` is parsed by the resolver; we
-	// need the type descriptor to drive structured rendering.
-	dbDecl, typeSt, err := lookupDBAndType(resolution.Registry, path, section)
+	dbDecl, typeSt, err := lookupDBAndType(resolution.Registry, path, id)
 	if err != nil {
 		return nil, err
 	}
@@ -264,17 +262,30 @@ func buildRenderFields(path, section string, values map[string]any, names []stri
 	return out, nil
 }
 
-func lookupDBAndType(reg schema.Registry, projectPath, section string) (schema.DB, schema.SectionType, error) {
+// lookupDBAndType resolves the db + type for an id by routing through
+// the resolver and consulting the index for the authoritative type.
+// Falls back to an arbitrary declared type when the index has no entry
+// (best-effort render path).
+func lookupDBAndType(reg schema.Registry, projectPath, id string) (schema.DB, schema.SectionType, error) {
 	resolver := db.NewResolver(projectPath, reg)
-	addr, dbDecl, err := resolver.ParseAddress(section)
+	resolved, dbDecl, err := resolver.ResolveID(id)
 	if err != nil {
-		return schema.DB{}, schema.SectionType{}, fmt.Errorf("address %q: %w", section, err)
+		return schema.DB{}, schema.SectionType{}, fmt.Errorf("id %q: %w", id, err)
 	}
-	t, ok := dbDecl.Types[addr.Type]
-	if !ok {
-		return dbDecl, schema.SectionType{}, fmt.Errorf("type %q not declared on db %q", addr.Type, dbDecl.Name)
+	// Per F10 the type lives in the index. Best-effort: load the
+	// index, look up the canonical id, and use the recorded type.
+	if idx, ierr := index.Load(projectPath); ierr == nil {
+		if entry, ok := idx.Get(resolved.Canonical()); ok {
+			if t, ok := dbDecl.Types[entry.Type]; ok {
+				return dbDecl, t, nil
+			}
+		}
 	}
-	return dbDecl, t, nil
+	// Fall back to the first declared type so render still works.
+	for _, t := range dbDecl.Types {
+		return dbDecl, t, nil
+	}
+	return dbDecl, schema.SectionType{}, fmt.Errorf("db %q has no declared types", dbDecl.Name)
 }
 
 // newListSectionsCmd mirrors the MCP tool `list_sections` (V2-PLAN §3.2

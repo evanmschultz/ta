@@ -21,7 +21,6 @@ var updateCLIGolden = flag.Bool("update", false, "regenerate golden fixtures in 
 const cliTaskSchema = `
 [plans]
 paths = ["plans.toml"]
-format = "toml"
 description = "Test planning db."
 
 [plans.task]
@@ -181,8 +180,8 @@ func TestCreateCmdInlineData(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.t1",
-		"--type", "task",
+		"--path", root, "plans.t1",
+		"--type", "plans.task",
 		"--data", `{"id": "T1", "status": "todo"}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -193,7 +192,7 @@ func TestCreateCmdInlineData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v", dataPath, err)
 	}
-	if !strings.Contains(string(raw), "[plans.task.t1]") {
+	if !strings.Contains(string(raw), "[plans.t1]") {
 		t.Errorf("file missing record: %s", raw)
 	}
 }
@@ -206,7 +205,7 @@ func TestCreateCmdRequiresData(t *testing.T) {
 	cmd.SetErr(&errOut)
 	// --type satisfies the PLAN §12.17.9 Phase 9.4 required-flag guard
 	// so the test reaches the data-missing branch we want to assert.
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--type", "task"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1", "--type", "plans.task"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected error when --data is omitted off-TTY")
@@ -230,8 +229,8 @@ func TestCreateCmdInlineDataNonInteractiveRegression(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.regress",
-		"--type", "task",
+		"--path", root, "plans.regress",
+		"--type", "plans.task",
 		"--data", `{"id": "REGRESS", "status": "todo"}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -242,7 +241,7 @@ func TestCreateCmdInlineDataNonInteractiveRegression(t *testing.T) {
 		t.Fatalf("read plans.toml: %v", err)
 	}
 	body := string(raw)
-	if !strings.Contains(body, "[plans.task.regress]") || !strings.Contains(body, `id = "REGRESS"`) {
+	if !strings.Contains(body, "[plans.regress]") || !strings.Contains(body, `id = "REGRESS"`) {
 		t.Errorf("create --data path did not land record: %s", body)
 	}
 }
@@ -260,13 +259,13 @@ func TestCreateCmdRejectsTypeMismatch(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.t1",
-		"--type", "ghost",
+		"--path", root, "plans.t1",
+		"--type", "plans.ghost",
 		"--data", `{"id": "T1", "status": "todo"}`,
 	})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatalf("expected --type ghost to error against plans.task.t1")
+		t.Fatalf("expected --type ghost to error against plans.t1")
 	}
 	if !errors.Is(err, ops.ErrTypeMismatch) {
 		t.Errorf("error should wrap ops.ErrTypeMismatch: %v", err)
@@ -283,7 +282,7 @@ func TestCreateCmdRejectsTypeMismatch(t *testing.T) {
 func TestUpdateCmdRejectsTypeMismatch(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	initial := []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
+	initial := []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
 	if err := os.WriteFile(dataPath, initial, 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -292,13 +291,13 @@ func TestUpdateCmdRejectsTypeMismatch(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.t1",
-		"--type", "ghost",
+		"--path", root, "plans.t1",
+		"--type", "plans.ghost",
 		"--data", `{"status": "done"}`,
 	})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatalf("expected --type ghost to error against plans.task.t1")
+		t.Fatalf("expected --type ghost to error against plans.t1")
 	}
 	if !errors.Is(err, ops.ErrTypeMismatch) {
 		t.Errorf("error should wrap ops.ErrTypeMismatch: %v", err)
@@ -314,7 +313,7 @@ func TestUpdateCmdRejectsTypeMismatch(t *testing.T) {
 func TestDeleteCmdRejectsTypeMismatch(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	initial := []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
+	initial := []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
 	if err := os.WriteFile(dataPath, initial, 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -323,12 +322,12 @@ func TestDeleteCmdRejectsTypeMismatch(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.t1",
-		"--type", "ghost",
+		"--path", root, "plans.t1",
+		"--type", "plans.ghost",
 	})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatalf("expected --type ghost to error against plans.task.t1")
+		t.Fatalf("expected --type ghost to error against plans.t1")
 	}
 	if !errors.Is(err, ops.ErrTypeMismatch) {
 		t.Errorf("error should wrap ops.ErrTypeMismatch: %v", err)
@@ -344,14 +343,14 @@ func TestDeleteCmdRejectsTypeMismatch(t *testing.T) {
 func TestUpdateCmdRequiresDataOffTTY(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newUpdateCmd()
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected error when --data is omitted off-TTY")
@@ -364,7 +363,7 @@ func TestUpdateCmdRequiresDataOffTTY(t *testing.T) {
 func TestUpdateCmdInlineData(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newUpdateCmd()
@@ -372,7 +371,7 @@ func TestUpdateCmdInlineData(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.t1",
+		"--path", root, "plans.t1",
 		"--data", `{"id": "T1", "status": "done"}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -394,7 +393,6 @@ func TestUpdateCmdJSONNullPreservedToPatch(t *testing.T) {
 	const body = `
 [plans]
 paths = ["plans.toml"]
-format = "toml"
 description = "cli patch test."
 
 [plans.task]
@@ -409,7 +407,7 @@ type = "string"
 `
 	root := newSchemaFixtureWithBody(t, body)
 	dataPath := filepath.Join(root, "plans.toml")
-	initial := "[plans.task.t1]\nid = \"T1\"\nnotes = \"kept\"\n"
+	initial := "[plans.t1]\nid = \"T1\"\nnotes = \"kept\"\n"
 	if err := os.WriteFile(dataPath, []byte(initial), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -418,7 +416,7 @@ type = "string"
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.t1",
+		"--path", root, "plans.t1",
 		"--data", `{"notes": null}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -440,7 +438,7 @@ type = "string"
 func TestUpdateCmdEmptyDataIsNoOp(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	initial := []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
+	initial := []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n")
 	if err := os.WriteFile(dataPath, initial, 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -449,7 +447,7 @@ func TestUpdateCmdEmptyDataIsNoOp(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.t1",
+		"--path", root, "plans.t1",
 		"--data", `{}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -464,22 +462,22 @@ func TestUpdateCmdEmptyDataIsNoOp(t *testing.T) {
 func TestDeleteCmdRemovesRecord(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.task.b]\nid = \"B\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.b]\nid = \"B\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newDeleteCmd()
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "plans.task.a"})
+	cmd.SetArgs([]string{"--path", root, "plans.a"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
 	raw, _ := os.ReadFile(dataPath)
-	if strings.Contains(string(raw), "[plans.task.a]") {
+	if strings.Contains(string(raw), "[plans.a]") {
 		t.Errorf("delete did not remove: %s", raw)
 	}
-	if !strings.Contains(string(raw), "[plans.task.b]") {
+	if !strings.Contains(string(raw), "[plans.b]") {
 		t.Errorf("delete removed sibling: %s", raw)
 	}
 }
@@ -495,14 +493,14 @@ func TestDeleteCmdRemovesRecord(t *testing.T) {
 func TestGetCmdRendersAllDeclaredFields(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newGetCmd()
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
@@ -510,7 +508,7 @@ func TestGetCmdRendersAllDeclaredFields(t *testing.T) {
 	// Section header + both declared field labels + both values must
 	// appear. Raw TOML assignment syntax must NOT appear — that is the
 	// pre-refactor shape we are deliberately leaving behind.
-	for _, want := range []string{"plans.task.t1", "id", "T1", "status", "todo"} {
+	for _, want := range []string{"plans.t1", "id", "T1", "status", "todo"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("stdout missing %q:\n%s", want, s)
 		}
@@ -523,14 +521,14 @@ func TestGetCmdRendersAllDeclaredFields(t *testing.T) {
 func TestGetCmdFields(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newGetCmd()
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--fields", "id,status"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1", "--fields", "id,status"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
@@ -553,8 +551,7 @@ func TestGetCmdFields(t *testing.T) {
 // resolves to `<drop>.db`.
 const multiInstanceCLISchema = `
 [plan_db]
-paths = ["workflow/*/db"]
-format = "toml"
+paths = ["workflow/*/db.toml"]
 description = "Multi-file planning db."
 
 [plan_db.build_task]
@@ -787,8 +784,8 @@ func TestListSectionsCmdEmptyProject(t *testing.T) {
 func TestSearchCLIRenders(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
-		"[plans.task.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
+	seed := "[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
+		"[plans.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
 	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -798,17 +795,17 @@ func TestSearchCLIRenders(t *testing.T) {
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{
 		"--path", root,
-		"--scope", "plans.task",
+		"--scope", "plans",
 		"--match", `{"status":"todo"}`,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
 	s := out.String()
-	if !strings.Contains(s, "plans.task.t1") {
+	if !strings.Contains(s, "plans.t1") {
 		t.Errorf("stdout missing hit t1: %q", s)
 	}
-	if strings.Contains(s, "plans.task.t2") {
+	if strings.Contains(s, "plans.t2") {
 		t.Errorf("stdout should not carry t2: %q", s)
 	}
 }
@@ -821,7 +818,7 @@ func TestSearchCLINoHitsEmptyNotice(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task"})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
@@ -830,7 +827,7 @@ func TestSearchCLINoHitsEmptyNotice(t *testing.T) {
 	}
 }
 
-// seedSearchTasks writes n [plans.task.tNN] records with status=todo to
+// seedSearchTasks writes n [plans.tNN] records with status=todo to
 // plans.toml under a newSchemaFixture root so search CLI tests can
 // exercise the default-10 cap + --all + --limit + mutex behavior.
 func seedSearchTasks(t *testing.T, n int) string {
@@ -838,7 +835,7 @@ func seedSearchTasks(t *testing.T, n int) string {
 	root := newSchemaFixture(t)
 	var body strings.Builder
 	for i := 1; i <= n; i++ {
-		body.WriteString("[plans.task.t")
+		body.WriteString("[plans.t")
 		body.WriteString(padTwo(i))
 		body.WriteString("]\nid = \"T")
 		body.WriteString(padTwo(i))
@@ -869,7 +866,7 @@ func TestSearchCmdDefaultLimitCaps(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task", "--json"})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -891,7 +888,7 @@ func TestSearchCmdLimitFlag(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task", "--limit", "4", "--json"})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans", "--limit", "4", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -914,7 +911,7 @@ func TestSearchCmdAllFlag(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task", "--all", "--json"})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans", "--all", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -937,7 +934,7 @@ func TestSearchCmdMutex(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "--scope", "plans.task", "--limit", "3", "--all"})
+	cmd.SetArgs([]string{"--path", root, "--scope", "plans", "--limit", "3", "--all"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("expected --limit + --all to error")
 	}
@@ -973,8 +970,8 @@ func TestCreateCmdVerboseEchoesRecord(t *testing.T) {
 	cmd.SetOut(&quietOut)
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.quiet",
-		"--type", "task",
+		"--path", root, "plans.quiet",
+		"--type", "plans.task",
 		"--data", `{"id": "Q1", "status": "todo"}`,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -990,8 +987,8 @@ func TestCreateCmdVerboseEchoesRecord(t *testing.T) {
 	cmd.SetOut(&verboseOut)
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
-		"--path", root, "plans.task.loud",
-		"--type", "task",
+		"--path", root, "plans.loud",
+		"--type", "plans.task",
 		"--data", `{"id": "L1", "status": "todo"}`,
 		"--verbose",
 	})
@@ -999,7 +996,7 @@ func TestCreateCmdVerboseEchoesRecord(t *testing.T) {
 		t.Fatalf("verbose create: %v", err)
 	}
 	text := verboseOut.String()
-	if !strings.Contains(text, "[plans.task.loud]") {
+	if !strings.Contains(text, "[plans.loud]") {
 		t.Errorf("verbose create should echo record header:\n%s", text)
 	}
 	if !strings.Contains(text, `L1`) {
@@ -1014,14 +1011,14 @@ func TestCreateCmdVerboseEchoesRecord(t *testing.T) {
 func TestGetCmdJSONRawBytes(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newGetCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--json"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1032,8 +1029,8 @@ func TestGetCmdJSONRawBytes(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
-	if payload.Section != "plans.task.t1" {
-		t.Errorf("section = %q, want plans.task.t1", payload.Section)
+	if payload.Section != "plans.t1" {
+		t.Errorf("section = %q, want plans.t1", payload.Section)
 	}
 	if !strings.Contains(payload.Bytes, `id = "T1"`) {
 		t.Errorf("bytes missing record body: %q", payload.Bytes)
@@ -1045,14 +1042,14 @@ func TestGetCmdJSONRawBytes(t *testing.T) {
 func TestGetCmdJSONFields(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newGetCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--fields", "id,status", "--json"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1", "--fields", "id,status", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1075,7 +1072,7 @@ func TestGetCmdJSONFields(t *testing.T) {
 func TestListSectionsCmdJSON(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	body := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n[plans.task.t2]\nid = \"T2\"\nstatus = \"todo\"\n"
+	body := "[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n[plans.t2]\nid = \"T2\"\nstatus = \"todo\"\n"
 	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -1093,7 +1090,7 @@ func TestListSectionsCmdJSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
-	want := []string{"plans.task.t1", "plans.task.t2"}
+	want := []string{"plans.t1", "plans.t2"}
 	if len(payload.Sections) != len(want) {
 		t.Fatalf("sections = %v, want %v", payload.Sections, want)
 	}
@@ -1168,7 +1165,7 @@ func TestSchemaCmdGetJSONMetaSchema(t *testing.T) {
 func TestPathFlagAcceptedAcrossCommands(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
+	seed := "[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
 	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -1187,8 +1184,8 @@ func TestPathFlagAcceptedAcrossCommands(t *testing.T) {
 				c.SetErr(&bytes.Buffer{})
 				return c, c.SetArgs
 			},
-			okArgs:  []string{"--path", root, "plans.task.t1"},
-			badArgs: []string{root, "plans.task.t1"}, // 2 positionals; ExactArgs(1) rejects
+			okArgs:  []string{"--path", root, "plans.t1"},
+			badArgs: []string{root, "plans.t1"}, // 2 positionals; ExactArgs(1) rejects
 		},
 		{
 			name: "create",
@@ -1198,8 +1195,8 @@ func TestPathFlagAcceptedAcrossCommands(t *testing.T) {
 				c.SetErr(&bytes.Buffer{})
 				return c, c.SetArgs
 			},
-			okArgs:  []string{"--path", root, "plans.task.new1", "--type", "task", "--data", `{"id":"N1","status":"todo"}`},
-			badArgs: []string{root, "plans.task.new2", "--type", "task", "--data", `{"id":"N2","status":"todo"}`},
+			okArgs:  []string{"--path", root, "plans.new1", "--type", "plans.task", "--data", `{"id":"N1","status":"todo"}`},
+			badArgs: []string{root, "plans.new2", "--type", "plans.task", "--data", `{"id":"N2","status":"todo"}`},
 		},
 		{
 			name: "update",
@@ -1209,8 +1206,8 @@ func TestPathFlagAcceptedAcrossCommands(t *testing.T) {
 				c.SetErr(&bytes.Buffer{})
 				return c, c.SetArgs
 			},
-			okArgs:  []string{"--path", root, "plans.task.t1", "--data", `{"id":"T1","status":"doing"}`},
-			badArgs: []string{root, "plans.task.t1", "--data", `{"id":"T1","status":"done"}`},
+			okArgs:  []string{"--path", root, "plans.t1", "--data", `{"id":"T1","status":"doing"}`},
+			badArgs: []string{root, "plans.t1", "--data", `{"id":"T1","status":"done"}`},
 		},
 		{
 			name: "delete",
@@ -1220,8 +1217,8 @@ func TestPathFlagAcceptedAcrossCommands(t *testing.T) {
 				c.SetErr(&bytes.Buffer{})
 				return c, c.SetArgs
 			},
-			okArgs:  []string{"--path", root, "plans.task.t1"},
-			badArgs: []string{root, "plans.task.t1"},
+			okArgs:  []string{"--path", root, "plans.t1"},
+			badArgs: []string{root, "plans.t1"},
 		},
 		{
 			name: "schema",
@@ -1242,8 +1239,8 @@ func TestPathFlagAcceptedAcrossCommands(t *testing.T) {
 				c.SetErr(&bytes.Buffer{})
 				return c, c.SetArgs
 			},
-			okArgs:  []string{"--path", root, "--scope", "plans.task"},
-			badArgs: []string{root, "--scope", "plans.task"}, // any positional rejects
+			okArgs:  []string{"--path", root, "--scope", "plans"},
+			badArgs: []string{root, "--scope", "plans"}, // any positional rejects
 		},
 	}
 
@@ -1270,7 +1267,7 @@ func TestPathFlagAcceptedAcrossCommands(t *testing.T) {
 func TestGetCmdDefaultsPathToCwd(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	prev, err := os.Getwd()
@@ -1286,7 +1283,7 @@ func TestGetCmdDefaultsPathToCwd(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"plans.task.t1"})
+	cmd.SetArgs([]string{"plans.t1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("default-cwd --path resolution failed: %v stderr=%s", err, errOut.String())
 	}
@@ -1294,7 +1291,7 @@ func TestGetCmdDefaultsPathToCwd(t *testing.T) {
 	// through the shared helper — assert label + value substrings, not
 	// raw TOML assignment syntax.
 	s := out.String()
-	for _, want := range []string{"plans.task.t1", "id", "T1"} {
+	for _, want := range []string{"plans.t1", "id", "T1"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("stdout missing %q: %s", want, s)
 		}
@@ -1306,7 +1303,7 @@ func TestGetCmdDefaultsPathToCwd(t *testing.T) {
 func TestSearchCmdDefaultsPathToCwd(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
+	seed := "[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"
 	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -1323,11 +1320,11 @@ func TestSearchCmdDefaultsPathToCwd(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--scope", "plans.task"})
+	cmd.SetArgs([]string{"--scope", "plans"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("search default-cwd failed: %v stderr=%s", err, errOut.String())
 	}
-	if !strings.Contains(out.String(), "plans.task.t1") {
+	if !strings.Contains(out.String(), "plans.t1") {
 		t.Errorf("search stdout missing hit: %s", out.String())
 	}
 }
@@ -1365,8 +1362,8 @@ func TestSchemaCmdRelativePathResolves(t *testing.T) {
 func TestSearchCmdJSON(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
-		"[plans.task.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
+	seed := "[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
+		"[plans.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
 	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -1376,7 +1373,7 @@ func TestSearchCmdJSON(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"--path", root,
-		"--scope", "plans.task",
+		"--scope", "plans",
 		"--match", `{"status":"todo"}`,
 		"--json",
 	})
@@ -1396,8 +1393,8 @@ func TestSearchCmdJSON(t *testing.T) {
 	if len(payload.Hits) != 1 {
 		t.Fatalf("hits = %d, want 1: %+v", len(payload.Hits), payload.Hits)
 	}
-	if payload.Hits[0].Section != "plans.task.t1" {
-		t.Errorf("section = %q, want plans.task.t1", payload.Hits[0].Section)
+	if payload.Hits[0].Section != "plans.t1" {
+		t.Errorf("section = %q, want plans.t1", payload.Hits[0].Section)
 	}
 	if payload.Hits[0].Fields["status"] != "todo" {
 		t.Errorf("fields.status = %v, want todo", payload.Hits[0].Fields["status"])
@@ -1407,21 +1404,21 @@ func TestSearchCmdJSON(t *testing.T) {
 // ---- §12.17.5 [B2] get scope-expansion ------------------------------
 
 // TestGetCmdSingleRecordGolden is the §12.17.5 [B2] regression lock:
-// the representative `ta get plans.task.t1` laslig output MUST stay
+// the representative `ta get plans.t1` laslig output MUST stay
 // byte-identical across the scope-expansion refactor. A legitimate
 // diff must be justified in the commit and the golden regenerated via
 // `go test ./cmd/ta -update`.
 func TestGetCmdSingleRecordGolden(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newGetCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1434,14 +1431,14 @@ func TestGetCmdSingleRecordGolden(t *testing.T) {
 func TestGetCmdSingleRecordJSONGolden(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cmd := newGetCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--json"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1453,8 +1450,8 @@ func TestGetCmdSingleRecordJSONGolden(t *testing.T) {
 func TestGetCmdScopeMultipleRecords(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
-		"[plans.task.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
+	seed := "[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
+		"[plans.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
 	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -1462,12 +1459,12 @@ func TestGetCmdScopeMultipleRecords(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task"})
+	cmd.SetArgs([]string{"--path", root, "plans"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	s := out.String()
-	for _, want := range []string{"plans.task.t1", "plans.task.t2", "T1", "T2", "todo", "doing"} {
+	for _, want := range []string{"plans.t1", "plans.t2", "T1", "T2", "todo", "doing"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("scope output missing %q:\n%s", want, s)
 		}
@@ -1480,8 +1477,8 @@ func TestGetCmdScopeMultipleRecords(t *testing.T) {
 func TestGetCmdScopeJSONRecords(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	seed := "[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
-		"[plans.task.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
+	seed := "[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n\n" +
+		"[plans.t2]\nid = \"T2\"\nstatus = \"doing\"\n"
 	if err := os.WriteFile(dataPath, []byte(seed), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -1489,7 +1486,7 @@ func TestGetCmdScopeJSONRecords(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task", "--json", "--all"})
+	cmd.SetArgs([]string{"--path", root, "plans", "--json", "--all"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1505,7 +1502,7 @@ func TestGetCmdScopeJSONRecords(t *testing.T) {
 	if len(payload.Records) != 2 {
 		t.Fatalf("records = %d, want 2: %+v", len(payload.Records), payload.Records)
 	}
-	want := []string{"plans.task.t1", "plans.task.t2"}
+	want := []string{"plans.t1", "plans.t2"}
 	for i, w := range want {
 		if payload.Records[i].Section != w {
 			t.Errorf("records[%d].Section = %q, want %q", i, payload.Records[i].Section, w)
@@ -1523,7 +1520,7 @@ func TestGetCmdScopeDefaultLimit(t *testing.T) {
 	dataPath := filepath.Join(root, "plans.toml")
 	var body bytes.Buffer
 	for i := 1; i <= 15; i++ {
-		body.WriteString("[plans.task.t")
+		body.WriteString("[plans.t")
 		body.WriteString(pad2(i))
 		body.WriteString("]\nid = \"T")
 		body.WriteString(pad2(i))
@@ -1536,7 +1533,7 @@ func TestGetCmdScopeDefaultLimit(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task", "--json"})
+	cmd.SetArgs([]string{"--path", root, "plans", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1558,7 +1555,7 @@ func TestGetCmdScopeLimitFlag(t *testing.T) {
 	dataPath := filepath.Join(root, "plans.toml")
 	var body bytes.Buffer
 	for i := 1; i <= 15; i++ {
-		body.WriteString("[plans.task.t")
+		body.WriteString("[plans.t")
 		body.WriteString(pad2(i))
 		body.WriteString("]\nid = \"T")
 		body.WriteString(pad2(i))
@@ -1571,7 +1568,7 @@ func TestGetCmdScopeLimitFlag(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task", "--json", "--limit", "4"})
+	cmd.SetArgs([]string{"--path", root, "plans", "--json", "--limit", "4"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1593,7 +1590,7 @@ func TestGetCmdScopeAllFlag(t *testing.T) {
 	dataPath := filepath.Join(root, "plans.toml")
 	var body bytes.Buffer
 	for i := 1; i <= 15; i++ {
-		body.WriteString("[plans.task.t")
+		body.WriteString("[plans.t")
 		body.WriteString(pad2(i))
 		body.WriteString("]\nid = \"T")
 		body.WriteString(pad2(i))
@@ -1606,7 +1603,7 @@ func TestGetCmdScopeAllFlag(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task", "--json", "--all"})
+	cmd.SetArgs([]string{"--path", root, "plans", "--json", "--all"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1628,7 +1625,7 @@ func TestGetCmdScopeMutex(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"--path", root, "plans.task", "--limit", "5", "--all"})
+	cmd.SetArgs([]string{"--path", root, "plans", "--limit", "5", "--all"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("expected --limit + --all to error")
 	}
@@ -1640,7 +1637,7 @@ func TestGetCmdScopeMutex(t *testing.T) {
 func TestGetCmdSingleRecordIgnoresLimitAll(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
-	if err := os.WriteFile(dataPath, []byte("[plans.task.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(dataPath, []byte("[plans.t1]\nid = \"T1\"\nstatus = \"todo\"\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	// --all on a single-record address must not error and must emit
@@ -1649,7 +1646,7 @@ func TestGetCmdSingleRecordIgnoresLimitAll(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--path", root, "plans.task.t1", "--json", "--all"})
+	cmd.SetArgs([]string{"--path", root, "plans.t1", "--json", "--all"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1661,7 +1658,7 @@ func TestGetCmdSingleRecordIgnoresLimitAll(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
-	if payload.Section != "plans.task.t1" {
+	if payload.Section != "plans.t1" {
 		t.Errorf("single-record --all leaked into scope shape; section = %q", payload.Section)
 	}
 	if payload.Records != nil {
@@ -1863,7 +1860,7 @@ func TestSchemaCmdPathsAppendDataMutex(t *testing.T) {
 		"--kind", "db",
 		"--name", "plans",
 		"--paths-append", "archive.toml",
-		"--data", `{"paths":["plans.toml","archive.toml"],"format":"toml"}`,
+		"--data", `{"paths":["plans.toml","archive.toml"]}`,
 	})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("expected --paths-append + --data to error")

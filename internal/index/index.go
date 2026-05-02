@@ -21,10 +21,11 @@ import (
 const IndexFileName = "index.toml"
 
 // FormatVersion is the only `format_version` value this package writes
-// or reads. Future format changes bump this constant and gain a Loader
-// migration; the loader rejects every other value loudly so stale on-
-// disk files cannot silently masquerade as the current shape.
-const FormatVersion = 1
+// or reads. F10 (PLAN §12.17.9) bumps to 2: brackets on disk are now
+// the id verbatim (no type segment), and index keys mirror that shape.
+// The loader rejects every other value loudly so stale on-disk files
+// cannot silently masquerade as the current shape.
+const FormatVersion = 2
 
 // formatVersionKey is the literal TOML key for the top-level scalar.
 const formatVersionKey = "format_version"
@@ -49,9 +50,10 @@ type Entry struct {
 // Load (which seeds FormatVersion when the file is missing) or set
 // FormatVersion explicitly.
 //
-// Records is keyed by the canonical address (the FULL dotted form,
-// `<file-relpath>.<type>.<id-tail>`). Save expands each key back into
-// nested TOML tables so the on-disk shape stays human-readable.
+// Records is keyed by the canonical id (the FULL dotted form,
+// `<file-relpath>.<bracket-key>`, which IS the id under F10). Save
+// expands each key back into nested TOML tables so the on-disk shape
+// stays human-readable.
 type Index struct {
 	FormatVersion int
 	Records       map[string]Entry

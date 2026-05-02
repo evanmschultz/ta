@@ -23,7 +23,6 @@ func TestValidateNumericEnum(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
 paths = ["rows.toml"]
-format = "toml"
 
 [rows.row]
 description = "Numeric enums."
@@ -51,7 +50,6 @@ func TestValidateIntegerTypeVariants(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
 paths = ["rows.toml"]
-format = "toml"
 
 [rows.row]
 description = "Integer variants."
@@ -79,7 +77,6 @@ func TestValidateFloatTypeVariants(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
 paths = ["rows.toml"]
-format = "toml"
 
 [rows.row]
 description = "Float variants."
@@ -109,7 +106,6 @@ func TestValidateArrayAndTableRejections(t *testing.T) {
 	reg, err := Load(strings.NewReader(`
 [rows]
 paths = ["rows.toml"]
-format = "toml"
 
 [rows.row]
 description = "Array/table rejection cases."

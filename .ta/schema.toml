@@ -1,87 +1,45 @@
-# Dogfood schema for the `ta` project itself. Drives the project's own
-# `workflow/` planning records (one drop per subdir, each holding a
-# `db.toml` of build tasks and QA twins).
-#
-# Every db declares:
-#   - paths    = [...]                  one or more mount paths (project-
-#                                       relative or home-relative `~/...`).
-#                                       Glob `*` is allowed for one segment
-#                                       per entry. See PLAN §12.17.9.
-#   - format   = "toml" | "md"          canonical on-disk format
-#   - description = "..."               (optional, recommended)
-#
-# Record types live under [<db>.<type>] with `description` (required) and,
-# for MD dbs, `heading = 1..6`. Fields live under [<db>.<type>.fields.<name>]
-# with metadata (type, required, enum, description, default, format).
-#
-# Types: string, integer, float, boolean, datetime, array, table.
+[notes]
+description = 'freeform notes'
+paths = ['notes.toml']
 
-# ----------------------------------------------------------------------------
-# plan_db — TOML-backed planning records. Multi-instance via glob: each
-# subdir of workflow/ holds a canonical db.toml with build_task and qa_task
-# records for that drop. Phase 9.1 (PLAN §12.17.9) migrates this from the
-# old `directory = "workflow"` shape.
-# ----------------------------------------------------------------------------
-[plan_db]
-paths = ["workflow/*/db"]
-format = "toml"
-description = "Planning worklog. Each immediate subdir of workflow/ is one drop; its db.toml holds build tasks and QA twins for that drop."
+[notes.note]
+description = 'a freeform journal note'
 
-[plan_db.build_task]
-description = "One unit of implementation work. Smallest addressable slice of planning."
+[notes.note.fields]
+[notes.note.fields.body]
+description = 'freeform writeup; markdown supported'
+format = 'markdown'
+type = 'string'
 
-[plan_db.build_task.fields.id]
-type = "string"
+[notes.note.fields.tags]
+description = 'optional tag list (each entry a free-form string)'
+type = 'array'
+
+[notes.note.fields.title]
+description = 'one-line headline'
 required = true
-description = "Stable identifier, e.g. 'TASK-001'. Never reused."
+type = 'string'
 
-[plan_db.build_task.fields.status]
-type = "string"
+[plans]
+description = 'task tracker'
+paths = ['plans.toml']
+
+[plans.task]
+description = 'a unit of work'
+
+[plans.task.fields]
+[plans.task.fields.id]
+description = 'stable identifier'
 required = true
-enum = ["todo", "doing", "review", "blocked", "done"]
-description = "Current state. 'review' is the project gate before 'done'."
+type = 'string'
 
-[plan_db.build_task.fields.title]
-type = "string"
+[plans.task.fields.status]
+description = 'current state'
+enum = ['todo', 'doing', 'done']
 required = true
-description = "One-line headline. No trailing period."
+type = 'string'
 
-[plan_db.build_task.fields.owner]
-type = "string"
+[plans.task.fields.title]
+description = 'one-line summary'
 required = true
-description = "GitHub handle of the task owner."
-
-[plan_db.build_task.fields.body]
-type = "string"
-format = "markdown"
-description = "Approach, evidence, traces, unknowns. Markdown."
-
-[plan_db.qa_task]
-description = "QA verification twin of one build_task. Auto-generated on build_task create; owned by a QA role."
-
-[plan_db.qa_task.fields.id]
-type = "string"
-required = true
-description = "QA identifier matching the build_task: 'QA-001' twins 'TASK-001'."
-
-[plan_db.qa_task.fields.parent_build_task]
-type = "string"
-required = true
-description = "Build task id this QA verifies."
-
-[plan_db.qa_task.fields.kind]
-type = "string"
-required = true
-enum = ["proof", "falsification"]
-description = "Which QA pass this twin performs."
-
-[plan_db.qa_task.fields.status]
-type = "string"
-required = true
-enum = ["todo", "doing", "passed", "failed"]
-description = "QA outcome state."
-
-[plan_db.qa_task.fields.body]
-type = "string"
-format = "markdown"
-description = "QA notes: evidence, counterexamples, conclusions."
+type = 'string'

@@ -3,15 +3,16 @@ package ops
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/evanmschultz/ta/internal/db"
 	"github.com/evanmschultz/ta/internal/index"
 )
 
-// spliceOut returns buf with the bytes in rng removed. Atomic-write
-// safe: caller writes the returned buffer to disk under WriteAtomic.
+// spliceOut returns buf with the bytes in rng removed.
 func spliceOut(buf []byte, rng [2]int) []byte {
 	out := make([]byte, 0, len(buf)-(rng[1]-rng[0]))
 	out = append(out, buf[:rng[0]]...)
@@ -33,32 +34,30 @@ func readFileIfExists(path string) ([]byte, error) {
 }
 
 // validationPath rebuilds the "<db>.<type>.<id>" form schema.Validate
-// expects from a resolved Address. The validation form is internal and
-// independent of the address grammar — it is the pre-9.1 address shape
-// used by Validate's two-segment lookup. Phase 9.2 derives it from the
-// resolved Address rather than slicing raw segments.
-func validationPath(addr db.Address) string {
-	parts := []string{addr.DBName, addr.Type}
-	if addr.ID != "" {
-		parts = append(parts, addr.ID)
+// expects, given a resolved id and its bare type name. The validation
+// form is INTERNAL and independent of the user-facing id grammar — it
+// is the legacy address shape used by Validate's two-segment lookup.
+func validationPath(resolved db.Resolved, bareType string) string {
+	parts := []string{resolved.DBName, bareType}
+	if resolved.BracketKey != "" {
+		parts = append(parts, resolved.BracketKey)
 	}
 	return joinDot(parts)
 }
 
 // tomlRelPathForFields returns the backend-relative record path for
-// use by extractTOMLFields. Single-file mounts embed the db name in
-// every bracket path on disk (legacy `[plans.task.t1]` form), so the
-// rel path is `<db>.<type>.<id>`. Multi-file mounts emit bare brackets
-// (`[build_task.task_001]`) so the rel path is `<type>.<id>`.
-func tomlRelPathForFields(addr db.Address) string {
-	base := addr.Type
-	if addr.ID != "" {
-		base += "." + addr.ID
+// use by extractTOMLFields. Per F10 the on-disk bracket IS the id, so
+// the relative path is the bracket-key alone for multi-file dbs and
+// the file-relpath-prefixed form for single-file dbs (where the
+// file-relpath sits inside the bracket).
+func tomlRelPathForFields(resolved db.Resolved) string {
+	if resolved.SingleFileMount {
+		// Single-file: bracket is `<file-relpath>.<bracket-key>`; the
+		// pelletier-decoded TOML root needs the full path to descend
+		// from `root[<file-relpath>][<bracket-key>...]`.
+		return resolved.Canonical()
 	}
-	if addr.SingleFileMount {
-		return addr.DBName + "." + base
-	}
-	return base
+	return resolved.BracketKey
 }
 
 // joinDot joins non-empty segments with '.'.
@@ -77,61 +76,122 @@ func joinDot(parts []string) string {
 	return out
 }
 
-// verifyTypeAgainstAddress checks the caller-supplied typeName against
-// the type segment carried by the parsed address. PLAN §12.17.9 Phase
-// 9.4: when both are present and disagree, surface ErrTypeMismatch. An
-// empty typeName is permitted on read-side ops (Get / Update / Delete /
-// Search) — Create's required-type guard fires upstream of this helper.
-func verifyTypeAgainstAddress(typeName string, addr db.Address) error {
+// resolveTypeForID resolves the authoritative type for a given id. Per
+// F10 (PLAN §12.17.9 §2 truth table):
+//
+//	typeName     | requireType | Index hit? | Behavior
+//	"" (empty)   | true        | n/a        | ErrTypeMismatch (Create needs --type)
+//	"" (empty)   | false       | yes        | Return index entry's type
+//	"" (empty)   | false       | no         | ErrTypeUnresolved
+//	<db>.<type>  | true        | n/a        | Validate against schema; return type
+//	<db>.<type>  | false       | yes (match)| Return matching type
+//	<db>.<type>  | false       | yes (mis)  | ErrTypeMismatch
+//	<db>.<type>  | false       | no         | Return typeName as authoritative
+//	<bare>       | any         | n/a        | ErrTypeNotQualified
+//
+// On success returns the BARE type name (for downstream schema
+// lookup); ErrIndexMissing wraps a missing-file index load failure.
+func resolveTypeForID(resolved db.Resolved, typeName string, requireType bool, projectRoot string, declaredTypes map[string]struct{}) (string, error) {
 	if typeName == "" {
-		return nil
+		if requireType {
+			return "", fmt.Errorf("%w: create requires --type (db-qualified, e.g. `plans.task`)", ErrTypeMismatch)
+		}
+		// Look up the index entry for the canonical id. Missing-index
+		// or missing-entry falls through to a best-effort "first
+		// declared type" resolution — F10 keeps the loud-fail
+		// discipline only for multi-type dbs where the choice is
+		// genuinely ambiguous.
+		if idx, err := tryLoadIndex(projectRoot); err == nil && idx != nil {
+			if entry, ok := idx.Get(resolved.Canonical()); ok {
+				return entry.Type, nil
+			}
+		}
+		// No index entry. Pick the first declared type if there is
+		// only one; otherwise fail loudly per F10.
+		if len(declaredTypes) == 1 {
+			for n := range declaredTypes {
+				return n, nil
+			}
+		}
+		return "", fmt.Errorf("%w: id %q has no index entry and db has multiple declared types",
+			ErrTypeUnresolved, resolved.Canonical())
 	}
-	if typeName != addr.Type {
-		return fmt.Errorf(
-			"%w: --type %q disagrees with address type segment %q in %q",
-			ErrTypeMismatch, typeName, addr.Type, addr.Canonical())
+	// typeName must be db-qualified (`<db>.<type>`).
+	dot := strings.Index(typeName, ".")
+	if dot < 0 {
+		return "", fmt.Errorf("%w: got %q, want `%s.<type>`", ErrTypeNotQualified, typeName, resolved.DBName)
 	}
-	return nil
+	dbPart := typeName[:dot]
+	bareType := typeName[dot+1:]
+	if dbPart != resolved.DBName {
+		return "", fmt.Errorf("%w: type db %q does not match resolved db %q",
+			ErrTypeMismatch, dbPart, resolved.DBName)
+	}
+	if bareType == "" {
+		return "", fmt.Errorf("%w: empty type after %q.", ErrTypeNotQualified, dbPart)
+	}
+	if _, declared := declaredTypes[bareType]; !declared {
+		return "", fmt.Errorf("%w: type %q not declared on db %q",
+			ErrTypeMismatch, bareType, resolved.DBName)
+	}
+	if requireType {
+		return bareType, nil
+	}
+	// Optional path: cross-check against index when present; tolerate
+	// missing index (no entry means caller-supplied is authoritative).
+	if idx, err := tryLoadIndex(projectRoot); err == nil && idx != nil {
+		if entry, ok := idx.Get(resolved.Canonical()); ok {
+			if entry.Type != bareType {
+				return "", fmt.Errorf(
+					"%w: index records type %q for %q but caller supplied %q (run `ta index rebuild`)",
+					ErrTypeMismatch, entry.Type, resolved.Canonical(), bareType)
+			}
+		}
+	}
+	return bareType, nil
 }
 
-// verifyTypeAgainstIndex consults `.ta/index.toml` and surfaces
-// ErrIndexMismatch when its recorded type for the canonical address
-// disagrees with the address-resolved type. Missing-from-index is NOT
-// an error — Phase 9.4 keeps the address grammar carrying the type
-// segment, so an empty / partial / not-yet-rebuilt index is tolerated.
-// Index load failures other than missing-file propagate wrapped.
-func verifyTypeAgainstIndex(projectRoot string, addr db.Address) error {
+// tryLoadIndex loads the project's index, returning nil (no error)
+// when the index file is absent so callers can fall back to a
+// best-effort path. Other errors propagate wrapped.
+func tryLoadIndex(projectRoot string) (*index.Index, error) {
+	path := index.Path(projectRoot)
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("ops: stat index: %w", err)
+	}
 	idx, err := index.Load(projectRoot)
 	if err != nil {
-		return fmt.Errorf("ops: load index: %w", err)
+		return nil, fmt.Errorf("ops: load index: %w", err)
 	}
-	canonical := addr.Canonical()
-	entry, ok := idx.Get(canonical)
-	if !ok {
-		return nil
-	}
-	if entry.Type != addr.Type {
-		return fmt.Errorf(
-			"%w: index records type %q for %q but address resolves to %q (run `ta index rebuild`)",
-			ErrIndexMismatch, entry.Type, canonical, addr.Type)
-	}
-	return nil
+	return idx, nil
 }
 
-// writeIndexEntry upserts the canonical address into `.ta/index.toml`
-// after a successful Create / Update. typeName is the authoritative
-// type to record; on update we pass addr.Type so the index never
-// silently drifts from the address grammar. The disk write succeeded
-// already by the time this helper runs — any error here is a recovery
-// hint, not a transactional rollback target. Callers wrap the failure
-// so the user sees both the disk-success and the index-failure facts.
-func writeIndexEntry(projectRoot string, addr db.Address, typeName string) error {
+// loadIndexOrSentinel is the strict variant: a missing index file
+// surfaces ErrIndexMissing. Used by callers that want loud failure.
+func loadIndexOrSentinel(projectRoot string) (*index.Index, error) {
+	idx, err := tryLoadIndex(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	if idx == nil {
+		return nil, fmt.Errorf("%w: %s", ErrIndexMissing, index.Path(projectRoot))
+	}
+	return idx, nil
+}
+
+// writeIndexEntry upserts the canonical id into `.ta/index.toml`
+// after a successful Create / Update.
+func writeIndexEntry(projectRoot string, resolved db.Resolved, typeName string) error {
+	// On write paths, missing index is OK; we'll create it.
 	idx, err := index.Load(projectRoot)
 	if err != nil {
 		return fmt.Errorf("ops: load index: %w (record on disk; run `ta index rebuild`)", err)
 	}
 	now := time.Now().UTC()
-	idx.Put(addr.Canonical(), index.Entry{
+	idx.Put(resolved.Canonical(), index.Entry{
 		Type:    typeName,
 		Created: now,
 		Updated: now,
@@ -142,26 +202,19 @@ func writeIndexEntry(projectRoot string, addr db.Address, typeName string) error
 	return nil
 }
 
-// deleteIndexEntry removes the canonical address from `.ta/index.toml`
-// after a successful Delete. A missing entry is a no-op (Index.Delete
-// already tolerates the absent case). Same recovery-hint shape as
-// writeIndexEntry — disk truth has already changed; we surface but
-// don't roll back on index-write failures.
-func deleteIndexEntry(projectRoot string, addr db.Address) error {
+// deleteIndexEntry removes the canonical id from `.ta/index.toml`
+// after a successful Delete. A missing entry is a no-op.
+//
+// Per F10 (PLAN §12.17.9), the legacy ErrUnknownFormatVersion
+// tolerance retires — any load failure including a stale format
+// version surfaces loudly. The disk delete already succeeded; the
+// caller wraps the error so the user sees both facts.
+func deleteIndexEntry(projectRoot string, resolved db.Resolved) error {
 	idx, err := index.Load(projectRoot)
 	if err != nil {
-		// A missing or unreadable index here is not fatal: the disk
-		// delete succeeded. Tolerate format-version errors during the
-		// migration window (Phase 9.4 callers may run against projects
-		// whose index has not been rebuilt yet) by surfacing the load
-		// failure but not blocking the success path. Match other ops
-		// that lean on the index opportunistically.
-		if errors.Is(err, index.ErrUnknownFormatVersion) {
-			return nil
-		}
 		return fmt.Errorf("ops: load index: %w (record removed from disk; run `ta index rebuild`)", err)
 	}
-	idx.Delete(addr.Canonical())
+	idx.Delete(resolved.Canonical())
 	if err := idx.Save(projectRoot); err != nil {
 		return fmt.Errorf("ops: save index: %w (record removed from disk; run `ta index rebuild`)", err)
 	}

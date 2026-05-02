@@ -1,0 +1,15 @@
+[notes.note-001]
+title = "first note (PATCHed via MCP)"
+[notes.note-003]
+body = "draft material — covers Phase 9.1 paths model, address grammar (with F10 caveat), runtime index, --type flag, multi-select picker, paths sugar, retired upsert."
+tags = ["release", "v0.1.0"]
+title = "release notes draft"
+
+[notes.note-004]
+body = "F1: install validation. F2: outcome copy. F3: placeholder decision. F4: examples remote URL. F5: ta schema dead-end. F6: schema TUI. F7: incremental type build. F8: MCP reload. F9: cache binding. F10: address grammar."
+tags = ["fixes", "punchlist"]
+title = "F-line punch list"
+
+[notes.upsert-via-update]
+body = "Created through mcp__ta__update on a non-existent address."
+title = "upsert via update"

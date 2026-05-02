@@ -10,34 +10,43 @@ import (
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
-// buildBackend constructs a record.Backend for the declared db, shaped
-// per db format. Declared-type names are format-dependent because the
-// data scanners anchor differently:
+// buildBackend constructs a record.Backend for the declared db.
 //
-//   - TOML single-file mount: the on-disk file carries the db name in
-//     the bracket path (e.g. `plans.toml` with `[plans.task.t1]`). So
-//     the declared type prefix is "<db>.<type>" (e.g. "plans.task").
+// Per F10 (PLAN §12.17.9), the bracket = id verbatim. The TOML
+// scanner's declared-type prefix list is just the bare type names
+// for multi-file dbs and the file-relpath-prefixed-by-type form for
+// single-file dbs is not used — single-file dbs ALSO emit brackets
+// where the file-relpath is the FIRST segment (the bracket IS the id).
+// For the scanner to recognize all records in a single-file db, we
+// pass the file-relpath as the prefix (one entry per declared type
+// since types share the prefix shape).
 //
-//   - TOML multi-file mount (glob or collection): the on-disk file
-//     carries bare type brackets (e.g. `workflow/ta/db.toml` with
-//     `[build_task.task_001]`). The declared type prefix is "<type>".
+// Wait: that requires resolved info. Simpler path: we pass bare type
+// names; the scanner will only find brackets that start with one of
+// those declared types. For SINGLE-FILE dbs whose file-relpath equals
+// the db name (the common case `plans.toml` → file-relpath `plans`),
+// id `plans.demo-1` has on-disk bracket `[plans.demo-1]`; the scanner
+// must recognize `plans` as a declared "scanner-prefix" — but `plans`
+// is a db NAME, not a type name.
 //
-//   - MD (any shape): DeclaredType.Heading drives scanning; Name is the
-//     bare type name ("section", "title"). Address stripping inside the
-//     MD backend handles leading <db>[.<instance>] segments for us.
+// Resolution: for single-file dbs, the scanner's declared prefix is
+// the file-relpath itself (which is what the TOML bracket starts with
+// for any record under that db). For multi-file dbs, brackets in each
+// file start with the bracket-key (which the user picks freely; the
+// scanner needs to enumerate every top-level table). The TOML
+// backend's List with empty prefix-anchor + arbitrary declared types
+// won't work without a major scanner refactor.
 //
-// `singleFile` is the resolved Address.SingleFileMount (or, for callers
-// without an Address handy, schema.IsSingleFileDB(dbDecl)). It drives
-// the TOML bracket-form choice — db-prefixed for single-file mounts,
-// bare for everything else (PLAN §12.17.9 Phase 9.2).
-func buildBackend(dbDecl schema.DB, singleFile bool) (record.Backend, error) {
+// Pragmatic F10 path: per dev-locked decision (no half-migrated
+// state), the TOML backend continues to receive a prefix-anchor list,
+// but we pass each declared type as its own prefix. For single-file
+// dbs we pass the file-relpath as the prefix; the scanner finds every
+// `[<file-relpath>.X]` bracket, irrespective of X. For multi-file dbs
+// we pass the bare type names as before.
+func buildBackend(dbDecl schema.DB, resolved db.Resolved) (record.Backend, error) {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
-		types := make([]record.DeclaredType, 0, len(dbDecl.Types))
-		for typeName := range dbDecl.Types {
-			prefix := tomlDeclaredName(dbDecl, typeName, singleFile)
-			types = append(types, record.DeclaredType{Name: prefix})
-		}
+		types := tomlScannerTypes(dbDecl, resolved)
 		return toml.NewBackend(types), nil
 	case schema.FormatMD:
 		types := make([]record.DeclaredType, 0, len(dbDecl.Types))
@@ -57,59 +66,46 @@ func buildBackend(dbDecl schema.DB, singleFile bool) (record.Backend, error) {
 	}
 }
 
-// tomlDeclaredName returns the DeclaredType.Name the TOML backend
-// expects given the resolved mount shape. Single-file mounts embed the
-// db name in every bracket path on disk; multi-file mounts strip it
-// (each file carries only "<type>.<id>"). The bracket-form choice keys
-// off the resolved Address.SingleFileMount (PLAN §12.17.9 Phase 9.2),
-// not the legacy IsSingleFile DB-shape view.
-func tomlDeclaredName(dbDecl schema.DB, typeName string, singleFile bool) string {
-	if singleFile {
-		return dbDecl.Name + "." + typeName
+// tomlScannerTypes returns the declared-prefix list for the TOML
+// scanner. For single-file dbs the scanner anchors at the file-relpath
+// (every record's bracket starts with `<file-relpath>.`). For
+// multi-file dbs the scanner anchors on declared type names.
+func tomlScannerTypes(dbDecl schema.DB, resolved db.Resolved) []record.DeclaredType {
+	if resolved.SingleFileMount {
+		return []record.DeclaredType{{Name: resolved.FileRelPath}}
 	}
-	return typeName
+	out := make([]record.DeclaredType, 0, len(dbDecl.Types))
+	for typeName := range dbDecl.Types {
+		out = append(out, record.DeclaredType{Name: typeName})
+	}
+	return out
 }
 
-// backendSectionPath converts the resolved Address into the path shape
+// backendSectionPath converts the resolved id into the path shape
 // each backend expects for Find/Emit/Splice.
 //
-// TOML wants the on-disk bracket form: db-prefixed for single-file
-// mounts (`plans.task.t1`), bare for everything else (`build_task.t1`).
-// tomlBracketPath builds that from the address fields directly so we
-// no longer need to slice the input string.
-//
-// MD wants the full address verbatim — Backend.Find / Splice strip
-// leading <db>[.<instance>] segments internally to find the type-name
-// anchor. We pass the canonical address back so the strip-loop sees
-// the same shape it always has.
-func backendSectionPath(dbDecl schema.DB, addr db.Address) string {
+// Per F10 the on-disk bracket IS the id verbatim. For single-file
+// dbs the bracket starts with the file-relpath; for multi-file dbs
+// the bracket is the bracket-key alone (relative to its file).
+func backendSectionPath(dbDecl schema.DB, resolved db.Resolved) string {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
-		return tomlBracketPath(addr)
+		return tomlBracketPath(resolved)
 	case schema.FormatMD:
-		return addr.Canonical()
+		// MD addresses are still type-anchored; pass the canonical id.
+		return resolved.Canonical()
 	default:
-		return addr.Canonical()
+		return resolved.Canonical()
 	}
 }
 
-// tomlBracketPath builds the on-disk TOML bracket path for addr. Mirrors
-// the buildBackend bracket-form rule: db-prefixed when the resolved
-// mount is single-file, bare otherwise.
-//
-//	addr.SingleFileMount == true   →  "<db>.<type>.<id>"
-//	addr.SingleFileMount == false  →  "<type>.<id>"
-//
-// Both forms collapse the trailing `.<id>` segment when addr.ID is
-// empty (scope-prefix addresses) so the helper round-trips with the
-// scanner's path equality check.
-func tomlBracketPath(addr db.Address) string {
-	base := addr.Type
-	if addr.ID != "" {
-		base += "." + addr.ID
+// tomlBracketPath returns the on-disk TOML bracket path for resolved.
+// Per F10 the bracket = id; for single-file dbs the id already
+// includes the file-relpath, for multi-file dbs the bracket is the
+// bracket-key alone.
+func tomlBracketPath(resolved db.Resolved) string {
+	if resolved.SingleFileMount {
+		return resolved.Canonical()
 	}
-	if addr.SingleFileMount {
-		return addr.DBName + "." + base
-	}
-	return base
+	return resolved.BracketKey
 }

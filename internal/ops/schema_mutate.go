@@ -14,6 +14,7 @@ import (
 	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/config"
 	"github.com/evanmschultz/ta/internal/db"
+	"github.com/evanmschultz/ta/internal/index"
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
@@ -110,9 +111,10 @@ func MutateDBPaths(projectPath, dbName, appendEntry, removeEntry string) ([]stri
 	for i, p := range newPaths {
 		pathsAny[i] = p
 	}
+	// Per F10, format is inferred from path extensions — no `format`
+	// key on the data payload.
 	data := map[string]any{
-		"paths":  pathsAny,
-		"format": string(dbDecl.Format),
+		"paths": pathsAny,
 	}
 	if dbDecl.Description != "" {
 		data["description"] = dbDecl.Description
@@ -246,10 +248,11 @@ func applyDBMutation(projectPath, action, name string, data map[string]any, root
 			existingMap = map[string]any{}
 		}
 		// Replace meta-fields; preserve sub-table record types on update.
-		// PLAN §12.17.9 Phase 9.1: meta-field set is `paths`/`format`/
-		// `description`. Legacy `file`/`directory`/`collection` keys are
-		// rejected at schema-load and so cannot reach this path.
-		for _, metaKey := range []string{"paths", "format", "description"} {
+		// Per F10 (PLAN §12.17.9), meta-fields are `paths` and
+		// `description`; format is inferred from each path's extension.
+		// `format` (and the legacy file/directory/collection keys) are
+		// rejected at schema-load via the unknown-key path.
+		for _, metaKey := range []string{"paths", "description"} {
 			delete(existingMap, metaKey)
 		}
 		maps.Copy(existingMap, data)
@@ -414,34 +417,37 @@ func typeHasRecordsOnDisk(projectPath, dbName, typeName string, root map[string]
 		return false, nil
 	}
 	singleFile := schema.IsSingleFileDB(dbDecl)
-	backend, err := buildBackend(dbDecl, singleFile)
-	if err != nil {
-		return false, err
-	}
 	resolver := db.NewResolver(projectPath, reg)
 	instances, err := resolver.Instances(dbName)
 	if err != nil {
 		return false, err
 	}
-	scope := typeName
-	if dbDecl.Format == schema.FormatTOML && singleFile {
-		scope = dbName + "." + typeName
-	}
 	for _, inst := range instances {
-		buf, err := os.ReadFile(inst.FilePath)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
+		// Per F10 brackets are ids; we cannot scan-by-type from disk
+		// alone. Consult the index instead — it is the authoritative
+		// type source. If the index is missing, defer to the loud
+		// failure path users see on next reboot/rebuild.
+		idx, ierr := loadIndexOrSentinel(projectPath)
+		if ierr != nil {
+			// No index = no records in scope known; allow the delete.
+			return false, nil
+		}
+		var hasRecords bool
+		idx.Walk(func(canonical string, e index.Entry) bool {
+			// Match canonical ids that begin with this instance's slug.
+			if !strings.HasPrefix(canonical, inst.Slug+".") && canonical != inst.Slug {
+				return true
 			}
-			return false, fmt.Errorf("read %s: %w", inst.FilePath, err)
-		}
-		paths, err := backend.List(buf, scope)
-		if err != nil {
-			return false, fmt.Errorf("list %s: %w", inst.FilePath, err)
-		}
-		if len(paths) > 0 {
+			if e.Type == typeName {
+				hasRecords = true
+				return false
+			}
+			return true
+		})
+		if hasRecords {
 			return true, nil
 		}
+		_ = singleFile
 	}
 	return false, nil
 }

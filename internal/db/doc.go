@@ -1,44 +1,43 @@
-// Package db resolves a dotted section address against a schema.Registry
-// and a project root, returning the on-disk file that backs the addressed
-// record. See V2-PLAN.md §5.5 and PLAN §12.17.9 for the addressing spec.
+// Package db resolves an id against a schema.Registry and a project
+// root, returning the on-disk file that backs the addressed record.
+// See PLAN §12.17.9 F10 for the id grammar and locked decisions.
 //
-// The Phase 9.2 grammar is uniform across formats:
+// The id grammar (F10) is:
 //
-//	<file-relpath>.<type>.<id-tail>
+//	id := <FileRelPath>.<BracketKey>
 //
 // FileRelPath is the dotted-path equivalent of the on-disk file's
 // path-relative-to-its-mount-static-prefix (extension stripped, `/`
-// replaced with `.`). Type is the record-type segment (which moves to
-// a `--type` flag in Phase 9.4). ID-tail is one or more dot-joined
-// segments forming the bracket / heading-chain inside the file.
+// replaced with `.`). BracketKey is the bracket-tail-after-file-relpath
+// — the rest of the dotted id beyond the file-relpath segments. The id
+// is what users / agents pass; it is what `cat <file>.toml` shows as
+// the bracket header. Type does NOT live in the id — it lives in the
+// runtime index.
 //
 // Resolution rules:
 //
 //   - The Registry's dbs are tried in stable name order; for each db,
-//     each Paths entry is matched against the address. Non-collection
-//     mounts (single-file or glob) are tried before collection mounts
-//     so a specific match always beats a catch-all root.
-//   - A mount entry is split into a static prefix (everything up to
-//     the slash before the first `*`, or up to the last segment for
-//     non-glob mounts) and residual segments. Address segments are
-//     matched left-to-right against residual segments; `*` matches any
-//     non-empty segment, literals require equality. The matched prefix
-//     yields FileRelPath; the next segment yields Type; the remainder
-//     yields ID.
-//   - Collection mounts (trailing `/` or `.`) recurse: any descendant
-//     file with the format extension produces an Instance, with the
-//     dotted file-relpath as its slug.
+//     each Paths entry is matched against the id.
+//   - A mount entry is split into a static prefix and residual segments
+//     (the `*`-or-literal sequence after the static prefix). Id
+//     segments are matched left-to-right against residual segments;
+//     `*` matches any non-empty segment, literals require equality.
+//     The matched prefix yields FileRelPath; everything after yields
+//     BracketKey.
 //   - Globs (`*`) match one path segment per occurrence and skip
 //     dotfiles.
 //   - `~/...` mounts expand against the user's home directory.
+//   - Trailing-slash collection mounts (`docs/`) and the `.`
+//     project-root mount are rejected at schema-load time
+//     (ErrCollectionMountUnsupported); use globs instead
+//     (`docs/*.md`).
 //
 // The resolver is lang-agnostic: it never imports any backend package.
-// It hands back the schema.DB, the resolved instance, and the absolute
+// It hands back the schema.DB, the Resolved view, and the absolute
 // file path; callers are responsible for reading the file and handing
 // its bytes to the correct record.Backend.
 //
-// Fail-loudly contract (§1.1): empty address, leading/trailing/empty
-// segments, and missing-id-tail addresses error with ErrBadAddress.
-// Unknown db (no mount matches) → ErrUnknownDB. Type segment not
-// declared on the resolved db → ErrUnknownType.
+// Fail-loudly contract: empty id, leading/trailing/empty segments, and
+// missing-bracket-key ids error with ErrBadID. Id that does not bind
+// to any registered db's mount → ErrIDDoesNotMatchAnyDB.
 package db
