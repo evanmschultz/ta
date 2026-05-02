@@ -23,10 +23,11 @@ import (
 // Query is the input to Run. Only Path is strictly required; the other
 // fields narrow the search.
 //
-// Semantics (V2-PLAN §3.7 / §7):
-//   - Scope is either empty (whole project), "<db>", "<db>.<instance>"
-//     (multi-instance dbs only), "<db>.<type>", or "<db>.<type>.<id-prefix>".
-//     An "-*" suffix on the id-prefix is tolerated as a no-op.
+// Semantics:
+//   - Scope is either empty (whole project) or any id prefix
+//     (e.g. `plans` to limit traversal to one file, `plans.todo-` to
+//     limit to ids beginning `plans.todo-`). A trailing "-*" or "*"
+//     wildcard on the prefix is tolerated as a no-op.
 //   - Match pairs AND-combine; every pair must match exactly. String/enum
 //     compare via Go ==; numbers compare numerically (int vs float
 //     promoted). Array/table match → ErrUnscalarMatch.
@@ -53,13 +54,13 @@ type Query struct {
 	All   bool
 }
 
-// Result is one hit. Section is the full dotted address; Bytes is the
-// record's on-disk byte range (what `get` would return); Fields is the
-// decoded field map for callers that want structured access.
+// Result is one hit. ID is the full record id; Bytes is the record's
+// on-disk byte range (what `get` would return); Fields is the decoded
+// field map for callers that want structured access.
 type Result struct {
-	Section string
-	Bytes   []byte
-	Fields  map[string]any
+	ID     string
+	Bytes  []byte
+	Fields map[string]any
 }
 
 // Run executes q and returns hits in source order across files. Files
@@ -423,9 +424,9 @@ func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([
 		}
 
 		hits = append(hits, Result{
-			Section: fullAddr,
-			Bytes:   append([]byte(nil), recordBytes...),
-			Fields:  fields,
+			ID:     fullAddr,
+			Bytes:  append([]byte(nil), recordBytes...),
+			Fields: fields,
 		})
 	}
 	return hits, nil

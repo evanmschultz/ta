@@ -26,11 +26,10 @@ import (
 // are rendered per type. With --json the laslig path is bypassed;
 // structured JSON is written for agent consumption (V2-PLAN §14.3).
 //
-// A scope-prefix `<section>` (e.g. `<db>`, `<db>.<type>`,
-// `<db>.<instance>`, `<db>.<instance>.<type>`) returns every matching
-// record in file-parse order; --limit (default 10, -n shorthand) and
-// --all control the cap. Single-record addresses (fully qualified)
-// silently ignore --limit / --all (V2-PLAN §12.17.5 [B2]).
+// An id prefix (e.g. `plans` to enumerate every record in plans.toml)
+// returns every matching record in file-parse order; --limit (default
+// 10, -n shorthand) and --all control the cap. Full ids silently ignore
+// --limit / --all.
 func newGetCmd() *cobra.Command {
 	var fields []string
 	var asJSON bool
@@ -38,30 +37,27 @@ func newGetCmd() *cobra.Command {
 	var all bool
 	var typeName string
 	cmd := &cobra.Command{
-		Use:   "get <section>",
-		Short: "Read one record or every record under a scope prefix; optionally extract declared field values",
-		Long: "Mirrors the MCP tool `get`. A fully-qualified address " +
-			"('<db>.<type>.<id-path>' or '<db>.<instance>.<type>.<id-path>') " +
+		Use:   "get <id>",
+		Short: "Read one record by id, or every record under an id prefix; optionally extract declared field values",
+		Long: "Mirrors the MCP tool `get`. A full id (e.g. `plans.demo-1`) " +
 			"returns one record; without --fields every declared field is " +
 			"rendered through the shared per-field helper (string fields as " +
-			"markdown, scalars as label:value, arrays/tables as fenced JSON " +
-			"— V2-PLAN §12.17.5 [B3]); with --fields name[,name...] the " +
-			"named subset is rendered. A scope-prefix address ('<db>', " +
-			"'<db>.<type>', '<db>.<instance>', '<db>.<instance>.<type>') " +
-			"returns every matching record in file-parse order as a " +
-			"sequence of laslig Section blocks, or --json " +
-			"{\"records\":[{section, fields}, ...]}. --limit (default 10, " +
-			"-n shorthand) and --all control the cap for scope-prefix " +
-			"addresses; both are silently ignored for fully-qualified " +
-			"single-record addresses and are mutually exclusive (V2-PLAN " +
-			"§12.17.5 [B2]). With --json the laslig path is bypassed and " +
-			"JSON is written for agent consumption. --path defaults to " +
-			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
-		Example: "  ta get plans.task.task-001\n" +
-			"  ta get --path /abs/proj plans.task.task-001 --fields status,body\n" +
-			"  ta get plans.task.task-001 --json\n" +
-			"  ta get plans.task --all --json\n" +
-			"  ta get plan_db.drop_a --limit 5",
+			"markdown, scalars as label:value, arrays/tables as fenced JSON); " +
+			"with --fields name[,name...] the named subset is rendered. An " +
+			"id prefix (e.g. `plans` for every record in `plans.toml`) " +
+			"returns every matching record in file-parse order as a sequence " +
+			"of laslig Section blocks, or --json " +
+			"{\"records\":[{id, fields}, ...]}. --limit (default 10, -n " +
+			"shorthand) and --all control the cap for id-prefix scopes; both " +
+			"are silently ignored for full-id reads and are mutually " +
+			"exclusive. With --json the laslig path is bypassed and JSON is " +
+			"written for agent consumption. --path defaults to cwd; relative " +
+			"or absolute accepted.",
+		Example: "  ta get plans.task-001\n" +
+			"  ta get --path /abs/proj plans.task-001 --fields status,body\n" +
+			"  ta get plans.task-001 --json\n" +
+			"  ta get plans --all --json\n" +
+			"  ta get plans --limit 5",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -70,58 +66,58 @@ func newGetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			section := args[0]
-			isScope, err := ops.IsScopeAddress(path, section)
+			id := args[0]
+			isScope, err := ops.IsScopeAddress(path, id)
 			if err != nil {
 				return err
 			}
 			if isScope {
-				return runGetScope(c, path, section, fields, limit, all, asJSON)
+				return runGetScope(c, path, id, fields, limit, all, asJSON)
 			}
 			if asJSON {
-				res, err := ops.Get(path, section, typeName, fields)
+				res, err := ops.Get(path, id, typeName, fields)
 				if err != nil {
 					return err
 				}
-				return emitGetJSON(c.OutOrStdout(), section, res.Bytes, res.Fields, len(fields) > 0)
+				return emitGetJSON(c.OutOrStdout(), id, res.Bytes, res.Fields, len(fields) > 0)
 			}
 			r := render.New(c.OutOrStdout())
 			if len(fields) == 0 {
-				res, typeSt, err := ops.GetAllFields(path, section, typeName)
+				res, typeSt, err := ops.GetAllFields(path, id, typeName)
 				if err != nil {
 					return err
 				}
-				return r.Record(section, render.BuildFields(typeSt, res.Fields))
+				return r.Record(id, render.BuildFields(typeSt, res.Fields))
 			}
-			res, err := ops.Get(path, section, typeName, fields)
+			res, err := ops.Get(path, id, typeName, fields)
 			if err != nil {
 				return err
 			}
-			rf, err := buildRenderFields(path, section, res.Fields, fields)
+			rf, err := buildRenderFields(path, id, res.Fields, fields)
 			if err != nil {
 				return err
 			}
-			return r.Record(section, rf)
+			return r.Record(id, rf)
 		},
 	}
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated declared field names to extract")
 	cmd.Flags().StringSliceVar(&fields, "field", nil, "declared field name to extract (repeatable)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
-	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the record count at N when <section> is a scope prefix (default 10; ignored for single-record addresses; mutually exclusive with --all)")
-	cmd.Flags().BoolVar(&all, "all", false, "return every record when <section> is a scope prefix (ignored for single-record addresses; mutually exclusive with --limit)")
-	cmd.Flags().StringVar(&typeName, "type", "", "optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)")
+	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the record count at N when <id> is a prefix (default 10; ignored for full ids; mutually exclusive with --all)")
+	cmd.Flags().BoolVar(&all, "all", false, "return every record when <id> is a prefix (ignored for full ids; mutually exclusive with --limit)")
+	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
 	cmd.MarkFlagsMutuallyExclusive("limit", "all")
 	addPathFlag(cmd)
 	return cmd
 }
 
-// runGetScope is the scope-prefix branch of `ta get`. Walks every
-// record in scope via ops.GetScope and emits either a sequence of
-// laslig Section blocks (default) or a {"records": [...]} JSON
-// envelope (--json). Matches the MCP `get` scope-prefix response
-// shape so CLI and MCP stay in lockstep (§12.17.5 [B2]).
-func runGetScope(c *cobra.Command, path, section string, fields []string, limit int, all bool, asJSON bool) error {
-	records, err := ops.GetScope(path, section, fields, limit, all)
+// runGetScope is the id-prefix branch of `ta get`. Walks every record
+// in scope via ops.GetScope and emits either a sequence of laslig
+// Section blocks (default) or a {"records": [...]} JSON envelope
+// (--json). Matches the MCP `get` id-prefix response shape so CLI and
+// MCP stay in lockstep.
+func runGetScope(c *cobra.Command, path, id string, fields []string, limit int, all bool, asJSON bool) error {
+	records, err := ops.GetScope(path, id, fields, limit, all)
 	if err != nil {
 		return err
 	}
@@ -130,37 +126,37 @@ func runGetScope(c *cobra.Command, path, section string, fields []string, limit 
 	}
 	r := render.New(c.OutOrStdout())
 	if len(records) == 0 {
-		return r.Notice(laslig.NoticeInfoLevel, "get", "no records in scope: "+section, nil)
+		return r.Notice(laslig.NoticeInfoLevel, "get", "no records in scope: "+id, nil)
 	}
 	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return fmt.Errorf("resolve schema: %w", err)
 	}
 	for _, rec := range records {
-		_, typeSt, err := lookupDBAndType(resolution.Registry, path, rec.Section)
+		_, typeSt, err := lookupDBAndType(resolution.Registry, path, rec.ID)
 		if err != nil {
 			// Best-effort: render without typed fields.
-			if err := r.Record(rec.Section, nil); err != nil {
+			if err := r.Record(rec.ID, nil); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := r.Record(rec.Section, render.BuildFields(typeSt, rec.Fields)); err != nil {
+		if err := r.Record(rec.ID, render.BuildFields(typeSt, rec.Fields)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// emitGetScopeJSON writes the --json form of a scope-prefix `ta get`.
-// Shape mirrors the MCP tool's scopeResult: {"records": [{section,
-// fields}, ...]}. Always plural, even when len(records) == 1.
+// emitGetScopeJSON writes the --json form of an id-prefix `ta get`.
+// Shape mirrors the MCP tool's scopeResult: {"records": [{id, fields},
+// ...]}. Always plural, even when len(records) == 1.
 func emitGetScopeJSON(w io.Writer, records []ops.ScopeRecord) error {
 	out := make([]map[string]any, len(records))
 	for i, r := range records {
 		out[i] = map[string]any{
-			"section": r.Section,
-			"fields":  r.Fields,
+			"id":     r.ID,
+			"fields": r.Fields,
 		}
 	}
 	enc := json.NewEncoder(w)
@@ -169,20 +165,20 @@ func emitGetScopeJSON(w io.Writer, records []ops.ScopeRecord) error {
 }
 
 // emitGetJSON writes the --json form of `get`. Two shapes: raw-bytes
-// mode returns {"section": ..., "bytes": ...}; fields mode returns
-// {"section": ..., "fields": {...}}.
-func emitGetJSON(w io.Writer, section string, raw []byte, fields map[string]any, haveFields bool) error {
+// mode returns {"id": ..., "bytes": ...}; fields mode returns
+// {"id": ..., "fields": {...}}.
+func emitGetJSON(w io.Writer, id string, raw []byte, fields map[string]any, haveFields bool) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	if haveFields {
 		return enc.Encode(map[string]any{
-			"section": section,
-			"fields":  fields,
+			"id":     id,
+			"fields": fields,
 		})
 	}
 	return enc.Encode(map[string]any{
-		"section": section,
-		"bytes":   string(raw),
+		"id":    id,
+		"bytes": string(raw),
 	})
 }
 
@@ -191,19 +187,19 @@ func emitGetJSON(w io.Writer, section string, raw []byte, fields map[string]any,
 // to echo the post-mutation record content after the success notice
 // per V2-PLAN §13.1. Returns any fetch error so the caller can surface
 // it rather than silently skip the echo.
-func renderVerboseRecord(w io.Writer, path, section string) error {
-	res, err := ops.Get(path, section, "", nil)
+func renderVerboseRecord(w io.Writer, path, id string) error {
+	res, err := ops.Get(path, id, "", nil)
 	if err != nil {
 		return fmt.Errorf("verbose echo: %w", err)
 	}
-	return renderRawRecord(render.New(w), path, section, res.Bytes)
+	return renderRawRecord(render.New(w), path, id, res.Bytes)
 }
 
 // renderRawRecord routes an unparsed record through glamour. TOML bytes
 // are wrapped in a ```toml fence so code highlighting survives; MD bytes
 // are passed through unchanged because they're already markdown.
-func renderRawRecord(r *render.Renderer, path, section string, raw []byte) error {
-	format, err := dbFormatFor(path, section)
+func renderRawRecord(r *render.Renderer, path, id string, raw []byte) error {
+	format, err := dbFormatFor(path, id)
 	if err != nil {
 		// Fall back to raw pass-through rather than failing the whole
 		// render — we already have the bytes, no reason to hide them.
@@ -288,13 +284,12 @@ func lookupDBAndType(reg schema.Registry, projectPath, id string) (schema.DB, sc
 	return dbDecl, schema.SectionType{}, fmt.Errorf("db %q has no declared types", dbDecl.Name)
 }
 
-// newListSectionsCmd mirrors the MCP tool `list_sections` (V2-PLAN §3.2
-// and §12.17.5 [A2]). The CLI takes a project directory via `--path`
-// (default cwd) plus an optional scope (either `--scope <value>` or a
-// second positional — not both). Output emits full project-level
-// dotted addresses so copy-paste composes with `get` / `update` /
-// `delete` addresses. `--limit <N>` (default 10, `-n` shorthand) and
-// `--all` control the cap; they are mutually exclusive.
+// newListSectionsCmd mirrors the MCP tool `list_sections`. The CLI
+// takes a project directory via `--path` (default cwd) plus an optional
+// id-prefix scope (either `--scope <value>` or a second positional —
+// not both). Output emits full project-level ids so copy-paste composes
+// with `get` / `update` / `delete`. `--limit <N>` (default 10, `-n`
+// shorthand) and `--all` control the cap; they are mutually exclusive.
 func newListSectionsCmd() *cobra.Command {
 	var asJSON bool
 	var scope string
@@ -302,19 +297,17 @@ func newListSectionsCmd() *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
 		Use:   "list-sections [scope]",
-		Short: "Enumerate record addresses under a scope; mirrors MCP tool `list_sections`.",
-		Long: "Mirrors the MCP tool `list_sections` (V2-PLAN §3.2). Walks every " +
-			"record in scope and emits its full project-level dotted " +
-			"address (`<db>.<type>.<id-path>` for single-instance dbs, " +
-			"`<db>.<instance>.<type>.<id-path>` for multi-instance). Scope " +
-			"may be supplied via --scope or as the optional positional; " +
-			"omitted = whole project. --limit caps the list (default 10, " +
-			"-n shorthand); --all returns every match. --path defaults to " +
-			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
+		Short: "Enumerate record ids under a scope; mirrors MCP tool `list_sections`.",
+		Long: "Walks every record in scope and emits its full id (e.g. " +
+			"`plans.demo-1`). Scope is an optional id prefix supplied via " +
+			"--scope or as the positional argument; omitted = whole " +
+			"project. --limit caps the list (default 10, -n shorthand); " +
+			"--all returns every match. --path defaults to cwd; relative " +
+			"or absolute accepted.",
 		Example: `  ta list-sections
-  ta list-sections plan_db
-  ta list-sections --scope plan_db.ta
-  ta list-sections --scope plan_db --all --json`,
+  ta list-sections plans
+  ta list-sections --scope plans.todo-
+  ta list-sections --scope plans --all --json`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -350,8 +343,8 @@ func newListSectionsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
-	cmd.Flags().StringVar(&scope, "scope", "", "<db> | <db>.<type> | <db>.<instance> | <db>.<type>.<id-prefix> | <db>.<instance>.<type>(.<id-prefix>)?")
-	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the list at N addresses (default 10)")
+	cmd.Flags().StringVar(&scope, "scope", "", "id prefix to enumerate (e.g. `plans` or `plans.todo-`)")
+	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the list at N ids (default 10)")
 	cmd.Flags().BoolVar(&all, "all", false, "return every match (disables --limit)")
 	cmd.MarkFlagsMutuallyExclusive("limit", "all")
 	addPathFlag(cmd)
@@ -359,10 +352,9 @@ func newListSectionsCmd() *cobra.Command {
 }
 
 // resolveListScope reconciles the `--scope` flag with the optional
-// positional scope argument. Per V2-PLAN §12.17.5 [A2] the positional
-// is a convenience for --scope; supplying both forms at once is
-// ambiguous and errors. Empty scope (neither form set) means "whole
-// project" and is returned as "".
+// positional scope argument. The positional is a convenience for
+// --scope; supplying both forms at once is ambiguous and errors. Empty
+// scope (neither form set) means "whole project" and is returned as "".
 func resolveListScope(flagScope string, args []string) (string, error) {
 	var positional string
 	if len(args) == 1 {
@@ -384,19 +376,18 @@ func newCreateCmd() *cobra.Command {
 	var typeName string
 	var verbose bool
 	cmd := &cobra.Command{
-		Use:   "create <section>",
+		Use:   "create <id>",
 		Short: "Create a new record (fails if it exists); mirrors MCP tool `create`.",
-		Long: "Create a new record at the given address. Fails if the record " +
-			"already exists (V2-PLAN §3.4). Creates the backing file and any " +
-			"intermediate directories on first use. --type names the declared " +
-			"record type; PLAN §12.17.9 Phase 9.4 makes it the orthogonal " +
-			"authoritative source. With --verbose, the newly-created record " +
-			"content is echoed after the success notice per V2-PLAN §13.1. " +
-			"--path defaults to cwd; relative or absolute accepted (V2-PLAN " +
-			"§12.17.5 [A1]).",
-		Example: "  ta create plans.task.task-001 --type task --data '{\"id\":\"TASK-001\",\"status\":\"todo\"}'\n" +
-			"  ta create --path /abs/proj plans.task.task-001 --type task --data-file payload.json\n" +
-			"  cat payload.json | ta create plans.task.task-001 --type task --data-file -",
+		Long: "Create a new record at the given id. Fails if the record " +
+			"already exists. Creates the backing file and any intermediate " +
+			"directories on first use. --type is REQUIRED and must be " +
+			"db-qualified (`<db>.<type>`, e.g. `plans.task`). With " +
+			"--verbose, the newly-created record content is echoed after " +
+			"the success notice. --path defaults to cwd; relative or " +
+			"absolute accepted.",
+		Example: "  ta create plans.task-001 --type plans.task --data '{\"id\":\"task-001\",\"status\":\"todo\"}'\n" +
+			"  ta create --path /abs/proj plans.task-001 --type plans.task --data-file payload.json\n" +
+			"  cat payload.json | ta create plans.task-001 --type plans.task --data-file -",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -405,27 +396,27 @@ func newCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			section := args[0]
-			data, err := collectCreateData(c, path, section, dataInline, dataFile)
+			id := args[0]
+			data, err := collectCreateData(c, path, id, dataInline, dataFile)
 			if err != nil {
 				return err
 			}
-			targetPath, sources, err := runCreate(path, section, typeName, data)
+			targetPath, sources, err := runCreate(path, id, typeName, data)
 			if err != nil {
 				return err
 			}
-			if err := noticeMutation(c.OutOrStdout(), "created", section, targetPath, sources); err != nil {
+			if err := noticeMutation(c.OutOrStdout(), "created", id, targetPath, sources); err != nil {
 				return err
 			}
 			if verbose {
-				return renderVerboseRecord(c.OutOrStdout(), path, section)
+				return renderVerboseRecord(c.OutOrStdout(), path, id)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
-	cmd.Flags().StringVar(&typeName, "type", "", "declared record type name (REQUIRED; PLAN §12.17.9 Phase 9.4)")
+	cmd.Flags().StringVar(&typeName, "type", "", "REQUIRED db-qualified type (`<db>.<type>`, e.g. `plans.task`)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the newly-created record after the success notice")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	if err := cmd.MarkFlagRequired("type"); err != nil {
@@ -444,7 +435,7 @@ func newUpdateCmd() *cobra.Command {
 	var typeName string
 	var verbose bool
 	cmd := &cobra.Command{
-		Use:   "update <section>",
+		Use:   "update <id>",
 		Short: "PATCH an existing record; mirrors MCP tool `update`.",
 		Long: "PATCH-style update: --data is a partial overlay, not a full " +
 			"replacement. Provided fields overwrite their stored values; " +
@@ -452,15 +443,14 @@ func newUpdateCmd() *cobra.Command {
 			"is a no-op success. Null on a non-required field clears it; " +
 			"null on a required field with a schema default resets it to " +
 			"that default; null on a required field with no default errors. " +
-			"The merged record is atomically re-validated (V2-PLAN §3.5 / " +
-			"§12.17.5 [B1]). Fails if the backing file does not exist; " +
-			"creates the record within the file when absent (record-level " +
-			"upsert). With --verbose, the updated record is echoed after " +
-			"the success notice per V2-PLAN §13.1. --path defaults to cwd; " +
-			"relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
-		Example: "  ta update plans.task.task-001 --data '{\"status\":\"done\"}'\n" +
-			"  ta update plans.task.task-001 --data '{\"notes\":null}'    # clear optional field\n" +
-			"  ta update --path /abs/proj plans.task.task-001 --data-file patch.json --verbose",
+			"The merged record is atomically re-validated. Fails if the " +
+			"backing file does not exist; creates the record within the " +
+			"file when absent (record-level upsert). With --verbose, the " +
+			"updated record is echoed after the success notice. --path " +
+			"defaults to cwd; relative or absolute accepted.",
+		Example: "  ta update plans.task-001 --data '{\"status\":\"done\"}'\n" +
+			"  ta update plans.task-001 --data '{\"notes\":null}'    # clear optional field\n" +
+			"  ta update --path /abs/proj plans.task-001 --data-file patch.json --verbose",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -469,27 +459,27 @@ func newUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			section := args[0]
-			data, err := collectUpdateData(c, path, section, dataInline, dataFile)
+			id := args[0]
+			data, err := collectUpdateData(c, path, id, dataInline, dataFile)
 			if err != nil {
 				return err
 			}
-			targetPath, sources, err := runUpdate(path, section, typeName, data)
+			targetPath, sources, err := runUpdate(path, id, typeName, data)
 			if err != nil {
 				return err
 			}
-			if err := noticeMutation(c.OutOrStdout(), "updated", section, targetPath, sources); err != nil {
+			if err := noticeMutation(c.OutOrStdout(), "updated", id, targetPath, sources); err != nil {
 				return err
 			}
 			if verbose {
-				return renderVerboseRecord(c.OutOrStdout(), path, section)
+				return renderVerboseRecord(c.OutOrStdout(), path, id)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
-	cmd.Flags().StringVar(&typeName, "type", "", "optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)")
+	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the updated record after the success notice")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	addPathFlag(cmd)
@@ -499,18 +489,18 @@ func newUpdateCmd() *cobra.Command {
 func newDeleteCmd() *cobra.Command {
 	var typeName string
 	cmd := &cobra.Command{
-		Use:   "delete <section>",
-		Short: "Remove a record, file, or instance directory; mirrors MCP tool `delete`.",
-		Long: "Remove a record (bytes spliced out), a single-instance data " +
-			"file, or a multi-instance instance dir/file. Whole multi-instance " +
-			"db deletes error as ambiguous; zero the instances first or route " +
-			"through `schema delete --kind db` (V2-PLAN §3.6). --type is " +
-			"optional and cross-checks the supplied type against the address " +
-			"(PLAN §12.17.9 Phase 9.4). --path defaults to cwd; relative or " +
-			"absolute accepted (V2-PLAN §12.17.5 [A1]).",
-		Example: `  ta delete plans.task.task-001
+		Use:   "delete <id>",
+		Short: "Remove a record or file; mirrors MCP tool `delete`.",
+		Long: "Remove a record (bytes spliced out) by full id, or remove a " +
+			"whole file by passing an id prefix that maps to one concrete " +
+			"file. An id prefix that maps to multiple files (multi-file " +
+			"glob) refuses with an unscoped-glob error. --type is optional " +
+			"and cross-checks the supplied type against the index entry " +
+			"for the id. --path defaults to cwd; relative or absolute " +
+			"accepted.",
+		Example: `  ta delete plans.task-001
   ta delete --path /abs/proj plans
-  ta delete plan_db.drop-3`,
+  ta delete workflow.drop-3.db.task-001`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -519,15 +509,15 @@ func newDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			section := args[0]
-			targetPath, sources, err := runDelete(path, section, typeName)
+			id := args[0]
+			targetPath, sources, err := runDelete(path, id, typeName)
 			if err != nil {
 				return err
 			}
-			return noticeMutation(c.OutOrStdout(), "deleted", section, targetPath, sources)
+			return noticeMutation(c.OutOrStdout(), "deleted", id, targetPath, sources)
 		},
 	}
-	cmd.Flags().StringVar(&typeName, "type", "", "optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)")
+	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
 	addPathFlag(cmd)
 	return cmd
 }
@@ -543,22 +533,22 @@ func newSchemaCmd() *cobra.Command {
 	var verbose bool
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "schema [section]",
+		Use:   "schema [scope]",
 		Short: "Inspect or mutate the resolved schema; mirrors MCP tool `schema`.",
 		Long: "With action=get (default), renders the resolved schema; an " +
-			"optional section/scope narrows to one db or type. Passing the " +
-			"reserved value `ta_schema` prints the embedded meta-schema " +
-			"literal. With action=create|update|delete, mutates the project " +
-			"`.ta/schema.toml` (re-validated on every mutation with atomic " +
-			"rollback — V2-PLAN §4.6). With action=update + kind=db, the " +
-			"--paths-append=<entry> / --paths-remove=<entry> sugar mutates " +
-			"the db's `paths` slice incrementally (PLAN §12.17.9 Phase 9.6); " +
-			"each flag takes one entry and the two are mutually exclusive " +
-			"with each other and with `--data` carrying a `paths` key. With " +
-			"--json the laslig path is bypassed and JSON is written for " +
-			"agent consumption (action=get only; mutations always print the " +
+			"optional scope (`<db>` or `<db>.<type>`) narrows to one db or " +
+			"type. Passing the reserved value `ta_schema` prints the " +
+			"embedded meta-schema literal. With action=create|update|delete, " +
+			"mutates the project `.ta/schema.toml` (re-validated on every " +
+			"mutation with atomic rollback). With action=update + kind=db, " +
+			"the --paths-append=<entry> / --paths-remove=<entry> sugar " +
+			"mutates the db's `paths` slice incrementally; each flag takes " +
+			"one entry and the two are mutually exclusive with each other " +
+			"and with `--data` carrying a `paths` key. With --json the " +
+			"laslig path is bypassed and JSON is written for agent " +
+			"consumption (action=get only; mutations always print the " +
 			"success notice). --path defaults to cwd; relative or absolute " +
-			"accepted (V2-PLAN §12.17.5 [A1]).",
+			"accepted.",
 		Example: `  ta schema
   ta schema plans.task --json
   ta schema ta_schema
@@ -672,11 +662,10 @@ func newSearchCmd() *cobra.Command {
 			"--field when set). One laslig card per hit — or, with --json, " +
 			"a structured hits array for agent consumption. --limit caps the " +
 			"hit count (default 10, -n shorthand); --all returns every match. " +
-			"--path defaults to cwd; relative or absolute accepted " +
-			"(V2-PLAN §12.17.5 [A1] / [A2.2]).",
-		Example: "  ta search --scope=plans.task --match '{\"status\":\"todo\"}'\n" +
-			"  ta search --path /abs/proj --scope=plans.task --query='TODO' --field=body\n" +
-			"  ta search --scope=plans.task --all --json",
+			"--path defaults to cwd; relative or absolute accepted.",
+		Example: "  ta search --scope=plans --match '{\"status\":\"todo\"}'\n" +
+			"  ta search --path /abs/proj --scope=plans --query='TODO' --field=body\n" +
+			"  ta search --scope=plans --all --json",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -701,11 +690,11 @@ func newSearchCmd() *cobra.Command {
 			return renderSearchHits(c.OutOrStdout(), path, hits)
 		},
 	}
-	cmd.Flags().StringVar(&scope, "scope", "", "<db> | <db>.<type> | <db>.<instance> | <db>.<type>.<id-prefix>")
+	cmd.Flags().StringVar(&scope, "scope", "", "id prefix to narrow traversal (e.g. `plans` or `plans.todo-`)")
 	cmd.Flags().StringVar(&matchJSON, "match", "", "JSON object of {field: exact-value}")
 	cmd.Flags().StringVar(&query, "query", "", "Go RE2 regex matched against string fields")
 	cmd.Flags().StringVar(&field, "field", "", "restrict --query to one string field")
-	cmd.Flags().StringVar(&typeName, "type", "", "optional declared type name; post-walk filter on hit addresses (PLAN §12.17.9 Phase 9.4)")
+	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); post-walk filter against the index entry for each hit's id")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the hit count at N (default 10)")
 	cmd.Flags().BoolVar(&all, "all", false, "return every match (disables --limit)")
@@ -715,14 +704,14 @@ func newSearchCmd() *cobra.Command {
 }
 
 // emitSearchJSON writes the --json form of `search`. Shape:
-// {"hits": [{"section": "...", "bytes": "...", "fields": {...}}]}.
+// {"hits": [{"id": "...", "bytes": "...", "fields": {...}}]}.
 func emitSearchJSON(w io.Writer, hits []ops.SearchHit) error {
 	out := make([]map[string]any, len(hits))
 	for i, h := range hits {
 		out[i] = map[string]any{
-			"section": h.Section,
-			"bytes":   string(h.Bytes),
-			"fields":  h.Fields,
+			"id":     h.ID,
+			"bytes":  string(h.Bytes),
+			"fields": h.Fields,
 		}
 	}
 	enc := json.NewEncoder(w)
@@ -740,15 +729,15 @@ func renderSearchHits(w io.Writer, path string, hits []ops.SearchHit) error {
 		return fmt.Errorf("resolve schema: %w", err)
 	}
 	for _, hit := range hits {
-		_, typeSt, err := lookupDBAndType(resolution.Registry, path, hit.Section)
+		_, typeSt, err := lookupDBAndType(resolution.Registry, path, hit.ID)
 		if err != nil {
 			// Best-effort: render without typed fields.
-			if err := r.Record(hit.Section, nil); err != nil {
+			if err := r.Record(hit.ID, nil); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := r.Record(hit.Section, render.BuildFields(typeSt, hit.Fields)); err != nil {
+		if err := r.Record(hit.ID, render.BuildFields(typeSt, hit.Fields)); err != nil {
 			return err
 		}
 	}
@@ -760,10 +749,10 @@ func renderSearchHits(w io.Writer, path string, hits []ops.SearchHit) error {
 // collectCreateData is the create-side entrypoint for field data.
 // Preserves the non-interactive --data / --data-file contract and, when
 // neither is set and stdin is a TTY, runs the interactive huh form
-// built from the resolved type's declared fields (V2-PLAN §12.17.5
-// [D1]). Off-TTY with no flags errors politely so agents and scripts
-// fail loudly instead of hanging on stdin.
-func collectCreateData(c *cobra.Command, path, section, dataInline, dataFile string) (map[string]any, error) {
+// built from the resolved type's declared fields. Off-TTY with no flags
+// errors politely so agents and scripts fail loudly instead of hanging
+// on stdin.
+func collectCreateData(c *cobra.Command, path, id, dataInline, dataFile string) (map[string]any, error) {
 	if dataInline != "" || dataFile != "" {
 		raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
 		if err != nil {
@@ -778,7 +767,7 @@ func collectCreateData(c *cobra.Command, path, section, dataInline, dataFile str
 	if !ttyInteractive(false) {
 		return nil, errors.New("input required — pass --data '{...}' or --data-file <path>, or run interactively in a TTY")
 	}
-	typeSt, err := resolveTypeForSection(path, section)
+	typeSt, err := resolveTypeForID(path, id)
 	if err != nil {
 		return nil, err
 	}
@@ -793,8 +782,8 @@ func collectCreateData(c *cobra.Command, path, section, dataInline, dataFile str
 // collectCreateData, but when no --data / --data-file is passed and
 // stdin is a TTY, the form prefills existing values from the stored
 // record so the user edits in place. Blank submissions retain per PATCH
-// semantics (V2-PLAN §3.5).
-func collectUpdateData(c *cobra.Command, path, section, dataInline, dataFile string) (map[string]any, error) {
+// semantics.
+func collectUpdateData(c *cobra.Command, path, id, dataInline, dataFile string) (map[string]any, error) {
 	if dataInline != "" || dataFile != "" {
 		raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
 		if err != nil {
@@ -809,7 +798,7 @@ func collectUpdateData(c *cobra.Command, path, section, dataInline, dataFile str
 	if !ttyInteractive(false) {
 		return nil, errors.New("input required — pass --data '{...}' or --data-file <path>, or run interactively in a TTY")
 	}
-	res, typeSt, err := ops.GetAllFields(path, section, "")
+	res, typeSt, err := ops.GetAllFields(path, id, "")
 	if err != nil {
 		return nil, err
 	}
@@ -820,16 +809,15 @@ func collectUpdateData(c *cobra.Command, path, section, dataInline, dataFile str
 	return collect()
 }
 
-// resolveTypeForSection returns the SectionType that the address names,
-// resolving the db + type from the project registry. Used by the
-// create path, which cannot rely on an existing record for schema
-// lookup.
-func resolveTypeForSection(path, section string) (schema.SectionType, error) {
+// resolveTypeForID returns the SectionType that the id names, resolving
+// the db + type from the project registry. Used by the create path,
+// which cannot rely on an existing record for schema lookup.
+func resolveTypeForID(path, id string) (schema.SectionType, error) {
 	resolution, err := ops.ResolveProject(path)
 	if err != nil {
 		return schema.SectionType{}, fmt.Errorf("resolve schema: %w", err)
 	}
-	_, typeSt, err := lookupDBAndType(resolution.Registry, path, section)
+	_, typeSt, err := lookupDBAndType(resolution.Registry, path, id)
 	if err != nil {
 		return schema.SectionType{}, err
 	}
@@ -881,10 +869,10 @@ func runSchemaGet(w io.Writer, path, scope string) error {
 			if dbDecl, ok := resolution.Registry.LookupDB(scope); ok {
 				dbs = map[string]schema.DB{dbDecl.Name: dbDecl}
 			} else {
-				return fmt.Errorf("no schema registered for section %q in %s", scope, path)
+				return fmt.Errorf("no schema registered for scope %q in %s", scope, path)
 			}
 		} else {
-			return fmt.Errorf("no schema registered for section %q in %s", scope, path)
+			return fmt.Errorf("no schema registered for scope %q in %s", scope, path)
 		}
 	}
 	return render.New(w).SchemaFlow(path, scope, resolution.Sources, dbs)
@@ -918,10 +906,10 @@ func runSchemaGetJSON(w io.Writer, path, scope string) error {
 			if dbDecl, ok := resolution.Registry.LookupDB(scope); ok {
 				dbs = map[string]schema.DB{dbDecl.Name: dbDecl}
 			} else {
-				return fmt.Errorf("no schema registered for section %q in %s", scope, path)
+				return fmt.Errorf("no schema registered for scope %q in %s", scope, path)
 			}
 		} else {
-			return fmt.Errorf("no schema registered for section %q in %s", scope, path)
+			return fmt.Errorf("no schema registered for scope %q in %s", scope, path)
 		}
 	}
 	payload := map[string]any{
@@ -1002,10 +990,10 @@ func renderMetaSchema(w io.Writer) error {
 	return render.New(w).Markdown(body)
 }
 
-func noticeMutation(w io.Writer, action, section, filePath string, sources []string) error {
-	body := section
+func noticeMutation(w io.Writer, action, id, filePath string, sources []string) error {
+	body := id
 	if filePath != "" {
-		body = section + "\n" + filePath
+		body = id + "\n" + filePath
 	}
 	return render.New(w).Success(action, body, sources)
 }
@@ -1015,16 +1003,16 @@ func noticeMutation(w io.Writer, action, section, filePath string, sources []str
 // CLI's error surface is pure-Go (no MCP envelope) while the MCP
 // handlers in internal/mcpsrv/tools.go reuse exactly the same paths.
 
-func runCreate(path, section, typeName string, data map[string]any) (string, []string, error) {
-	return ops.Create(path, section, typeName, data)
+func runCreate(path, id, typeName string, data map[string]any) (string, []string, error) {
+	return ops.Create(path, id, typeName, data)
 }
 
-func runUpdate(path, section, typeName string, data map[string]any) (string, []string, error) {
-	return ops.Update(path, section, typeName, data)
+func runUpdate(path, id, typeName string, data map[string]any) (string, []string, error) {
+	return ops.Update(path, id, typeName, data)
 }
 
-func runDelete(path, section, typeName string) (string, []string, error) {
-	return ops.Delete(path, section, typeName)
+func runDelete(path, id, typeName string) (string, []string, error) {
+	return ops.Delete(path, id, typeName)
 }
 
 func runSchemaMutate(path, action, kind, name string, data map[string]any) ([]string, error) {

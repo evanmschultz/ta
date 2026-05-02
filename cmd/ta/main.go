@@ -39,13 +39,13 @@ const longDescription = "# ta\n\n" +
 	"the stdio handshake makes the server path fire automatically.\n\n" +
 	"The same tool surface is available as terminal subcommands (every " +
 	"path-taking command takes `--path` as a flag; default cwd, relative " +
-	"or absolute accepted — V2-PLAN §12.17.5 [A1]):\n\n" +
-	"- `ta get <section>` — read a record; optionally --fields name[,name]\n" +
-	"- `ta list-sections [scope]` — enumerate record addresses under a scope\n" +
-	"- `ta schema [section]` — show the resolved schema\n" +
-	"- `ta create <section> --data <json>` — create a new record\n" +
-	"- `ta update <section> --data <json>` — update an existing record\n" +
-	"- `ta delete <section>` — remove a record, file, or instance dir\n" +
+	"or absolute accepted):\n\n" +
+	"- `ta get <id>` — read a record; optionally --fields name[,name]\n" +
+	"- `ta list-sections [scope]` — enumerate record ids under a scope\n" +
+	"- `ta schema [scope]` — show the resolved schema\n" +
+	"- `ta create <id> --data <json>` — create a new record\n" +
+	"- `ta update <id> --data <json>` — update an existing record\n" +
+	"- `ta delete <id>` — remove a record by id, or a whole file by id-prefix\n" +
 	"- `ta init` — bootstrap a project directory (schema + MCP configs)\n" +
 	"- `ta index rebuild` — regenerate the runtime record-type index at .ta/index.toml\n" +
 	"- `ta template (list|show|save|apply|delete)` — manage the ~/.ta library\n\n" +

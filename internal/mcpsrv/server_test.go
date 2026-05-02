@@ -108,10 +108,10 @@ func TestRoundTripCreateGetUpdateDelete(t *testing.T) {
 
 	// Create with db-qualified type.
 	res := callTool(t, c, "create", map[string]any{
-		"path":    fx.projectRoot,
-		"section": "plans.demo-1",
-		"type":    "plans.task",
-		"data":    map[string]any{"id": "demo-1", "status": "todo"},
+		"path": fx.projectRoot,
+		"id":   "plans.demo-1",
+		"type": "plans.task",
+		"data": map[string]any{"id": "demo-1", "status": "todo"},
 	})
 	if res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
@@ -119,8 +119,8 @@ func TestRoundTripCreateGetUpdateDelete(t *testing.T) {
 
 	// Get returns the record bytes.
 	res = callTool(t, c, "get", map[string]any{
-		"path":    fx.projectRoot,
-		"section": "plans.demo-1",
+		"path": fx.projectRoot,
+		"id":   "plans.demo-1",
 	})
 	if res.IsError {
 		t.Fatalf("get errored: %s", firstText(t, res))
@@ -131,9 +131,9 @@ func TestRoundTripCreateGetUpdateDelete(t *testing.T) {
 
 	// Update.
 	res = callTool(t, c, "update", map[string]any{
-		"path":    fx.projectRoot,
-		"section": "plans.demo-1",
-		"data":    map[string]any{"status": "done"},
+		"path": fx.projectRoot,
+		"id":   "plans.demo-1",
+		"data": map[string]any{"status": "done"},
 	})
 	if res.IsError {
 		t.Fatalf("update errored: %s", firstText(t, res))
@@ -141,8 +141,8 @@ func TestRoundTripCreateGetUpdateDelete(t *testing.T) {
 
 	// Delete.
 	res = callTool(t, c, "delete", map[string]any{
-		"path":    fx.projectRoot,
-		"section": "plans.demo-1",
+		"path": fx.projectRoot,
+		"id":   "plans.demo-1",
 	})
 	if res.IsError {
 		t.Fatalf("delete errored: %s", firstText(t, res))
@@ -153,9 +153,9 @@ func TestCreateRequiresType(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
 	res := callTool(t, c, "create", map[string]any{
-		"path":    fx.projectRoot,
-		"section": "plans.demo-1",
-		"data":    map[string]any{"id": "demo-1", "status": "todo"},
+		"path": fx.projectRoot,
+		"id":   "plans.demo-1",
+		"data": map[string]any{"id": "demo-1", "status": "todo"},
 	})
 	if !res.IsError {
 		t.Fatal("expected error for missing `type`")
@@ -166,10 +166,10 @@ func TestCreateRejectsBareType(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
 	res := callTool(t, c, "create", map[string]any{
-		"path":    fx.projectRoot,
-		"section": "plans.demo-1",
-		"type":    "task", // bare slug, not db-qualified
-		"data":    map[string]any{"id": "demo-1", "status": "todo"},
+		"path": fx.projectRoot,
+		"id":   "plans.demo-1",
+		"type": "task", // bare slug, not db-qualified
+		"data": map[string]any{"id": "demo-1", "status": "todo"},
 	})
 	if !res.IsError {
 		t.Fatal("expected error for bare type")
@@ -276,9 +276,9 @@ func TestUpdateMissingFile(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
 	res := callTool(t, c, "update", map[string]any{
-		"path":    fx.projectRoot,
-		"section": "plans.demo-1",
-		"data":    map[string]any{"status": "todo"},
+		"path": fx.projectRoot,
+		"id":   "plans.demo-1",
+		"data": map[string]any{"status": "todo"},
 	})
 	if !res.IsError {
 		t.Fatal("expected update on missing file to error")
@@ -293,10 +293,10 @@ func TestSearchHits(t *testing.T) {
 	c := newClient(t, fx.projectRoot)
 	for _, id := range []string{"plans.t1", "plans.t2", "plans.t3"} {
 		res := callTool(t, c, "create", map[string]any{
-			"path":    fx.projectRoot,
-			"section": id,
-			"type":    "plans.task",
-			"data":    map[string]any{"id": id, "status": "todo"},
+			"path": fx.projectRoot,
+			"id":   id,
+			"type": "plans.task",
+			"data": map[string]any{"id": id, "status": "todo"},
 		})
 		if res.IsError {
 			t.Fatalf("create %s errored: %s", id, firstText(t, res))

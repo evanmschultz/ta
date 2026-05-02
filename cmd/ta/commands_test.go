@@ -1023,14 +1023,14 @@ func TestGetCmdJSONRawBytes(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	var payload struct {
-		Section string `json:"section"`
-		Bytes   string `json:"bytes"`
+		ID    string `json:"id"`
+		Bytes string `json:"bytes"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
-	if payload.Section != "plans.t1" {
-		t.Errorf("section = %q, want plans.t1", payload.Section)
+	if payload.ID != "plans.t1" {
+		t.Errorf("section = %q, want plans.t1", payload.ID)
 	}
 	if !strings.Contains(payload.Bytes, `id = "T1"`) {
 		t.Errorf("bytes missing record body: %q", payload.Bytes)
@@ -1038,7 +1038,7 @@ func TestGetCmdJSONRawBytes(t *testing.T) {
 }
 
 // TestGetCmdJSONFields proves --json with --fields emits the
-// {"section": ..., "fields": {...}} shape.
+// {"id": ..., "fields": {...}} shape.
 func TestGetCmdJSONFields(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
@@ -1054,8 +1054,8 @@ func TestGetCmdJSONFields(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	var payload struct {
-		Section string         `json:"section"`
-		Fields  map[string]any `json:"fields"`
+		ID     string         `json:"id"`
+		Fields map[string]any `json:"fields"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
@@ -1382,9 +1382,9 @@ func TestSearchCmdJSON(t *testing.T) {
 	}
 	var payload struct {
 		Hits []struct {
-			Section string         `json:"section"`
-			Bytes   string         `json:"bytes"`
-			Fields  map[string]any `json:"fields"`
+			ID     string         `json:"id"`
+			Bytes  string         `json:"bytes"`
+			Fields map[string]any `json:"fields"`
 		} `json:"hits"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
@@ -1393,8 +1393,8 @@ func TestSearchCmdJSON(t *testing.T) {
 	if len(payload.Hits) != 1 {
 		t.Fatalf("hits = %d, want 1: %+v", len(payload.Hits), payload.Hits)
 	}
-	if payload.Hits[0].Section != "plans.t1" {
-		t.Errorf("section = %q, want plans.t1", payload.Hits[0].Section)
+	if payload.Hits[0].ID != "plans.t1" {
+		t.Errorf("section = %q, want plans.t1", payload.Hits[0].ID)
 	}
 	if payload.Hits[0].Fields["status"] != "todo" {
 		t.Errorf("fields.status = %v, want todo", payload.Hits[0].Fields["status"])
@@ -1426,8 +1426,7 @@ func TestGetCmdSingleRecordGolden(t *testing.T) {
 }
 
 // TestGetCmdSingleRecordJSONGolden locks the single-record --json shape
-// (no "records" envelope, keeps the pre-B2 {"section","bytes"} shape)
-// byte-for-byte.
+// ({"id","bytes"} — no "records" envelope) byte-for-byte.
 func TestGetCmdSingleRecordJSONGolden(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
@@ -1471,9 +1470,8 @@ func TestGetCmdScopeMultipleRecords(t *testing.T) {
 	}
 }
 
-// TestGetCmdScopeJSONRecords proves a scope-prefix --json call emits
-// the {"records":[{section,fields},...]} envelope (plural, not
-// {"section","bytes"}).
+// TestGetCmdScopeJSONRecords proves an id-prefix --json call emits the
+// {"records":[{id,fields},...]} envelope (plural, not {"id","bytes"}).
 func TestGetCmdScopeJSONRecords(t *testing.T) {
 	root := newSchemaFixture(t)
 	dataPath := filepath.Join(root, "plans.toml")
@@ -1492,8 +1490,8 @@ func TestGetCmdScopeJSONRecords(t *testing.T) {
 	}
 	var payload struct {
 		Records []struct {
-			Section string         `json:"section"`
-			Fields  map[string]any `json:"fields"`
+			ID     string         `json:"id"`
+			Fields map[string]any `json:"fields"`
 		} `json:"records"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
@@ -1504,8 +1502,8 @@ func TestGetCmdScopeJSONRecords(t *testing.T) {
 	}
 	want := []string{"plans.t1", "plans.t2"}
 	for i, w := range want {
-		if payload.Records[i].Section != w {
-			t.Errorf("records[%d].Section = %q, want %q", i, payload.Records[i].Section, w)
+		if payload.Records[i].ID != w {
+			t.Errorf("records[%d].ID = %q, want %q", i, payload.Records[i].ID, w)
 		}
 	}
 	if payload.Records[0].Fields["id"] != "T1" {
@@ -1651,15 +1649,15 @@ func TestGetCmdSingleRecordIgnoresLimitAll(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	var payload struct {
-		Section string `json:"section"`
+		ID      string `json:"id"`
 		Bytes   string `json:"bytes"`
 		Records any    `json:"records"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
-	if payload.Section != "plans.t1" {
-		t.Errorf("single-record --all leaked into scope shape; section = %q", payload.Section)
+	if payload.ID != "plans.t1" {
+		t.Errorf("single-record --all leaked into scope shape; section = %q", payload.ID)
 	}
 	if payload.Records != nil {
 		t.Errorf("single-record --all should NOT emit records envelope: %+v", payload.Records)

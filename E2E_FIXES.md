@@ -133,6 +133,8 @@ Recommend (b) as the minimum-disruption fix that handles the bare-root pattern. 
 
 ## F10. Plan is internally contradictory on address grammar; code shipped the wrong line
 
+**RESOLVED in commit `c467803` (`feat(id): drop type from id; align bracket=id; index v2; format-from-extension`).** The id grammar is now the single canonical form — type lives in the index only, on-disk bracket IS the id, `--type` is db-qualified at the boundary. Memory rule `feedback_ta_id.md` captures the locked design. Original diagnosis preserved below for historical reference.
+
 Dev intent (stated 2026-04-27, also already locked in PLAN line 1249): "id is path, type is not in the path." Records should be addressed by `<file-relpath>.<id-tail>` only. Type is orthogonal — `--type <db>.<type>` on the CLI, `typeName` on MCP — never embedded in the address. The db-qualified `--type` form (`plans.task` not `task`) is required because without type in the address, type alone (`task`) is ambiguous when multiple dbs declare the same type slug.
 
 **The plan disagrees with itself in §12.17.9, locked one day apart:**
@@ -172,6 +174,8 @@ Recommend (a). Restores the design that was locked 2026-04-24, matches stated de
 If (a), this is a §12.17.9 follow-up phase (call it Phase 9.10 or §12.17.9-bis). The grammar change is breaking but pre-§12.19 — included in v0.1.0 release notes alongside the rest of §12.17.9.
 
 ## F11. `list_sections` and `search` (both surfaces) miss records that ARE in the index
+
+**RETIRED in commit `c467803`.** The bracket-form misalignment that caused the read-path bug was a consequence of carrying `<type>.<id>` in addresses; with F10's bracket-equals-id model the per-mount-shape decision the walker had to make collapses, and this whole class of bug dissolves. Walker reads bracket = id, lookup matches index entry. F11 has no separate slice. Original diagnosis preserved below.
 
 **Initial diagnosis was wrong** — `cat .ta/index.toml` (2026-04-27) shows all 4 records correctly indexed:
 

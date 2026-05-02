@@ -53,8 +53,6 @@ func Build() error {
 // rest of the ta CLI surface per V2-PLAN §12.17.5 [A3]. Notices and
 // facts go to stderr; the underlying `go build` output stays on the
 // subprocess's inherited stdout/stderr.
-//
-// Dev-only dogfood target. Orchestrator and subagents MUST NOT invoke it.
 func Install() error {
 	rr := render.New(os.Stderr)
 

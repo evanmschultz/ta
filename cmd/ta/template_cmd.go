@@ -88,7 +88,7 @@ func newTemplateShowCmd() *cobra.Command {
 		Use:     "show <name>",
 		Short:   "Print the bytes of one template",
 		Long:    "Reads `~/.ta/<name>.toml`, validates it through the schema meta-schema, and renders its bytes as a glamour-highlighted TOML code block. With --json emits `{\"template\": \"<name>\", \"bytes\": \"<raw>\"}`. A malformed template errors loudly per V2-PLAN §14.6.",
-		Example: "  ta template show schema\n  ta template show dogfood --json",
+		Example: "  ta template show schema\n  ta template show myproj --json",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
@@ -151,8 +151,8 @@ func newTemplateSaveCmd() *cobra.Command {
 			"line/column error pointing at `<cwd>/.ta/schema.toml` before the " +
 			"promotion attempt.",
 		Example: `  ta template save
-  ta template save dogfood
-  ta template save dogfood --force --json`,
+  ta template save myproj
+  ta template save myproj --force --json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			var name string

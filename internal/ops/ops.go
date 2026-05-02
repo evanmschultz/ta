@@ -406,9 +406,9 @@ func Delete(path, id, typeName string) (string, []string, error) {
 
 // SearchHit mirrors search.Result at the ops boundary.
 type SearchHit struct {
-	Section string
-	Bytes   []byte
-	Fields  map[string]any
+	ID     string
+	Bytes  []byte
+	Fields map[string]any
 }
 
 const defaultListLimit = 10
@@ -436,16 +436,16 @@ func ListSections(path, scope string, limit int, all bool) ([]string, error) {
 	}
 	out := make([]string, len(results))
 	for i, r := range results {
-		out[i] = r.Section
+		out[i] = r.ID
 	}
 	return out, nil
 }
 
 // ScopeRecord is one record returned by GetScope.
 type ScopeRecord struct {
-	Section string
-	Bytes   []byte
-	Fields  map[string]any
+	ID     string
+	Bytes  []byte
+	Fields map[string]any
 }
 
 // IsScopeAddress reports whether id is a scope-prefix id (e.g.
@@ -510,9 +510,9 @@ func GetScope(path, id string, fields []string, limit int, all bool) ([]ScopeRec
 	out := make([]ScopeRecord, len(results))
 	for i, r := range results {
 		out[i] = ScopeRecord{
-			Section: r.Section,
-			Bytes:   r.Bytes,
-			Fields:  filterFields(r.Fields, fields),
+			ID:     r.ID,
+			Bytes:  r.Bytes,
+			Fields: filterFields(r.Fields, fields),
 		}
 	}
 	return out, nil
@@ -573,7 +573,7 @@ func Search(path, scope, typeName string, match map[string]any, queryRegex, fiel
 				// rather than silently passing every result.
 				continue
 			}
-			entry, ok := idx.Get(r.Section)
+			entry, ok := idx.Get(r.ID)
 			if !ok {
 				// Not indexed → cannot type-filter; skip silently.
 				continue
@@ -581,7 +581,7 @@ func Search(path, scope, typeName string, match map[string]any, queryRegex, fiel
 			if entry.Type != bareType {
 				continue
 			}
-			hits = append(hits, SearchHit{Section: r.Section, Bytes: r.Bytes, Fields: r.Fields})
+			hits = append(hits, SearchHit{ID: r.ID, Bytes: r.Bytes, Fields: r.Fields})
 		}
 		if !all && limit > 0 && len(hits) > limit {
 			hits = hits[:limit]
@@ -591,7 +591,7 @@ func Search(path, scope, typeName string, match map[string]any, queryRegex, fiel
 		return hits, nil
 	}
 	for _, r := range results {
-		hits = append(hits, SearchHit{Section: r.Section, Bytes: r.Bytes, Fields: r.Fields})
+		hits = append(hits, SearchHit{ID: r.ID, Bytes: r.Bytes, Fields: r.Fields})
 	}
 	return hits, nil
 }

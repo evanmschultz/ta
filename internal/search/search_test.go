@@ -113,8 +113,8 @@ body = "beta"
 	if len(hits) != 1 {
 		t.Fatalf("got %d hits, want 1: %+v", len(hits), hits)
 	}
-	if hits[0].Section != "plans.t1" {
-		t.Errorf("section = %q, want plans.t1", hits[0].Section)
+	if hits[0].ID != "plans.t1" {
+		t.Errorf("section = %q, want plans.t1", hits[0].ID)
 	}
 }
 
@@ -143,7 +143,7 @@ priority = 2
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.t2" {
+	if len(hits) != 1 || hits[0].ID != "plans.t2" {
 		t.Fatalf("got %+v, want one hit on t2", hits)
 	}
 }
@@ -171,7 +171,7 @@ status = "done"
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.t2" {
+	if len(hits) != 1 || hits[0].ID != "plans.t2" {
 		t.Fatalf("got %+v, want t2", hits)
 	}
 }
@@ -200,7 +200,7 @@ done = true
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.t2" {
+	if len(hits) != 1 || hits[0].ID != "plans.t2" {
 		t.Fatalf("got %+v, want t2", hits)
 	}
 }
@@ -240,7 +240,7 @@ body = "Write the search implementation."
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.t1" {
+	if len(hits) != 1 || hits[0].ID != "plans.t1" {
 		t.Fatalf("got %+v, want one hit on t1", hits)
 	}
 }
@@ -272,7 +272,7 @@ body = "generic"
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.t2" {
+	if len(hits) != 1 || hits[0].ID != "plans.t2" {
 		t.Fatalf("got %+v, want t2", hits)
 	}
 }
@@ -307,7 +307,7 @@ body = "contains scanner"
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "plans.t2" {
+	if len(hits) != 1 || hits[0].ID != "plans.t2" {
 		t.Fatalf("body-restricted got %+v, want t2", hits)
 	}
 
@@ -383,7 +383,7 @@ func TestMultiInstanceScopeUnion(t *testing.T) {
 	}
 	haveSections := map[string]bool{}
 	for _, h := range hits {
-		haveSections[h.Section] = true
+		haveSections[h.ID] = true
 	}
 	for _, want := range []string{
 		"drop_1.db.build_task.task_001",
@@ -411,8 +411,8 @@ func TestMultiInstanceScopeNarrow(t *testing.T) {
 		t.Fatalf("got %d hits, want 2: %+v", len(hits), hits)
 	}
 	for _, h := range hits {
-		if !strings.HasPrefix(h.Section, "drop_1.db.") {
-			t.Errorf("hit outside drop_1: %q", h.Section)
+		if !strings.HasPrefix(h.ID, "drop_1.db.") {
+			t.Errorf("hit outside drop_1: %q", h.ID)
 		}
 	}
 }
@@ -440,7 +440,7 @@ func TestMultiInstanceIDPrefixScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Section != "drop_1.db.build_task.task_001" {
+	if len(hits) != 1 || hits[0].ID != "drop_1.db.build_task.task_001" {
 		t.Errorf("got %+v, want one hit on task_001", hits)
 	}
 
@@ -611,8 +611,8 @@ func TestSearchMDBody(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("got %d hits, want 1: %+v", len(hits), hits)
 	}
-	if !strings.HasSuffix(hits[0].Section, "install") {
-		t.Errorf("section = %q; want ending with 'install'", hits[0].Section)
+	if !strings.HasSuffix(hits[0].ID, "install") {
+		t.Errorf("section = %q; want ending with 'install'", hits[0].ID)
 	}
 	raw := string(hits[0].Bytes)
 	if !strings.Contains(raw, "## Install") {
@@ -680,7 +680,7 @@ status = "todo"
 		t.Fatalf("Run: %v", err)
 	}
 	// "t" prefix matches "t1" but not "other".
-	if len(hits) != 1 || hits[0].Section != "plans.t1" {
+	if len(hits) != 1 || hits[0].ID != "plans.t1" {
 		t.Errorf("got %+v, want t1", hits)
 	}
 }

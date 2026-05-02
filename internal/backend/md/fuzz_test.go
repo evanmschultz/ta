@@ -78,7 +78,7 @@ func FuzzSpliceInvariant(f *testing.F) {
 		f.Add([]byte(s), 3, "### Prereqs")
 	}
 
-	// Add real dogfood seeds if present in the project root.
+	// Add real-world seed inputs if present in the project root.
 	if root, ok := findProjectRoot(); ok {
 		for _, name := range []string{"README.md", "CLAUDE.md"} {
 			data, err := os.ReadFile(filepath.Join(root, name))

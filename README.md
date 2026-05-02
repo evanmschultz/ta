@@ -1,15 +1,18 @@
 # ta
 
-A tiny MCP server that lets LLM coding agents read and write TOML files as if they were a structured database — with schemas to keep agents honest.
+A tiny MCP server that lets LLM coding agents read and write TOML and Markdown files as if they were a structured database — with schemas to keep agents honest.
 
-`ta` exposes four tools over MCP stdio:
+`ta` exposes these tools over MCP stdio:
 
-- **`get`** — read a section by bracket path, returning the raw TOML bytes (leading comment block included, so human-written docstrings come along for the ride).
-- **`list_sections`** — enumerate every section in a file, in file order.
-- **`schema`** — return the resolved schema for a file; with an optional `section` argument, return just the type matched by its first segment.
-- **`upsert`** — create or update a section, validated against a schema; untouched bytes (comments, blank lines, other sections) are preserved byte-for-byte.
+- **`get`** — read one record by id (raw bytes by default, structured fields with `fields=[...]`), or every record under an id prefix.
+- **`list_sections`** — enumerate record ids under a scope, in file-parse order.
+- **`create`** — create a new record; fails if the id already exists. `type` is required and db-qualified (`<db>.<type>`).
+- **`update`** — PATCH-style update of an existing record; partial overlays, atomic re-validation.
+- **`delete`** — remove a record by id, or a whole file by id prefix.
+- **`search`** — structured + regex search across records under a scope.
+- **`schema`** — inspect or mutate the resolved schema (get, create, update, delete on db / type / field levels).
 
-Design notes: [`docs/ta.md`](docs/ta.md). Build plan: [`docs/PLAN.md`](docs/PLAN.md).
+Build plan: [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Install
 
@@ -50,37 +53,44 @@ claude mcp list
 
 ## Schemas
 
-`ta` resolves schemas by cascade-merging from `~/.ta/schema.toml` (the base) down through every `.ta/schema.toml` in the target file's directory chain. Schemas defined closer to the target file supersede same-named schemas from further out; schemas unique to any level are additive. If neither home nor any ancestor has a `.ta/schema.toml`, the call fails with a clear error.
+Each project carries one schema at `<project>/.ta/schema.toml`. The runtime reads exactly that one file — no home-layer cascade, no ancestor walk. If the project has no schema, `ta` errors with a clear message.
+
+A schema declares one or more **dbs**. Each db lists the file paths it owns (TOML or Markdown — format inferred from the path extension) and the record types those files may contain.
 
 Example `.ta/schema.toml`:
 
 ```toml
-[schema.task]
-description = "A unit of work"
+[plans]
+paths = ["plans.toml"]
+description = "Planning records."
 
-[schema.task.fields.id]
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
 type = "string"
 required = true
 
-[schema.task.fields.status]
+[plans.task.fields.status]
 type = "string"
 required = true
 enum = ["todo", "doing", "blocked", "done"]
 
-[schema.task.fields.body]
+[plans.task.fields.body]
 type = "string"
 ```
 
-With that schema in place, an agent can upsert a task:
+With that schema in place, an agent can create a task:
 
 ```json
 {
-  "name": "upsert",
+  "name": "create",
   "arguments": {
-    "path": "/abs/path/to/tasks.toml",
-    "section": "task.task_001",
+    "path": "/abs/path/to/project",
+    "id": "plans.task-001",
+    "type": "plans.task",
     "data": {
-      "id": "TASK-001",
+      "id": "task-001",
       "status": "doing",
       "body": "## Approach\n\nStart by..."
     }
@@ -88,7 +98,7 @@ With that schema in place, an agent can upsert a task:
 }
 ```
 
-Validation failures come back as structured JSON — the agent sees exactly which field failed which rule.
+The on-disk bracket header IS the id — `[plans.task-001]` in `plans.toml`. The record's type lives in `.ta/index.toml`, never in the id. Validation failures come back as structured JSON — the agent sees exactly which field failed which rule.
 
 ## Building from source
 

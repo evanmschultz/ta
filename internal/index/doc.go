@@ -1,13 +1,12 @@
 // Package index implements the runtime record-type index that lives at
-// `<project-root>/.ta/index.toml`. PLAN §12.17.9 Phase 9.3.
+// `<project-root>/.ta/index.toml`.
 //
-// The index is the runtime answer to "for canonical address X, what
-// record type is it?" — a flat map[canonical-address]Entry that record
-// CRUD (Phase 9.4) and lookup paths consult before opening the backing
-// file. The on-disk shape is one bracket-table per record keyed by the
-// full canonical address (`<file-relpath>.<type>.<id-tail>`), nested
-// naturally by dot-segment so go-toml/v2 emits `[phase_1.db.t1]` rather
-// than a quoted single-key form.
+// The index is the runtime answer to "for id X, what record type is
+// it?" — a flat map[id]Entry that record CRUD and lookup paths consult
+// before opening the backing file. The on-disk shape is one
+// bracket-table per record keyed by the full id (e.g. `[plans.demo-1]`),
+// nested naturally by dot-segment so go-toml/v2 emits the dotted form
+// rather than a quoted single-key form.
 //
 // Trust-and-fail-loud: the index is NOT an authoritative cache. Reads
 // trust the recorded type for routing; mismatches between the index and

@@ -10,7 +10,7 @@ import (
 	"github.com/evanmschultz/ta/internal/record"
 )
 
-// readmeTypes is the canonical dogfood schema for the README db used
+// readmeTypes is the canonical test schema for the README db used
 // throughout this file: H1 "title" + H2 "section" only. H3+ headings
 // in any buffer exercised below must flow through as body content per
 // V2-PLAN §5.3.2.

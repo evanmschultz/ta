@@ -18,26 +18,26 @@ func getTool() mcp.Tool {
 	return mcp.NewTool(
 		"get",
 		mcp.WithDescription(
-			"Read one record or every record under a scope prefix. A fully-qualified address ('<db>.<type>.<id-path>' or '<db>.<instance>.<type>.<id-path>') returns one record — raw bytes by default, or a {fields} object when 'fields' is set. A scope-prefix address ('<db>', '<db>.<type>', '<db>.<instance>', or '<db>.<instance>.<type>') returns {records: [{section, fields}, ...]} in file-parse order; pass 'limit' (default 10) or 'all=true' to widen. 'limit' and 'all' are ignored for single-record addresses.",
+			"Read one record or every record under an id prefix. A full id (e.g. `plans.demo-1`) returns one record — raw bytes by default, or a {fields} object when 'fields' is set. An id prefix (e.g. `plans`) returns {records: [{id, fields}, ...]} in file-parse order; pass 'limit' (default 10) or 'all=true' to widen. 'limit' and 'all' are ignored for single-record ids.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("section", mcp.Required(), mcp.Description("Record address ('<db>.<type>.<id-path>' or '<db>.<instance>.<type>.<id-path>') OR scope prefix ('<db>', '<db>.<type>', '<db>.<instance>', '<db>.<instance>.<type>').")),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (e.g. `plans.demo-1`) or id prefix (e.g. `plans` to enumerate every record in plans.toml).")),
 		mcp.WithArray(
 			"fields",
-			mcp.Description("Optional array of declared field names. Single-record: narrows the response to a {fields} object (unknown names error; absent returns raw bytes). Scope-prefix: narrows each record's fields map; absent returns every declared field."),
+			mcp.Description("Optional array of declared field names. Full id: narrows the response to a {fields} object (unknown names error; absent returns raw bytes). Id prefix: narrows each record's fields map; absent returns every declared field."),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
 		mcp.WithString(
 			"type",
-			mcp.Description("Optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)."),
+			mcp.Description("Optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id."),
 		),
 		mcp.WithNumber(
 			"limit",
-			mcp.Description("Optional cap on returned records when 'section' is a scope prefix. Default 10. Mutually exclusive with all=true. Ignored for single-record addresses."),
+			mcp.Description("Optional cap on returned records when 'id' is a prefix. Default 10. Mutually exclusive with all=true. Ignored for single-record ids."),
 		),
 		mcp.WithBoolean(
 			"all",
-			mcp.Description("Optional. When true and 'section' is a scope prefix, return every record in scope; ignores limit. Ignored for single-record addresses."),
+			mcp.Description("Optional. When true and 'id' is a prefix, return every record in scope; ignores limit. Ignored for single-record ids."),
 		),
 	)
 }
@@ -46,20 +46,20 @@ func listSectionsTool() mcp.Tool {
 	return mcp.NewTool(
 		"list_sections",
 		mcp.WithDescription(
-			"Enumerate record addresses under a scope. Returns full project-level dotted addresses in file-parse order, ready to pass back to get/update/delete. Defaults to 10 addresses; pass all=true or a larger limit to widen.",
+			"Enumerate record ids under a scope. Returns full project-level ids in file-parse order, ready to pass back to get/update/delete. Defaults to 10 ids; pass all=true or a larger limit to widen.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString(
 			"scope",
-			mcp.Description("Optional: '<db>' | '<db>.<type>' | '<db>.<instance>' | '<db>.<type>.<id-prefix>' | '<db>.<instance>.<type>(.<id-prefix>)?'. Default = whole project."),
+			mcp.Description("Optional id prefix (e.g. `plans` for every record in `plans.toml`, or `plans.todo-` for ids beginning `plans.todo-`). Default = whole project."),
 		),
 		mcp.WithNumber(
 			"limit",
-			mcp.Description("Optional cap on returned addresses. Default 10. Mutually exclusive with all=true."),
+			mcp.Description("Optional cap on returned ids. Default 10. Mutually exclusive with all=true."),
 		),
 		mcp.WithBoolean(
 			"all",
-			mcp.Description("Optional. When true, return every address in scope; ignores limit."),
+			mcp.Description("Optional. When true, return every id in scope; ignores limit."),
 		),
 	)
 }
@@ -68,14 +68,14 @@ func createTool() mcp.Tool {
 	return mcp.NewTool(
 		"create",
 		mcp.WithDescription(
-			"Create a new record. Fails if the record already exists. Creates missing directories and the backing file. PLAN §12.17.9 Phase 9.4: 'type' is REQUIRED — names the declared record type as the orthogonal authoritative source.",
+			"Create a new record. Fails if the record already exists. Creates missing directories and the backing file. 'type' is REQUIRED and must be db-qualified (`<db>.<type>`, e.g. `plans.task`).",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("section", mcp.Required(), mcp.Description("Record address.")),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (e.g. `plans.demo-1`).")),
 		mcp.WithString(
 			"type",
 			mcp.Required(),
-			mcp.Description("REQUIRED declared record type name. Must match the type segment carried by the address."),
+			mcp.Description("REQUIRED declared record type, db-qualified (`<db>.<type>`, e.g. `plans.task`). The db must match the id's db."),
 		),
 		mcp.WithObject(
 			"data",
@@ -90,10 +90,10 @@ func updateTool() mcp.Tool {
 	return mcp.NewTool(
 		"update",
 		mcp.WithDescription(
-			"PATCH-style update of an existing record. `data` is a partial overlay: provided fields overwrite their stored values, unspecified fields retain their bytes. Empty `data` ({}) is a no-op success. Null on a non-required field clears it; null on a required field with a schema default resets it to that default; null on a required field with no default errors. Merged record is atomically re-validated. Fails if the backing file does not exist. Creates the record within the file if absent (record-level upsert). See V2-PLAN §3.5.",
+			"PATCH-style update of an existing record. `data` is a partial overlay: provided fields overwrite their stored values, unspecified fields retain their bytes. Empty `data` ({}) is a no-op success. Null on a non-required field clears it; null on a required field with a schema default resets it to that default; null on a required field with no default errors. Merged record is atomically re-validated. Fails if the backing file does not exist. Creates the record within the file if absent (record-level upsert).",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("section", mcp.Required(), mcp.Description("Record address.")),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (e.g. `plans.demo-1`).")),
 		mcp.WithObject(
 			"data",
 			mcp.Required(),
@@ -102,7 +102,7 @@ func updateTool() mcp.Tool {
 		),
 		mcp.WithString(
 			"type",
-			mcp.Description("Optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)."),
+			mcp.Description("Optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id."),
 		),
 	)
 }
@@ -111,13 +111,13 @@ func deleteTool() mcp.Tool {
 	return mcp.NewTool(
 		"delete",
 		mcp.WithDescription(
-			"Remove a record, data file, or multi-instance instance directory. Never touches the schema. Address levels: record, whole single-instance-db file, whole dir-per-instance instance dir, whole file-per-instance instance file. Whole multi-instance db is intentionally ambiguous and errors.",
+			"Remove a record. Never touches the schema. Pass a full id to remove one record; pass an id prefix that maps to one concrete file to remove the whole file. An id prefix that maps to multiple files (multi-file glob) refuses with an unscoped-glob error.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("section", mcp.Required(), mcp.Description("Address to remove.")),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Record id to remove (e.g. `plans.demo-1`).")),
 		mcp.WithString(
 			"type",
-			mcp.Description("Optional declared type name; cross-checked against the address (PLAN §12.17.9 Phase 9.4)."),
+			mcp.Description("Optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id."),
 		),
 	)
 }
@@ -126,12 +126,12 @@ func searchTool() mcp.Tool {
 	return mcp.NewTool(
 		"search",
 		mcp.WithDescription(
-			"Structured + regex search across records. Scope narrows traversal to one db, one type, one instance, or one id-prefix. Match applies exact-match filters on typed fields (AND-combined). Query is a Go RE2 regex matched against string fields; Field optionally restricts the regex to one named string field. Returns full record sections in source order. Defaults to 10 hits; pass all=true or a larger limit to widen.",
+			"Structured + regex search across records. Scope narrows traversal to one db, one file, or any id prefix. Match applies exact-match filters on typed fields (AND-combined). Query is a Go RE2 regex matched against string fields; Field optionally restricts the regex to one named string field. Returns full record bodies in source order. Defaults to 10 hits; pass all=true or a larger limit to widen.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString(
 			"scope",
-			mcp.Description("Optional: '<db>' | '<db>.<type>' | '<db>.<instance>' | '<db>.<type>.<id-prefix>' | '<db>.<instance>.<type>(.<id-prefix>)?'. Default = whole project."),
+			mcp.Description("Optional id prefix to narrow traversal (e.g. `plans` for one file, `plans.todo-` for ids beginning `plans.todo-`). Default = whole project."),
 		),
 		mcp.WithObject(
 			"match",
@@ -148,7 +148,7 @@ func searchTool() mcp.Tool {
 		),
 		mcp.WithString(
 			"type",
-			mcp.Description("Optional declared type name; post-walk filter on hit addresses (PLAN §12.17.9 Phase 9.4)."),
+			mcp.Description("Optional db-qualified type (`<db>.<type>`); post-walk filter against the index entry for each hit's id."),
 		),
 		mcp.WithNumber(
 			"limit",
@@ -200,35 +200,35 @@ type listResult struct {
 
 type mutationSuccess struct {
 	Path        string   `json:"path"`
-	Section     string   `json:"section"`
+	ID          string   `json:"id"`
 	Action      string   `json:"action"`
 	SchemaPaths []string `json:"schema_paths,omitempty"`
 	TargetPath  string   `json:"target_path,omitempty"`
 }
 
 type fieldsResult struct {
-	Path    string         `json:"path"`
-	Section string         `json:"section"`
-	Fields  map[string]any `json:"fields"`
+	Path   string         `json:"path"`
+	ID     string         `json:"id"`
+	Fields map[string]any `json:"fields"`
 }
 
-// scopeRecord is one entry in a scope-prefix `get` response.
-// Section is the full dotted address; Fields is the decoded field map
-// (filtered by the caller's optional fields list). Bytes are
-// intentionally omitted — multi-record raw-bytes would be ambiguous
-// across heterogeneous record types.
+// scopeRecord is one entry in an id-prefix `get` response.
+// ID is the full id; Fields is the decoded field map (filtered by the
+// caller's optional fields list). Bytes are intentionally omitted —
+// multi-record raw-bytes would be ambiguous across heterogeneous record
+// types.
 type scopeRecord struct {
-	Section string         `json:"section"`
-	Fields  map[string]any `json:"fields"`
+	ID     string         `json:"id"`
+	Fields map[string]any `json:"fields"`
 }
 
-// scopeResult is the MCP response shape for a scope-prefix `get` call.
+// scopeResult is the MCP response shape for an id-prefix `get` call.
 // Records is the file-parse-order list of records the scope expanded
 // to; the top-level envelope uses the plural shape even when only one
-// record matched (§12.17.5 [B2]).
+// record matched.
 type scopeResult struct {
 	Path    string        `json:"path"`
-	Section string        `json:"section"`
+	ID      string        `json:"id"`
 	Records []scopeRecord `json:"records"`
 }
 
@@ -238,7 +238,7 @@ type scopeResult struct {
 type schemaResult struct {
 	Path           string            `json:"path"`
 	SchemaPaths    []string          `json:"schema_paths,omitempty"`
-	Section        string            `json:"section,omitempty"`
+	ID             string            `json:"id,omitempty"`
 	Scope          string            `json:"scope,omitempty"`
 	Action         string            `json:"action,omitempty"`
 	Type           *typeView         `json:"type,omitempty"`
@@ -275,7 +275,7 @@ type fieldView struct {
 
 func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, section, errRes := requirePathAndSection(req)
+	path, id, errRes := requirePathAndID(req)
 	if errRes != nil {
 		return errRes, nil
 	}
@@ -292,30 +292,30 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	if limit > 0 && all {
 		return mcp.NewToolResultError("pass either limit or all, not both"), nil
 	}
-	isScope, err := ops.IsScopeAddress(path, section)
+	isScope, err := ops.IsScopeAddress(path, id)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	typeName := req.GetString("type", "")
 	if isScope {
-		records, err := ops.GetScope(path, section, fields, limit, all)
+		records, err := ops.GetScope(path, id, fields, limit, all)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		out := make([]scopeRecord, len(records))
 		for i, r := range records {
-			out[i] = scopeRecord{Section: r.Section, Fields: r.Fields}
+			out[i] = scopeRecord{ID: r.ID, Fields: r.Fields}
 		}
-		return mcp.NewToolResultJSON(scopeResult{Path: path, Section: section, Records: out})
+		return mcp.NewToolResultJSON(scopeResult{Path: path, ID: id, Records: out})
 	}
-	res, err := ops.Get(path, section, typeName, fields)
+	res, err := ops.Get(path, id, typeName, fields)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	if !hasFields {
 		return mcp.NewToolResultText(string(res.Bytes)), nil
 	}
-	return mcp.NewToolResultJSON(fieldsResult{Path: path, Section: section, Fields: res.Fields})
+	return mcp.NewToolResultJSON(fieldsResult{Path: path, ID: id, Fields: res.Fields})
 }
 
 func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -345,7 +345,7 @@ func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 
 func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, section, errRes := requirePathAndSection(req)
+	path, id, errRes := requirePathAndID(req)
 	if errRes != nil {
 		return errRes, nil
 	}
@@ -355,15 +355,15 @@ func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	}
 	typeName, err := req.RequireString("type")
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("missing required argument 'type' (PLAN §12.17.9 Phase 9.4): %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("missing required argument 'type': %v", err)), nil
 	}
-	filePath, sources, err := ops.Create(path, section, typeName, data)
+	filePath, sources, err := ops.Create(path, id, typeName, data)
 	if err != nil {
 		return validationOrPlainError(err), nil
 	}
 	return mcp.NewToolResultJSON(mutationSuccess{
 		Path:        path,
-		Section:     section,
+		ID:          id,
 		Action:      "create",
 		SchemaPaths: sources,
 		TargetPath:  filePath,
@@ -372,7 +372,7 @@ func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 
 func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, section, errRes := requirePathAndSection(req)
+	path, id, errRes := requirePathAndID(req)
 	if errRes != nil {
 		return errRes, nil
 	}
@@ -381,13 +381,13 @@ func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		return errRes, nil
 	}
 	typeName := req.GetString("type", "")
-	filePath, sources, err := ops.Update(path, section, typeName, data)
+	filePath, sources, err := ops.Update(path, id, typeName, data)
 	if err != nil {
 		return validationOrPlainError(err), nil
 	}
 	return mcp.NewToolResultJSON(mutationSuccess{
 		Path:        path,
-		Section:     section,
+		ID:          id,
 		Action:      "update",
 		SchemaPaths: sources,
 		TargetPath:  filePath,
@@ -396,32 +396,32 @@ func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 
 func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, section, errRes := requirePathAndSection(req)
+	path, id, errRes := requirePathAndID(req)
 	if errRes != nil {
 		return errRes, nil
 	}
 	typeName := req.GetString("type", "")
-	targetPath, sources, err := ops.Delete(path, section, typeName)
+	targetPath, sources, err := ops.Delete(path, id, typeName)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	return mcp.NewToolResultJSON(mutationSuccess{
 		Path:        path,
-		Section:     section,
+		ID:          id,
 		Action:      "delete",
 		SchemaPaths: sources,
 		TargetPath:  targetPath,
 	})
 }
 
-// searchHit is one entry in the search result payload. Bytes is the
-// record's raw on-disk section (base64 would obscure markdown bodies
-// in terminals — we keep it as a string); Fields is the decoded field
-// map. Section is the full dotted address.
+// searchHit is one entry in the search result payload. ID is the full
+// record id. Bytes is the record's raw on-disk text (we keep it as a
+// string so markdown bodies stay readable in terminals). Fields is the
+// decoded field map.
 type searchHit struct {
-	Section string         `json:"section"`
-	Bytes   string         `json:"bytes"`
-	Fields  map[string]any `json:"fields"`
+	ID     string         `json:"id"`
+	Bytes  string         `json:"bytes"`
+	Fields map[string]any `json:"fields"`
 }
 
 // searchResult is the JSON payload returned by handleSearch.
@@ -467,9 +467,9 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	jsonHits := make([]searchHit, len(hits))
 	for i, h := range hits {
 		jsonHits[i] = searchHit{
-			Section: h.Section,
-			Bytes:   string(h.Bytes),
-			Fields:  h.Fields,
+			ID:     h.ID,
+			Bytes:  string(h.Bytes),
+			Fields: h.Fields,
 		}
 	}
 	return mcp.NewToolResultJSON(searchResult{Path: path, Scope: scope, Hits: jsonHits})
@@ -502,7 +502,7 @@ func handleSchema(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		// either for back-compat with existing tests.
 		scope := req.GetString("scope", "")
 		if scope == "" {
-			scope = req.GetString("section", "")
+			scope = req.GetString("id", "")
 		}
 		return handleSchemaGet(path, scope), nil
 	case "create", "update", "delete":
@@ -520,7 +520,7 @@ func handleSchemaGet(path, scope string) *mcp.CallToolResult {
 			Path:           path,
 			Action:         "get",
 			Scope:          scope,
-			Section:        scope,
+			ID:             scope,
 			MetaSchemaTOML: schema.MetaSchemaTOML,
 		})
 	}
@@ -536,7 +536,7 @@ func handleSchemaGet(path, scope string) *mcp.CallToolResult {
 			return mustJSON(schemaResult{
 				Path:        path,
 				SchemaPaths: resolution.Sources,
-				Section:     scope,
+				ID:          scope,
 				Scope:       scope,
 				Action:      "get",
 				Type:        &tv,
@@ -551,7 +551,7 @@ func handleSchemaGet(path, scope string) *mcp.CallToolResult {
 				return mustJSON(schemaResult{
 					Path:        path,
 					SchemaPaths: resolution.Sources,
-					Section:     scope,
+					ID:          scope,
 					Scope:       scope,
 					Action:      "get",
 					DB:          &dv,
@@ -559,7 +559,7 @@ func handleSchemaGet(path, scope string) *mcp.CallToolResult {
 			}
 		}
 		return mcp.NewToolResultError(
-			fmt.Sprintf("no schema registered for section %q in %s", scope, path))
+			fmt.Sprintf("no schema registered for scope %q in %s", scope, path))
 	}
 
 	return mustJSON(schemaResult{
@@ -615,7 +615,7 @@ func handleSchemaMutate(path, action string, req mcp.CallToolRequest) *mcp.CallT
 		}
 		return mustJSON(mutationSuccess{
 			Path:        path,
-			Section:     name,
+			ID:          name,
 			Action:      "schema." + action,
 			SchemaPaths: sources,
 		})
@@ -643,7 +643,7 @@ func handleSchemaMutate(path, action string, req mcp.CallToolRequest) *mcp.CallT
 	}
 	return mustJSON(mutationSuccess{
 		Path:        path,
-		Section:     name,
+		ID:          name,
 		Action:      "schema." + action,
 		SchemaPaths: sources,
 	})
@@ -661,16 +661,16 @@ func mustJSON(v any) *mcp.CallToolResult {
 	return res
 }
 
-func requirePathAndSection(req mcp.CallToolRequest) (string, string, *mcp.CallToolResult) {
+func requirePathAndID(req mcp.CallToolRequest) (string, string, *mcp.CallToolResult) {
 	path, err := req.RequireString("path")
 	if err != nil {
 		return "", "", mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err))
 	}
-	section, err := req.RequireString("section")
+	id, err := req.RequireString("id")
 	if err != nil {
-		return "", "", mcp.NewToolResultError(fmt.Sprintf("invalid section arg: %v", err))
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("invalid id arg: %v", err))
 	}
-	return path, section, nil
+	return path, id, nil
 }
 
 func requireDataObject(req mcp.CallToolRequest) (map[string]any, *mcp.CallToolResult) {

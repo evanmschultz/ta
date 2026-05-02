@@ -14,7 +14,7 @@ import (
 func newTemplateLibraryFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	for _, name := range []string{"schema", "dogfood"} {
+	for _, name := range []string{"schema", "myproj"} {
 		path := filepath.Join(root, name+".toml")
 		if err := os.WriteFile(path, []byte(cliTaskSchema), 0o644); err != nil {
 			t.Fatalf("seed %s: %v", name, err)
@@ -62,7 +62,7 @@ func TestTemplateListCmdDefault(t *testing.T) {
 		t.Fatalf("execute: %v stderr=%s", err, errOut.String())
 	}
 	s := out.String()
-	for _, want := range []string{"dogfood", "schema"} {
+	for _, want := range []string{"myproj", "schema"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output missing %q: %s", want, s)
 		}
@@ -85,7 +85,7 @@ func TestTemplateListCmdJSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
-	want := []string{"dogfood", "schema"}
+	want := []string{"myproj", "schema"}
 	if len(payload.Templates) != len(want) {
 		t.Fatalf("got %v, want %v", payload.Templates, want)
 	}
@@ -487,7 +487,7 @@ func TestTemplateApplyDoesNotTouchMCPConfigs(t *testing.T) {
 func TestTemplateDeleteHappyPath(t *testing.T) {
 	libRoot := newTemplateLibraryFixture(t)
 
-	out, errOut, err := runTemplateCmd(t, "delete", "dogfood", "--force", "--json")
+	out, errOut, err := runTemplateCmd(t, "delete", "myproj", "--force", "--json")
 	if err != nil {
 		t.Fatalf("execute: %v stderr=%s", err, errOut)
 	}
@@ -498,14 +498,14 @@ func TestTemplateDeleteHappyPath(t *testing.T) {
 	if jsonErr := json.Unmarshal([]byte(out), &report); jsonErr != nil {
 		t.Fatalf("stdout not JSON: %v\n%s", jsonErr, out)
 	}
-	if report.Name != "dogfood" {
-		t.Errorf("name = %q, want dogfood", report.Name)
+	if report.Name != "myproj" {
+		t.Errorf("name = %q, want myproj", report.Name)
 	}
 	if !report.Deleted {
 		t.Errorf("deleted = false, want true")
 	}
-	if _, err := os.Stat(filepath.Join(libRoot, "dogfood.toml")); !os.IsNotExist(err) {
-		t.Errorf("dogfood.toml still present after delete: %v", err)
+	if _, err := os.Stat(filepath.Join(libRoot, "myproj.toml")); !os.IsNotExist(err) {
+		t.Errorf("myproj.toml still present after delete: %v", err)
 	}
 	// Sibling template must survive.
 	if _, err := os.Stat(filepath.Join(libRoot, "schema.toml")); err != nil {

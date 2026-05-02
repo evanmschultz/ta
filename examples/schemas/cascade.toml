@@ -8,7 +8,7 @@
 # Built against ta meta-schema language extensions (F21/F22/F23). This
 # file uses `extends`, `element_type`, `element_fields` constructs that
 # ta's current loader does not yet implement — they land alongside the
-# cascade dogfood. Where the constructs aren't supported, the schema is
+# cascade workflow. Where the constructs aren't supported, the schema is
 # still parseable; validation just won't reach the deeper levels yet.
 #
 # Intent: ship via embed.FS in the ta binary; `ta init --template cascade`
