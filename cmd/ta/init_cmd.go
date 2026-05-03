@@ -59,6 +59,7 @@ type initFlags struct {
 	asJSON         bool
 	nonInterRq     bool // non-interactive because of flags, not TTY absence
 	target         string
+	targetSystem   bool
 	selectionsFile string
 	onConflict     string
 }
@@ -96,23 +97,39 @@ func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Bootstrap a project directory with a schema and MCP configs",
-		Long: "Bootstrap a project directory from the `~/.ta/schema.toml` " +
-			"template library. With a TTY and no flags, runs an interactive " +
-			"huh multi-select over every db declared in the home library; " +
-			"the chosen dbs are reconstructed into `<path>/.ta/schema.toml`. " +
-			"Selecting zero dbs writes a comment-only schema you can fill " +
-			"in later via `ta schema --action=create`. With " +
-			"`--template <db>`, exactly that one db is extracted from the " +
-			"home schema (post-F15 the flag selects a db-name, not a " +
-			"per-template filename). By default also writes " +
-			"`<path>/.mcp.json` (Claude Code) and " +
-			"`<path>/.codex/config.toml` (Codex). Per-path " +
-			"defaults can be set in `<path>/.ta/config.toml` (V2-PLAN §14.5); " +
-			"`ta init` does NOT create that file itself — edit it by hand to " +
-			"tune future `ta init` runs on the same path. --path defaults to " +
+		Long: "Bootstrap a project directory from the `~/.ta/` home library. " +
+			"With a TTY and no flags, runs an interactive huh multi-select " +
+			"over every db declared in the home library; the chosen dbs " +
+			"are reconstructed into `<path>/.ta/schema.toml`. Selecting " +
+			"zero dbs writes a comment-only schema you can fill in later " +
+			"via `ta schema --action=create`. With `--template <db>`, " +
+			"exactly that one db is extracted from the home schema (post-F15 " +
+			"the flag selects a db-name, not a per-template filename). " +
+			"\n\n" +
+			"Bootstrap target is the current working directory by default. " +
+			"Pass `--target-system` to bootstrap the home library itself " +
+			"(`$HOME/.ta`) from the binary's shipped defaults — this is " +
+			"the canonical entry point for populating an empty home " +
+			"library and is the ONLY path that reads from binary defaults. " +
+			"`ta init` against any project target reads ONLY from the home " +
+			"library and surfaces a friendly error pointing back at " +
+			"`ta init --target-system` when the home library is empty " +
+			"(F32 strict-provenance policy). `--target <path>` remains as " +
+			"a generic-path escape hatch for non-canonical destinations. " +
+			"\n\n" +
+			"By default also writes `<path>/.mcp.json` (Claude Code) and " +
+			"`<path>/.codex/config.toml` (Codex). Per-path defaults can " +
+			"be set in `<path>/.ta/config.toml` (V2-PLAN §14.5); `ta init` " +
+			"does NOT create that file itself — edit it by hand to tune " +
+			"future `ta init` runs on the same path. --path defaults to " +
 			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
-		Example: "  ta init\n  ta init --path /abs/path/to/new-project --template plans\n  ta init --selections-file selections.json --on-conflict=skip\n  ta init --target ~/.ta --selections-file home-bootstrap.json",
-		Args:    cobra.NoArgs,
+		Example: "  ta init\n" +
+			"  ta init --target-system\n" +
+			"  ta init --target-system --on-conflict=overwrite\n" +
+			"  ta init --path /abs/path/to/new-project --template plans\n" +
+			"  ta init --selections-file selections.json --on-conflict=skip\n" +
+			"  ta init --target-system --selections-file home-bootstrap.json",
+		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			target, err := resolveInitTarget(c, f)
 			if err != nil {
@@ -135,19 +152,34 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&f.noCodex, "no-codex", false, "skip .codex/config.toml generation")
 	cmd.Flags().BoolVar(&f.force, "force", false, "overwrite an existing .ta/schema.toml without prompting")
 	cmd.Flags().BoolVar(&f.asJSON, "json", false, "emit JSON instead of laslig-rendered notices")
-	cmd.Flags().StringVar(&f.target, "target", "", "directory to install items into (overrides --path; use --target=$HOME/.ta to bootstrap the home library)")
+	cmd.Flags().StringVar(&f.target, "target", "", "directory to install items into (overrides --path; generic-path escape hatch)")
+	cmd.Flags().BoolVar(&f.targetSystem, "target-system", false, "bootstrap the home library at $HOME/.ta from binary defaults (canonical home-init flow; mutually exclusive with --target)")
 	cmd.Flags().StringVar(&f.selectionsFile, "selections-file", "", "JSON file declaring multi-category selections (skips huh picker)")
 	cmd.Flags().StringVar(&f.onConflict, "on-conflict", "", "conflict policy for multi-category apply: error|skip|overwrite|force (default error)")
 	addPathFlag(cmd)
 	return cmd
 }
 
-// resolveInitTarget combines `--target` and `--path` into a single
-// absolute target directory. `--target` wins when both are set; the
-// existing `--path` plumbing remains for backward compat with the
-// pre-F24 single-schema flow. Tilde-expansion is handled here so
-// `--target=~/.ta` works for home-library bootstrap (F24 lock #8).
+// resolveInitTarget combines `--target`, `--target-system`, and `--path`
+// into a single absolute target directory. F32 added `--target-system`
+// as the canonical home-bootstrap path: it resolves to `$HOME/.ta`
+// regardless of `--path` and is mutually exclusive with `--target` so
+// the user cannot accidentally double-route the bootstrap. The plain
+// `--target` flag remains as a generic-path escape hatch. The existing
+// `--path` plumbing remains for backward compat with the pre-F24
+// single-schema flow. Tilde-expansion is handled here so
+// `--target=~/.ta` still works for callers carrying that habit.
 func resolveInitTarget(cmd *cobra.Command, f initFlags) (string, error) {
+	if f.targetSystem && f.target != "" {
+		return "", fmt.Errorf("--target-system and --target are mutually exclusive; pick one")
+	}
+	if f.targetSystem {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("--target-system: resolve $HOME: %w", err)
+		}
+		return filepath.Clean(filepath.Join(home, ".ta")), nil
+	}
 	if f.target == "" {
 		return resolveCLIPath(cmd)
 	}
@@ -483,31 +515,35 @@ func homeDBPickerInputs(raw []byte) (map[string]map[string]any, []dbPickerInfo, 
 // emptyHomeError emits a laslig-structured "home library is empty"
 // notice to errOut and returns a Go error carrying the same
 // remediation pointers so non-laslig surfaces — fang's error printer,
-// piped stderr, test buffers — still expose the path forward. Per
-// V2-PLAN §12.17.5 [D2] (2026-04-24 amendment); F15 updated the
-// guidance from "examples/ + mage install" to "examples/ +
-// `ta template save` from a project" since `mage install` now copies
-// a delivery binary, not a home schema.
+// piped stderr, test buffers — still expose the path forward. F32
+// promoted `ta init --target-system` to the canonical home-bootstrap
+// path: under strict-provenance an empty home + project init fails
+// fast here rather than silently borrowing binary defaults, and the
+// `--target-system` flag is the opt-in that explicitly populates home
+// from binary. Earlier remediation hints (`ta template save`,
+// hand-edit, examples/) remain as secondary paths for users who want
+// finer control.
 func emptyHomeError(errOut io.Writer, root string) error {
 	rr := render.New(errOut)
 	schemaPath := filepath.Join(root, "schema.toml")
 	_ = rr.Notice(
 		laslig.NoticeErrorLevel,
 		"home library is empty",
-		fmt.Sprintf("ta init needs at least one schema source but %s has no "+
-			"declared dbs. Sample schemas live in the ta repo under "+
-			"examples/ — copy one in, build a schema with the CLI and "+
-			"promote it via `ta template save`, or hand-edit "+
-			"`%s`.", root, schemaPath),
+		fmt.Sprintf("ta init needs at least one source in %s but the home "+
+			"library has no declared items. The fastest fix is "+
+			"`ta init --target-system` to populate %s from the binary "+
+			"defaults shipped with this build. Manual paths still work: "+
+			"copy from examples/, build via CLI, or promote a project "+
+			"library with `ta template save`.", root, root),
 		[]string{
-			"Copy a sample: cp examples/schema.toml " + schemaPath,
+			"Run `ta init --target-system` to bootstrap " + root + " from binary defaults",
 			"Or hand-edit: $EDITOR " + schemaPath,
 			"Or build via CLI: ta schema --action=create --kind=db --name=<name> --data='{...}'",
 			"Or promote from a project: ta template save (after building schema in a project)",
 			"Sample schemas live in the ta repo under examples/",
 		},
 	)
-	return fmt.Errorf("init: home library is empty at %s; see examples/ in the ta repo", root)
+	return fmt.Errorf("init: home library is empty at %s; run `ta init --target-system` to populate from binary defaults, or see examples/ in the ta repo", root)
 }
 
 // dbPickerInfo carries one row of the multi-select option list: the

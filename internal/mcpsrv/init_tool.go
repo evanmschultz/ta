@@ -32,13 +32,14 @@ func initTool() mcp.Tool {
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute). Used as the default target when 'target' is omitted.")),
 		mcp.WithString("action", mcp.Description("One of preview | apply. Defaults to preview.")),
-		mcp.WithString("target", mcp.Description("Optional override of 'path' for the destination. Use $HOME/.ta to bootstrap the home library.")),
+		mcp.WithString("target", mcp.Description("Optional override of 'path' for the destination. Set to $HOME/.ta to bootstrap the home library from binary defaults — this is the only path that reads from binary defaults under F32 strict-provenance.")),
 		mcp.WithObject(
 			"selections",
 			mcp.Description("action=apply only. {schemas, agents, configs, docs-templates, on_conflict}. See CLI --selections-file. "+
-				"Each entry accepts either a bare-string name (legacy: home-then-binary fallback) "+
+				"Each entry accepts either a bare-string name (resolves to home only when target is a project, to binary only when target is $HOME/.ta) "+
 				"or an object {name, provenance} where provenance ∈ {ta, home, \"\"} pins the source. "+
-				"Use {name, provenance: \"ta\"} to force the binary-shipped fragment when a home item shares the name.\n"+
+				"Use {name, provenance: \"ta\"} to force the binary-shipped fragment when a home item shares the name. "+
+				"Empty-provenance + project target + empty home library surfaces a friendly error pointing at `ta init --target-system` (F32).\n"+
 				"  schemas:        [\"<db>\" | {name, provenance}, ...]\n"+
 				"  agents:         [{group, name, provenance?}, ...]\n"+
 				"  configs:        [\"<filename>\" | {name, provenance}, ...]\n"+

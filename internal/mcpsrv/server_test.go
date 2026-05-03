@@ -676,10 +676,16 @@ func TestInitToolPreviewLists(t *testing.T) {
 }
 
 // TestInitToolApplyConflictError surfaces an MCP-level error when
-// on_conflict=error and a destination conflicts.
+// on_conflict=error and a destination conflicts. F32: pre-seed the
+// home library with the schema fragment so the empty-provenance
+// strict-provenance preflight passes — the test is exercising the
+// destination-conflict path, not the empty-home guard.
 func TestInitToolApplyConflictError(t *testing.T) {
 	initFixtureFS(t)
 	homeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(initToolPlansSchema), 0o644); err != nil {
+		t.Fatalf("seed home: %v", err)
+	}
 	restore := templates.SetRootForTest(homeRoot)
 	t.Cleanup(restore)
 

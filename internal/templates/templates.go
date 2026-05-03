@@ -520,6 +520,14 @@ const (
 	KindDocsTemplate Kind = "docs-template"
 )
 
+// AllKinds returns every Kind value in stable declaration order.
+// Callers iterating over kinds (empty-home guards, picker enumeration,
+// per-kind apply dispatchers) MUST use this helper rather than literal
+// slices so adding a new Kind extends the iteration automatically.
+func AllKinds() []Kind {
+	return []Kind{KindSchema, KindAgent, KindConfig, KindDocsTemplate}
+}
+
 // Provenance tags an Item by source.
 type Provenance string
 
@@ -628,7 +636,7 @@ func ListItems(kind Kind) ([]Item, error) {
 // across invocations.
 func ListAll() ([]Item, error) {
 	var out []Item
-	for _, k := range []Kind{KindSchema, KindAgent, KindConfig, KindDocsTemplate} {
+	for _, k := range AllKinds() {
 		items, err := ListItems(k)
 		if err != nil {
 			return nil, err

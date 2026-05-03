@@ -965,3 +965,116 @@ func TestFormatLegacyWarning_WithFiles(t *testing.T) {
 		t.Errorf("description should report file count, got %q", desc)
 	}
 }
+
+// ---- F32 --target-system tests -------------------------------------
+
+// TestInitTarget_TargetSystemFlag_ResolvesToHome locks the F32
+// `--target-system` flag: when set, `resolveInitTarget` returns
+// $HOME/.ta regardless of `--path`.
+func TestInitTarget_TargetSystemFlag_ResolvesToHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cmd := newInitCmd()
+	cmd.SetArgs([]string{"--target-system"})
+	if err := cmd.ParseFlags([]string{"--target-system"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	got, err := resolveInitTarget(cmd, initFlags{targetSystem: true})
+	if err != nil {
+		t.Fatalf("resolveInitTarget: %v", err)
+	}
+	want := filepath.Join(home, ".ta")
+	if got != want {
+		t.Errorf("resolveInitTarget = %q, want %q", got, want)
+	}
+}
+
+// TestInitTarget_TargetSystemAndTargetMutuallyExclusive locks the
+// mutual-exclusion: passing both `--target-system` and `--target` is an
+// error so the user cannot accidentally double-route the bootstrap.
+func TestInitTarget_TargetSystemAndTargetMutuallyExclusive(t *testing.T) {
+	cmd := newInitCmd()
+	_, err := resolveInitTarget(cmd, initFlags{target: "/tmp/x", targetSystem: true})
+	if err == nil {
+		t.Fatal("expected error when both --target and --target-system set")
+	}
+	if !strings.Contains(err.Error(), "target-system") || !strings.Contains(err.Error(), "target") {
+		t.Errorf("error should name both flags: %v", err)
+	}
+}
+
+// TestEmptyHomeError_HintsTargetSystem locks the F32 update to the
+// laslig empty-home notice: the remediation list must lead with
+// `ta init --target-system` so the canonical bootstrap path surfaces
+// first.
+func TestEmptyHomeError_HintsTargetSystem(t *testing.T) {
+	emptyRoot := t.TempDir()
+	restore := templates.SetRootForTest(emptyRoot)
+	t.Cleanup(restore)
+
+	target := t.TempDir()
+	_, errOut, err := runInitCmd(t, "--path", target, "--no-claude", "--no-codex")
+	if err == nil {
+		t.Fatalf("expected error when home is empty; stderr=%s", errOut)
+	}
+	if !strings.Contains(errOut, "ta init --target-system") {
+		t.Errorf("stderr should lead with `ta init --target-system` hint: %s", errOut)
+	}
+	// The first remediation bullet (after the description body) should
+	// be the target-system pointer; verify lead by index of the substring.
+	idxTarget := strings.Index(errOut, "ta init --target-system")
+	idxExamples := strings.Index(errOut, "examples/")
+	if idxTarget < 0 {
+		t.Fatalf("missing target-system pointer: %s", errOut)
+	}
+	if idxExamples >= 0 && idxExamples < idxTarget {
+		// examples/ pointer is allowed in the body, but the remediation
+		// list MUST lead with target-system. Guard against accidental
+		// re-ordering of the bullet list.
+		// Detect lead by checking that the first bullet line containing
+		// "ta init --target-system" precedes any other "Or" bullet.
+		bullets := strings.Split(errOut, "\n")
+		var firstBullet string
+		for _, line := range bullets {
+			trim := strings.TrimSpace(line)
+			if strings.HasPrefix(trim, "Or ") || strings.HasPrefix(trim, "Run ") || strings.HasPrefix(trim, "- ") {
+				firstBullet = trim
+				break
+			}
+		}
+		if !strings.Contains(firstBullet, "ta init --target-system") {
+			t.Errorf("first remediation bullet should mention target-system, got %q", firstBullet)
+		}
+	}
+}
+
+// TestInitCmdTargetSystemBootstrapsHomeFromBinary is the end-to-end
+// version of the `--target-system` flow: target resolves to $HOME/.ta,
+// empty-provenance selections resolve from binary, the home library is
+// populated.
+func TestInitCmdTargetSystemBootstrapsHomeFromBinary(t *testing.T) {
+	// seedTemplateLibrary points templates.Root at a tmpdir; we want
+	// $HOME/.ta to BE that root so `--target-system` lands in the same
+	// place ListItems / ShowItem read from.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".ta")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	restore := templates.SetRootForTest(target)
+	t.Cleanup(restore)
+
+	sel := writeSelectionsFile(t, `{"schemas":["plans"]}`)
+	_, _, err := runInitCmd(t, "--target-system", "--selections-file", sel, "--on-conflict", "overwrite", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, "schema.toml"))
+	if err != nil {
+		t.Fatalf("read home schema: %v", err)
+	}
+	if !strings.Contains(string(got), "[plans]") {
+		t.Errorf("binary fragment did not land in home: %s", got)
+	}
+}

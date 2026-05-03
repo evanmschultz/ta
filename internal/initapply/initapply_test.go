@@ -77,8 +77,13 @@ func TestPreview_BinaryItemsListed(t *testing.T) {
 }
 
 func TestApply_SchemaWritesToProjectTaSchema(t *testing.T) {
+	// F32: empty-provenance + project target = home only. Pre-seed
+	// home with the plans db so the strict-provenance resolver finds it.
 	setupBinary(t)
-	setupHome(t)
+	homeRoot := setupHome(t)
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(plansSchema), 0o644); err != nil {
+		t.Fatalf("seed home: %v", err)
+	}
 	target := t.TempDir()
 
 	sel := initapply.Selections{Schemas: []initapply.SchemaSelection{{Name: "plans"}}}
@@ -99,8 +104,12 @@ func TestApply_SchemaWritesToProjectTaSchema(t *testing.T) {
 }
 
 func TestApply_SchemaConflictPolicyError(t *testing.T) {
+	// F32: home must hold the schema for empty-provenance + project target.
 	setupBinary(t)
-	setupHome(t)
+	homeRoot := setupHome(t)
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(plansSchema), 0o644); err != nil {
+		t.Fatalf("seed home: %v", err)
+	}
 	target := t.TempDir()
 
 	taDir := filepath.Join(target, ".ta")
@@ -124,8 +133,12 @@ func TestApply_SchemaConflictPolicyError(t *testing.T) {
 }
 
 func TestApply_SchemaConflictPolicyOverwrite(t *testing.T) {
+	// F32: pre-seed home so empty-provenance resolves under strict policy.
 	setupBinary(t)
-	setupHome(t)
+	homeRoot := setupHome(t)
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(plansSchema), 0o644); err != nil {
+		t.Fatalf("seed home: %v", err)
+	}
 	target := t.TempDir()
 
 	taDir := filepath.Join(target, ".ta")
@@ -151,8 +164,17 @@ func TestApply_SchemaConflictPolicyOverwrite(t *testing.T) {
 }
 
 func TestApply_AgentsLandInClaudeAgents(t *testing.T) {
+	// F32: empty-provenance + project target = home only. Pre-seed an
+	// agent under home/agents/go/builder.md so the resolver finds it.
 	setupBinary(t)
-	setupHome(t)
+	homeRoot := setupHome(t)
+	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(homeAgent, []byte("# go-builder\nbody\n"), 0o644); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
 	target := t.TempDir()
 
 	sel := initapply.Selections{
@@ -200,12 +222,21 @@ func TestApply_HomeRootReroutes(t *testing.T) {
 }
 
 func TestApply_ConfigStructuredMerge(t *testing.T) {
+	// F32: empty-provenance + project target = home only. Pre-seed
+	// home/configs/mcp.json so the resolver finds it.
 	setupBinary(t)
-	setupHome(t)
+	homeRoot := setupHome(t)
+	homeMCP := filepath.Join(homeRoot, "configs", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(homeMCP), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(homeMCP, []byte(`{"mcpServers":{"ta":{"command":"ta"}}}`), 0o644); err != nil {
+		t.Fatalf("seed home config: %v", err)
+	}
 	target := t.TempDir()
 
 	// Pre-seed .mcp.json with a different mcpServers entry — merge
-	// must add `ta` from the binary template and preserve `other`.
+	// must add `ta` from the home template and preserve `other`.
 	existing := `{"mcpServers":{"other":{"command":"other"}}}`
 	if err := os.WriteFile(filepath.Join(target, ".mcp.json"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -225,10 +256,19 @@ func TestApply_ConfigStructuredMerge(t *testing.T) {
 }
 
 func TestApply_DocsTemplateError(t *testing.T) {
+	// F32: empty-provenance + project target = home only. Pre-seed
+	// home/docs-templates/CLAUDE.md so the resolver finds it.
 	setupBinary(t)
-	setupHome(t)
+	homeRoot := setupHome(t)
+	homeDocs := filepath.Join(homeRoot, "docs-templates", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(homeDocs), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(homeDocs, []byte("# CLAUDE\n"), 0o644); err != nil {
+		t.Fatalf("seed home docs: %v", err)
+	}
 	target := t.TempDir()
-	// Pre-seed CLAUDE.md.
+	// Pre-seed CLAUDE.md at destination.
 	if err := os.WriteFile(filepath.Join(target, "CLAUDE.md"), []byte("# old\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -247,8 +287,16 @@ func TestApply_DocsTemplateError(t *testing.T) {
 }
 
 func TestApply_DocsTemplateSkip(t *testing.T) {
+	// F32: empty-provenance + project target = home only.
 	setupBinary(t)
-	setupHome(t)
+	homeRoot := setupHome(t)
+	homeDocs := filepath.Join(homeRoot, "docs-templates", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(homeDocs), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(homeDocs, []byte("# CLAUDE\n"), 0o644); err != nil {
+		t.Fatalf("seed home docs: %v", err)
+	}
 	target := t.TempDir()
 	if err := os.WriteFile(filepath.Join(target, "CLAUDE.md"), []byte("# old\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -459,7 +507,10 @@ func TestApply_UnknownConfigOverwriteWritesVerbatim(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	sel := initapply.Selections{Configs: []initapply.ConfigSelection{{Name: "foo.toml"}}}
+	// F32: pin to binary explicitly — empty-provenance + project target
+	// is now home-only and would error since this unknown config only
+	// lives on the binary side.
+	sel := initapply.Selections{Configs: []initapply.ConfigSelection{{Name: "foo.toml", Provenance: string(templates.ProvenanceBinary)}}}
 	report, err := initapply.Apply(target, sel, initapply.PolicyOverwrite)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -501,7 +552,8 @@ func TestApply_UnknownConfigForceWritesVerbatim(t *testing.T) {
 	if err := os.WriteFile(dest, []byte("preexisting\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	sel := initapply.Selections{Configs: []initapply.ConfigSelection{{Name: "foo.toml"}}}
+	// F32: pin to binary explicitly under strict-provenance.
+	sel := initapply.Selections{Configs: []initapply.ConfigSelection{{Name: "foo.toml", Provenance: string(templates.ProvenanceBinary)}}}
 	report, err := initapply.Apply(target, sel, initapply.PolicyForce)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -546,5 +598,152 @@ func TestSelectionsFromJSON_ProvenanceObjectForm(t *testing.T) {
 	}
 	if sel.DocsTemplates[0].Provenance != "home" {
 		t.Errorf("docs-templates[0].Provenance = %q, want home", sel.DocsTemplates[0].Provenance)
+	}
+}
+
+// ---- F32 strict-provenance tests ----------------------------------
+
+// TestApply_EmptyHome_ProjectInit_Errors locks the F32 strict-provenance
+// rule: empty-provenance + project target requires a populated home.
+// Empty home + project target must fail-fast with a friendly error
+// pointing at `ta init --target-system`, never silently fall back to
+// the binary library.
+func TestApply_EmptyHome_ProjectInit_Errors(t *testing.T) {
+	setupBinary(t)
+	setupHome(t) // home root exists but has no schema.toml / agents/ / etc.
+	target := t.TempDir()
+
+	sel := initapply.Selections{Schemas: []initapply.SchemaSelection{{Name: "plans"}}}
+	_, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err == nil {
+		t.Fatal("expected error when home is empty and target is project")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "home library is empty") {
+		t.Errorf("error should name the empty-home condition: %v", err)
+	}
+	if !strings.Contains(msg, "ta init --target-system") {
+		t.Errorf("error should point at `ta init --target-system`: %v", err)
+	}
+}
+
+// TestApply_EmptyHome_HomeInit_PopulatesFromBinary covers the canonical
+// `ta init --target-system` flow: target IS $HOME/.ta, empty-provenance
+// resolves to binary-only so the home library can be bootstrapped from
+// shipped defaults.
+func TestApply_EmptyHome_HomeInit_PopulatesFromBinary(t *testing.T) {
+	setupBinary(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".ta")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	restore := templates.SetRootForTest(target)
+	t.Cleanup(restore)
+
+	sel := initapply.Selections{Schemas: []initapply.SchemaSelection{{Name: "plans"}}}
+	report, err := initapply.Apply(target, sel, initapply.PolicyOverwrite)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(report.Schemas.Written) != 1 || report.Schemas.Written[0] != "plans" {
+		t.Errorf("Written = %v, want [plans]", report.Schemas.Written)
+	}
+	// Home target writes directly to $HOME/.ta/schema.toml.
+	got, err := os.ReadFile(filepath.Join(target, "schema.toml"))
+	if err != nil {
+		t.Fatalf("read home schema: %v", err)
+	}
+	if !strings.Contains(string(got), "[plans]") {
+		t.Errorf("binary fragment did not land in home: %s", got)
+	}
+}
+
+// TestApply_PopulatedHome_ProjectInit_UsesHomeOnly: when home is
+// populated and target is a project, empty-provenance resolves to home
+// only — never to binary. A binary fragment with the same name must not
+// shadow the home copy under the new strict policy.
+func TestApply_PopulatedHome_ProjectInit_UsesHomeOnly(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(plansHomeOverride), 0o644); err != nil {
+		t.Fatalf("seed home: %v", err)
+	}
+	target := t.TempDir()
+
+	sel := initapply.Selections{Schemas: []initapply.SchemaSelection{{Name: "plans"}}}
+	report, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(report.Schemas.Written) != 1 {
+		t.Errorf("Written = %v, want [plans]", report.Schemas.Written)
+	}
+	got, err := os.ReadFile(filepath.Join(target, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	// home plansHomeOverride uses `home-plans.toml` — the binary fragment
+	// uses `plans.toml`. Strict-provenance must keep the home copy.
+	if !strings.Contains(string(got), "home-plans.toml") {
+		t.Errorf("expected home-only fragment, got: %s", got)
+	}
+	if strings.Contains(string(got), `paths = ["plans.toml"]`) {
+		t.Errorf("binary fragment leaked into project despite populated home: %s", got)
+	}
+}
+
+// TestApply_PopulatedHome_TargetingHome_OverwritesPolicyApplies
+// confirms `--target-system` against an already-populated home respects
+// `--on-conflict`. Default error policy must surface a conflict; an
+// explicit overwrite refreshes the home copy from binary.
+func TestApply_PopulatedHome_TargetingHome_OverwritesPolicyApplies(t *testing.T) {
+	setupBinary(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".ta")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "schema.toml"), []byte(plansHomeOverride), 0o644); err != nil {
+		t.Fatalf("seed home: %v", err)
+	}
+	restore := templates.SetRootForTest(target)
+	t.Cleanup(restore)
+
+	sel := initapply.Selections{Schemas: []initapply.SchemaSelection{{Name: "plans"}}}
+
+	// Default error policy must surface a conflict.
+	report, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err != nil {
+		t.Fatalf("Apply (error policy): %v", err)
+	}
+	if len(report.Schemas.Conflicts) != 1 {
+		t.Errorf("error policy must surface conflict, got %+v", report.Schemas)
+	}
+	if len(report.Schemas.Written) != 0 {
+		t.Errorf("error policy must not write, got %+v", report.Schemas)
+	}
+
+	// Overwrite policy must refresh from binary.
+	report, err = initapply.Apply(target, sel, initapply.PolicyOverwrite)
+	if err != nil {
+		t.Fatalf("Apply (overwrite): %v", err)
+	}
+	if len(report.Schemas.Written) != 1 {
+		t.Errorf("overwrite policy must write, got %+v", report.Schemas)
+	}
+	got, err := os.ReadFile(filepath.Join(target, "schema.toml"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// After overwrite the binary fragment (`plans.toml`) must replace
+	// the prior home shadow (`home-plans.toml`).
+	if !strings.Contains(string(got), "plans.toml") {
+		t.Errorf("expected refreshed binary fragment, got: %s", got)
+	}
+	if strings.Contains(string(got), "home-plans.toml") {
+		t.Errorf("home shadow survived overwrite: %s", got)
 	}
 }

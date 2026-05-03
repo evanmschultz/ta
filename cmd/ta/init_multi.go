@@ -26,7 +26,7 @@ func runInitMultiCategory(out, errOut io.Writer, target string, f initFlags) err
 	if policyStr == "" {
 		policyStr = "error"
 	}
-	sel, err := resolveSelections(errOut, f)
+	sel, err := resolveSelections(errOut, target, f)
 	if err != nil {
 		return err
 	}
@@ -55,29 +55,58 @@ func runInitMultiCategory(out, errOut io.Writer, target string, f initFlags) err
 
 // resolveSelections reads `--selections-file` when set, runs the huh
 // multi-group picker on TTY, or errors loudly off-TTY without a
-// selections file. When home is empty in the off-TTY error path, we
-// emit the laslig "home library is empty" notice + friendly error
-// pointing at examples/ and `ta template save` so the legacy V2-PLAN
-// §12.17.5 [D2] guidance survives the F24 multi-category gate flip.
-func resolveSelections(errOut io.Writer, f initFlags) (initapply.Selections, error) {
+// selections file.
+//
+// F32: when target is a project (not IsHomeRoot) AND the home library
+// is empty across every category, surface emptyHomeError BEFORE the
+// picker (or the off-TTY error). The picker would otherwise show only
+// binary-tagged items, leading the user into selections that all
+// resolve under strict-provenance to "binary" and write into the
+// project — which is the opposite of the curated user-side library
+// the home root is meant to be. The fail-fast pushes the user toward
+// `ta init --target-system` first.
+func resolveSelections(errOut io.Writer, target string, f initFlags) (initapply.Selections, error) {
 	if f.selectionsFile != "" {
 		return readSelectionsFile(f.selectionsFile)
 	}
-	if !ttyInteractive(f.nonInterRq) {
-		// Off-TTY without --selections-file. If home is empty AND the
-		// binary library has nothing actionable either, route through
-		// the legacy emptyHomeError so the user sees concrete pointers
-		// to populate the library. Otherwise the user just needs to
-		// pass --selections-file or use a TTY.
-		emitInitLegacyWarning(errOut)
-		reg, _, lerr := templates.LoadHome()
-		if lerr == nil && len(reg.DBs) == 0 {
+	if !initapply.IsHomeRoot(target) {
+		empty, err := homeLibraryIsEmpty()
+		if err != nil {
+			return initapply.Selections{}, err
+		}
+		if empty {
+			emitInitLegacyWarning(errOut)
 			root, _ := templates.Root()
 			return initapply.Selections{}, emptyHomeError(errOut, root)
 		}
+	}
+	if !ttyInteractive(f.nonInterRq) {
+		// Off-TTY without --selections-file. The empty-home guard above
+		// already covers the empty-home case for project targets; this
+		// branch handles populated-home off-TTY (user just needs a
+		// selections file or a TTY) and the home-target off-TTY case.
+		emitInitLegacyWarning(errOut)
 		return initapply.Selections{}, errors.New("init: no selections; pass --selections-file or run on a TTY for the picker. Sample schemas live in the ta repo under examples/, or run `ta template save` from a project to populate ~/.ta/")
 	}
 	return runMultiCategoryPicker()
+}
+
+// homeLibraryIsEmpty reports whether the home side of every category
+// has zero items. Used by the F32 empty-home pre-picker guard. Iterates
+// via templates.AllKinds() so a new kind extends the check automatically.
+func homeLibraryIsEmpty() (bool, error) {
+	for _, k := range templates.AllKinds() {
+		items, err := templates.ListItems(k)
+		if err != nil {
+			return false, err
+		}
+		for _, it := range items {
+			if it.Provenance == templates.ProvenanceHome {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
 }
 
 // readSelectionsFile parses a JSON file matching the

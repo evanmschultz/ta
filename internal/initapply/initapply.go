@@ -258,9 +258,22 @@ func snapshotAvailable() (*Available, error) {
 // per-category written/skipped/conflicts buckets. Policy=="error"
 // surfaces an error if any conflict arises; the per-category
 // helpers still populate Conflicts so callers can inspect.
+//
+// F32 strict-provenance precondition: when target is a project (not
+// IsHomeRoot) AND any selection carries empty provenance for category
+// X AND the home library is empty for X, fail fast with a friendly
+// error pointing at `ta init --target-system`. This kills the
+// pre-F32 home→binary fallback that silently borrowed binary defaults
+// into project trees, which obscured the home library's role as the
+// curated user-side source.
 func Apply(target string, sel Selections, policy Policy) (Report, error) {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return Report{}, fmt.Errorf("initapply: create %s: %w", target, err)
+	}
+	if !IsHomeRoot(target) {
+		if err := preflightEmptyHome(sel); err != nil {
+			return Report{}, err
+		}
 	}
 	report := Report{
 		Path:       target,
@@ -281,6 +294,109 @@ func Apply(target string, sel Selections, policy Policy) (Report, error) {
 		return report, err
 	}
 	return report, nil
+}
+
+// preflightEmptyHome enforces the F32 strict-provenance precondition.
+// For each category that has at least one empty-provenance selection,
+// the home library must be non-empty for that category. If any
+// category fails the check, return the friendly error so the user is
+// pushed toward `ta init --target-system` instead of debugging an
+// opaque resolver-not-found error per item.
+func preflightEmptyHome(sel Selections) error {
+	// Iterate via templates.AllKinds() so adding a new templates.Kind
+	// extends the empty-home guard automatically — keeps F32's loud-error
+	// invariant from rotting as the catalog grows.
+	for _, k := range templates.AllKinds() {
+		if !categoryHasEmptyProvenance(k, sel) {
+			continue
+		}
+		empty, err := homeIsEmpty(k)
+		if err != nil {
+			return err
+		}
+		if empty {
+			return emptyHomeFriendlyError(k)
+		}
+	}
+	return nil
+}
+
+// categoryHasEmptyProvenance reports whether sel carries at least one
+// empty-provenance selection for the given kind. Empty-provenance is
+// the user's "let target routing decide" signal; preflightEmptyHome
+// only fires when at least one such selection exists.
+func categoryHasEmptyProvenance(kind templates.Kind, sel Selections) bool {
+	switch kind {
+	case templates.KindSchema:
+		return anyEmptyProvenanceSchema(sel.Schemas)
+	case templates.KindAgent:
+		return anyEmptyProvenanceAgent(sel.Agents)
+	case templates.KindConfig:
+		return anyEmptyProvenanceConfig(sel.Configs)
+	case templates.KindDocsTemplate:
+		return anyEmptyProvenanceDocs(sel.DocsTemplates)
+	}
+	return false
+}
+
+func anyEmptyProvenanceSchema(sels []SchemaSelection) bool {
+	for _, s := range sels {
+		if s.Provenance == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func anyEmptyProvenanceAgent(sels []AgentSelection) bool {
+	for _, s := range sels {
+		if s.Provenance == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func anyEmptyProvenanceConfig(sels []ConfigSelection) bool {
+	for _, s := range sels {
+		if s.Provenance == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func anyEmptyProvenanceDocs(sels []DocsSelection) bool {
+	for _, s := range sels {
+		if s.Provenance == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// homeIsEmpty reports whether the home side of the templates library
+// has zero items of kind `k`. Used by the F32 strict-provenance
+// preflight.
+func homeIsEmpty(k templates.Kind) (bool, error) {
+	items, err := templates.ListItems(k)
+	if err != nil {
+		return false, err
+	}
+	for _, it := range items {
+		if it.Provenance == templates.ProvenanceHome {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// emptyHomeFriendlyError wraps the generic "home is empty for kind X"
+// condition into a user-facing message that names the canonical fix
+// (`ta init --target-system`). The message embeds the category so
+// callers can tell which slice of the home library is missing.
+func emptyHomeFriendlyError(k templates.Kind) error {
+	return fmt.Errorf("initapply: home library is empty for %s — run `ta init --target-system` to populate it from binary defaults, or pin selections with `provenance: \"ta\"` to read from binary explicitly", k)
 }
 
 // AggregateConflicts returns one flattened sorted list of conflict
@@ -318,6 +434,26 @@ func IsHomeRoot(target string) bool {
 	return filepath.Clean(target) == canonical
 }
 
+// effectiveProvenance is the F32 strict-provenance resolver. Empty
+// provenance from a caller is rewritten based on the target: a project
+// target reads from home only (the curated user-side library), and a
+// home target reads from binary only (the binary-defaults bootstrap
+// path used by `ta init --target-system`). Non-empty provenance passes
+// through unchanged so explicit pins continue to work.
+//
+// The previous home→binary fallback was killed because it silently
+// borrowed binary defaults into project trees, hiding the home
+// library's role and breaking the `--target-system` opt-in semantics.
+func effectiveProvenance(target, raw string) string {
+	if raw != "" {
+		return raw
+	}
+	if IsHomeRoot(target) {
+		return string(templates.ProvenanceBinary)
+	}
+	return string(templates.ProvenanceHome)
+}
+
 // ---- per-category apply helpers -----------------------------------
 
 func applySchemas(target string, sels []SchemaSelection, policy Policy) (Result, error) {
@@ -331,7 +467,7 @@ func applySchemas(target string, sels []SchemaSelection, policy Policy) (Result,
 	}
 	picks := make([]pick, 0, len(sels))
 	for _, sel := range sels {
-		body, err := resolveSchemaBytes(sel.Name, sel.Provenance)
+		body, err := resolveSchemaBytes(sel.Name, effectiveProvenance(target, sel.Provenance))
 		if err != nil {
 			return res, err
 		}
@@ -396,34 +532,22 @@ func schemaDestPath(target string) string {
 }
 
 // resolveSchemaBytes returns the bytes for the named schema fragment.
-// When provenance is empty, it tries home first then falls back to
-// binary (the historical default). When provenance is "home" or "ta",
-// only that source is consulted — pinning prevents the home copy from
-// silently shadowing a binary fragment with the same name.
+// F32: empty provenance is no longer accepted here — callers MUST
+// resolve via effectiveProvenance(target, sel.Provenance) first so the
+// "non-home target ⇒ home, home target ⇒ binary" rule is enforced
+// uniformly. "ta" reads strictly from the binary library; "home" reads
+// strictly from the home library; pinning prevents one source from
+// silently shadowing the other.
 func resolveSchemaBytes(name, provenance string) ([]byte, error) {
 	switch provenance {
-	case "":
-		homeData, err := templates.ShowItem(templates.Item{
-			Kind: templates.KindSchema, Name: name, Provenance: templates.ProvenanceHome,
-		})
-		if err == nil {
-			return homeData, nil
-		}
-		if !errors.Is(err, templates.ErrItemNotFound) && !errors.Is(err, templates.ErrDBNotFound) {
-			return nil, err
-		}
-		binData, err := templates.ShowItem(templates.Item{
-			Kind: templates.KindSchema, Name: name, Provenance: templates.ProvenanceBinary,
-		})
-		if err == nil {
-			return binData, nil
-		}
-		return nil, fmt.Errorf("initapply: schema %q not found in home or binary library", name)
 	case string(templates.ProvenanceHome):
 		data, err := templates.ShowItem(templates.Item{
 			Kind: templates.KindSchema, Name: name, Provenance: templates.ProvenanceHome,
 		})
 		if err != nil {
+			if errors.Is(err, templates.ErrItemNotFound) || errors.Is(err, templates.ErrDBNotFound) {
+				return nil, fmt.Errorf("initapply: schema %q not found in home library — run `ta init --target-system` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", name)
+			}
 			return nil, fmt.Errorf("initapply: schema %q not found in home library: %w", name, err)
 		}
 		return data, nil
@@ -436,14 +560,16 @@ func resolveSchemaBytes(name, provenance string) ([]byte, error) {
 		}
 		return data, nil
 	default:
-		return nil, fmt.Errorf("initapply: invalid provenance %q for schema %q (want ta|home or empty)", provenance, name)
+		return nil, fmt.Errorf("initapply: invalid provenance %q for schema %q (want ta|home; resolve via effectiveProvenance before calling)", provenance, name)
 	}
 }
 
 func applyAgents(target string, sels []AgentSelection, policy Policy) (Result, error) {
 	res := Result{}
 	for _, sel := range sels {
-		body, err := resolveAgentBytes(sel)
+		eff := sel
+		eff.Provenance = effectiveProvenance(target, sel.Provenance)
+		body, err := resolveAgentBytes(eff)
 		if err != nil {
 			return res, err
 		}
@@ -464,36 +590,20 @@ func agentKey(sel AgentSelection) string {
 	return sel.Group + "/" + sel.Name
 }
 
-// resolveAgentBytes returns the bytes for one agent. Same provenance
-// semantics as resolveSchemaBytes — empty falls back home→binary, "home"
-// or "ta" pin the source.
+// resolveAgentBytes returns the bytes for one agent. F32: callers
+// must pass a resolved provenance — see resolveSchemaBytes for
+// rationale.
 func resolveAgentBytes(sel AgentSelection) ([]byte, error) {
 	switch sel.Provenance {
-	case "":
-		homeData, err := templates.ShowItem(templates.Item{
-			Kind: templates.KindAgent, Name: sel.Name, Group: sel.Group,
-			Provenance: templates.ProvenanceHome,
-		})
-		if err == nil {
-			return homeData, nil
-		}
-		if !errors.Is(err, templates.ErrItemNotFound) {
-			return nil, err
-		}
-		binData, err := templates.ShowItem(templates.Item{
-			Kind: templates.KindAgent, Name: sel.Name, Group: sel.Group,
-			Provenance: templates.ProvenanceBinary,
-		})
-		if err == nil {
-			return binData, nil
-		}
-		return nil, fmt.Errorf("initapply: agent %s not found in home or binary library", agentKey(sel))
 	case string(templates.ProvenanceHome):
 		data, err := templates.ShowItem(templates.Item{
 			Kind: templates.KindAgent, Name: sel.Name, Group: sel.Group,
 			Provenance: templates.ProvenanceHome,
 		})
 		if err != nil {
+			if errors.Is(err, templates.ErrItemNotFound) {
+				return nil, fmt.Errorf("initapply: agent %s not found in home library — run `ta init --target-system` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", agentKey(sel))
+			}
 			return nil, fmt.Errorf("initapply: agent %s not found in home library: %w", agentKey(sel), err)
 		}
 		return data, nil
@@ -507,7 +617,7 @@ func resolveAgentBytes(sel AgentSelection) ([]byte, error) {
 		}
 		return data, nil
 	default:
-		return nil, fmt.Errorf("initapply: invalid provenance %q for agent %s (want ta|home or empty)", sel.Provenance, agentKey(sel))
+		return nil, fmt.Errorf("initapply: invalid provenance %q for agent %s (want ta|home; resolve via effectiveProvenance before calling)", sel.Provenance, agentKey(sel))
 	}
 }
 
@@ -526,7 +636,9 @@ func applyConfigs(target string, sels []ConfigSelection, policy Policy) (Result,
 	res := Result{}
 	for _, sel := range sels {
 		name := sel.Name
-		body, err := resolveConfigBytes(sel)
+		eff := sel
+		eff.Provenance = effectiveProvenance(target, sel.Provenance)
+		body, err := resolveConfigBytes(eff)
 		if err != nil {
 			return res, err
 		}
@@ -594,32 +706,19 @@ func applyConfigs(target string, sels []ConfigSelection, policy Policy) (Result,
 	return res, nil
 }
 
-// resolveConfigBytes returns the bytes for one config. Same provenance
-// semantics as resolveSchemaBytes.
+// resolveConfigBytes returns the bytes for one config. F32: callers
+// must pass a resolved provenance — see resolveSchemaBytes for
+// rationale.
 func resolveConfigBytes(sel ConfigSelection) ([]byte, error) {
 	switch sel.Provenance {
-	case "":
-		homeData, err := templates.ShowItem(templates.Item{
-			Kind: templates.KindConfig, Name: sel.Name, Provenance: templates.ProvenanceHome,
-		})
-		if err == nil {
-			return homeData, nil
-		}
-		if !errors.Is(err, templates.ErrItemNotFound) {
-			return nil, err
-		}
-		binData, err := templates.ShowItem(templates.Item{
-			Kind: templates.KindConfig, Name: sel.Name, Provenance: templates.ProvenanceBinary,
-		})
-		if err == nil {
-			return binData, nil
-		}
-		return nil, fmt.Errorf("initapply: config %q not found in home or binary library", sel.Name)
 	case string(templates.ProvenanceHome):
 		data, err := templates.ShowItem(templates.Item{
 			Kind: templates.KindConfig, Name: sel.Name, Provenance: templates.ProvenanceHome,
 		})
 		if err != nil {
+			if errors.Is(err, templates.ErrItemNotFound) {
+				return nil, fmt.Errorf("initapply: config %q not found in home library — run `ta init --target-system` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", sel.Name)
+			}
 			return nil, fmt.Errorf("initapply: config %q not found in home library: %w", sel.Name, err)
 		}
 		return data, nil
@@ -632,7 +731,7 @@ func resolveConfigBytes(sel ConfigSelection) ([]byte, error) {
 		}
 		return data, nil
 	default:
-		return nil, fmt.Errorf("initapply: invalid provenance %q for config %q (want ta|home or empty)", sel.Provenance, sel.Name)
+		return nil, fmt.Errorf("initapply: invalid provenance %q for config %q (want ta|home; resolve via effectiveProvenance before calling)", sel.Provenance, sel.Name)
 	}
 }
 
@@ -705,7 +804,9 @@ func pickConfigMerger(canonical string) configmerge.Merger {
 func applyDocsTemplates(target string, sels []DocsSelection, policy Policy) (Result, error) {
 	res := Result{}
 	for _, sel := range sels {
-		body, err := resolveDocsTemplateBytes(sel)
+		eff := sel
+		eff.Provenance = effectiveProvenance(target, sel.Provenance)
+		body, err := resolveDocsTemplateBytes(eff)
 		if err != nil {
 			return res, err
 		}
@@ -719,31 +820,18 @@ func applyDocsTemplates(target string, sels []DocsSelection, policy Policy) (Res
 }
 
 // resolveDocsTemplateBytes returns the bytes for one docs template.
-// Same provenance semantics as resolveSchemaBytes.
+// F32: callers must pass a resolved provenance — see resolveSchemaBytes
+// for rationale.
 func resolveDocsTemplateBytes(sel DocsSelection) ([]byte, error) {
 	switch sel.Provenance {
-	case "":
-		homeData, err := templates.ShowItem(templates.Item{
-			Kind: templates.KindDocsTemplate, Name: sel.Name, Provenance: templates.ProvenanceHome,
-		})
-		if err == nil {
-			return homeData, nil
-		}
-		if !errors.Is(err, templates.ErrItemNotFound) {
-			return nil, err
-		}
-		binData, err := templates.ShowItem(templates.Item{
-			Kind: templates.KindDocsTemplate, Name: sel.Name, Provenance: templates.ProvenanceBinary,
-		})
-		if err == nil {
-			return binData, nil
-		}
-		return nil, fmt.Errorf("initapply: docs-template %q not found in home or binary library", sel.Name)
 	case string(templates.ProvenanceHome):
 		data, err := templates.ShowItem(templates.Item{
 			Kind: templates.KindDocsTemplate, Name: sel.Name, Provenance: templates.ProvenanceHome,
 		})
 		if err != nil {
+			if errors.Is(err, templates.ErrItemNotFound) {
+				return nil, fmt.Errorf("initapply: docs-template %q not found in home library — run `ta init --target-system` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", sel.Name)
+			}
 			return nil, fmt.Errorf("initapply: docs-template %q not found in home library: %w", sel.Name, err)
 		}
 		return data, nil
@@ -756,7 +844,7 @@ func resolveDocsTemplateBytes(sel DocsSelection) ([]byte, error) {
 		}
 		return data, nil
 	default:
-		return nil, fmt.Errorf("initapply: invalid provenance %q for docs-template %q (want ta|home or empty)", sel.Provenance, sel.Name)
+		return nil, fmt.Errorf("initapply: invalid provenance %q for docs-template %q (want ta|home; resolve via effectiveProvenance before calling)", sel.Provenance, sel.Name)
 	}
 }
 
