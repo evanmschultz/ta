@@ -44,6 +44,11 @@ func extractFields(fileBuf []byte, sec record.Section, db schema.DB, addrType st
 	case schema.FormatTOML:
 		return extractTOMLFields(fileBuf, relPath, fields)
 	case schema.FormatMD:
+		// Per F31: file-as-record dbs route through the frontmatter
+		// extractor; section-mode dbs keep the body-only path.
+		if st.IsFileRecord() {
+			return extractFileRecordFields(fileBuf, st, fields)
+		}
 		return extractMDFields(fileBuf, sec, fields)
 	default:
 		return nil, fmt.Errorf("%w: db %q format=%q", ErrUnsupportedFormat, db.Name, db.Format)
@@ -127,6 +132,14 @@ func extractAllDeclaredFields(fileBuf []byte, sec record.Section, db schema.DB, 
 		}
 		return extractTOMLFields(fileBuf, relPath, names)
 	case schema.FormatMD:
+		// Per F31: file-as-record returns frontmatter map + body field.
+		if typeSt.IsFileRecord() {
+			names := make([]string, 0, len(typeSt.Fields))
+			for name := range typeSt.Fields {
+				names = append(names, name)
+			}
+			return extractFileRecordFields(fileBuf, typeSt, names)
+		}
 		out := map[string]any{}
 		if _, ok := typeSt.Fields["body"]; ok {
 			raw := fileBuf[sec.Range[0]:sec.Range[1]]
@@ -136,6 +149,44 @@ func extractAllDeclaredFields(fileBuf []byte, sec record.Section, db schema.DB, 
 	default:
 		return nil, fmt.Errorf("%w: db %q format=%q", ErrUnsupportedFormat, db.Name, db.Format)
 	}
+}
+
+// extractFileRecordFields parses the frontmatter + body of a
+// file-as-record buffer and returns the named subset of declared
+// fields. The body field is sourced from the body bytes; every other
+// field is sourced from the YAML frontmatter map. Per F31.
+//
+// An empty buffer (file-as-record records require frontmatter, but a
+// brand-new record about to be created produces a 0-byte file before
+// the first emit) returns an empty (non-nil) map; loadExistingFields
+// is the only caller that can be reached on empty buffers and it
+// already tolerates an empty result via overlayPatch.
+func extractFileRecordFields(fileBuf []byte, st schema.SectionType, fields []string) (map[string]any, error) {
+	out := make(map[string]any, len(fields))
+	if len(fileBuf) == 0 {
+		return out, nil
+	}
+	front, body, err := md.SplitFrontmatter(fileBuf)
+	if err != nil {
+		return nil, fmt.Errorf("file-as-record: split frontmatter: %w", err)
+	}
+	var fm map[string]any
+	if front != nil {
+		fm, err = md.DecodeFrontmatter(front)
+		if err != nil {
+			return nil, fmt.Errorf("file-as-record: decode frontmatter: %w", err)
+		}
+	}
+	for _, name := range fields {
+		if name == st.BodyField {
+			out[name] = string(body)
+			continue
+		}
+		if v, ok := fm[name]; ok {
+			out[name] = v
+		}
+	}
+	return out, nil
 }
 
 // stripHeadingLine returns raw with the first line (the heading line)

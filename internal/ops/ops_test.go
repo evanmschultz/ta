@@ -344,3 +344,111 @@ func contains(s, substr string) bool {
 	}
 	return false
 }
+
+// withFileAsRecordSchema sets up a project root with an agents db
+// declared as file-as-record per F31: each `agents/<group>/<name>.md`
+// is one whole-file record with YAML frontmatter holding the typed
+// fields and the body holding the markdown prompt.
+func withFileAsRecordSchema(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeSchema(t, root, `
+[agents]
+paths = ["agents/*/*.md"]
+
+[agents.agent]
+description = "An agent prompt file."
+record_per = "file"
+body_field = "prompt"
+
+[agents.agent.fields.name]
+type = "string"
+required = true
+
+[agents.agent.fields.tools]
+type = "array"
+element_type = "string"
+
+[agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+`)
+	return root
+}
+
+// TestCreate_FileAsRecordAgent_RoundTrip: per F31, creating a record
+// against a file-as-record db writes a `---<frontmatter>---<body>`
+// file, the index records the canonical id (which equals the
+// file-relpath, no bracket-key), and Get reads the same fields back.
+func TestCreate_FileAsRecordAgent_RoundTrip(t *testing.T) {
+	root := withFileAsRecordSchema(t)
+	_, _, err := ops.Create(root, "ta.writer", "agents.agent", map[string]any{
+		"name":   "writer",
+		"tools":  []any{"grep", "edit"},
+		"prompt": "you are a writer.",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// On-disk: the file lives at agents/ta/writer.md and carries
+	// frontmatter + body.
+	data, err := os.ReadFile(filepath.Join(root, "agents", "ta", "writer.md"))
+	if err != nil {
+		t.Fatalf("read agents/ta/writer.md: %v", err)
+	}
+	body := string(data)
+	if !contains(body, "---") || !contains(body, "name: writer") {
+		t.Errorf("file missing expected frontmatter; body:\n%s", body)
+	}
+	if !contains(body, "you are a writer.") {
+		t.Errorf("file missing prompt body; body:\n%s", body)
+	}
+	if contains(body, "[ta.writer]") || contains(body, "[agents.ta.writer]") {
+		t.Errorf("file carries TOML bracket header — file-as-record must not; body:\n%s", body)
+	}
+
+	// Index: canonical id is `ta.writer` (no bracket-key suffix).
+	idx, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("index.Load: %v", err)
+	}
+	entry, ok := idx.Get("ta.writer")
+	if !ok {
+		t.Fatal("index missing entry for `ta.writer`")
+	}
+	if entry.Type != "agent" {
+		t.Errorf("index entry type = %q, want agent", entry.Type)
+	}
+}
+
+// TestGet_FileAsRecordAgent: Get reads frontmatter fields + body
+// field cleanly from a file-as-record file written via Create.
+func TestGet_FileAsRecordAgent(t *testing.T) {
+	root := withFileAsRecordSchema(t)
+	if _, _, err := ops.Create(root, "ta.writer", "agents.agent", map[string]any{
+		"name":   "writer",
+		"tools":  []any{"grep", "edit"},
+		"prompt": "you are a writer.",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	res, _, err := ops.GetAllFields(root, "ta.writer", "")
+	if err != nil {
+		t.Fatalf("GetAllFields: %v", err)
+	}
+	if got := res.Fields["name"]; got != "writer" {
+		t.Errorf("name = %v, want writer", got)
+	}
+	if got, _ := res.Fields["prompt"].(string); !contains(got, "you are a writer.") {
+		t.Errorf("prompt = %q, want body to start with prompt", got)
+	}
+	tools, ok := res.Fields["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools type = %T, want []any", res.Fields["tools"])
+	}
+	if len(tools) != 2 || tools[0] != "grep" || tools[1] != "edit" {
+		t.Errorf("tools = %v, want [grep edit]", tools)
+	}
+}

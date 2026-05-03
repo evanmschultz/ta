@@ -282,6 +282,99 @@ func TestResolveIDInDBUnknownDB(t *testing.T) {
 	}
 }
 
+// fileRecordRegistry builds an F31 registry mixing a file-as-record
+// db (`agents/*/*.md`) with a regular section-mode db (README.md).
+// Used for the F31 id-grammar relaxation tests.
+func fileRecordRegistry() schema.Registry {
+	return schema.Registry{DBs: map[string]schema.DB{
+		"agents": {
+			Name:   "agents",
+			Paths:  []string{"agents/*/*.md"},
+			Format: schema.FormatMD,
+			Types: map[string]schema.SectionType{
+				"agent": {
+					Name:      "agent",
+					RecordPer: schema.RecordPerFile,
+					BodyField: "prompt",
+				},
+			},
+		},
+		"readme": {
+			Name:   "readme",
+			Paths:  []string{"README.md"},
+			Format: schema.FormatMD,
+			Types: map[string]schema.SectionType{
+				"section": {Name: "section", Heading: 2},
+			},
+		},
+	}}
+}
+
+// TestResolveID_FileAsRecord_NoBracketKey: per F31, an id whose
+// segment count exactly matches a file-as-record db's file-relpath
+// length resolves with empty BracketKey. The whole file is the
+// record.
+func TestResolveID_FileAsRecord_NoBracketKey(t *testing.T) {
+	r := NewResolver("/proj", fileRecordRegistry())
+
+	// Mount `agents/*/*.md` has static prefix `agents/`; the id's
+	// segments AFTER the static prefix form the file-relpath. With
+	// no bracket-key tail (file-as-record), `<group>.<name>` (2 segs)
+	// is sufficient.
+	res, dbDecl, err := r.ResolveID("ta.writer")
+	if err != nil {
+		t.Fatalf("ResolveID: %v", err)
+	}
+	if dbDecl.Name != "agents" {
+		t.Errorf("dbDecl.Name = %q, want agents", dbDecl.Name)
+	}
+	if res.BracketKey != "" {
+		t.Errorf("res.BracketKey = %q, want empty (file-as-record)", res.BracketKey)
+	}
+	if res.FileRelPath != "ta.writer" {
+		t.Errorf("res.FileRelPath = %q, want ta.writer", res.FileRelPath)
+	}
+	want := filepath.Join("/proj", "agents", "ta", "writer.md")
+	if res.FilePath != want {
+		t.Errorf("res.FilePath = %q, want %q", res.FilePath, want)
+	}
+}
+
+// TestResolveID_FileAsRecord_RespectsMountWildcards: a 3-segment id
+// against a file-as-record glob mount with 2 wildcard segments still
+// resolves cleanly; the trailing segment is treated as bracket-key
+// even though the type is file-as-record (callers may want sub-record
+// addressing later — for now BracketKey just survives).
+//
+// More importantly: a 1-segment id against the same mount fails — the
+// relaxation only allows the EXACT file-relpath length, not anything
+// shorter.
+func TestResolveID_FileAsRecord_RespectsMountWildcards(t *testing.T) {
+	r := NewResolver("/proj", fileRecordRegistry())
+
+	// 1-segment id is below the file-relpath length (mount needs 2
+	// glob segments). Must fail.
+	if _, _, err := r.ResolveID("just-one"); err == nil {
+		t.Error("expected error for 1-segment id against agents/*/*.md")
+	}
+}
+
+// TestResolveID_SectionOnlyDB_StillRequiresBracketKey: F31 relaxation
+// must NOT bleed into section-only dbs. README.md (section-mode) keeps
+// the F10 strict rule — id needs file-relpath + bracket-key.
+func TestResolveID_SectionOnlyDB_StillRequiresBracketKey(t *testing.T) {
+	r := NewResolver("/proj", fileRecordRegistry())
+
+	// Bare README is the file-relpath; without a bracket-key the
+	// section-only db rejects it. (The file-as-record agents db
+	// accepts a 2-segment id like `ta.writer` but `README` is only
+	// 1 segment under the README.md single-file mount, so neither
+	// db accepts.)
+	if _, _, err := r.ResolveID("README"); err == nil {
+		t.Error("expected error for README without bracket-key (section-only db)")
+	}
+}
+
 func TestResolvedCanonical(t *testing.T) {
 	cases := []struct {
 		res  Resolved

@@ -2058,3 +2058,248 @@ required = true
 		t.Error("inherited start.Required should be true")
 	}
 }
+
+// TestLoad_FileAsRecord_Valid: a well-formed file-as-record type loads
+// cleanly: record_per = "file", body_field set, body_field references
+// a declared field, no heading.
+func TestLoad_FileAsRecord_Valid(t *testing.T) {
+	src := `
+[agents]
+paths = ["agents/*/*.md"]
+
+[agents.agent]
+description = "An agent prompt file."
+record_per = "file"
+body_field = "prompt"
+
+[agents.agent.fields.name]
+type = "string"
+required = true
+
+[agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	st := reg.DBs["agents"].Types["agent"]
+	if st.RecordPer != RecordPerFile {
+		t.Errorf("RecordPer = %q, want %q", st.RecordPer, RecordPerFile)
+	}
+	if st.BodyField != "prompt" {
+		t.Errorf("BodyField = %q, want prompt", st.BodyField)
+	}
+	if !st.IsFileRecord() {
+		t.Error("IsFileRecord() = false, want true")
+	}
+	if !DBHasFileAsRecord(reg.DBs["agents"]) {
+		t.Error("DBHasFileAsRecord = false, want true")
+	}
+}
+
+// TestLoad_FileAsRecord_RejectsHeading: a file-as-record type that
+// also declares a heading must error with ErrFileRecordWithHeading.
+func TestLoad_FileAsRecord_RejectsHeading(t *testing.T) {
+	src := `
+[agents]
+paths = ["agents/*/*.md"]
+
+[agents.agent]
+description = "x"
+record_per = "file"
+body_field = "prompt"
+heading = 1
+
+[agents.agent.fields.prompt]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for heading + record_per=file")
+	}
+	if !errors.Is(err, ErrFileRecordWithHeading) {
+		t.Errorf("err = %v, want ErrFileRecordWithHeading", err)
+	}
+}
+
+// TestLoad_FileAsRecord_RequiresBodyField: a file-as-record type
+// without body_field errors with ErrFileRecordMissingBodyField.
+func TestLoad_FileAsRecord_RequiresBodyField(t *testing.T) {
+	src := `
+[agents]
+paths = ["agents/*/*.md"]
+
+[agents.agent]
+description = "x"
+record_per = "file"
+
+[agents.agent.fields.prompt]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for record_per=file with no body_field")
+	}
+	if !errors.Is(err, ErrFileRecordMissingBodyField) {
+		t.Errorf("err = %v, want ErrFileRecordMissingBodyField", err)
+	}
+}
+
+// TestLoad_FileAsRecord_BodyFieldUnknown: body_field referencing a
+// field that does not exist on the type errors loudly.
+func TestLoad_FileAsRecord_BodyFieldUnknown(t *testing.T) {
+	src := `
+[agents]
+paths = ["agents/*/*.md"]
+
+[agents.agent]
+description = "x"
+record_per = "file"
+body_field = "ghost"
+
+[agents.agent.fields.prompt]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for body_field referencing missing field")
+	}
+	if !errors.Is(err, ErrBodyFieldUnknown) {
+		t.Errorf("err = %v, want ErrBodyFieldUnknown", err)
+	}
+}
+
+// TestLoad_FileAsRecord_BodyFieldOnSectionType: declaring body_field
+// on a section-mode type is a contract violation.
+func TestLoad_FileAsRecord_BodyFieldOnSectionType(t *testing.T) {
+	src := `
+[docs]
+paths = ["docs/*.md"]
+
+[docs.section]
+description = "x"
+heading = 2
+body_field = "body"
+
+[docs.section.fields.body]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for body_field on section-mode type")
+	}
+	if !errors.Is(err, ErrBodyFieldOnSectionType) {
+		t.Errorf("err = %v, want ErrBodyFieldOnSectionType", err)
+	}
+}
+
+// TestLoad_FileAsRecord_RejectsMixedModes: a single db cannot host
+// both file-as-record and section-mode types. ErrMixedRecordModes.
+func TestLoad_FileAsRecord_RejectsMixedModes(t *testing.T) {
+	src := `
+[mix]
+paths = ["mix/*.md"]
+
+[mix.agent]
+description = "x"
+record_per = "file"
+body_field = "prompt"
+
+[mix.agent.fields.prompt]
+type = "string"
+required = true
+
+[mix.section]
+description = "y"
+heading = 2
+
+[mix.section.fields.title]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for mixed file+section modes in one db")
+	}
+	if !errors.Is(err, ErrMixedRecordModes) {
+		t.Errorf("err = %v, want ErrMixedRecordModes", err)
+	}
+}
+
+// TestLoad_SectionMode_HeadingStillRequired: pre-F31 section-mode
+// types still require heading. F31 must not regress this contract.
+func TestLoad_SectionMode_HeadingStillRequired(t *testing.T) {
+	src := `
+[docs]
+paths = ["docs/*.md"]
+
+[docs.section]
+description = "x"
+
+[docs.section.fields.body]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for section-mode type without heading")
+	}
+	// Surface a descriptive message; the pre-F31 path used a generic
+	// "MD types require heading" string.
+	if !strings.Contains(err.Error(), "heading") {
+		t.Errorf("err = %v, want heading-required message", err)
+	}
+}
+
+// TestLoad_RecordPerInvalid: an unknown record_per value is rejected.
+func TestLoad_RecordPerInvalid(t *testing.T) {
+	src := `
+[agents]
+paths = ["agents/*/*.md"]
+
+[agents.agent]
+description = "x"
+record_per = "page"
+body_field = "prompt"
+
+[agents.agent.fields.prompt]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for record_per = \"page\"")
+	}
+	if !errors.Is(err, ErrRecordPerInvalid) {
+		t.Errorf("err = %v, want ErrRecordPerInvalid", err)
+	}
+}
+
+// TestLoad_RecordPerOnTOML: declaring record_per on a TOML db's type
+// is a meaningless co-declaration and must be rejected.
+func TestLoad_RecordPerOnTOML(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+record_per = "section"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for record_per on TOML db")
+	}
+	if !errors.Is(err, ErrRecordPerOnTOML) {
+		t.Errorf("err = %v, want ErrRecordPerOnTOML", err)
+	}
+}

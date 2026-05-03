@@ -66,6 +66,12 @@ const (
 	typeKeyFields      = "fields"
 	typeKeyExtends     = "extends"
 	typeKeyAutoSpawn   = "auto_spawn"
+	// Per F31: record_per declares per-record granularity for MD
+	// types ("section" — default — or "file" — file-as-record).
+	// body_field is the field that receives the markdown body on
+	// file-as-record types.
+	typeKeyRecordPer = "record_per"
+	typeKeyBodyField = "body_field"
 )
 
 // auto_spawn sub-table keys.
@@ -199,6 +205,54 @@ var (
 	// shape check) and at runtime (final post-interpolation Validate
 	// against the target type). Per F23.
 	ErrSpawnIncompletePayload = errors.New("schema: auto_spawn fields payload incomplete")
+
+	// ErrFileRecordWithHeading is returned when a type declares both
+	// `record_per = "file"` and `heading = N`. Headings are the
+	// per-section anchor for section-mode dbs and meaningless for
+	// file-as-record types — co-declaring them is a loud failure per
+	// F31 contract.
+	ErrFileRecordWithHeading = errors.New(
+		"schema: heading is forbidden on file-as-record types (record_per = \"file\")")
+
+	// ErrFileRecordMissingBodyField is returned when a type declares
+	// `record_per = "file"` but omits `body_field`. The body field is
+	// the type-level pointer to the field that receives the markdown
+	// body; without it the backend has nowhere to put body bytes.
+	// Per F31.
+	ErrFileRecordMissingBodyField = errors.New(
+		"schema: file-as-record types require body_field = \"<field-name>\"")
+
+	// ErrBodyFieldUnknown is returned when `body_field = "<name>"`
+	// names a field that does not appear in the type's resolved
+	// Fields map. Per F31.
+	ErrBodyFieldUnknown = errors.New(
+		"schema: body_field references a field not declared on the type")
+
+	// ErrBodyFieldOnSectionType is returned when a section-mode type
+	// (record_per != "file") declares `body_field`. The body field is
+	// only meaningful on file-as-record types; declaring it elsewhere
+	// is a contract violation per F31's loud-error invariant.
+	ErrBodyFieldOnSectionType = errors.New(
+		"schema: body_field is only valid on file-as-record types (record_per = \"file\")")
+
+	// ErrRecordPerInvalid is returned when `record_per` carries a
+	// value other than "section" or "file". Per F31.
+	ErrRecordPerInvalid = errors.New(
+		"schema: record_per must be \"section\" or \"file\"")
+
+	// ErrRecordPerOnTOML is returned when a TOML db's type declares
+	// `record_per`. Only MD dbs support per-record granularity;
+	// declaring it on TOML is a meaningless co-declaration. Per F31.
+	ErrRecordPerOnTOML = errors.New(
+		"schema: record_per is only valid on MD-format dbs")
+
+	// ErrMixedRecordModes is returned when one db declares both
+	// section-mode and file-as-record types. Per F31's locked design
+	// rule, a single db must be all-file-mode OR all-section-mode —
+	// not a mix. Mixing prevents reliable id-grammar disambiguation
+	// at the address-resolver layer.
+	ErrMixedRecordModes = errors.New(
+		"schema: db cannot mix section-mode and file-as-record types")
 )
 
 // formatFromPath returns the format inferred from path's file
@@ -1456,6 +1510,9 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 	db.Format = inferred
 
 	if db.Format == FormatMD {
+		if err := checkRecordPerInvariants(name, db.Types); err != nil {
+			return DB{}, nil, err
+		}
 		if err := checkMDHeadings(name, db.Types); err != nil {
 			return DB{}, nil, err
 		}
@@ -1465,6 +1522,16 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 				return DB{}, nil, fmt.Errorf(
 					"schema: %s.%s: heading only allowed when db format is %q",
 					name, tname, FormatMD)
+			}
+			if t.RecordPer != "" {
+				return DB{}, nil, fmt.Errorf(
+					"%w: %s.%s carries record_per = %q",
+					ErrRecordPerOnTOML, name, tname, t.RecordPer)
+			}
+			if t.BodyField != "" {
+				return DB{}, nil, fmt.Errorf(
+					"%w: %s.%s carries body_field on TOML db",
+					ErrBodyFieldOnSectionType, name, tname)
 			}
 		}
 	}
@@ -1525,9 +1592,27 @@ func buildType(db, name string, body map[string]any) (SectionType, string, error
 				return SectionType{}, "", err
 			}
 			st.AutoSpawn = specs
+		case typeKeyRecordPer:
+			s, err := stringVal(db+"."+name, key, val)
+			if err != nil {
+				return SectionType{}, "", err
+			}
+			switch s {
+			case RecordPerSection, RecordPerFile, "":
+				st.RecordPer = s
+			default:
+				return SectionType{}, "", fmt.Errorf(
+					"%w: %s.%s: got %q", ErrRecordPerInvalid, db, name, s)
+			}
+		case typeKeyBodyField:
+			s, err := stringVal(db+"."+name, key, val)
+			if err != nil {
+				return SectionType{}, "", err
+			}
+			st.BodyField = s
 		default:
 			return SectionType{}, "", fmt.Errorf(
-				"schema: %s.%s: unknown key %q (allowed: description, heading, fields, extends, auto_spawn)",
+				"schema: %s.%s: unknown key %q (allowed: description, heading, fields, extends, auto_spawn, record_per, body_field)",
 				db, name, key)
 		}
 	}
@@ -1786,6 +1871,13 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 func checkMDHeadings(db string, types map[string]SectionType) error {
 	seen := make(map[int]string, len(types))
 	for name, t := range types {
+		// Per F31: file-as-record types are exempt from the heading
+		// requirement. checkRecordPerInvariants has already verified
+		// they carry no Heading; here we just skip them so the
+		// section-mode check below stays consistent.
+		if t.IsFileRecord() {
+			continue
+		}
 		if t.Heading == 0 {
 			return fmt.Errorf(
 				"schema: %s.%s: MD types require %q (1..6)", db, name, typeKeyHeading)
@@ -1796,6 +1888,53 @@ func checkMDHeadings(db string, types map[string]SectionType) error {
 				db, t.Heading, other, name)
 		}
 		seen[t.Heading] = name
+	}
+	return nil
+}
+
+// checkRecordPerInvariants enforces F31's per-type / per-db invariants
+// for MD-format dbs:
+//
+//   - record_per = "file" types must NOT declare a Heading.
+//   - record_per = "file" types MUST declare a body_field.
+//   - body_field must reference a field declared on the type.
+//   - body_field is forbidden on section-mode types.
+//   - A single db cannot mix file-as-record and section-mode types.
+//
+// Each violation surfaces with a dedicated sentinel so callers branch
+// reliably via errors.Is.
+func checkRecordPerInvariants(db string, types map[string]SectionType) error {
+	var sawFile, sawSection bool
+	for name, t := range types {
+		switch t.RecordPer {
+		case RecordPerFile:
+			sawFile = true
+			if t.Heading != 0 {
+				return fmt.Errorf(
+					"%w: %s.%s declares heading=%d", ErrFileRecordWithHeading, db, name, t.Heading)
+			}
+			if t.BodyField == "" {
+				return fmt.Errorf(
+					"%w: %s.%s", ErrFileRecordMissingBodyField, db, name)
+			}
+			if _, ok := t.Fields[t.BodyField]; !ok {
+				return fmt.Errorf(
+					"%w: %s.%s.body_field=%q",
+					ErrBodyFieldUnknown, db, name, t.BodyField)
+			}
+		default:
+			// Section-mode (default or explicit "section"). body_field
+			// is meaningless here — declaring it is the loud failure.
+			sawSection = true
+			if t.BodyField != "" {
+				return fmt.Errorf(
+					"%w: %s.%s.body_field=%q",
+					ErrBodyFieldOnSectionType, db, name, t.BodyField)
+			}
+		}
+	}
+	if sawFile && sawSection {
+		return fmt.Errorf("%w: db %q", ErrMixedRecordModes, db)
 	}
 	return nil
 }

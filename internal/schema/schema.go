@@ -47,6 +47,20 @@ func IsSingleFileDB(db DB) bool {
 	return SingleFileMount(db.Paths[0])
 }
 
+// DBHasFileAsRecord reports whether any declared type on db carries
+// RecordPer == RecordPerFile. The id-grammar relaxation in F31
+// (file-as-record dbs accept ids equal to the file-relpath alone, no
+// bracket-key) gates on this — section-only dbs keep the strict
+// bracket-key requirement.
+func DBHasFileAsRecord(db DB) bool {
+	for _, t := range db.Types {
+		if t.IsFileRecord() {
+			return true
+		}
+	}
+	return false
+}
+
 // Type is the declared type of a schema field, matching TOML's native types.
 // The string form is the wire representation in the schema config and in the
 // JSON contract of *ValidationError.
@@ -81,6 +95,22 @@ const (
 	FormatTOML Format = "toml"
 	// FormatMD selects the Markdown backend (internal/backend/md, §12.4).
 	FormatMD Format = "md"
+)
+
+// RecordPer values determine the on-disk record granularity for an MD
+// type per F31. Section-mode (the default) chops one file into many
+// records via ATX heading boundaries. File-mode treats the whole file
+// as one record with YAML frontmatter holding the typed fields and the
+// body holding the markdown content under a single declared
+// `body_field`.
+const (
+	// RecordPerSection is the default — one MD file may host multiple
+	// records, each anchored at an ATX heading. Pre-F31 behavior.
+	RecordPerSection = "section"
+	// RecordPerFile makes the whole file one record (file-as-record);
+	// frontmatter holds typed fields, body holds the markdown under
+	// `body_field`. Per F31.
+	RecordPerFile = "file"
 )
 
 // Field describes a single field within a SectionType.
@@ -150,6 +180,23 @@ type SectionType struct {
 	// a concrete type's own auto_spawn overrides the inherited one. Per
 	// F23.
 	AutoSpawn []SpawnSpec
+	// RecordPer is the on-disk record granularity for MD types
+	// (RecordPerSection or RecordPerFile). Empty string is treated as
+	// RecordPerSection for back-compat with pre-F31 schemas. TOML
+	// types must leave this empty — only MD types support file mode.
+	// Per F31.
+	RecordPer string
+	// BodyField names the field that receives the markdown body for
+	// file-as-record types (RecordPer == RecordPerFile). Required on
+	// file-as-record types; forbidden everywhere else. The named field
+	// must exist on the type's resolved Fields map. Per F31.
+	BodyField string
+}
+
+// IsFileRecord reports whether st is a file-as-record type per F31.
+// Section-mode is the default (empty RecordPer === RecordPerSection).
+func (st SectionType) IsFileRecord() bool {
+	return st.RecordPer == RecordPerFile
 }
 
 // SpawnSpec is one auto-spawn child-record specification, declared as

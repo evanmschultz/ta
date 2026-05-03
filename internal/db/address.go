@@ -210,14 +210,22 @@ func mountExpectedShape(mount string, format schema.Format) (string, int) {
 }
 
 // tryParseAgainstMount attempts to parse parts against one mount entry
-// of one db under the F10 id grammar. Returns (resolved, true, nil)
-// on a successful match, (zero, false, nil) when the mount's expected
-// file-relpath shape does not match parts, and (zero, false, err) for
-// hard grammar errors.
+// of one db under the F10 id grammar (and the F31 file-as-record
+// relaxation). Returns (resolved, true, nil) on a successful match,
+// (zero, false, nil) when the mount's expected file-relpath shape
+// does not match parts, and (zero, false, err) for hard grammar
+// errors.
 //
 // Collection mounts (`docs/`, `.`) are rejected at schema-load time
 // (ErrCollectionMountUnsupported); this helper assumes the mount has
 // a recognized extension.
+//
+// Per F31: when dbDecl carries any file-as-record type, an id whose
+// segment count exactly matches the expected file-relpath length
+// (no bracket-key tail) is accepted with BracketKey="". The whole
+// file IS the record on file-as-record dbs; there is no per-section
+// anchor. Section-only dbs keep the strict "one bracket-key segment
+// required" rule.
 func tryParseAgainstMount(parts []string, dbDecl schema.DB, mount, root string) (Resolved, bool, error) {
 	base, mountAfterHome, err := resolveHome(root, mount)
 	if err != nil {
@@ -230,8 +238,14 @@ func tryParseAgainstMount(parts []string, dbDecl schema.DB, mount, root string) 
 	// strip it from the leaf residual segment so the id (which never
 	// carries the extension) compares cleanly.
 	expected := stripFormatExt(residualSegs, dbDecl.Format)
-	if len(parts) < len(expected)+1 {
-		// Need at least one BracketKey segment after file-relpath.
+	hasFileRecord := schema.DBHasFileAsRecord(dbDecl)
+	minLen := len(expected) + 1
+	if hasFileRecord {
+		// File-as-record dbs accept ids with EXACTLY the file-relpath
+		// length (no bracket-key) — the whole file is the one record.
+		minLen = len(expected)
+	}
+	if len(parts) < minLen {
 		return Resolved{}, false, nil
 	}
 	for i, seg := range expected {

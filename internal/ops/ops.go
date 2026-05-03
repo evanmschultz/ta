@@ -955,6 +955,11 @@ type ScopeRecord struct {
 //     a bracket-key); OR
 //  3. Fails with ErrIDDoesNotMatchAnyDB but extending it with one
 //     synthetic bracket-key segment makes it parse.
+//
+// Per F31: when the resolved db is a file-as-record db, an empty
+// BracketKey signals a complete record id (the file IS the record),
+// NOT a scope-prefix. R1 audit finding — without this branch a
+// file-as-record id would route through GetScope instead of Get.
 func IsScopeAddress(path, id string) (bool, error) {
 	if id == "" {
 		return false, fmt.Errorf("%w: empty id", search.ErrInvalidScope)
@@ -968,9 +973,15 @@ func IsScopeAddress(path, id string) (bool, error) {
 		return false, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	resolved, _, parseErr := resolver.ResolveID(id)
+	resolved, dbDecl, parseErr := resolver.ResolveID(id)
 	if parseErr == nil {
 		if resolved.BracketKey != "" {
+			return false, nil
+		}
+		// F31: a successful resolve with empty BracketKey on a
+		// file-as-record db is a complete record id, not a scope
+		// prefix.
+		if schema.DBHasFileAsRecord(dbDecl) {
 			return false, nil
 		}
 		return true, nil

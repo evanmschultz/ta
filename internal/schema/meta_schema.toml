@@ -65,6 +65,15 @@ description = "Optional name of a base ([<db>.bases.<name>]) whose fields this t
 type = "table"
 description = "Optional. Declares child records that fire automatically after a successful Create of a record of this type. Shape: `[<db>.<type>.auto_spawn]` with `on_create = [...]` whose entries each carry `type` (db-qualified target), `id_template` (id literal with `{parent_id}` / `{index}` interpolation tokens), and optional `fields` (static field values, strings interpolated through the same two-token rule). Bases may also declare auto_spawn; the rule propagates onto inheriting concrete types and a concrete type's own block wholesale-replaces the inherited one. Cycles, unknown target types, malformed templates, and incomplete payloads are rejected at load. Per F23."
 
+[ta_schema.type.fields.record_per]
+type = "string"
+enum = ["section", "file"]
+description = "MD-only: per-record granularity. \"section\" (default) chops one file into many records via ATX heading boundaries. \"file\" (file-as-record) treats the whole file as one record with YAML frontmatter holding the typed fields and the body holding the markdown content under `body_field`. Forbidden on TOML dbs. A single db cannot mix \"section\" and \"file\" types. Per F31."
+
+[ta_schema.type.fields.body_field]
+type = "string"
+description = "MD-only, file-as-record only: names the field that receives the markdown body. Required when `record_per = \"file\"`; forbidden when `record_per` is unset or \"section\". The named field must be declared in the type's `fields` map. Per F31."
+
 # ----------------------------------------------------------------------------
 # kind = "base" — the data shape of `schema(action="create"|"update",
 # kind="base", name="<db>.<base>", data=...)`. A base is a reusable field

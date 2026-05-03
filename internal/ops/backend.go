@@ -50,6 +50,23 @@ func buildBackend(dbDecl schema.DB, resolved db.Resolved) (record.Backend, error
 		types := tomlScannerTypes(dbDecl, resolved)
 		return toml.NewBackend(types), nil
 	case schema.FormatMD:
+		// Per F31: when the db has any file-as-record type (and per the
+		// load-time mixed-mode prohibition, that means EVERY type on
+		// the db is file-as-record) the backend is FileRecordBackend
+		// instead of the heading-driven section backend.
+		if schema.DBHasFileAsRecord(dbDecl) {
+			fileType, st, ok := singleFileRecordType(dbDecl)
+			if !ok {
+				return nil, fmt.Errorf(
+					"ops: db %q has file-as-record types but none resolved", dbDecl.Name)
+			}
+			types := []record.DeclaredType{{Name: fileType}}
+			b, err := md.NewFileRecordBackend(types, fileType, st.BodyField)
+			if err != nil {
+				return nil, fmt.Errorf("ops: build file-as-record backend for db %q: %w", dbDecl.Name, err)
+			}
+			return b, nil
+		}
 		types := make([]record.DeclaredType, 0, len(dbDecl.Types))
 		for typeName, t := range dbDecl.Types {
 			types = append(types, record.DeclaredType{
@@ -65,6 +82,20 @@ func buildBackend(dbDecl schema.DB, resolved db.Resolved) (record.Backend, error
 	default:
 		return nil, fmt.Errorf("%w: db %q format=%q", ErrUnsupportedFormat, dbDecl.Name, dbDecl.Format)
 	}
+}
+
+// singleFileRecordType returns the one declared file-as-record type on
+// dbDecl. Per F31's mixed-mode prohibition (load.go enforces) at most
+// one such type can exist on a single db; this helper folds the lookup
+// into one place. Returns (typeName, type, true) on hit, ("", zero,
+// false) when no file-as-record type is declared.
+func singleFileRecordType(dbDecl schema.DB) (string, schema.SectionType, bool) {
+	for name, t := range dbDecl.Types {
+		if t.IsFileRecord() {
+			return name, t, true
+		}
+	}
+	return "", schema.SectionType{}, false
 }
 
 // tomlScannerTypes returns the declared-prefix list for the TOML
@@ -120,6 +151,15 @@ func backendSectionPath(dbDecl schema.DB, resolved db.Resolved, bareType string)
 	case schema.FormatTOML:
 		return tomlBracketPath(resolved)
 	case schema.FormatMD:
+		// Per F31: file-as-record dbs use the file-relpath as the
+		// section path. There is no type-anchor / bracket-key chain to
+		// re-thread because the whole file is the one record. The
+		// FileRecordBackend ignores section semantics and returns the
+		// whole-buffer range — but the caller still passes a non-empty
+		// section so Find/Emit/Splice's empty-arg guard does not fire.
+		if schema.DBHasFileAsRecord(dbDecl) {
+			return resolved.FileRelPath
+		}
 		// MD addresses are type-anchored per md.Backend.relativeAddress;
 		// insert bareType between file-relpath and bracket-key so the
 		// canonical F10 id (which omits the type) parses against the

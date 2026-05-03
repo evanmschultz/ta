@@ -57,4 +57,30 @@ var (
 	// the missing declared ancestor first (V2-PLAN §5.3.2 orphans
 	// paragraph).
 	ErrParentMissing = errors.New("md: declared ancestor missing")
+
+	// ErrMalformedFrontmatter is returned by splitFrontmatter when a
+	// buffer opens a `---` fence but never closes it, when fences are
+	// otherwise malformed, or when a section-mode buffer accidentally
+	// carries frontmatter (the loud-error invariant on
+	// `record_per = "section"` types). Per F31.
+	ErrMalformedFrontmatter = errors.New("md: malformed frontmatter")
+
+	// ErrMissingFrontmatter is returned by Find / decode when a
+	// file-as-record buffer is missing its required frontmatter block.
+	// Per F31 file-as-record records require frontmatter; an absent
+	// block is a contract violation, not an empty-fields default.
+	ErrMissingFrontmatter = errors.New("md: file-as-record buffer missing required frontmatter")
+
+	// ErrBracketInFileRecord is returned by Find / List when a
+	// file-as-record buffer contains a TOML-style `[<id>]` bracket
+	// header at column 0. Brackets belong to section-mode dbs only;
+	// their presence in a file-as-record file is a contract violation.
+	// Per F31 loud-error invariant.
+	ErrBracketInFileRecord = errors.New("md: bracket header forbidden in file-as-record buffer")
+
+	// ErrUnclosedFence is returned by Find / List when a file-as-record
+	// buffer opens a fenced code block that EOF reaches without a
+	// matching closer. Loud-fail per F31 invariant: a silently-bypassed
+	// guard region could swallow real bracket headers downstream.
+	ErrUnclosedFence = errors.New("md: unclosed fenced code block")
 )
