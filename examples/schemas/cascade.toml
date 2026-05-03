@@ -19,281 +19,281 @@
 # Base types — shared field sets that concrete types extend (F22).
 # ============================================================================
 
-[ta_schema.bases.NodeBase]
+[project.bases.NodeBase]
 description = "Common fields for any cascade node — shared by project, plans, discussions, drop-tree action items."
 
-[ta_schema.bases.NodeBase.fields.parent_id]
+[project.bases.NodeBase.fields.parent_id]
 type = "string"
 description = "ta record id of the parent node, or empty for root nodes."
 
-[ta_schema.bases.NodeBase.fields.title]
+[project.bases.NodeBase.fields.title]
 type = "string"
 required = true
 description = "Short headline for the node."
 
-[ta_schema.bases.NodeBase.fields.description]
+[project.bases.NodeBase.fields.description]
 type = "string"
 format = "markdown"
 description = "Free prose describing the node. Markdown supported."
 
-[ta_schema.bases.NodeBase.fields.state]
+[project.bases.NodeBase.fields.state]
 type = "string"
 required = true
 enum = ["todo", "in_progress", "complete", "failed", "archived"]
 description = "Lifecycle state. todo: not started. in_progress: actively being worked. complete: terminal success. failed: terminal failure. archived: soft-retired."
 
-[ta_schema.bases.NodeBase.fields.outcome]
+[project.bases.NodeBase.fields.outcome]
 type = "string"
 enum = ["", "success", "failure", "blocked"]
 default = ""
 description = "Set when reaching terminal state. Disambiguates complete-via-promotion from complete-via-rejection."
 
-[ta_schema.bases.NodeBase.fields.priority]
+[project.bases.NodeBase.fields.priority]
 type = "string"
 enum = ["low", "medium", "high"]
 default = "medium"
 description = "Operator-set priority hint."
 
-[ta_schema.bases.NodeBase.fields.labels]
+[project.bases.NodeBase.fields.labels]
 type = "array"
 element_type = "string"
 description = "Free-form tag strings."
 
-[ta_schema.bases.NodeBase.fields.blockers]
+[project.bases.NodeBase.fields.blockers]
 type = "array"
 element_type = "string"
 description = "ta record ids of nodes that must reach state=complete before this node can transition todo→in_progress."
 
-[ta_schema.bases.NodeBase.fields.depends_on]
+[project.bases.NodeBase.fields.depends_on]
 type = "array"
 element_type = "string"
 description = "Soft dependencies — referenced but not strictly blocking."
 
-[ta_schema.bases.NodeBase.fields.related_items]
+[project.bases.NodeBase.fields.related_items]
 type = "array"
 element_type = "string"
 description = "ta record ids related to this node for cross-reference."
 
-[ta_schema.bases.NodeBase.fields.created_at]
+[project.bases.NodeBase.fields.created_at]
 type = "datetime"
 required = true
 description = "Creation timestamp (RFC3339)."
 
-[ta_schema.bases.NodeBase.fields.updated_at]
+[project.bases.NodeBase.fields.updated_at]
 type = "datetime"
 required = true
 description = "Last-update timestamp (RFC3339)."
 
-[ta_schema.bases.NodeBase.fields.started_at]
+[project.bases.NodeBase.fields.started_at]
 type = "datetime"
 description = "Set on transition to in_progress."
 
-[ta_schema.bases.NodeBase.fields.completed_at]
+[project.bases.NodeBase.fields.completed_at]
 type = "datetime"
 description = "Set on transition to complete or failed."
 
-[ta_schema.bases.NodeBase.fields.archived_at]
+[project.bases.NodeBase.fields.archived_at]
 type = "datetime"
 description = "Set on transition to archived."
 
-[ta_schema.bases.NodeBase.fields.created_by_actor]
+[project.bases.NodeBase.fields.created_by_actor]
 type = "string"
 description = "Actor identity that created the node (e.g. 'agent:planner-1', 'user:ev')."
 
-[ta_schema.bases.NodeBase.fields.created_by_type]
+[project.bases.NodeBase.fields.created_by_type]
 type = "string"
 enum = ["user", "agent", "system"]
 description = "Actor category."
 
-[ta_schema.bases.NodeBase.fields.updated_by_actor]
+[project.bases.NodeBase.fields.updated_by_actor]
 type = "string"
 description = "Actor identity that last updated the node."
 
-[ta_schema.bases.NodeBase.fields.updated_by_type]
+[project.bases.NodeBase.fields.updated_by_type]
 type = "string"
 enum = ["user", "agent", "system"]
 
-[ta_schema.bases.NodeBase.fields.comments]
+[project.bases.NodeBase.fields.comments]
 type = "array"
 element_type = "Comment"
 description = "Embedded thread of comments on this node. Append-only."
 
 # ----------------------------------------------------------------------------
 
-[ta_schema.bases.ActionItem]
+[project.bases.ActionItem]
 extends = "NodeBase"
 description = "An action item — a node carrying work. Adds role, structural classification, edit-scope fields, completion contract."
 
-[ta_schema.bases.ActionItem.fields.role]
+[project.bases.ActionItem.fields.role]
 type = "string"
 required = true
 enum = ["builder", "qa-proof", "qa-falsification", "qa-a11y", "qa-visual",
         "design", "commit", "planner", "research"]
 description = "Work-lane the action item runs in."
 
-[ta_schema.bases.ActionItem.fields.structural_type]
+[project.bases.ActionItem.fields.structural_type]
 type = "string"
 enum = ["", "drop", "segment", "confluence", "droplet"]
 default = ""
 description = "Cascade structural classification. drop: L1 cascade root. segment: interior planner node. confluence: merge point. droplet: atomic build leaf. Empty for non-cascade containers."
 
-[ta_schema.bases.ActionItem.fields.persistent]
+[project.bases.ActionItem.fields.persistent]
 type = "boolean"
 default = false
 description = "True for retained anchor items that don't archive."
 
-[ta_schema.bases.ActionItem.fields.dev_gated]
+[project.bases.ActionItem.fields.dev_gated]
 type = "boolean"
 default = false
 description = "True if state transitions require human reviewer approval."
 
-[ta_schema.bases.ActionItem.fields.owner]
+[project.bases.ActionItem.fields.owner]
 type = "string"
 description = "Actor identity that gates state transitions on this item."
 
-[ta_schema.bases.ActionItem.fields.due_at]
+[project.bases.ActionItem.fields.due_at]
 type = "datetime"
 description = "Optional deadline."
 
-[ta_schema.bases.ActionItem.fields.canceled_at]
+[project.bases.ActionItem.fields.canceled_at]
 type = "datetime"
 
 # Edit-scope (cascade methodology — Drop 1 fields)
-[ta_schema.bases.ActionItem.fields.paths]
+[project.bases.ActionItem.fields.paths]
 type = "array"
 element_type = "string"
 description = "File globs this item writes to. Planner fills; builder/QA read; sibling-blocking input."
 
-[ta_schema.bases.ActionItem.fields.packages]
+[project.bases.ActionItem.fields.packages]
 type = "array"
 element_type = "string"
 description = "Packages affected (sibling-blocking unit). Implementation-language-specific format."
 
-[ta_schema.bases.ActionItem.fields.files]
+[project.bases.ActionItem.fields.files]
 type = "array"
 element_type = "string"
 description = "Reference attachments — files the agent should read for context but not write."
 
-[ta_schema.bases.ActionItem.fields.start_commit]
+[project.bases.ActionItem.fields.start_commit]
 type = "string"
 description = "Commit hash at which in_progress started — git diff anchor."
 
-[ta_schema.bases.ActionItem.fields.end_commit]
+[project.bases.ActionItem.fields.end_commit]
 type = "string"
 description = "Commit hash at which terminal state was reached."
 
 # Operator metadata
-[ta_schema.bases.ActionItem.fields.objective]
+[project.bases.ActionItem.fields.objective]
 type = "string"
 format = "markdown"
 description = "What this item is trying to achieve, in prose."
 
-[ta_schema.bases.ActionItem.fields.acceptance_criteria]
+[project.bases.ActionItem.fields.acceptance_criteria]
 type = "string"
 format = "markdown"
 description = "Behavior-level assertions — how we know it's done."
 
-[ta_schema.bases.ActionItem.fields.definition_of_complete]
+[project.bases.ActionItem.fields.definition_of_complete]
 type = "string"
 format = "markdown"
 description = "Concrete checklist of what 'complete' means for this item."
 
-[ta_schema.bases.ActionItem.fields.validation_plan]
+[project.bases.ActionItem.fields.validation_plan]
 type = "string"
 format = "markdown"
 description = "How the work will be validated (tests, manual review, gates)."
 
-[ta_schema.bases.ActionItem.fields.implementation_notes_user]
+[project.bases.ActionItem.fields.implementation_notes_user]
 type = "string"
 format = "markdown"
 description = "Human-authored implementation guidance for the agent."
 
-[ta_schema.bases.ActionItem.fields.implementation_notes_agent]
+[project.bases.ActionItem.fields.implementation_notes_agent]
 type = "string"
 format = "markdown"
 description = "Agent-authored notes captured during work."
 
-[ta_schema.bases.ActionItem.fields.transition_notes]
+[project.bases.ActionItem.fields.transition_notes]
 type = "string"
 format = "markdown"
 description = "Notes captured at state transitions."
 
-[ta_schema.bases.ActionItem.fields.blocked_reason]
+[project.bases.ActionItem.fields.blocked_reason]
 type = "string"
 format = "markdown"
 description = "Free prose explaining why item is blocked."
 
-[ta_schema.bases.ActionItem.fields.risk_notes]
+[project.bases.ActionItem.fields.risk_notes]
 type = "string"
 format = "markdown"
 
-[ta_schema.bases.ActionItem.fields.command_snippets]
+[project.bases.ActionItem.fields.command_snippets]
 type = "array"
 element_type = "string"
 description = "Shell commands relevant to the item — copy-pasteable."
 
-[ta_schema.bases.ActionItem.fields.expected_outputs]
+[project.bases.ActionItem.fields.expected_outputs]
 type = "array"
 element_type = "string"
 description = "Files / artifacts the item is expected to produce."
 
-[ta_schema.bases.ActionItem.fields.decision_log]
+[project.bases.ActionItem.fields.decision_log]
 type = "array"
 element_type = "string"
 description = "Append-only decision entries. Each is a short markdown blurb."
 
-[ta_schema.bases.ActionItem.fields.context_blocks]
+[project.bases.ActionItem.fields.context_blocks]
 type = "array"
 element_type = "ContextBlock"
 description = "Context attachments — code locations, URLs, doc refs the agent needs to do the work or verify it."
 
-[ta_schema.bases.ActionItem.fields.resource_refs]
+[project.bases.ActionItem.fields.resource_refs]
 type = "array"
 element_type = "ResourceRef"
 description = "External resource references (artifacts, services, files outside the repo)."
 
 # Retry tracking
-[ta_schema.bases.ActionItem.fields.attempt_count]
+[project.bases.ActionItem.fields.attempt_count]
 type = "integer"
 default = 0
 description = "Number of times this item entered in_progress."
 
-[ta_schema.bases.ActionItem.fields.blocked_retry_count]
+[project.bases.ActionItem.fields.blocked_retry_count]
 type = "integer"
 default = 0
 description = "Number of times this item transitioned in_progress→failed→in_progress."
 
-[ta_schema.bases.ActionItem.fields.last_failure_context]
+[project.bases.ActionItem.fields.last_failure_context]
 type = "string"
 format = "markdown"
 description = "Most recent failure detail — used by planner edits to inform fix directives."
 
 # Completion contract
-[ta_schema.bases.ActionItem.fields.completion_contract]
+[project.bases.ActionItem.fields.completion_contract]
 type = "table"
 description = "Structured contract describing how the item enters and exits."
 
-[ta_schema.bases.ActionItem.fields.completion_contract.fields.start_criteria]
+[project.bases.ActionItem.fields.completion_contract.fields.start_criteria]
 type = "array"
 element_type = "ChecklistItem"
 
-[ta_schema.bases.ActionItem.fields.completion_contract.fields.completion_criteria]
+[project.bases.ActionItem.fields.completion_contract.fields.completion_criteria]
 type = "array"
 element_type = "ChecklistItem"
 
-[ta_schema.bases.ActionItem.fields.completion_contract.fields.completion_checklist]
+[project.bases.ActionItem.fields.completion_contract.fields.completion_checklist]
 type = "array"
 element_type = "ChecklistItem"
 
-[ta_schema.bases.ActionItem.fields.completion_contract.fields.completion_evidence]
+[project.bases.ActionItem.fields.completion_contract.fields.completion_evidence]
 type = "array"
 element_type = "string"
 
-[ta_schema.bases.ActionItem.fields.completion_contract.fields.completion_notes]
+[project.bases.ActionItem.fields.completion_contract.fields.completion_notes]
 type = "string"
 format = "markdown"
 
-[ta_schema.bases.ActionItem.fields.completion_contract.fields.require_children_complete]
+[project.bases.ActionItem.fields.completion_contract.fields.require_children_complete]
 type = "boolean"
 default = true
 
@@ -301,29 +301,29 @@ default = true
 # Reusable element types (F21.3 type aliases) — referenced from element_type.
 # ============================================================================
 
-[ta_schema.aliases.Comment]
+[project.types.Comment]
 description = "Append-only thread entry on any action item."
 
-[ta_schema.aliases.Comment.fields.id]
+[project.types.Comment.fields.id]
 type = "string"
 required = true
 description = "Comment identifier (caller-set; recommend ULID or short slug)."
 
-[ta_schema.aliases.Comment.fields.author]
+[project.types.Comment.fields.author]
 type = "string"
 required = true
 description = "Actor identity that wrote the comment (e.g. 'agent:builder-1', 'user:ev')."
 
-[ta_schema.aliases.Comment.fields.role]
+[project.types.Comment.fields.role]
 type = "string"
 description = "Optional role context for the comment author."
 
-[ta_schema.aliases.Comment.fields.timestamp]
+[project.types.Comment.fields.timestamp]
 type = "datetime"
 required = true
 description = "When the comment was written (RFC3339)."
 
-[ta_schema.aliases.Comment.fields.body]
+[project.types.Comment.fields.body]
 type = "string"
 required = true
 format = "markdown"
@@ -331,51 +331,51 @@ description = "Comment content. Markdown — rendered for humans, raw for agents
 
 # ----------------------------------------------------------------------------
 
-[ta_schema.aliases.ChecklistItem]
+[project.types.ChecklistItem]
 description = "One item in a structured checklist (start_criteria / completion_checklist / etc.)."
 
-[ta_schema.aliases.ChecklistItem.fields.id]
+[project.types.ChecklistItem.fields.id]
 type = "string"
 required = true
 description = "Checklist-item identifier (caller-set, scoped to its parent action item's checklist)."
 
-[ta_schema.aliases.ChecklistItem.fields.text]
+[project.types.ChecklistItem.fields.text]
 type = "string"
 required = true
 format = "markdown"
 description = "Item description."
 
-[ta_schema.aliases.ChecklistItem.fields.complete]
+[project.types.ChecklistItem.fields.complete]
 type = "boolean"
 default = false
 description = "Whether this item is satisfied."
 
 # ----------------------------------------------------------------------------
 
-[ta_schema.aliases.ContextBlock]
+[project.types.ContextBlock]
 description = "A piece of context an agent needs — code locations, URLs, doc refs, anything pointing at material relevant to the work."
 
-[ta_schema.aliases.ContextBlock.fields.kind]
+[project.types.ContextBlock.fields.kind]
 type = "string"
 required = true
 enum = ["code", "url", "doc", "file", "context7", "other"]
 description = "Discriminator — what KIND of context this block points at. code: file:line in this repo. url: external URL. doc: project doc reference. file: another local file. context7: a Context7 library/topic ref. other: anything else."
 
-[ta_schema.aliases.ContextBlock.fields.ref]
+[project.types.ContextBlock.fields.ref]
 type = "string"
 required = true
 description = "The reference itself. Format depends on kind. code → 'path/to/file.go:42-58'. url → 'https://...'. doc → ta-record-id or markdown-section-id. file → relative path. context7 → 'library/topic'. other → free-form."
 
-[ta_schema.aliases.ContextBlock.fields.label]
+[project.types.ContextBlock.fields.label]
 type = "string"
 description = "Human-readable label for the block."
 
-[ta_schema.aliases.ContextBlock.fields.body]
+[project.types.ContextBlock.fields.body]
 type = "string"
 format = "markdown"
 description = "Optional inline content — preview / excerpt / commentary on the reference."
 
-[ta_schema.aliases.ContextBlock.fields.importance]
+[project.types.ContextBlock.fields.importance]
 type = "string"
 enum = ["primary", "supporting", "tangential"]
 default = "supporting"
@@ -383,23 +383,23 @@ description = "How load-bearing this context is for the agent."
 
 # ----------------------------------------------------------------------------
 
-[ta_schema.aliases.ResourceRef]
+[project.types.ResourceRef]
 description = "An external resource (artifact, service, file outside the repo) referenced by an action item."
 
-[ta_schema.aliases.ResourceRef.fields.kind]
+[project.types.ResourceRef.fields.kind]
 type = "string"
 required = true
 enum = ["artifact", "service", "file", "url", "other"]
 
-[ta_schema.aliases.ResourceRef.fields.ref]
+[project.types.ResourceRef.fields.ref]
 type = "string"
 required = true
 description = "The reference. Format depends on kind."
 
-[ta_schema.aliases.ResourceRef.fields.label]
+[project.types.ResourceRef.fields.label]
 type = "string"
 
-[ta_schema.aliases.ResourceRef.fields.notes]
+[project.types.ResourceRef.fields.notes]
 type = "string"
 format = "markdown"
 

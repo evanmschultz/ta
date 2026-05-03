@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/evanmschultz/ta/internal/initapply"
+	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/templates"
 )
 
@@ -359,14 +360,18 @@ func decodeItemKey(key string, kind templates.Kind, group string) (templates.Ite
 }
 
 // emitInitMultiReport writes the JSON report (asJSON=true) or a
-// laslig-rendered summary table.
+// laslig success notice. Headline carries the target path; the
+// per-category written/skipped/conflicts breakdown rides as the
+// detail bullet list — empty categories are omitted so the notice
+// stays readable when a run only touches schemas.
 func emitInitMultiReport(w io.Writer, r initapply.Report, asJSON bool) error {
 	if asJSON {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
 	}
-	fmt.Fprintf(w, "init complete: %s (on_conflict=%s)\n", r.Target, r.OnConflict)
+	headline := fmt.Sprintf("%s (on_conflict=%s)", r.Target, r.OnConflict)
+	var detail []string
 	for _, entry := range []struct {
 		label string
 		cat   initapply.Result
@@ -379,8 +384,8 @@ func emitInitMultiReport(w io.Writer, r initapply.Report, asJSON bool) error {
 		if len(entry.cat.Written)+len(entry.cat.Skipped)+len(entry.cat.Conflicts) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "  %s: written=%d skipped=%d conflicts=%d\n",
-			entry.label, len(entry.cat.Written), len(entry.cat.Skipped), len(entry.cat.Conflicts))
+		detail = append(detail, fmt.Sprintf("%s: written=%d skipped=%d conflicts=%d",
+			entry.label, len(entry.cat.Written), len(entry.cat.Skipped), len(entry.cat.Conflicts)))
 	}
-	return nil
+	return render.New(w).Success("ta init", headline, detail)
 }

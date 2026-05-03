@@ -799,6 +799,18 @@ Recommend (a) + (b) together. (a) reduces the conflict count to ones that actual
 
 Workaround until F25 lands: re-run with `--on-conflict=skip` to keep the project's diverged dbs untouched, or pick everything-except-the-conflicting-db manually instead of ctrl+a.
 
+## F27. `[ta_schema]` leaks into picker as a user-pickable db
+
+`ta init` against the binary cascade schema emits 11 picker rows including a `[ta] ta_schema` entry. `ta_schema` is the meta-schema's reserved namespace (the meta-schema itself uses `[ta_schema.db]`, `[ta_schema.type]`, `[ta_schema.field]` to declare the SHAPES of user dbs/types/fields). It must NEVER be selectable as a user db.
+
+Three coupled bugs:
+
+1. **`examples/schemas/cascade.toml` declared shared bases under `[ta_schema.bases.<name>]`** and aliases under `[ta_schema.aliases.<name>]`. Treating `ta_schema` as a "shared declarations namespace" was the wrong choice — `ta_schema` is already the meta-schema's own namespace. Loaded into `unmarshalDBBodies`, every top-level key becomes a db; `ta_schema` got promoted to a real db row in the picker. **Fixed in F27 work**: cascade.toml relocated `[ta_schema.bases.*]` → `[project.bases.*]` and `[ta_schema.aliases.*]` → `[project.types.*]`. Bases are Registry-wide visible per F22 so the relocation is semantically equivalent.
+2. **cascade.toml used `aliases` instead of `types` for the F21 alias namespace**. Per F21 plan, aliases live at `[<db>.types.<alias>]`, not `aliases`. The schema loader's db-level dispatch silently treated `aliases` as a record-type body (record-types are unknown table-valued keys at db level) so the bad input was accepted. **Fixed in F27**: cascade.toml corrected to `types`.
+3. **Schema loader has no guard against `ta_schema` as a user db name**. Even after the cascade.toml fix, a user could still hand-write `[ta_schema.X]` and have it accepted. Add `ErrReservedDBName` (or similar) at load time when a top-level db key matches the meta-schema's reserved name.
+
+Open: 3 is unfixed in the F27 commit; logging here as a follow-up. The cascade.toml relocation closes the immediate user-visible leak.
+
 ## F26. DRY discipline for huh forms — `tafForm`/`tafKeyMap`/`tafTheme`
 
 Every interactive form in `cmd/ta/` MUST go through `tafForm`. Invariant verified by `rg 'huh\.NewForm\(' cmd/ta/` returning exactly one match: the wrapper definition itself in `cmd/ta/huh_theme.go`. Every other site (init picker, F16 confirm, F24 multi-category picker, F24 confirm, runMenu bare-`ta` selector, template save / show / delete confirms, file-delete confirm, D1 create/update field forms) flows through `tafForm` so all screens get:
