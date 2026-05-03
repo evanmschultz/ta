@@ -799,6 +799,20 @@ Recommend (a) + (b) together. (a) reduces the conflict count to ones that actual
 
 Workaround until F25 lands: re-run with `--on-conflict=skip` to keep the project's diverged dbs untouched, or pick everything-except-the-conflicting-db manually instead of ctrl+a.
 
+## F28. Direct nested-table inner-shape validation (F21.4 follow-up)
+
+F21 scoped exactly three constructs: `element_type` for primitive-array elements, `element_fields` for arrays of tables, type aliases at `[<db>.types.<alias>]`. It did NOT cover **direct nested-table inner-shape validation** — a field that IS one table with a declared inner field set (not an array of tables).
+
+Cascade-style schemas want this for fields like `completion_contract` (one table with `start_criteria` / `completion_criteria` / `completion_checklist` / `require_children_complete` sub-fields). The cascade.toml author wrote `[<field>.fields.<sub-field>]` aspirationally; ta's loader rejects it with "unknown key 'fields' (allowed: type, required, description, enum, format, default, element_type, element_fields)".
+
+Workaround today (F27 commit): declare such fields as plain `type = "table"` (any-shape map) and document the suggested keys in the description. Lose inner validation; the runtime payload still flows through.
+
+Real fix shape: extend the field-level grammar to accept either `[<field>.fields.<sub>]` table-of-tables sub-declarations OR a `table_fields = {sub = {type=..., ...}}` inline syntax. Matches the F21.2 element_fields pattern but for single tables instead of array elements. Cycle detection + the same sub-field rules as element_fields.
+
+Affected today: cascade `completion_contract` (commented as "Suggested keys: ..." — no validation). Future cascade fields like `metadata.policy.X` would also benefit.
+
+Lift this once dogfood proves the missing validation hurts. Pre-MVP it's acceptable.
+
 ## F27. `[ta_schema]` leaks into picker as a user-pickable db
 
 `ta init` against the binary cascade schema emits 11 picker rows including a `[ta] ta_schema` entry. `ta_schema` is the meta-schema's reserved namespace (the meta-schema itself uses `[ta_schema.db]`, `[ta_schema.type]`, `[ta_schema.field]` to declare the SHAPES of user dbs/types/fields). It must NEVER be selectable as a user db.

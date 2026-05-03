@@ -19,7 +19,6 @@
 [agents]
 paths = ["agents/*/*.md"]
 description = "Agent definition library — markdown agents grouped by user-defined subdir."
-format = "md"
 
 [agents.agent]
 description = "One agent definition. The h1 line is the agent name; the body is its system prompt."
