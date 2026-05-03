@@ -1977,6 +1977,89 @@ func TestSchemaCmdPathsAppendOnlyValidOnUpdateDB(t *testing.T) {
 // assertGolden compares got against the bytes stored at goldenPath. On
 // -update the golden is regenerated; on first run (file missing) the
 // golden is materialized and the test fails loudly so the dev reviews
+// cliSpawnSchema seeds a project schema whose `drop` type spawns one
+// QA child on create. Used by the F23 CLI smoke tests.
+const cliSpawnSchema = `
+[plans]
+paths = ["plans.toml"]
+
+[plans.drop]
+description = "drop"
+
+[plans.drop.fields.title]
+type = "string"
+required = true
+
+[plans.qa]
+description = "qa"
+
+[plans.qa.fields.role]
+type = "string"
+required = true
+
+[plans.drop.auto_spawn]
+on_create = [
+    { type = "plans.qa", id_template = "{parent_id}-qa", fields = { role = "qa-proof" } },
+]
+`
+
+// TestCreateCmdAutoSpawnFires verifies the F23 happy path through the
+// CLI: `ta create` on a type with auto_spawn produces parent + child
+// records on disk.
+func TestCreateCmdAutoSpawnFires(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, cliSpawnSchema)
+	cmd := newCreateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.drop-001",
+		"--type", "plans.drop",
+		"--data", `{"title": "x"}`,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stdout=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	body, err := os.ReadFile(filepath.Join(root, "plans.toml"))
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	for _, want := range []string{"[plans.drop-001]", "[plans.drop-001-qa]"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("plans.toml missing %q; body:\n%s", want, body)
+		}
+	}
+}
+
+// TestCreateCmdNoSpawnFlagSuppresses verifies the F23 --no-spawn flag
+// suppresses the auto_spawn rule.
+func TestCreateCmdNoSpawnFlagSuppresses(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, cliSpawnSchema)
+	cmd := newCreateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.drop-001",
+		"--type", "plans.drop",
+		"--data", `{"title": "x"}`,
+		"--no-spawn",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v stdout=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	body, err := os.ReadFile(filepath.Join(root, "plans.toml"))
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	if !strings.Contains(string(body), "[plans.drop-001]") {
+		t.Errorf("parent missing; body:\n%s", body)
+	}
+	if strings.Contains(string(body), "[plans.drop-001-qa]") {
+		t.Errorf("--no-spawn did not suppress child; body:\n%s", body)
+	}
+}
+
 // the diff. Subsequent runs enforce byte-identity.
 func assertGolden(t *testing.T, goldenPath string, got []byte) {
 	t.Helper()

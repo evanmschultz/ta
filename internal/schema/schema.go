@@ -130,6 +130,35 @@ type SectionType struct {
 	Heading int
 	// Fields maps declared field name to its Field definition.
 	Fields map[string]Field
+	// AutoSpawn is the ordered list of child-record specs to fire on
+	// successful Create of a record of this type. Empty / nil when no
+	// `[<db>.<type>.auto_spawn]` block is declared (no-op). Order is
+	// significant — `{index}` token interpolation uses 1-based position
+	// within this slice, and on-disk write order follows declaration
+	// order. Bases that declare `auto_spawn` propagate onto inheriting
+	// concrete types via the same wholesale-replace rule as `fields` —
+	// a concrete type's own auto_spawn overrides the inherited one. Per
+	// F23.
+	AutoSpawn []SpawnSpec
+}
+
+// SpawnSpec is one auto-spawn child-record specification, declared as
+// an entry in `on_create = [...]` under `[<db>.<type>.auto_spawn]`.
+// Per F23.
+type SpawnSpec struct {
+	// Type is the db-qualified target type for the spawned record (e.g.
+	// `plans.qa_proof`). Must resolve at load time to a concrete record
+	// type — bases and aliases are rejected with ErrSpawnUnknownType.
+	Type string
+	// IDTemplate is the id literal with `{parent_id}` and `{index}`
+	// interpolation tokens. Other tokens are rejected at load with
+	// ErrSpawnInvalidIDTemplate. Empty templates are rejected.
+	IDTemplate string
+	// Fields is the static field-value table for the spawned record.
+	// String entries are interpolated through the same two-token rule.
+	// Missing required fields without defaults on the target type
+	// surface as ErrSpawnIncompletePayload at load and at create time.
+	Fields map[string]any
 }
 
 // DB is one database declared at the [<db>] root of a schema file. It

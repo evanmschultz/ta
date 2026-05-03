@@ -376,19 +376,23 @@ func newCreateCmd() *cobra.Command {
 	var dataFile string
 	var typeName string
 	var verbose bool
+	var noSpawn bool
 	cmd := &cobra.Command{
 		Use:   "create <id>",
 		Short: "Create a new record (fails if it exists); mirrors MCP tool `create`.",
 		Long: "Create a new record at the given id. Fails if the record " +
 			"already exists. Creates the backing file and any intermediate " +
 			"directories on first use. --type is REQUIRED and must be " +
-			"db-qualified (`<db>.<type>`, e.g. `plans.task`). With " +
-			"--verbose, the newly-created record content is echoed after " +
-			"the success notice. --path defaults to cwd; relative or " +
-			"absolute accepted.",
+			"db-qualified (`<db>.<type>`, e.g. `plans.task`). When the " +
+			"target type declares an [<db>.<type>.auto_spawn] block (F23), " +
+			"child records spawn automatically and atomically; pass " +
+			"--no-spawn to suppress. With --verbose, the newly-created " +
+			"record content is echoed after the success notice. --path " +
+			"defaults to cwd; relative or absolute accepted.",
 		Example: "  ta create plans.task-001 --type plans.task --data '{\"id\":\"task-001\",\"status\":\"todo\"}'\n" +
 			"  ta create --path /abs/proj plans.task-001 --type plans.task --data-file payload.json\n" +
-			"  cat payload.json | ta create plans.task-001 --type plans.task --data-file -",
+			"  cat payload.json | ta create plans.task-001 --type plans.task --data-file -\n" +
+			"  ta create plans.drop-001 --type plans.drop --data '{\"title\":\"x\"}' --no-spawn",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -402,7 +406,7 @@ func newCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			targetPath, sources, err := runCreate(path, id, typeName, data)
+			targetPath, sources, err := runCreate(path, id, typeName, data, ops.CreateOptions{NoSpawn: noSpawn})
 			if err != nil {
 				return err
 			}
@@ -419,6 +423,7 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
 	cmd.Flags().StringVar(&typeName, "type", "", "REQUIRED db-qualified type (`<db>.<type>`, e.g. `plans.task`)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the newly-created record after the success notice")
+	cmd.Flags().BoolVar(&noSpawn, "no-spawn", false, "suppress any [<db>.<type>.auto_spawn] rules declared on the target type (F23); only the parent record is written")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	if err := cmd.MarkFlagRequired("type"); err != nil {
 		// MarkFlagRequired only errors when the named flag is not registered.
@@ -1061,8 +1066,11 @@ func noticeMutation(w io.Writer, action, id, filePath string, sources []string) 
 // CLI's error surface is pure-Go (no MCP envelope) while the MCP
 // handlers in internal/mcpsrv/tools.go reuse exactly the same paths.
 
-func runCreate(path, id, typeName string, data map[string]any) (string, []string, error) {
-	return ops.Create(path, id, typeName, data)
+// runCreate is the F23 entry point used by `ta create`. It threads
+// CreateOptions (NoSpawn) into ops.CreateWithOptions so the CLI's
+// --no-spawn flag suppresses [<db>.<type>.auto_spawn] rules.
+func runCreate(path, id, typeName string, data map[string]any, opts ops.CreateOptions) (string, []string, error) {
+	return ops.CreateWithOptions(path, id, typeName, data, opts)
 }
 
 func runUpdate(path, id, typeName string, data map[string]any) (string, []string, error) {

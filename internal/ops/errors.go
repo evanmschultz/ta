@@ -92,4 +92,13 @@ var (
 	// deliberately. Per F22 the wire surface for kind=base mirrors
 	// kind=type's "delete-only-when-unused" discipline.
 	ErrBaseStillReferenced = errors.New("ops: base still referenced via extends")
+
+	// ErrSpawnPartialWrite is returned by Create when a parent record's
+	// auto_spawn rule fired and one of the children failed to land on
+	// disk after at least one write succeeded. ta has no cross-file
+	// transaction primitive; per the F23 locked decision the disk write
+	// pass is sequential best-effort once validation passes. The
+	// wrapped message lists ids that landed and ids that did not so the
+	// operator can reconcile manually.
+	ErrSpawnPartialWrite = errors.New("ops: auto_spawn partial write")
 )

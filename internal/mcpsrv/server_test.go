@@ -511,3 +511,101 @@ func TestDeleteToolNonVerboseOmitsRemainingInFile(t *testing.T) {
 // _ keeps json import satisfied for any future structured assertions
 // added to the delete tests; harmless if unused today.
 var _ = json.Marshal
+
+// TestCreateToolAutoSpawnFires — F23 round-trip via the MCP `create`
+// tool: a type with auto_spawn fires children on create.
+func TestCreateToolAutoSpawnFires(t *testing.T) {
+	const spawnSchema = `
+[plans]
+paths = ["plans.toml"]
+
+[plans.drop]
+description = "drop"
+
+[plans.drop.fields.title]
+type = "string"
+required = true
+
+[plans.qa]
+description = "qa"
+
+[plans.qa.fields.role]
+type = "string"
+required = true
+
+[plans.drop.auto_spawn]
+on_create = [
+    { type = "plans.qa", id_template = "{parent_id}-qa", fields = { role = "qa-proof" } },
+]
+`
+	fx := newFixtureWith(t, spawnSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"id":   "plans.drop-001",
+		"type": "plans.drop",
+		"data": map[string]any{"title": "x"},
+	})
+	if res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	body, err := os.ReadFile(filepath.Join(fx.projectRoot, "plans.toml"))
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	for _, want := range []string{"[plans.drop-001]", "[plans.drop-001-qa]"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("plans.toml missing %q; body:\n%s", want, body)
+		}
+	}
+}
+
+// TestCreateToolNoSpawnFlagSuppresses — `no_spawn=true` on the MCP
+// `create` tool suppresses the auto_spawn rule.
+func TestCreateToolNoSpawnFlagSuppresses(t *testing.T) {
+	const spawnSchema = `
+[plans]
+paths = ["plans.toml"]
+
+[plans.drop]
+description = "drop"
+
+[plans.drop.fields.title]
+type = "string"
+required = true
+
+[plans.qa]
+description = "qa"
+
+[plans.qa.fields.role]
+type = "string"
+required = true
+
+[plans.drop.auto_spawn]
+on_create = [
+    { type = "plans.qa", id_template = "{parent_id}-qa", fields = { role = "qa-proof" } },
+]
+`
+	fx := newFixtureWith(t, spawnSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path":     fx.projectRoot,
+		"id":       "plans.drop-001",
+		"type":     "plans.drop",
+		"data":     map[string]any{"title": "x"},
+		"no_spawn": true,
+	})
+	if res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	body, err := os.ReadFile(filepath.Join(fx.projectRoot, "plans.toml"))
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	if !strings.Contains(string(body), "[plans.drop-001]") {
+		t.Errorf("plans.toml missing parent bracket; body:\n%s", body)
+	}
+	if strings.Contains(string(body), "[plans.drop-001-qa]") {
+		t.Errorf("plans.toml has spawned child despite no_spawn=true; body:\n%s", body)
+	}
+}

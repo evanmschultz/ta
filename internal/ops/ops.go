@@ -145,9 +145,47 @@ func GetAllFields(path, id, typeName string) (GetResult, schema.SectionType, err
 	return res, typeSt, nil
 }
 
+// CreateOptions controls optional behavior of CreateWithOptions. NoSpawn
+// suppresses auto_spawn rules declared on the target type (F23). The
+// MCP `create` tool surfaces this as `no_spawn=true`; the CLI surfaces
+// it as `--no-spawn`.
+type CreateOptions struct {
+	// NoSpawn, when true, skips the [<db>.<type>.auto_spawn] rule on
+	// the target type — the parent record is created with no children.
+	// Default false (auto_spawn fires when the type declares one).
+	NoSpawn bool
+}
+
 // Create creates a new record. typeName is REQUIRED and must be
-// db-qualified (`<db>.<type>`).
+// db-qualified (`<db>.<type>`). Legacy 3-return shim over
+// CreateWithOptions; preserves the auto_spawn-fires default per F23.
 func Create(path, id, typeName string, data map[string]any) (string, []string, error) {
+	return CreateWithOptions(path, id, typeName, data, CreateOptions{})
+}
+
+// CreateWithOptions creates a new record and, when the target type
+// declares an [<db>.<type>.auto_spawn] block (F23), spawns the
+// declared children atomically-on-validation, sequentially-on-disk-
+// write. Per F23's locked semantics:
+//
+//  1. Pre-validate every child payload (interpolate templates, merge
+//     spec.fields, run resolution.Registry.Validate against the
+//     target type). On any validation failure: no disk writes occur
+//     and the validation error surfaces directly. The parent record
+//     is also pre-validated up front, same as the legacy path.
+//  2. Sequential writes: parent first, then each child in declaration
+//     order. Each write goes through the existing
+//     toml.WriteAtomic + index.Save pipeline. A mid-pass write
+//     failure (after at least one prior child has landed) wraps the
+//     underlying error with ErrSpawnPartialWrite and lists landed /
+//     missing ids so an operator can reconcile manually.
+//  3. opts.NoSpawn=true skips the spawn pass entirely; only the parent
+//     record is written.
+//
+// The pre-create probe still fires on the parent and on every spawn
+// child; an existing record at any spawn id surfaces ErrRecordExists
+// before any disk mutation occurs.
+func CreateWithOptions(path, id, typeName string, data map[string]any, opts CreateOptions) (string, []string, error) {
 	if typeName == "" {
 		return "", nil, fmt.Errorf("%w: create requires --type (db-qualified, e.g. `plans.task`)", ErrTypeMismatch)
 	}
@@ -167,52 +205,324 @@ func Create(path, id, typeName string, data map[string]any) (string, []string, e
 	if err := resolution.Registry.Validate(validationPath(resolved, bareType), data); err != nil {
 		return "", nil, err
 	}
-	_, _, filePath, err := resolver.ResolveWrite(id, "")
+
+	// F23 atomicity rule: pre-validate every spawn child BEFORE any
+	// disk write. We can't pre-snapshot the per-write buffer (sequential
+	// writes append to the same file in single-file dbs), so the
+	// pre-validate pass produces "intents" — interpolated id + payload
+	// + resolved view — and the actual planRecordWrite + write happens
+	// one record at a time below, snapshotting fresh state each step.
+	parentType := dbDecl.Types[bareType]
+	var spawnIntents []spawnIntent
+	if !opts.NoSpawn && len(parentType.AutoSpawn) > 0 {
+		spawnIntents, err = preValidateAutoSpawn(resolver, resolution.Registry, id, parentType.AutoSpawn)
+		if err != nil {
+			return "", nil, err
+		}
+	}
+
+	// Pre-create probe on the parent. Runs after spawn pre-validation
+	// so any spec-level error fires before this read; runs before the
+	// parent write so a parent-id collision aborts cleanly.
+	parentPlan, err := planRecordWrite(resolver, dbDecl, resolved, id, bareType, data)
 	if err != nil {
 		return "", nil, err
+	}
+
+	// Pre-create probe on every spawn child. Each probe reads the
+	// CURRENT file state (no writes have happened yet) so an existing
+	// record at any spawn id surfaces ErrRecordExists before we touch
+	// disk. We also probe the parent file separately above.
+	for i, intent := range spawnIntents {
+		if err := probeSpawnChild(intent); err != nil {
+			return "", nil, fmt.Errorf("auto_spawn[%d]: %w", i, err)
+		}
+	}
+
+	// Phase 2: sequential writes. Parent first.
+	if err := executeRecordWrite(path, resolved, parentPlan); err != nil {
+		return "", nil, err
+	}
+
+	// Phase 3: spawn children. Each iteration plans (re-snapshots the
+	// file) and writes; sequential best-effort. On mid-pass failure
+	// after the parent landed, wrap with ErrSpawnPartialWrite listing
+	// landed and missing ids.
+	landed := []string{id}
+	for i, intent := range spawnIntents {
+		childPlan, err := planRecordWrite(resolver, intent.dbDecl, intent.resolved,
+			intent.id, intent.bareType, intent.data)
+		if err != nil {
+			missing := collectIntentIDs(spawnIntents[i:])
+			return parentPlan.filePath, resolution.Sources, fmt.Errorf(
+				"%w: landed=[%s] missing=[%s]: %v",
+				ErrSpawnPartialWrite,
+				strings.Join(landed, ","),
+				strings.Join(missing, ","),
+				err)
+		}
+		if err := executeRecordWrite(path, intent.resolved, childPlan); err != nil {
+			missing := collectIntentIDs(spawnIntents[i:])
+			return parentPlan.filePath, resolution.Sources, fmt.Errorf(
+				"%w: landed=[%s] missing=[%s]: %v",
+				ErrSpawnPartialWrite,
+				strings.Join(landed, ","),
+				strings.Join(missing, ","),
+				err)
+		}
+		landed = append(landed, intent.id)
+	}
+	return parentPlan.filePath, resolution.Sources, nil
+}
+
+// spawnIntent is the pre-validated, pre-resolved representation of one
+// auto_spawn child. preValidateAutoSpawn produces these in declaration
+// order; the per-record planRecordWrite + executeRecordWrite happens
+// later, one at a time, against fresh file state per F23's
+// pre-validate-all + sequential-write atomicity rule.
+type spawnIntent struct {
+	id       string
+	bareType string
+	dbDecl   schema.DB
+	resolved db.Resolved
+	data     map[string]any
+}
+
+// collectIntentIDs returns the ids of every intent in `rest` for use
+// in an ErrSpawnPartialWrite missing-list message.
+func collectIntentIDs(rest []spawnIntent) []string {
+	out := make([]string, len(rest))
+	for i, in := range rest {
+		out[i] = in.id
+	}
+	return out
+}
+
+// probeSpawnChild runs the pre-create existence probe for one spawn
+// intent: build a backend, read the file (or empty when absent), and
+// surface ErrRecordExists if the bracket is already present. Runs
+// BEFORE any write so the buffer reflects on-disk state, satisfying
+// F23's pre-validate-all atomicity rule for the existence check.
+func probeSpawnChild(intent spawnIntent) error {
+	backend, err := buildBackend(intent.dbDecl, intent.resolved)
+	if err != nil {
+		return err
+	}
+	buf, err := readFileIfExists(intent.resolved.FilePath)
+	if err != nil {
+		return err
+	}
+	backendSection := backendSectionPath(intent.dbDecl, intent.resolved)
+	if _, exists, err := backend.Find(buf, backendSection); err != nil {
+		return fmt.Errorf("pre-create probe %q: %w", intent.id, err)
+	} else if exists {
+		return fmt.Errorf("%w: %q", ErrRecordExists, intent.id)
+	}
+	return nil
+}
+
+// recordWritePlan captures everything needed to write one record after
+// validation has passed: resolver-resolved view, target file path,
+// backend, pre-emitted bytes, and the bare type name for the index.
+// Used by CreateWithOptions to separate the validate-everything pass
+// from the write-everything pass per F23.
+type recordWritePlan struct {
+	id             string
+	bareType       string
+	dbDecl         schema.DB
+	resolved       db.Resolved
+	filePath       string
+	backend        record.Backend
+	backendSection string
+	priorBuf       []byte
+	emittedBytes   []byte
+}
+
+// planRecordWrite runs every read-side step Create needs before the
+// first byte hits disk: resolve the write path, build a backend,
+// snapshot the existing file, run the pre-create probe, and emit the
+// new record bytes. Returns a recordWritePlan ready to hand to
+// executeRecordWrite. Validation against the registry is the caller's
+// responsibility — done before this helper runs.
+func planRecordWrite(
+	resolver *db.Resolver,
+	dbDecl schema.DB,
+	resolved db.Resolved,
+	id, bareType string,
+	data map[string]any,
+) (recordWritePlan, error) {
+	_, _, filePath, err := resolver.ResolveWrite(id, "")
+	if err != nil {
+		return recordWritePlan{}, err
 	}
 	backend, err := buildBackend(dbDecl, resolved)
 	if err != nil {
-		return "", nil, err
+		return recordWritePlan{}, err
 	}
 	buf, err := readFileIfExists(filePath)
 	if err != nil {
-		return "", nil, err
+		return recordWritePlan{}, err
 	}
 	backendSection := backendSectionPath(dbDecl, resolved)
 	if _, exists, err := backend.Find(buf, backendSection); err != nil {
-		return "", nil, fmt.Errorf("pre-create probe %q: %w", id, err)
+		return recordWritePlan{}, fmt.Errorf("pre-create probe %q: %w", id, err)
 	} else if exists {
-		return "", nil, fmt.Errorf("%w: %q", ErrRecordExists, id)
+		return recordWritePlan{}, fmt.Errorf("%w: %q", ErrRecordExists, id)
 	}
 	emitted, err := backend.Emit(backendSection, record.Record(data))
 	if err != nil {
-		return "", nil, fmt.Errorf("emit %q: %w", id, err)
+		return recordWritePlan{}, fmt.Errorf("emit %q: %w", id, err)
 	}
-	newBuf, err := backend.Splice(buf, backendSection, emitted)
+	return recordWritePlan{
+		id:             id,
+		bareType:       bareType,
+		dbDecl:         dbDecl,
+		resolved:       resolved,
+		filePath:       filePath,
+		backend:        backend,
+		backendSection: backendSection,
+		priorBuf:       buf,
+		emittedBytes:   emitted,
+	}, nil
+}
+
+// executeRecordWrite splices the emitted bytes into priorBuf, mkdirs
+// the parent dir, atomic-writes the file, and writes the index entry.
+// Mirrors the disk-write tail of legacy Create on a per-record basis.
+// The plan-resolved arg is named so callers (parent + each spawn
+// child) can pass the right Resolved without duplicating fields.
+func executeRecordWrite(projectPath string, resolved db.Resolved, plan recordWritePlan) error {
+	newBuf, err := plan.backend.Splice(plan.priorBuf, plan.backendSection, plan.emittedBytes)
 	if err != nil {
-		return "", nil, fmt.Errorf("splice %q: %w", id, err)
+		return fmt.Errorf("splice %q: %w", plan.id, err)
 	}
-	dir := filepath.Dir(filePath)
+	dir := filepath.Dir(plan.filePath)
 	dirCreated := false
 	if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
 		dirCreated = true
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", nil, fmt.Errorf("mkdir %s: %w", dir, err)
+		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	if err := toml.WriteAtomic(filePath, newBuf); err != nil {
+	if err := toml.WriteAtomic(plan.filePath, newBuf); err != nil {
 		if dirCreated {
 			if entries, lstErr := os.ReadDir(dir); lstErr == nil && len(entries) == 0 {
 				_ = os.Remove(dir)
 			}
 		}
-		return "", nil, err
+		return err
 	}
-	if err := writeIndexEntry(path, resolved, bareType); err != nil {
-		return filePath, resolution.Sources, err
+	if err := writeIndexEntry(projectPath, resolved, plan.bareType); err != nil {
+		return err
 	}
-	return filePath, resolution.Sources, nil
+	return nil
+}
+
+// preValidateAutoSpawn runs interpolation, resolution, and Validate
+// for every spec in declaration order. Returns one spawnIntent per
+// spec — the actual planRecordWrite + executeRecordWrite happens
+// later, sequentially, with fresh file state per record. Per F23's
+// pre-validate-all + sequential-write atomicity rule.
+func preValidateAutoSpawn(
+	resolver *db.Resolver,
+	reg schema.Registry,
+	parentID string,
+	specs []schema.SpawnSpec,
+) ([]spawnIntent, error) {
+	intents := make([]spawnIntent, 0, len(specs))
+	for i, spec := range specs {
+		childID, err := interpolateSpawnString(spec.IDTemplate, parentID, i+1)
+		if err != nil {
+			return nil, fmt.Errorf("auto_spawn[%d]: id_template: %w", i, err)
+		}
+		childData, err := interpolateSpawnFields(spec.Fields, parentID, i+1)
+		if err != nil {
+			return nil, fmt.Errorf("auto_spawn[%d]: fields: %w", i, err)
+		}
+		childResolved, childDBDecl, err := resolver.ResolveID(childID)
+		if err != nil {
+			return nil, fmt.Errorf("auto_spawn[%d]: resolve %q: %w", i, childID, err)
+		}
+		dot := strings.Index(spec.Type, ".")
+		if dot < 0 {
+			return nil, fmt.Errorf(
+				"auto_spawn[%d]: spec.type %q malformed (load-time validation should have caught this)",
+				i, spec.Type)
+		}
+		specDB := spec.Type[:dot]
+		bareTargetType := spec.Type[dot+1:]
+		if childResolved.DBName != specDB {
+			return nil, fmt.Errorf(
+				"auto_spawn[%d]: id_template %q resolves to db %q but spec.type targets db %q",
+				i, spec.IDTemplate, childResolved.DBName, specDB)
+		}
+		if err := reg.Validate(specDB+"."+bareTargetType, childData); err != nil {
+			return nil, fmt.Errorf("auto_spawn[%d]: %w", i, err)
+		}
+		intents = append(intents, spawnIntent{
+			id:       childID,
+			bareType: bareTargetType,
+			dbDecl:   childDBDecl,
+			resolved: childResolved,
+			data:     childData,
+		})
+	}
+	// Reject intra-spec id collisions BEFORE any disk write so the
+	// atomic-on-validation guarantee holds. Without this scan two specs
+	// producing the same interpolated id would each pass the per-spec
+	// existence probe (against pre-write state) and then collide on the
+	// second write — leaving parent + child-1 on disk.
+	seen := make(map[string]int, len(intents))
+	for i, in := range intents {
+		if prev, dup := seen[in.id]; dup {
+			return nil, fmt.Errorf(
+				"auto_spawn: specs %d and %d produce the same id %q (intra-spec collision)",
+				prev, i, in.id)
+		}
+		seen[in.id] = i
+	}
+	return intents, nil
+}
+
+// interpolateSpawnString applies the F23 v1 token rule: `{parent_id}` →
+// parentID; `{index}` → 1-based index as decimal. Other tokens are
+// rejected (they should already be caught at schema-load by
+// validateSpawnTemplateTokens; this is a defense-in-depth check).
+// Empty input returns empty output — useful for static field values
+// like `notes = ""`.
+func interpolateSpawnString(s, parentID string, idx int) (string, error) {
+	if s == "" {
+		return "", nil
+	}
+	out := strings.ReplaceAll(s, "{parent_id}", parentID)
+	out = strings.ReplaceAll(out, "{index}", fmt.Sprintf("%d", idx))
+	// Defense-in-depth: any remaining `{...}` is an unknown token that
+	// somehow slipped past load.
+	if strings.Contains(out, "{") {
+		return "", fmt.Errorf("template %q has unknown token after interpolation", s)
+	}
+	return out, nil
+}
+
+// interpolateSpawnFields walks the static fields map and applies token
+// interpolation to every string-typed value. Non-string values pass
+// through unchanged. Returns a fresh map so subsequent mutations on
+// the returned data cannot leak into the schema-cached spec.
+func interpolateSpawnFields(in map[string]any, parentID string, idx int) (map[string]any, error) {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		s, isStr := v.(string)
+		if !isStr {
+			out[k] = v
+			continue
+		}
+		interp, err := interpolateSpawnString(s, parentID, idx)
+		if err != nil {
+			return nil, fmt.Errorf("field %q: %w", k, err)
+		}
+		out[k] = interp
+	}
+	return out, nil
 }
 
 // Update applies a PATCH-style partial overlay to an existing record.

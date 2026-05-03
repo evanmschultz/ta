@@ -69,7 +69,7 @@ func createTool() mcp.Tool {
 	return mcp.NewTool(
 		"create",
 		mcp.WithDescription(
-			"Create a new record. Fails if the record already exists. Creates missing directories and the backing file. 'type' is REQUIRED and must be db-qualified (`<db>.<type>`, e.g. `plans.task`).",
+			"Create a new record. Fails if the record already exists. Creates missing directories and the backing file. 'type' is REQUIRED and must be db-qualified (`<db>.<type>`, e.g. `plans.task`). When the target type declares an [<db>.<type>.auto_spawn] block (F23), child records are spawned automatically and atomically; pass no_spawn=true to suppress.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (e.g. `plans.demo-1`).")),
@@ -83,6 +83,10 @@ func createTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("Field values. Validated against the declared type."),
 			mcp.AdditionalProperties(map[string]any{}),
+		),
+		mcp.WithBoolean(
+			"no_spawn",
+			mcp.Description("Optional. When true, suppresses any [<db>.<type>.auto_spawn] rules declared on the target type — only the parent record is written. Default: false (auto_spawn fires)."),
 		),
 	)
 }
@@ -174,7 +178,7 @@ func schemaTool() mcp.Tool {
 	return mcp.NewTool(
 		"schema",
 		mcp.WithDescription(
-			"Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema). action=create|update|delete uses 'kind' (db / type / field / base) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload). kind=base addresses a reusable field bundle at [<db>.bases.<name>]; data accepts 'description', 'extends' (another base name), and a nested 'fields' table. Sugar (PLAN §12.17.9 Phase 9.6): on action=update + kind=db, 'paths_append' / 'paths_remove' mutate the db's paths slice incrementally — single-entry strings, mutually exclusive with each other and with a 'data' payload carrying a 'paths' key.",
+			"Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema). action=create|update|delete uses 'kind' (db / type / field / base) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload). kind=base addresses a reusable field bundle at [<db>.bases.<name>]; data accepts 'description', 'extends' (another base name), and a nested 'fields' table. kind=type data also accepts an 'auto_spawn' table (F23) — `auto_spawn = { on_create = [{type = \"<db>.<type>\", id_template = \"{parent_id}-...\", fields = {...}}] }` — declaring child records that fire automatically on create. Templates support `{parent_id}` and `{index}` interpolation tokens; bases may declare auto_spawn for inheritors. Pass `no_spawn=true` on `create` to suppress. Sugar (PLAN §12.17.9 Phase 9.6): on action=update + kind=db, 'paths_append' / 'paths_remove' mutate the db's paths slice incrementally — single-entry strings, mutually exclusive with each other and with a 'data' payload carrying a 'paths' key.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString(
@@ -381,7 +385,8 @@ func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("missing required argument 'type': %v", err)), nil
 	}
-	filePath, sources, err := ops.Create(path, id, typeName, data)
+	noSpawn := req.GetBool("no_spawn", false)
+	filePath, sources, err := ops.CreateWithOptions(path, id, typeName, data, ops.CreateOptions{NoSpawn: noSpawn})
 	if err != nil {
 		return validationOrPlainError(err), nil
 	}

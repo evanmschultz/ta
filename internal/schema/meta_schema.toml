@@ -61,6 +61,10 @@ description = "MD-only: the ATX heading level (1..6) this type's records occupy.
 type = "string"
 description = "Optional name of a base ([<db>.bases.<name>]) whose fields this type inherits. Bases-only target — concrete record types are not extensible. The base's fields are merged into the type at load time; same-named child fields wholesale replace the base's declarations. The keyword is discarded after flattening; the Registry carries only the fully-resolved field set."
 
+[ta_schema.type.fields.auto_spawn]
+type = "table"
+description = "Optional. Declares child records that fire automatically after a successful Create of a record of this type. Shape: `[<db>.<type>.auto_spawn]` with `on_create = [...]` whose entries each carry `type` (db-qualified target), `id_template` (id literal with `{parent_id}` / `{index}` interpolation tokens), and optional `fields` (static field values, strings interpolated through the same two-token rule). Bases may also declare auto_spawn; the rule propagates onto inheriting concrete types and a concrete type's own block wholesale-replaces the inherited one. Cycles, unknown target types, malformed templates, and incomplete payloads are rejected at load. Per F23."
+
 # ----------------------------------------------------------------------------
 # kind = "base" — the data shape of `schema(action="create"|"update",
 # kind="base", name="<db>.<base>", data=...)`. A base is a reusable field
@@ -83,6 +87,10 @@ description = "Human-readable description of the base. Surfaced through the `sch
 [ta_schema.base.fields.extends]
 type = "string"
 description = "Optional name of another base whose fields this base inherits. Forms a chain (A extends B extends C); cycles are rejected at load. A base without `extends` is the root of an inheritance chain."
+
+[ta_schema.base.fields.auto_spawn]
+type = "table"
+description = "Optional. Same shape as on a concrete type — declares spawn specs that propagate onto every inheriting concrete type that does not declare its own auto_spawn. Per F23."
 
 # ----------------------------------------------------------------------------
 # kind = "field" — the data shape of `schema(action="create"|"update",
