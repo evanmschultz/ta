@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"charm.land/huh/v2"
+	"golang.org/x/term"
 
 	"github.com/evanmschultz/ta/internal/initapply"
 	"github.com/evanmschultz/ta/internal/templates"
@@ -132,6 +133,7 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 	groups := make([]*huh.Group, 0, len(keys))
 	picks := make([]*[]string, 0, len(keys))
 	pickKeys := make([]bucketKey, 0, len(keys))
+	pickerHeight := pickerVisibleHeight()
 	for _, k := range keys {
 		items := buckets[k]
 		opts := make([]huh.Option[string], 0, len(items))
@@ -142,11 +144,16 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 		slot := &selected
 		picks = append(picks, slot)
 		pickKeys = append(pickKeys, k)
+		// Title goes on the FIELD only — leaving Group title empty so
+		// huh doesn't render the same label twice. Height pins the
+		// option viewport to the visible terminal area so long lists
+		// scroll instead of overflowing.
 		groups = append(groups, huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title(bucketTitle(k.kind, k.group)).
 				Options(opts...).
-				Value(slot),
+				Value(slot).
+				Height(pickerHeight),
 		))
 	}
 
@@ -280,6 +287,32 @@ func formatMultiCategoryConfirmTitle(picks []*[]string, pickKeys []bucketKey) st
 		parts = append(parts, e.category+": "+e.name)
 	}
 	return "Bootstrapping with: " + strings.Join(parts, ", ") + ". Continue?"
+}
+
+// pickerVisibleHeight returns the option-row count the MultiSelect
+// viewport should size to. Reads the terminal height once at form
+// build time, subtracts a small chrome budget for title + help bar +
+// status, and clamps to a sane floor. Off-TTY (term.GetSize errors)
+// or absurdly small windows fall back to a fixed default.
+func pickerVisibleHeight() int {
+	const (
+		defaultRows = 12
+		minRows     = 5
+		chrome      = 6 // title line + help bar + a couple of breathing rows
+	)
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	_ = w
+	if err != nil || h <= 0 {
+		return defaultRows
+	}
+	avail := h - chrome
+	if avail < minRows {
+		return minRows
+	}
+	if avail > 30 {
+		return 30
+	}
+	return avail
 }
 
 func bucketTitle(kind templates.Kind, group string) string {
