@@ -77,15 +77,24 @@ func tafKeyMap() *huh.KeyMap {
 		key.WithKeys("down", "j", "ctrl+n"),
 		key.WithHelp("j", "down"),
 	)
-	// Toggle help also carries the q-quit hint because huh's help bar
-	// only surfaces field-level bindings (`MultiSelect.KeyBinds()`
-	// returns a hardcoded list that omits form-level Quit). Cramming
-	// it into the Toggle help text keeps everything in one place — the
-	// bottom help bar — instead of duplicating across a per-field
-	// Description block.
 	km.MultiSelect.Toggle = key.NewBinding(
 		key.WithKeys("space", "x"),
-		key.WithHelp("x/space", "toggle • q quit"),
+		key.WithHelp("x/space", "toggle"),
+	)
+	// Quit hint rides on the LAST visible help slot (SelectAll or
+	// SelectNone, whichever huh swaps in via `setSelectAllHelp`).
+	// huh's help bar only surfaces field-level bindings — form-level
+	// `Quit` is invisible — so we cram the hint into the rightmost
+	// always-shown entry. Both SelectAll and SelectNone get the same
+	// trailing "• q quit" text so the help bar reads consistently
+	// regardless of which one huh has currently enabled.
+	km.MultiSelect.SelectAll = key.NewBinding(
+		key.WithKeys("ctrl+a"),
+		key.WithHelp("ctrl+a", "select all • q quit"),
+	)
+	km.MultiSelect.SelectNone = key.NewBinding(
+		key.WithKeys("ctrl+a"),
+		key.WithHelp("ctrl+a", "select none • q quit"),
 	)
 	// Same vim-help convention for Select-field navigation (used by
 	// the bare-`ta` huh menu in main.go and template-show flows).

@@ -784,3 +784,27 @@ Resolved during cascade-architecture design discussion:
 - T22 Schema inheritance via `extends = "BaseType"` — required to avoid 6× redundant declarations of NodeBase/ActionItem fields across every concrete cascade type. Single-extends, override-on-redeclare, cycle-detection at load. Lands with F21 in the same architectural slice.
 - T23 Relational constraints / auto-spawn rules — F23b (auto-spawn `[drops.drop.auto_spawn] on_create = [{type=...,count=...}]` mirroring Tillsyn `child_rules`) preferred over F23a constraint-expression-language. Lights up "drop creates required QA twin records automatically" semantics. Lands after F22.
 - T24 ta init defaults are categorized + à la carte from binary `examples/{schemas,agents/<lang>,configs,docs-templates}/` (embedded via `embed.FS`) AND from user `~/.ta/` parallel structure. Selections land at canonical project destinations (no nested template subdirs). Three picker surfaces: huh / MCP / CLI-JSON. Append-aware merge per category (schemas merge dbs; configs structured-merge with append-dedupe; agents/docs additive by filename; gitignore append-dedupe). Confirm-before-overwrite with per-surface prompts (huh prompt; CLI `--overwrite`/`--skip-conflicts`/`--merge-only`/`--force` flags; MCP `force=true` or structured per-conflict resolution). Binary defaults immutable; user customizes via `ta template save --kind=...` to home, then home overrides on next init. Symmetric `ta template list/show/delete` for inspection.
+
+## F25. Picker `ctrl+a` collides with conflict-error policy
+
+`ta init` on a project that already carries some of the binary-shipped schemas hostile-fails when the user hits `ctrl+a`: select-all picks every binary item, the apply pass detects the first same-name-different-content collision, default `--on-conflict=error` bails with `init: 1 conflict(s); re-run with --on-conflict=skip|overwrite|force: schema:<name>`. Reproduction (2026-05-02): project `.ta/schema.toml` inherits cascade then evolves its own `[plans]` away from cascade's; rerunning `ta init` and ctrl+a-ing surfaces only the one diverged db as a conflict, even though several other dbs are also "already installed" — those got silent-skipped because they happen to match.
+
+Fix options:
+
+- (a) Make `select-all` skip items that match an existing target (no-op merges) so ctrl+a only flags real conflicts. Requires a pre-scan in the picker.
+- (b) Surface ALL conflicts at once in the error message, not just the first — gives the user full visibility.
+- (c) Switch the default `on_conflict` for ctrl+a flows to `skip`. Quietly lands the safe ones; user re-runs with explicit policy if they wanted overwrite. Risk: silent skip surprises some users.
+
+Recommend (a) + (b) together. (a) reduces the conflict count to ones that actually need a decision; (b) makes the decision space visible.
+
+Workaround until F25 lands: re-run with `--on-conflict=skip` to keep the project's diverged dbs untouched, or pick everything-except-the-conflicting-db manually instead of ctrl+a.
+
+## F26. DRY discipline for huh forms — `tafForm`/`tafKeyMap`/`tafTheme`
+
+Every interactive form in `cmd/ta/` MUST go through `tafForm`. Invariant verified by `rg 'huh\.NewForm\(' cmd/ta/` returning exactly one match: the wrapper definition itself in `cmd/ta/huh_theme.go`. Every other site (init picker, F16 confirm, F24 multi-category picker, F24 confirm, runMenu bare-`ta` selector, template save / show / delete confirms, file-delete confirm, D1 create/update field forms) flows through `tafForm` so all screens get:
+
+- `huh.ThemeDracula` (with the focused-field left-border accent stripped — F18).
+- `tafKeyMap` (Confirm `Accept`/`Reject` y/n stripped + vim h/l Toggle stripped to defend the F16 paste-bypass; `q`/`ctrl+c` quit; `esc` reserved for filter-clear; vim help text on Up/Down; q-quit hint cooked into the LAST visible help slot — SelectAll/SelectNone — so the help bar reads `... • ctrl+a select all • q quit`).
+- `WithViewHook(v.AltScreen=true)` so on form exit the alternate screen tears down and laslig success / fang error blocks render cleanly.
+
+Adding a new huh form anywhere in `cmd/ta/` MUST go through `tafForm`. Adding a raw `huh.NewForm(` is a QA-falsification gate failure. New keymap policy lives in `tafKeyMap` so every form picks up the change uniformly.
