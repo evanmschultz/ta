@@ -673,7 +673,7 @@ func promptSaveConflicts(conflicts []string) (bool, error) {
 	title := fmt.Sprintf("Overwrite %d existing db(s) in ~/.ta/schema.toml? [%s]",
 		len(conflicts), strings.Join(conflicts, ", "))
 	var ok bool
-	form := huh.NewForm(huh.NewGroup(
+	form := tafForm(huh.NewGroup(
 		huh.NewConfirm().
 			Title(title).
 			Affirmative("Overwrite").
@@ -962,7 +962,7 @@ func emitTemplateDeleteReport(w io.Writer, r templateDeleteReport, asJSON bool) 
 // by init via confirmOverwrite, kept separate for title phrasing).
 func promptConfirm(title string) (bool, error) {
 	var ok bool
-	form := huh.NewForm(huh.NewGroup(
+	form := tafForm(huh.NewGroup(
 		huh.NewConfirm().
 			Title(title).
 			Value(&ok),

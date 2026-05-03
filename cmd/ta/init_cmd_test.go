@@ -879,3 +879,89 @@ func sliceEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// TestFormatBootstrapConfirmTitle locks in the F16 echo line shape
+// rendered by `huh.Confirm.TitleFunc` at confirm time. Zero-selection
+// MUST name the empty-schema outcome explicitly so a queued-stdin
+// auto-submit cannot silently succeed (the F16 root cause).
+func TestFormatBootstrapConfirmTitle(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		selected []string
+		want     string
+	}{
+		{
+			name:     "zero",
+			selected: nil,
+			want:     "Bootstrap with no dbs (writes empty schema). Continue?",
+		},
+		{
+			name:     "one",
+			selected: []string{"plans"},
+			want:     "Bootstrapping with: plans. Continue?",
+		},
+		{
+			name:     "two",
+			selected: []string{"plans", "ledger"},
+			want:     "Bootstrapping with: plans, ledger. Continue?",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := formatBootstrapConfirmTitle(tc.selected)
+			if got != tc.want {
+				t.Errorf("formatBootstrapConfirmTitle(%v) = %q, want %q",
+					tc.selected, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFormatLegacyWarning_NoFiles asserts the picker-side helper
+// returns empty strings when no legacy `~/.ta/<name>.toml` files
+// exist; the caller skips the Note group in that case.
+func TestFormatLegacyWarning_NoFiles(t *testing.T) {
+	emptyRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(emptyRoot, "schema.toml"),
+		[]byte(cliTaskSchema), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	restore := templates.SetRootForTest(emptyRoot)
+	t.Cleanup(restore)
+
+	title, desc := formatLegacyWarning()
+	if title != "" || desc != "" {
+		t.Errorf("expected empty title/desc when no legacy files, got %q / %q",
+			title, desc)
+	}
+}
+
+// TestFormatLegacyWarning_WithFiles asserts the helper produces a
+// non-empty (title, description) pair naming both the count and the
+// legacy filename. The picker renders this pair via huh.NewNote.
+func TestFormatLegacyWarning_WithFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "schema.toml"),
+		[]byte(cliTaskSchema), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "myproj.toml"),
+		[]byte("# legacy"), 0o644); err != nil {
+		t.Fatalf("seed legacy: %v", err)
+	}
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+
+	title, desc := formatLegacyWarning()
+	if title == "" {
+		t.Error("expected non-empty title with legacy files present")
+	}
+	if !strings.Contains(desc, "myproj.toml") {
+		t.Errorf("description should name legacy file, got %q", desc)
+	}
+	if !strings.Contains(desc, "1 legacy template file") {
+		t.Errorf("description should report file count, got %q", desc)
+	}
+}

@@ -562,7 +562,7 @@ func newDeleteCmd() *cobra.Command {
 // confirmOverwrite shape used by `ta init` (consistent visual idiom).
 func confirmFileDelete(id, filePath string) (bool, error) {
 	var ok bool
-	form := huh.NewForm(huh.NewGroup(
+	form := tafForm(huh.NewGroup(
 		huh.NewConfirm().
 			Title(fmt.Sprintf("Delete entire file %s (id=%q)?", filePath, id)).
 			Value(&ok),

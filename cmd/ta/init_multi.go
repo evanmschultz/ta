@@ -79,6 +79,14 @@ func readSelectionsFile(path string) (initapply.Selections, error) {
 	return sel, nil
 }
 
+// bucketKey identifies one (category, group) bucket in the F24
+// multi-category picker. Package-scoped so the F16 confirm-title
+// helper can take it as a parameter.
+type bucketKey struct {
+	kind  templates.Kind
+	group string
+}
+
 // runMultiCategoryPicker presents one huh MultiSelect group per
 // (category, group) bucket. Empty buckets are omitted. Returns the
 // composed selections payload.
@@ -91,10 +99,6 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 		return initapply.Selections{}, errors.New("init: no items available in binary or home library")
 	}
 
-	type bucketKey struct {
-		kind  templates.Kind
-		group string
-	}
 	buckets := make(map[bucketKey][]templates.Item)
 	keys := []bucketKey{}
 	for _, it := range all {
@@ -112,7 +116,8 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 	})
 
 	groups := make([]*huh.Group, 0, len(keys))
-	picks := make(map[bucketKey]*[]string, len(keys))
+	picks := make([]*[]string, 0, len(keys))
+	pickKeys := make([]bucketKey, 0, len(keys))
 	for _, k := range keys {
 		items := buckets[k]
 		opts := make([]huh.Option[string], 0, len(items))
@@ -120,17 +125,47 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 			opts = append(opts, huh.NewOption(itemDisplay(it), itemKey(it)))
 		}
 		var selected []string
-		picks[k] = &selected
+		slot := &selected
+		picks = append(picks, slot)
+		pickKeys = append(pickKeys, k)
 		groups = append(groups, huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title(bucketTitle(k.kind, k.group)).
 				Options(opts...).
-				Value(&selected),
+				Value(slot),
 		))
 	}
-	form := huh.NewForm(groups...)
+
+	form := tafForm(groups...)
 	if err := form.Run(); err != nil {
 		return initapply.Selections{}, fmt.Errorf("init: picker: %w", err)
+	}
+
+	// F16: post-pick confirmation when ≤ 1 total items selected across
+	// every category. 2+ selections bypass the confirm. Running the
+	// confirm as a second `tafForm` (rather than a hidden group on the
+	// first form) keeps the "default Abort" semantics clean — a queued
+	// stdin newline lands on Abort, not on a default-true Continue,
+	// which is the F16 root cause.
+	total := 0
+	for _, slot := range picks {
+		total += len(*slot)
+	}
+	if total < 2 {
+		confirmed := false
+		confirmForm := tafForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title(formatMultiCategoryConfirmTitle(picks, pickKeys)).
+				Affirmative("Continue").
+				Negative("Abort").
+				Value(&confirmed),
+		))
+		if err := confirmForm.Run(); err != nil {
+			return initapply.Selections{}, fmt.Errorf("init: picker confirm: %w", err)
+		}
+		if !confirmed {
+			return initapply.Selections{}, errInitAborted
+		}
 	}
 
 	// P1.A: thread provenance through picker selections so a binary
@@ -139,7 +174,8 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 	// `<provenance>::<name>` into each option key (itemKey); decode
 	// pulls both halves out and the Selections payload preserves them.
 	out := initapply.Selections{}
-	for k, slot := range picks {
+	for i, slot := range picks {
+		k := pickKeys[i]
 		for _, key := range *slot {
 			it, ok := decodeItemKey(key, k.kind, k.group)
 			if !ok {
@@ -193,6 +229,43 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 		return out.Agents[i].Provenance < out.Agents[j].Provenance
 	})
 	return out, nil
+}
+
+// formatMultiCategoryConfirmTitle composes the F16 echo line for the
+// F24 multi-category picker. Walks every (category, group) slot in
+// pickKeys order so the rendered string is deterministic regardless
+// of map iteration. Zero-total names the empty-init outcome
+// explicitly so a queued-stdin auto-submit cannot silently succeed;
+// single-item-total renders the one selected item with its category
+// label. The 2+ branch is unreachable in normal flow (the confirm
+// group's WithHideFunc skips it) but kept defensive.
+func formatMultiCategoryConfirmTitle(picks []*[]string, pickKeys []bucketKey) string {
+	type entry struct {
+		category string
+		name     string
+	}
+	var entries []entry
+	for i, slot := range picks {
+		k := pickKeys[i]
+		for _, key := range *slot {
+			it, ok := decodeItemKey(key, k.kind, k.group)
+			if !ok {
+				continue
+			}
+			entries = append(entries, entry{
+				category: bucketTitle(k.kind, k.group),
+				name:     it.Name,
+			})
+		}
+	}
+	if len(entries) == 0 {
+		return "Bootstrap with no items selected (writes nothing). Continue?"
+	}
+	parts := make([]string, 0, len(entries))
+	for _, e := range entries {
+		parts = append(parts, e.category+": "+e.name)
+	}
+	return "Bootstrapping with: " + strings.Join(parts, ", ") + ". Continue?"
 }
 
 func bucketTitle(kind templates.Kind, group string) string {

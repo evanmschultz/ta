@@ -190,7 +190,7 @@ func FormFor(typeSt schema.SectionType, prefill map[string]any, isUpdate bool) (
 		meta = append(meta, ff)
 	}
 
-	form := huh.NewForm(huh.NewGroup(huhFields...))
+	form := tafForm(huh.NewGroup(huhFields...))
 
 	collect := func() (map[string]any, error) {
 		out := make(map[string]any, len(meta))

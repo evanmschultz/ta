@@ -204,10 +204,27 @@ func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) er
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", target, err)
 	}
+	var err error
 	if isMultiCategoryRun(f) {
-		return runInitMultiCategory(out, errOut, target, f)
+		err = runInitMultiCategory(out, errOut, target, f)
+	} else {
+		err = runInitLegacy(out, errOut, in, target, f)
 	}
-	return runInitLegacy(out, errOut, in, target, f)
+	// P2 (F18+F16 QA finding): a user-driven "Abort" at the post-pick
+	// confirm is an expected exit, not a fatal error. Catch it here so
+	// fang's red-error renderer does not paint the noun "aborted" as a
+	// failure; emit a soft laslig info notice on out and return nil so
+	// the process exits 0. Other errors continue to bubble up.
+	if errors.Is(err, errInitAborted) {
+		_ = render.New(out).Notice(
+			laslig.NoticeInfoLevel,
+			"init aborted",
+			"no changes made; re-run `ta init` when ready",
+			nil,
+		)
+		return nil
+	}
+	return err
 }
 
 // isMultiCategoryRun reports whether the F24 multi-category code path
@@ -294,9 +311,8 @@ func runInitLegacy(out, errOut io.Writer, in io.Reader, target string, f initFla
 // laslig-structured "home library is empty" notice pointing at
 // `examples/` + the new `ta template save` flow.
 func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstrapConfig) (string, []byte, error) {
-	emitInitLegacyWarning(errOut)
-
 	if f.template != "" {
+		emitInitLegacyWarning(errOut)
 		body, err := loadHomeDBSubset(f.template)
 		if err != nil {
 			return "", nil, err
@@ -310,9 +326,11 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 	// naming the problem.
 	reg, raw, err := templates.LoadHome()
 	if err != nil {
+		emitInitLegacyWarning(errOut)
 		return "", nil, err
 	}
 	if len(reg.DBs) == 0 {
+		emitInitLegacyWarning(errOut)
 		root, _ := templates.Root()
 		return "", nil, emptyHomeError(errOut, root)
 	}
@@ -321,6 +339,7 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 	// bootstrap default if set, else error loudly (non-interactive
 	// with no db selection is ambiguous).
 	if !interactive(in, out, f) {
+		emitInitLegacyWarning(errOut)
 		if cfg.Bootstrap.DefaultTemplate != "" {
 			body, err := loadHomeDBSubset(cfg.Bootstrap.DefaultTemplate)
 			if err != nil {
@@ -336,7 +355,17 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 		return "", nil, err
 	}
 
-	selected, err := pickDBs(infos)
+	// F18: legacy-warning content moves INSIDE the huh frame as a Note
+	// rendered in the SAME group as the picker — Note's Skip()=true
+	// (when not the only field in the group) means navigation skips
+	// past it, but Group.getContent() still renders all fields stacked,
+	// so the warning appears as a non-interactive header above the
+	// MultiSelect on the same page. Off-TTY paths still get the laslig
+	// warning to errOut above; on the picker path the laslig surface
+	// stays quiet so it does not compete with huh for the render frame.
+	legacyTitle, legacyDesc := formatLegacyWarning()
+
+	selected, err := pickDBs(infos, legacyTitle, legacyDesc)
 	if err != nil {
 		return "", nil, err
 	}
@@ -353,6 +382,11 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 // Same shape as cmd/ta/template_cmd.go's emitLegacyWarning — kept
 // separate so init does not depend on a template-cmd helper. Per F15
 // design decision #4: warn-only, no auto-migration.
+//
+// Used on the non-picker paths only post-F18 (`--template <db>`,
+// off-TTY default-template, off-TTY error). The picker path renders
+// the same content via `huh.NewNote` inside the form frame so laslig
+// and huh do not compete for the render frame.
 func emitInitLegacyWarning(errOut io.Writer) {
 	files, err := templates.LegacyTemplateFiles()
 	if err != nil || len(files) == 0 {
@@ -370,6 +404,28 @@ func emitInitLegacyWarning(errOut io.Writer) {
 			len(files), root),
 		bases,
 	)
+}
+
+// formatLegacyWarning returns a (title, description) pair describing
+// any legacy `~/.ta/<name>.toml` files that should be merged into
+// `schema.toml`. Empty strings mean no legacy files were found and the
+// caller should skip rendering. Used by `pickDBs` to render the
+// warning INSIDE the huh frame as a Note group, replacing the laslig
+// warning on the picker path.
+func formatLegacyWarning() (title, description string) {
+	files, err := templates.LegacyTemplateFiles()
+	if err != nil || len(files) == 0 {
+		return "", ""
+	}
+	root, _ := templates.Root()
+	bases := make([]string, 0, len(files))
+	for _, p := range files {
+		bases = append(bases, filepath.Base(p))
+	}
+	title = "legacy template files detected"
+	description = fmt.Sprintf("ignoring %d legacy template file(s) in %s: %s. Merge into schema.toml or remove.",
+		len(files), root, strings.Join(bases, ", "))
+	return title, description
 }
 
 // loadHomeDBSubset extracts one db's body from `~/.ta/schema.toml`
@@ -454,27 +510,110 @@ type dbPickerInfo struct {
 	displayName string // "<dbname> — <description>" or just "<dbname>"
 }
 
+// errInitAborted signals that the user explicitly declined the F16
+// post-pick confirmation. Distinct from a zero-selection picker outcome
+// (which is a legitimate "write empty schema" path) — abort means the
+// caller should bail without writing anything.
+var errInitAborted = errors.New("init: aborted at confirmation")
+
 // pickDBs runs the huh multi-select over the home-library db catalogue.
 // Returns the selected db names in the order huh wrote them (huh
 // preserves option-list order in the bound slice). Selecting zero is a
 // valid outcome — the empty-schema branch handles it downstream.
-func pickDBs(infos []dbPickerInfo) ([]string, error) {
+//
+// `legacyTitle` / `legacyDesc` carry the F18 legacy-warning content;
+// when both are non-empty the form prepends a `huh.NewNote` field in
+// the SAME group as the MultiSelect so the warning renders INLINE
+// above the picker on a single page. Note's `Skip()` reports true when
+// it is not the only field in the group, so `Form.UpdateFieldPositions`
+// makes the MultiSelect the first focused field and `Group.nextField`
+// will skip past the Note on tab/enter — the user never has to dismiss
+// it. P1 fix for the F18+F16 QA finding: the prior implementation put
+// the Note in a separate group, which huh renders as a sequential
+// page the user must dismiss with Enter/Tab before reaching the
+// picker — not the inline header the doc claimed.
+//
+// F16: selections of 0 or 1 dbs trigger a second-form confirmation
+// echoing the choice ("Bootstrapping with: <list>. Continue?").
+// 2+ selections bypass the confirm — multi-select is unambiguous user
+// intent and asking again every time is annoying. The confirm guards
+// against the queued-stdin auto-submit failure mode where huh consumes
+// a buffered newline as form submission: the confirm defaults to
+// `Abort` (`confirmed = false`), so a buffered Enter aborts safely
+// instead of silently writing an empty schema. The F18+F16 P0 fix
+// (`tafKeyMap`) additionally strips the Confirm Accept / Reject y/n
+// shortcut bindings so a queued `y` / `Y` cannot bypass the Negative
+// default either.
+//
+// F17: the title no longer carries "(space to toggle, enter to
+// confirm)" key hints — huh's default keymap binds both `space` and
+// `x` to Toggle, and the help bar at the bottom of the frame surfaces
+// the live keymap so duplicating it in the title is noise.
+func pickDBs(infos []dbPickerInfo, legacyTitle, legacyDesc string) ([]string, error) {
 	opts := make([]huh.Option[string], 0, len(infos))
 	for _, i := range infos {
 		opts = append(opts, huh.NewOption(i.displayName, i.name))
 	}
 	var selected []string
-	form := huh.NewForm(huh.NewGroup(
-		huh.NewMultiSelect[string]().
-			Title("Pick dbs to include in this project (space to toggle, enter to confirm)").
-			Description("Selecting zero is fine — you can declare dbs later via `ta schema --action=create`.").
-			Options(opts...).
-			Value(&selected),
-	))
+
+	fields := make([]huh.Field, 0, 2)
+	if legacyTitle != "" && legacyDesc != "" {
+		fields = append(fields, huh.NewNote().
+			Title(legacyTitle).
+			Description(legacyDesc))
+	}
+	fields = append(fields, huh.NewMultiSelect[string]().
+		Title("Pick dbs to include in this project").
+		Description("Selecting zero is fine — you can declare dbs later via `ta schema --action=create`.").
+		Options(opts...).
+		Value(&selected))
+
+	form := tafForm(huh.NewGroup(fields...))
 	if err := form.Run(); err != nil {
 		return nil, fmt.Errorf("db picker: %w", err)
 	}
+
+	// F16: post-pick confirmation when ≤ 1 dbs selected. Running this
+	// as a second `tafForm` (rather than a hidden group on the first
+	// form) keeps the confirm's "default Negative" semantics clean: a
+	// queued stdin newline lands on Abort, not on a default-true
+	// Continue. 2+ selections bypass — multi-select is unambiguous user
+	// intent and asking again every time is annoying.
+	if len(selected) >= 2 {
+		return selected, nil
+	}
+	confirmed := false
+	confirmForm := tafForm(huh.NewGroup(
+		huh.NewConfirm().
+			Title(formatBootstrapConfirmTitle(selected)).
+			Affirmative("Continue").
+			Negative("Abort").
+			Value(&confirmed),
+	))
+	if err := confirmForm.Run(); err != nil {
+		return nil, fmt.Errorf("db picker confirm: %w", err)
+	}
+	if !confirmed {
+		return nil, errInitAborted
+	}
 	return selected, nil
+}
+
+// formatBootstrapConfirmTitle renders the F16 echo line shown at
+// confirm time. Zero selection names the empty-schema outcome
+// explicitly so a queued-stdin auto-submit cannot silently succeed;
+// single selection echoes the chosen db. Two-or-more selections are
+// not shown by this function (the confirm group is hidden via
+// `WithHideFunc` in that branch).
+func formatBootstrapConfirmTitle(selected []string) string {
+	switch len(selected) {
+	case 0:
+		return "Bootstrap with no dbs (writes empty schema). Continue?"
+	case 1:
+		return fmt.Sprintf("Bootstrapping with: %s. Continue?", selected[0])
+	default:
+		return fmt.Sprintf("Bootstrapping with: %s. Continue?", strings.Join(selected, ", "))
+	}
 }
 
 // buildProjectSchemaBytes returns the bytes to write to
@@ -562,7 +701,7 @@ func writeSchema(in io.Reader, out io.Writer, schemaPath string, data []byte, f 
 
 func confirmOverwrite(path string) (bool, error) {
 	var ok bool
-	form := huh.NewForm(huh.NewGroup(
+	form := tafForm(huh.NewGroup(
 		huh.NewConfirm().
 			Title(fmt.Sprintf("Overwrite existing %s?", path)).
 			Value(&ok),
@@ -591,7 +730,7 @@ func promptMCPToggles(claude, codex bool) (bool, bool, error) {
 		huh.NewOption(optClaude, optClaude).Selected(claude),
 		huh.NewOption(optCodex, optCodex).Selected(codex),
 	}
-	form := huh.NewForm(huh.NewGroup(
+	form := tafForm(huh.NewGroup(
 		huh.NewMultiSelect[string]().
 			Title("Generate MCP client configs?").
 			Options(opts...).

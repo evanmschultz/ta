@@ -173,7 +173,7 @@ func runMenu(root *cobra.Command) error {
 		opts = append(opts, huh.NewOption(label, it.name))
 	}
 	var chosen string
-	form := huh.NewForm(huh.NewGroup(
+	form := tafForm(huh.NewGroup(
 		huh.NewSelect[string]().
 			Title("ta — pick a subcommand").
 			Options(opts...).
