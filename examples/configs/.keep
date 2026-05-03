@@ -1,0 +1,4 @@
+# Placeholder so the directory ships in embed.FS even with no config
+# skeletons yet. Filtered out by the templates package at enumeration
+# time. Real config files (claude-settings.json, .mcp.json,
+# codex-config.toml, gitignore) land here in F25.

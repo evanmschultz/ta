@@ -1,0 +1,36 @@
+# Agents schema — tracks agent definition files as ta records.
+#
+# Designed to be applied at either project scope (for a project's
+# `.claude/agents/<group>/*.md` files) or home scope (for the user's
+# `~/.ta/agents/<group>/*.md` library). The path glob covers both
+# `agents/<group>/*.md` (home) and `.claude/agents/<group>/*.md`
+# (project) — apply only the layout that matches the target.
+#
+# Records are markdown files; the heading-1 line is the agent name,
+# subsequent prose is the agent's system prompt. Frontmatter-style
+# metadata (group, kind) is encoded in the path rather than in the
+# body, so the schema reads each file as a free-form markdown record
+# under the `agent` type.
+#
+# This schema is shipped via embed.FS and is selectable from
+# `ta init`'s multi-category picker. See examples/README.md for the
+# full picker contract.
+
+[agents]
+paths = ["agents/*/*.md"]
+description = "Agent definition library — markdown agents grouped by user-defined subdir."
+format = "md"
+
+[agents.agent]
+description = "One agent definition. The h1 line is the agent name; the body is its system prompt."
+heading = 1
+
+[agents.agent.fields.name]
+type = "string"
+required = true
+description = "Agent name (matches the markdown h1 heading and the filename stem)."
+
+[agents.agent.fields.body]
+type = "string"
+format = "markdown"
+description = "System prompt for the agent. Markdown supported."

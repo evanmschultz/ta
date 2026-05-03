@@ -1,14 +1,20 @@
-// Package templates manages the global schema template library at
-// `~/.ta/schema.toml`. The directory is a pure template store — never
-// read at runtime by the MCP server or data tools. Only `ta init` and
-// `ta template *` touch it.
+// Package templates manages the global template library — the
+// per-user `~/.ta/` directory plus the binary-embedded `examples/`
+// tree injected via SetBinarySource. The library carries four kinds
+// of items: schema fragments (TOML dbs aggregated into
+// `~/.ta/schema.toml`), agents (markdown grouped under user-chosen
+// subdirs at `~/.ta/agents/<group>/<name>.md`), configs
+// (`~/.ta/configs/<canonical>`), and docs templates
+// (`~/.ta/docs-templates/<canonical>`). The library is a pure
+// template store — never read at runtime by the MCP server or data
+// tools. Only `ta init` and `ta template *` touch it.
 //
-// Per V2-PLAN §14.2 the firewall is strict: templates imports stdlib +
-// internal/schema + internal/fsatomic only. It does NOT import
+// Per V2-PLAN §14.2 the firewall is strict: templates imports stdlib
+// + internal/schema + internal/fsatomic only. It does NOT import
 // internal/config/Resolve, internal/ops, or internal/mcpsrv. Runtime
 // consumers never import this package.
 //
-// Post-F15 the home library is one machine-managed file
+// Post-F15 the home schema is one machine-managed file
 // (`~/.ta/schema.toml`) that aggregates every db the user has saved.
 // Same-name dbs across the file are not possible — TOML's
 // single-instance rule forbids it. The save / merge flow guarantees
@@ -16,7 +22,7 @@
 // like overlapping paths and id collisions), so `ta init` reading the
 // file gets a registry it can pick from.
 //
-// Public API:
+// Public API — schema (F15):
 //
 //   - Root()                                 — resolves $HOME/.ta.
 //   - SchemaPath()                           — resolves $HOME/.ta/schema.toml.
@@ -27,9 +33,14 @@
 //   - DeleteDB(name)                         — remove one db; ErrDBNotFound when absent.
 //   - LegacyTemplateFiles()                  — enumerate sibling `~/.ta/<name>.toml` files (warn-only carry-over).
 //
-// The pre-F15 names `List / Load / Save / Delete` are intentionally
-// dropped so callers compile-break loudly rather than silently inherit
-// new semantics.
+// Public API — multi-category (F24):
+//
+//   - SetBinarySource(fsys)                  — inject the embed.FS the binary ships with.
+//   - ListItems(kind)                        — provenance-tagged items for one Kind.
+//   - ListAll()                              — provenance-tagged items across every Kind.
+//   - ShowItem(item)                         — raw bytes for one item.
+//   - SaveAgent / SaveConfig / SaveDocsTemplate — promote a project file to the home library.
+//   - DeleteAgent / DeleteConfig / DeleteDocsTemplate — remove a home-library item; binary items error read-only.
 package templates
 
 import (
@@ -477,6 +488,718 @@ func unmarshalDBBodies(buf []byte) (map[string]map[string]any, error) {
 	}
 	return out, nil
 }
+
+// ---- Multi-category surface (F24) -----------------------------------
+
+// Kind classifies a template item. The four kinds correspond to the
+// four `examples/` subdirectories: schemas (TOML dbs), agents
+// (markdown files grouped under user-defined subdirs), configs
+// (canonical-named JSON / TOML / line files), and docs-templates
+// (canonical-named markdown skeletons).
+type Kind string
+
+const (
+	// KindSchema names a single db inside a schema fragment file.
+	// Schemas are special: home-side they aggregate into one
+	// `~/.ta/schema.toml`; binary-side each `examples/schemas/<file>.toml`
+	// can declare one or more dbs that aggregate at picker time.
+	KindSchema Kind = "schema"
+	// KindAgent names one markdown file under a `<group>/` subdir.
+	// `<group>` is whatever the user chose at save time — ta does
+	// not enforce any taxonomy. Agents saved without a group land
+	// flat under `~/.ta/agents/` and surface as the `(ungrouped)`
+	// group at picker time.
+	KindAgent Kind = "agent"
+	// KindConfig names one canonical config file (e.g.
+	// `claude-settings.json`). The picker writes each selected
+	// config to its canonical destination at apply time.
+	KindConfig Kind = "config"
+	// KindDocsTemplate names one canonical docs template (e.g.
+	// `CLAUDE.md`). The picker writes each selected docs template
+	// to the target's project root at apply time.
+	KindDocsTemplate Kind = "docs-template"
+)
+
+// Provenance tags an Item by source.
+type Provenance string
+
+const (
+	// ProvenanceBinary tags items that ship inside the ta binary
+	// via `examples/`. Read-only: SaveX / DeleteX refuse to mutate
+	// these.
+	ProvenanceBinary Provenance = "ta"
+	// ProvenanceHome tags items that live under `~/.ta/`.
+	// SaveX / DeleteX target this side.
+	ProvenanceHome Provenance = "home"
+)
+
+// Item is one template entry surfaced to pickers, MCP previews, and
+// CLI listings.
+//
+// Fields:
+//   - Kind: KindSchema | KindAgent | KindConfig | KindDocsTemplate.
+//   - Name: db name for schemas; filename stem for agents and docs;
+//     canonical filename (with extension) for configs.
+//   - Group: agent subdir (e.g. "go", "fe", "" for ungrouped). Empty
+//     for non-agents.
+//   - Provenance: ProvenanceBinary or ProvenanceHome.
+//   - Description: short blurb. Schemas pull from `[<db>].description`;
+//     other kinds leave it empty (callers may show a filename
+//     fallback).
+//
+// Items are equality-keyed by (Kind, Group, Name, Provenance).
+type Item struct {
+	Kind        Kind
+	Name        string
+	Group       string
+	Provenance  Provenance
+	Description string
+}
+
+// agentsDir / configsDir / docsDir are the home-library sibling
+// directories at `~/.ta/agents/` etc. Schemas go in the
+// canonical `~/.ta/schema.toml` (handled by the F15 surface).
+const (
+	agentsDir  = "agents"
+	configsDir = "configs"
+	docsDir    = "docs-templates"
+
+	// schemasDir is the binary-side directory inside `examples/`
+	// that holds schema fragments. Home-side schemas live in the
+	// flat `~/.ta/schema.toml` file, not under a subdir — this
+	// constant is binary-side only.
+	schemasDir = "schemas"
+
+	// examplesRoot is the prefix every binary-source path carries
+	// inside the embed.FS. Always rooted at "examples".
+	examplesRoot = "examples"
+
+	// keepSentinel is the empty-dir placeholder name used to keep
+	// otherwise-empty directories present in the embed.FS. Filtered
+	// out at enumeration time so callers do not see it as a
+	// template item.
+	keepSentinel = ".keep"
+)
+
+// binarySrc is the embed.FS the binary ships with, injected via
+// SetBinarySource at process startup. nil means "no binary source"
+// — ListItems / ListAll silently skip the binary side, which is the
+// correct behavior for tests and library callers that don't depend
+// on the binary tree.
+var binarySrc fs.FS
+
+// SetBinarySource injects the binary-embedded examples FS. Called
+// once from `cmd/ta/main.go` init via the root `embed.go`. Tests
+// may swap in an `fstest.MapFS` to drive the binary side
+// independently of the real `examples/` tree. Passing nil resets to
+// the no-binary state — useful in tests that want to assert the
+// home-only path.
+func SetBinarySource(fsys fs.FS) { binarySrc = fsys }
+
+// ErrReadOnly is returned by SaveX / DeleteX when called on a
+// binary-provenance item. Binary items are immutable from the
+// templates surface — the user must copy to home first.
+var ErrReadOnly = errors.New("templates: binary item is read-only")
+
+// ErrItemNotFound is returned by ShowItem / DeleteX when the
+// addressed item does not exist on the named provenance.
+var ErrItemNotFound = errors.New("templates: item not found")
+
+// ListItems returns provenance-tagged items for one Kind, sorted by
+// (Group, Name, Provenance). Both binary and home are queried; both
+// missing yields nil.
+func ListItems(kind Kind) ([]Item, error) {
+	switch kind {
+	case KindSchema:
+		return listSchemaItems()
+	case KindAgent:
+		return listAgentItems()
+	case KindConfig:
+		return listConfigItems()
+	case KindDocsTemplate:
+		return listDocsTemplateItems()
+	default:
+		return nil, fmt.Errorf("templates: unknown kind %q", kind)
+	}
+}
+
+// ListAll concatenates ListItems output across every Kind. Items are
+// sorted by (Kind, Group, Name, Provenance) so the result is stable
+// across invocations.
+func ListAll() ([]Item, error) {
+	var out []Item
+	for _, k := range []Kind{KindSchema, KindAgent, KindConfig, KindDocsTemplate} {
+		items, err := ListItems(k)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+	}
+	return out, nil
+}
+
+// ShowItem returns the raw bytes for one item. Schemas come back as
+// a single-db TOML body (same shape as ShowDB); agents / configs /
+// docs-templates come back as the underlying file bytes verbatim.
+func ShowItem(item Item) ([]byte, error) {
+	switch item.Kind {
+	case KindSchema:
+		return showSchemaItem(item)
+	case KindAgent:
+		return showAgentItem(item)
+	case KindConfig:
+		return showConfigItem(item)
+	case KindDocsTemplate:
+		return showDocsTemplateItem(item)
+	default:
+		return nil, fmt.Errorf("templates: unknown kind %q", item.Kind)
+	}
+}
+
+// listSchemaItems enumerates db items from both provenances.
+//
+// Binary side: every `examples/schemas/<file>.toml` is parsed, and
+// each top-level db it declares becomes one Item. The fragment
+// filename does not appear in the picker — only db names.
+//
+// Home side: ListDBs reads `~/.ta/schema.toml`.
+func listSchemaItems() ([]Item, error) {
+	var out []Item
+
+	// Binary side — walk examples/schemas/*.toml.
+	if binarySrc != nil {
+		entries, err := fs.ReadDir(binarySrc, examplesRoot+"/"+schemasDir)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("templates: read binary schemas: %w", err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
+				continue
+			}
+			data, err := fs.ReadFile(binarySrc, examplesRoot+"/"+schemasDir+"/"+e.Name())
+			if err != nil {
+				return nil, fmt.Errorf("templates: read %s: %w", e.Name(), err)
+			}
+			bodies, err := unmarshalDBBodies(data)
+			if err != nil {
+				return nil, fmt.Errorf("templates: parse %s: %w", e.Name(), err)
+			}
+			for name, body := range bodies {
+				out = append(out, Item{
+					Kind:        KindSchema,
+					Name:        name,
+					Provenance:  ProvenanceBinary,
+					Description: dbDescription(body),
+				})
+			}
+		}
+	}
+
+	// Home side — reuse the F15 surface.
+	homeNames, err := ListDBs()
+	if err != nil {
+		return nil, err
+	}
+	if len(homeNames) > 0 {
+		_, raw, err := LoadHome()
+		if err != nil {
+			return nil, err
+		}
+		bodies, err := unmarshalDBBodies(raw)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range homeNames {
+			out = append(out, Item{
+				Kind:        KindSchema,
+				Name:        name,
+				Provenance:  ProvenanceHome,
+				Description: dbDescription(bodies[name]),
+			})
+		}
+	}
+
+	sortItems(out)
+	return out, nil
+}
+
+// listAgentItems enumerates agent .md files across both provenances,
+// preserving group subdirs as Item.Group. Flat files (no group) get
+// Group="".
+func listAgentItems() ([]Item, error) {
+	var out []Item
+	if binarySrc != nil {
+		items, err := walkAgentTree(binarySrc, examplesRoot+"/"+agentsDir, ProvenanceBinary)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+	}
+	homeRoot, err := Root()
+	if err != nil {
+		return nil, err
+	}
+	homeAgents := filepath.Join(homeRoot, agentsDir)
+	if items, err := walkAgentTree(os.DirFS(homeAgents), ".", ProvenanceHome); err != nil {
+		// Missing home agents dir is not an error — just no items.
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+	} else {
+		out = append(out, items...)
+	}
+	sortItems(out)
+	return out, nil
+}
+
+// walkAgentTree returns Item entries for every .md file under root,
+// recording the parent dir as Group (or "" for files at the root).
+// .keep sentinels and non-.md files are filtered out.
+func walkAgentTree(fsys fs.FS, root string, prov Provenance) ([]Item, error) {
+	if fsys == nil {
+		return nil, nil
+	}
+	if _, err := fs.Stat(fsys, root); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("templates: stat agents root: %w", err)
+	}
+	var out []Item
+	err := fs.WalkDir(fsys, root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		base := d.Name()
+		if base == keepSentinel || !strings.HasSuffix(base, ".md") {
+			return nil
+		}
+		// Determine group from the immediate parent dir.
+		rel := p
+		if root != "." && root != "" {
+			rel = strings.TrimPrefix(p, root+"/")
+		}
+		group := filepath.Dir(rel)
+		if group == "." {
+			group = ""
+		}
+		// Reject nested groups (`agents/go/foo/bar.md`) — group is
+		// exactly one level deep. Anything deeper is a layout error
+		// the user can correct by reorganizing.
+		if strings.Contains(group, "/") {
+			return fmt.Errorf("templates: nested agent group %q not supported (one level deep only)", rel)
+		}
+		out = append(out, Item{
+			Kind:       KindAgent,
+			Name:       strings.TrimSuffix(base, ".md"),
+			Group:      group,
+			Provenance: prov,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// listConfigItems enumerates config files at both provenances.
+// Configs are flat — no group dimension.
+func listConfigItems() ([]Item, error) {
+	return listFlatItems(KindConfig, configsDir, "")
+}
+
+// listDocsTemplateItems enumerates docs-template files at both
+// provenances. Like configs, docs templates are flat.
+func listDocsTemplateItems() ([]Item, error) {
+	return listFlatItems(KindDocsTemplate, docsDir, ".md")
+}
+
+// listFlatItems is the shared shape for non-grouped kinds. extFilter
+// is applied iff non-empty; an empty filter means "any extension"
+// (configs ship with mixed extensions: .json / .toml / no
+// extension).
+func listFlatItems(kind Kind, subdir, extFilter string) ([]Item, error) {
+	var out []Item
+	if binarySrc != nil {
+		entries, err := fs.ReadDir(binarySrc, examplesRoot+"/"+subdir)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("templates: read binary %s: %w", subdir, err)
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			if e.Name() == keepSentinel {
+				continue
+			}
+			if extFilter != "" && !strings.HasSuffix(e.Name(), extFilter) {
+				continue
+			}
+			out = append(out, Item{
+				Kind:       kind,
+				Name:       canonicalName(kind, e.Name()),
+				Provenance: ProvenanceBinary,
+			})
+		}
+	}
+	homeRoot, err := Root()
+	if err != nil {
+		return nil, err
+	}
+	homeSub := filepath.Join(homeRoot, subdir)
+	entries, err := os.ReadDir(homeSub)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("templates: read home %s: %w", subdir, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if e.Name() == keepSentinel {
+			continue
+		}
+		if extFilter != "" && !strings.HasSuffix(e.Name(), extFilter) {
+			continue
+		}
+		out = append(out, Item{
+			Kind:       kind,
+			Name:       canonicalName(kind, e.Name()),
+			Provenance: ProvenanceHome,
+		})
+	}
+	sortItems(out)
+	return out, nil
+}
+
+// canonicalName trims the extension for docs templates (canonical
+// names omit the `.md`) and leaves config filenames intact (configs
+// keep their extensions because the destination is filename-driven).
+func canonicalName(kind Kind, filename string) string {
+	if kind == KindDocsTemplate {
+		return strings.TrimSuffix(filename, ".md")
+	}
+	return filename
+}
+
+// showSchemaItem returns the raw bytes for one schema item. Binary
+// schemas slice the named db out of the parent fragment file; home
+// schemas reuse ShowDB.
+func showSchemaItem(item Item) ([]byte, error) {
+	switch item.Provenance {
+	case ProvenanceHome:
+		return ShowDB(item.Name)
+	case ProvenanceBinary:
+		return showBinarySchemaDB(item.Name)
+	default:
+		return nil, fmt.Errorf("templates: unknown provenance %q", item.Provenance)
+	}
+}
+
+// showBinarySchemaDB locates the named db inside any
+// `examples/schemas/*.toml` fragment and returns its slice. Returns
+// ErrItemNotFound when no fragment declares the name.
+func showBinarySchemaDB(name string) ([]byte, error) {
+	if binarySrc == nil {
+		return nil, fmt.Errorf("%w: binary source not registered", ErrItemNotFound)
+	}
+	entries, err := fs.ReadDir(binarySrc, examplesRoot+"/"+schemasDir)
+	if err != nil {
+		return nil, fmt.Errorf("templates: read binary schemas: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
+			continue
+		}
+		data, err := fs.ReadFile(binarySrc, examplesRoot+"/"+schemasDir+"/"+e.Name())
+		if err != nil {
+			return nil, fmt.Errorf("templates: read %s: %w", e.Name(), err)
+		}
+		bodies, err := unmarshalDBBodies(data)
+		if err != nil {
+			return nil, fmt.Errorf("templates: parse %s: %w", e.Name(), err)
+		}
+		body, ok := bodies[name]
+		if !ok {
+			continue
+		}
+		out, err := marshalDBSubset(map[string]map[string]any{name: body})
+		if err != nil {
+			return nil, fmt.Errorf("templates: marshal %s: %w", name, err)
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("%w: schema %q in binary source", ErrItemNotFound, name)
+}
+
+// showAgentItem returns raw .md bytes for one agent item.
+func showAgentItem(item Item) ([]byte, error) {
+	rel := agentRelPath(item.Group, item.Name)
+	switch item.Provenance {
+	case ProvenanceHome:
+		root, err := Root()
+		if err != nil {
+			return nil, err
+		}
+		path := filepath.Join(root, agentsDir, rel)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("%w: agent %q (group=%q) in home", ErrItemNotFound, item.Name, item.Group)
+			}
+			return nil, fmt.Errorf("templates: read %s: %w", path, err)
+		}
+		return data, nil
+	case ProvenanceBinary:
+		if binarySrc == nil {
+			return nil, fmt.Errorf("%w: binary source not registered", ErrItemNotFound)
+		}
+		full := examplesRoot + "/" + agentsDir + "/" + rel
+		data, err := fs.ReadFile(binarySrc, full)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("%w: agent %q (group=%q) in binary", ErrItemNotFound, item.Name, item.Group)
+			}
+			return nil, fmt.Errorf("templates: read %s: %w", full, err)
+		}
+		return data, nil
+	default:
+		return nil, fmt.Errorf("templates: unknown provenance %q", item.Provenance)
+	}
+}
+
+// agentRelPath joins group + name into the relative path under
+// `agents/`. Group="" yields a flat path (`<name>.md`); non-empty
+// group yields `<group>/<name>.md`.
+func agentRelPath(group, name string) string {
+	if group == "" {
+		return name + ".md"
+	}
+	return group + "/" + name + ".md"
+}
+
+// showConfigItem returns raw bytes for one config item.
+func showConfigItem(item Item) ([]byte, error) {
+	return showFlatItem(item, configsDir)
+}
+
+// showDocsTemplateItem returns raw bytes for one docs-template item.
+func showDocsTemplateItem(item Item) ([]byte, error) {
+	// Docs templates trim `.md` for canonical naming; reattach for
+	// the on-disk read.
+	withExt := item.Name + ".md"
+	clone := item
+	clone.Name = withExt
+	return showFlatItem(clone, docsDir)
+}
+
+func showFlatItem(item Item, subdir string) ([]byte, error) {
+	switch item.Provenance {
+	case ProvenanceHome:
+		root, err := Root()
+		if err != nil {
+			return nil, err
+		}
+		path := filepath.Join(root, subdir, item.Name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("%w: %s %q in home", ErrItemNotFound, item.Kind, item.Name)
+			}
+			return nil, fmt.Errorf("templates: read %s: %w", path, err)
+		}
+		return data, nil
+	case ProvenanceBinary:
+		if binarySrc == nil {
+			return nil, fmt.Errorf("%w: binary source not registered", ErrItemNotFound)
+		}
+		full := examplesRoot + "/" + subdir + "/" + item.Name
+		data, err := fs.ReadFile(binarySrc, full)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("%w: %s %q in binary", ErrItemNotFound, item.Kind, item.Name)
+			}
+			return nil, fmt.Errorf("templates: read %s: %w", full, err)
+		}
+		return data, nil
+	default:
+		return nil, fmt.Errorf("templates: unknown provenance %q", item.Provenance)
+	}
+}
+
+// SaveAgent copies body bytes into `~/.ta/agents/<group>/<name>.md`.
+// Empty group → flat layout. force=false errors when the destination
+// exists; force=true overwrites atomically. Validates name + group
+// shape before any disk write.
+func SaveAgent(name, group string, body []byte, force bool) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+	if group != "" {
+		if err := validateName(group); err != nil {
+			return fmt.Errorf("%w: group %q", ErrInvalidName, group)
+		}
+	}
+	root, err := Root()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(root, agentsDir)
+	if group != "" {
+		dir = filepath.Join(dir, group)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("templates: create %s: %w", dir, err)
+	}
+	dst := filepath.Join(dir, name+".md")
+	if !force {
+		if _, err := os.Stat(dst); err == nil {
+			return fmt.Errorf("templates: %s already exists; pass force=true to overwrite", dst)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("templates: stat %s: %w", dst, err)
+		}
+	}
+	return fsatomic.Write(dst, body)
+}
+
+// SaveConfig copies body bytes into `~/.ta/configs/<canonical>`.
+// `canonical` is the destination filename (e.g.
+// `claude-settings.json`). force=false errors on conflict.
+func SaveConfig(canonical string, body []byte, force bool) error {
+	return saveFlatItem(canonical, body, force, configsDir, "")
+}
+
+// SaveDocsTemplate copies body bytes into
+// `~/.ta/docs-templates/<canonical>.md`. `canonical` is the docs
+// template name without `.md` extension; the extension is appended.
+// force=false errors on conflict.
+func SaveDocsTemplate(canonical string, body []byte, force bool) error {
+	return saveFlatItem(canonical, body, force, docsDir, ".md")
+}
+
+// saveFlatItem handles the shared write path for configs and docs
+// templates. extSuffix is appended to the filename iff non-empty
+// (docs add `.md`; configs leave the canonical filename intact).
+func saveFlatItem(canonical string, body []byte, force bool, subdir, extSuffix string) error {
+	if canonical == "" {
+		return fmt.Errorf("%w: empty canonical name", ErrInvalidName)
+	}
+	if strings.ContainsAny(canonical, `/\`) {
+		return fmt.Errorf("%w: %q contains a path separator", ErrInvalidName, canonical)
+	}
+	if strings.HasPrefix(canonical, ".") {
+		return fmt.Errorf("%w: %q starts with a dot", ErrInvalidName, canonical)
+	}
+	if canonical != filepath.Clean(canonical) {
+		return fmt.Errorf("%w: %q is not in canonical form", ErrInvalidName, canonical)
+	}
+	root, err := Root()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(root, subdir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("templates: create %s: %w", dir, err)
+	}
+	dst := filepath.Join(dir, canonical+extSuffix)
+	if !force {
+		if _, err := os.Stat(dst); err == nil {
+			return fmt.Errorf("templates: %s already exists; pass force=true to overwrite", dst)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("templates: stat %s: %w", dst, err)
+		}
+	}
+	return fsatomic.Write(dst, body)
+}
+
+// DeleteAgent removes a home-library agent. Binary agents always
+// error with ErrReadOnly. Missing files surface ErrItemNotFound.
+func DeleteAgent(name, group string) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+	if group != "" {
+		if err := validateName(group); err != nil {
+			return fmt.Errorf("%w: group %q", ErrInvalidName, group)
+		}
+	}
+	root, err := Root()
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(root, agentsDir, agentRelPath(group, name))
+	if err := os.Remove(dst); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%w: agent %q (group=%q)", ErrItemNotFound, name, group)
+		}
+		return fmt.Errorf("templates: delete %s: %w", dst, err)
+	}
+	return nil
+}
+
+// DeleteConfig removes one home-library config.
+func DeleteConfig(canonical string) error {
+	return deleteFlatItem(canonical, configsDir, "", KindConfig)
+}
+
+// DeleteDocsTemplate removes one home-library docs template.
+func DeleteDocsTemplate(canonical string) error {
+	return deleteFlatItem(canonical, docsDir, ".md", KindDocsTemplate)
+}
+
+func deleteFlatItem(canonical, subdir, extSuffix string, kind Kind) error {
+	if canonical == "" {
+		return fmt.Errorf("%w: empty canonical name", ErrInvalidName)
+	}
+	root, err := Root()
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(root, subdir, canonical+extSuffix)
+	if err := os.Remove(dst); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%w: %s %q", ErrItemNotFound, kind, canonical)
+		}
+		return fmt.Errorf("templates: delete %s: %w", dst, err)
+	}
+	return nil
+}
+
+// dbDescription extracts the optional [<db>].description field from a
+// raw db body, returning "" when absent or non-string.
+func dbDescription(body map[string]any) string {
+	if body == nil {
+		return ""
+	}
+	d, ok := body["description"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(d)
+}
+
+// sortItems orders a slice in (Kind, Group, Name, Provenance) order.
+// Stable across calls so picker output is deterministic.
+func sortItems(items []Item) {
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		if a.Group != b.Group {
+			return a.Group < b.Group
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.Provenance < b.Provenance
+	})
+}
+
+// ---- internal --------------------------------------------------------
 
 // marshalDBSubset emits TOML bytes for the supplied {dbName → body}
 // map. Iterates in sorted-name order so repeat invocations over the

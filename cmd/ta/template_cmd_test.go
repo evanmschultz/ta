@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/evanmschultz/ta/internal/templates"
 )
@@ -617,5 +618,335 @@ func TestTemplateDeleteOffTTYWithoutForceErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--force") {
 		t.Errorf("error missing '--force': %v", err)
+	}
+}
+
+// ---- F24 --kind tests ----------------------------------------------
+
+// TestTemplateListKindAll exercises --kind=all enumerating across
+// every category.
+func TestTemplateListKindAll(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "schema.toml"), []byte(twoDBSchema), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "agents", "go"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "agents", "go", "builder.md"), []byte("# x\n"), 0o644); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+
+	out, _, err := runTemplateCmd(t, "list", "--kind=all", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var items []map[string]any
+	if err := json.Unmarshal([]byte(out), &items); err != nil {
+		t.Fatalf("parse: %v\n%s", err, out)
+	}
+	if len(items) == 0 {
+		t.Fatal("no items")
+	}
+	// Should include at least the seeded schema(s) + the agent.
+	foundAgent := false
+	for _, it := range items {
+		if it["kind"] == "agent" && it["name"] == "builder" && it["group"] == "go" {
+			foundAgent = true
+		}
+	}
+	if !foundAgent {
+		t.Errorf("agent missing from --kind=all list: %v", items)
+	}
+}
+
+// TestTemplateSaveKindAgent exercises the --kind=agent save path.
+func TestTemplateSaveKindAgent(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	src := filepath.Join(t.TempDir(), "my-agent.md")
+	if err := os.WriteFile(src, []byte("# my-agent\nbody\n"), 0o644); err != nil {
+		t.Fatalf("seed src: %v", err)
+	}
+
+	out, _, err := runTemplateCmd(t, "save", "--kind=agent", "--path", src, "--group", "go", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var report struct {
+		Kind  string `json:"kind"`
+		Group string `json:"group"`
+		Name  string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("parse: %v\n%s", err, out)
+	}
+	if report.Kind != "agent" {
+		t.Errorf("kind = %q", report.Kind)
+	}
+	if report.Group != "go" || report.Name != "my-agent" {
+		t.Errorf("group/name = %q/%q", report.Group, report.Name)
+	}
+	if _, err := os.Stat(filepath.Join(root, "agents", "go", "my-agent.md")); err != nil {
+		t.Errorf("agent not at expected path: %v", err)
+	}
+}
+
+func TestTemplateSaveKindConfigDefaultsCanonical(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	src := filepath.Join(t.TempDir(), "claude-settings.json")
+	if err := os.WriteFile(src, []byte(`{"x":1}`), 0o644); err != nil {
+		t.Fatalf("seed src: %v", err)
+	}
+
+	_, _, err := runTemplateCmd(t, "save", "--kind=config", "--path", src, "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "configs", "claude-settings.json")); err != nil {
+		t.Errorf("config not promoted: %v", err)
+	}
+}
+
+func TestTemplateSaveKindUnknownErrors(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	_, _, err := runTemplateCmd(t, "save", "--kind=banana", "--json")
+	if err == nil {
+		t.Fatal("expected unknown kind error")
+	}
+	if !strings.Contains(err.Error(), "banana") {
+		t.Errorf("error should name kind: %v", err)
+	}
+}
+
+// TestTemplateShowKindAgent exercises --kind=agent with home + group.
+func TestTemplateShowKindAgent(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	if err := os.MkdirAll(filepath.Join(root, "agents", "go"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := "# go-builder\nbody\n"
+	if err := os.WriteFile(filepath.Join(root, "agents", "go", "builder.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	out, _, err := runTemplateCmd(t, "show", "builder", "--kind=agent", "--group=go", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !strings.Contains(out, "go-builder") {
+		t.Errorf("output missing body: %s", out)
+	}
+}
+
+func TestTemplateDeleteKindAgent(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	if err := os.MkdirAll(filepath.Join(root, "agents", "go"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "agents", "go", "builder.md"), []byte("# x"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	_, _, err := runTemplateCmd(t, "delete", "builder", "--kind=agent", "--group=go", "--force", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "agents", "go", "builder.md")); err == nil {
+		t.Errorf("file still exists after delete")
+	}
+}
+
+func TestTemplateDeleteKindAgentMissingErrors(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	_, _, err := runTemplateCmd(t, "delete", "ghost", "--kind=agent", "--group=go", "--force")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// ---- F24 P1.C: ta template show --kind=schema reaches binary --------
+
+// installBinarySchemaSource registers a binary fragment named `agents`
+// (a [ta] schema fragment) so the show-schema-from-binary tests have a
+// concrete fragment to read. Cleanup unregisters at test end.
+func installBinarySchemaSource(t *testing.T, fragments map[string]string) {
+	t.Helper()
+	mapfs := fstest.MapFS{}
+	for name, body := range fragments {
+		mapfs["examples/schemas/"+name+".toml"] = &fstest.MapFile{Data: []byte(body)}
+	}
+	templates.SetBinarySource(mapfs)
+	t.Cleanup(func() { templates.SetBinarySource(nil) })
+}
+
+// TestTemplateShowKindSchemaFallsBackToBinary locks the default
+// behavior: `--kind=schema` (or no --kind) with no --provenance reads
+// home first; if home doesn't carry the name, it falls back to the
+// binary fragment library.
+func TestTemplateShowKindSchemaFallsBackToBinary(t *testing.T) {
+	// Empty home; binary carries an `agents` fragment.
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	installBinarySchemaSource(t, map[string]string{
+		"agents": `
+[agents]
+paths = ["agents.toml"]
+description = "Binary [ta] agents."
+
+[agents.profile]
+description = "An agent profile."
+
+[agents.profile.fields.id]
+type = "string"
+required = true
+`,
+	})
+
+	out, _, err := runTemplateCmd(t, "show", "agents", "--kind=schema", "--json")
+	if err != nil {
+		t.Fatalf("show schema (binary fallback): %v", err)
+	}
+	var payload struct {
+		DB         string `json:"db"`
+		Provenance string `json:"provenance"`
+		Bytes      string `json:"bytes"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if payload.DB != "agents" {
+		t.Errorf("db = %q", payload.DB)
+	}
+	if payload.Provenance != "ta" {
+		t.Errorf("provenance = %q, want ta", payload.Provenance)
+	}
+	if !strings.Contains(payload.Bytes, "[agents.profile]") {
+		t.Errorf("body missing fragment content: %q", payload.Bytes)
+	}
+}
+
+// TestTemplateShowKindSchemaProvenanceTaForcesBinary covers the case
+// where home AND binary both carry the same Name; --provenance=ta
+// must reach the binary copy.
+func TestTemplateShowKindSchemaProvenanceTaForcesBinary(t *testing.T) {
+	root := t.TempDir()
+	// Home declares `plans` with a distinct path.
+	if err := os.WriteFile(filepath.Join(root, "schema.toml"),
+		[]byte("[plans]\npaths = [\"home-plans.toml\"]\ndescription = \"home\"\n"+
+			"[plans.task]\ndescription = \"t\"\n"+
+			"[plans.task.fields.id]\ntype = \"string\"\nrequired = true\n"),
+		0o644); err != nil {
+		t.Fatalf("seed home: %v", err)
+	}
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	installBinarySchemaSource(t, map[string]string{
+		"plans": `
+[plans]
+paths = ["binary-plans.toml"]
+description = "binary"
+
+[plans.task]
+description = "t"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`,
+	})
+
+	out, _, err := runTemplateCmd(t, "show", "plans", "--kind=schema",
+		"--provenance=ta", "--json")
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	var payload struct {
+		Provenance string `json:"provenance"`
+		Bytes      string `json:"bytes"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if payload.Provenance != "ta" {
+		t.Errorf("provenance = %q, want ta", payload.Provenance)
+	}
+	if !strings.Contains(payload.Bytes, "binary-plans.toml") {
+		t.Errorf("bytes did not pick up binary copy: %s", payload.Bytes)
+	}
+	if strings.Contains(payload.Bytes, "home-plans.toml") {
+		t.Errorf("home shadow leaked: %s", payload.Bytes)
+	}
+}
+
+// TestTemplateShowKindSchemaProvenanceHomePrefersHome confirms the
+// inverse: --provenance=home reads the home copy even when binary
+// would otherwise be reachable.
+func TestTemplateShowKindSchemaProvenanceHomePrefersHome(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "schema.toml"),
+		[]byte("[plans]\npaths = [\"home-plans.toml\"]\ndescription = \"home\"\n"+
+			"[plans.task]\ndescription = \"t\"\n"+
+			"[plans.task.fields.id]\ntype = \"string\"\nrequired = true\n"),
+		0o644); err != nil {
+		t.Fatalf("seed home: %v", err)
+	}
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	installBinarySchemaSource(t, map[string]string{
+		"plans": `
+[plans]
+paths = ["binary-plans.toml"]
+description = "binary"
+
+[plans.task]
+description = "t"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`,
+	})
+
+	out, _, err := runTemplateCmd(t, "show", "plans", "--kind=schema",
+		"--provenance=home", "--json")
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	var payload struct {
+		Provenance string `json:"provenance"`
+		Bytes      string `json:"bytes"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if payload.Provenance != "home" {
+		t.Errorf("provenance = %q, want home", payload.Provenance)
+	}
+	if !strings.Contains(payload.Bytes, "home-plans.toml") {
+		t.Errorf("bytes did not pick up home copy: %s", payload.Bytes)
+	}
+}
+
+// TestTemplateShowKindSchemaProvenanceTaMissingErrors locks the loud
+// failure when --provenance=ta is set but the binary library has no
+// such name.
+func TestTemplateShowKindSchemaProvenanceTaMissingErrors(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	installBinarySchemaSource(t, map[string]string{}) // empty
+	_, _, err := runTemplateCmd(t, "show", "plans", "--kind=schema",
+		"--provenance=ta", "--json")
+	if err == nil {
+		t.Fatal("expected error: binary library has no plans fragment")
 	}
 }

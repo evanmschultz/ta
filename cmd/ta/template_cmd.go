@@ -58,37 +58,135 @@ func newTemplateCmd() *cobra.Command {
 
 func newTemplateListCmd() *cobra.Command {
 	var asJSON bool
+	var kind string
 	cmd := &cobra.Command{
-		Use:     "list",
-		Short:   "List every db declared in ~/.ta/schema.toml",
-		Long:    "Prints the sorted names of every db declared in `~/.ta/schema.toml`. With --json emits `{\"dbs\": [...]}` for agent consumption. Detected legacy `~/.ta/<name>.toml` files (pre-F15 leftovers) trigger a warning notice on stderr.",
-		Example: "  ta template list\n  ta template list --json",
+		Use:   "list",
+		Short: "List items in the template library (schema|agent|config|docs-template)",
+		Long: "Default lists every db declared in `~/.ta/schema.toml`. With " +
+			"`--kind=<kind>` enumerates the named category (`agent`, `config`, " +
+			"`docs-template`) across BOTH binary `examples/` and home `~/.ta/` " +
+			"sources, tagging each entry with its provenance. With `--kind=all` " +
+			"every category is enumerated. JSON emit mirrors the structured " +
+			"shape so agents can consume the result directly.",
+		Example: "  ta template list\n  ta template list --kind=agent\n  ta template list --kind=all --json",
 		Args:    cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			emitLegacyWarning(c.ErrOrStderr())
-			names, err := templates.ListDBs()
-			if err != nil {
-				return err
+			if kind == "" || kind == "schema" {
+				return runTemplateListSchema(c.OutOrStdout(), asJSON)
 			}
-			if asJSON {
-				if names == nil {
-					names = []string{}
-				}
-				enc := json.NewEncoder(c.OutOrStdout())
-				enc.SetIndent("", "  ")
-				return enc.Encode(map[string]any{"dbs": names})
-			}
-			root, err := templates.Root()
-			if err != nil {
-				return err
-			}
-			return render.New(c.OutOrStdout()).List(root, names, "(no dbs)")
+			return runTemplateListMulti(c.OutOrStdout(), kind, asJSON)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
+	cmd.Flags().StringVar(&kind, "kind", "", "category to list: schema (default) | agent | config | docs-template | all")
 	return cmd
+}
+
+// runTemplateListSchema is the pre-F24 schema-only path, retained for
+// backward compat with all existing tests and CLI users.
+func runTemplateListSchema(out io.Writer, asJSON bool) error {
+	names, err := templates.ListDBs()
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		if names == nil {
+			names = []string{}
+		}
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]any{"dbs": names})
+	}
+	root, err := templates.Root()
+	if err != nil {
+		return err
+	}
+	return render.New(out).List(root, names, "(no dbs)")
+}
+
+// runTemplateListMulti enumerates one (or all) non-schema categories
+// across binary + home provenance.
+func runTemplateListMulti(out io.Writer, kindFlag string, asJSON bool) error {
+	var items []templates.Item
+	switch kindFlag {
+	case "agent":
+		var err error
+		items, err = templates.ListItems(templates.KindAgent)
+		if err != nil {
+			return err
+		}
+	case "config":
+		var err error
+		items, err = templates.ListItems(templates.KindConfig)
+		if err != nil {
+			return err
+		}
+	case "docs-template":
+		var err error
+		items, err = templates.ListItems(templates.KindDocsTemplate)
+		if err != nil {
+			return err
+		}
+	case "all":
+		var err error
+		items, err = templates.ListAll()
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown --kind %q (want schema|agent|config|docs-template|all)", kindFlag)
+	}
+	if asJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(itemsJSONShape(items))
+	}
+	for _, it := range items {
+		display := itemListDisplay(it)
+		fmt.Fprintln(out, display)
+	}
+	if len(items) == 0 {
+		fmt.Fprintln(out, "(no items)")
+	}
+	return nil
+}
+
+// itemsJSONShape converts a templates.Item slice into the wire-stable
+// JSON-friendly shape used by `--json` output and the MCP preview
+// tool.
+func itemsJSONShape(items []templates.Item) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, it := range items {
+		entry := map[string]any{
+			"kind":       string(it.Kind),
+			"name":       it.Name,
+			"provenance": string(it.Provenance),
+		}
+		if it.Group != "" {
+			entry["group"] = it.Group
+		}
+		if it.Description != "" {
+			entry["description"] = it.Description
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// itemListDisplay formats one item as a single line for the laslig
+// list rendering.
+func itemListDisplay(it templates.Item) string {
+	tag := "[" + string(it.Provenance) + "] " + string(it.Kind) + ":"
+	if it.Group != "" {
+		tag += it.Group + "/"
+	}
+	if it.Description == "" {
+		return tag + it.Name
+	}
+	return tag + it.Name + " — " + it.Description
 }
 
 // emitLegacyWarning surfaces a one-line laslig warning on stderr when
@@ -121,33 +219,166 @@ func legacyFileNames(paths []string) []string {
 
 func newTemplateShowCmd() *cobra.Command {
 	var asJSON bool
+	var kind string
+	var group string
+	var provenance string
 	cmd := &cobra.Command{
-		Use:     "show <db>",
-		Short:   "Print the bytes of one db from ~/.ta/schema.toml",
-		Long:    "Reads `~/.ta/schema.toml`, slices out the named db, and renders its bytes as a glamour-highlighted TOML code block. With --json emits `{\"db\": \"<name>\", \"bytes\": \"<raw>\"}`. A missing db errors loudly with templates.ErrDBNotFound.",
-		Example: "  ta template show plans\n  ta template show plans --json",
+		Use:   "show <name>",
+		Short: "Print the bytes of one item from the template library",
+		Long: "Reads one item from the template library and renders or emits its " +
+			"bytes. Default `--kind=schema` resolves a fragment name across binary " +
+			"`examples/schemas/` and `~/.ta/schema.toml` — home wins by default, " +
+			"`--provenance=ta` forces the binary fragment, `--provenance=home` " +
+			"forces home only. `--kind=agent --group=<group>` resolves to either " +
+			"`~/.ta/agents/<group>/<name>.md` (home) or " +
+			"`examples/agents/<group>/<name>.md` (binary). `--kind=config` and " +
+			"`--kind=docs-template` operate on the corresponding flat libraries. " +
+			"`--provenance=ta|home` disambiguates when the same name exists on " +
+			"both sources; default is to prefer home.",
+		Example: "  ta template show plans\n  ta template show plans --kind=schema --provenance=ta\n  ta template show go-builder --kind=agent --group=go\n  ta template show CLAUDE --kind=docs-template --provenance=ta",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
-			data, err := templates.ShowDB(name)
-			if err != nil {
-				return err
+			if kind == "" || kind == "schema" {
+				return runTemplateShowSchema(c.OutOrStdout(), name, provenance, asJSON)
 			}
-			if asJSON {
-				enc := json.NewEncoder(c.OutOrStdout())
-				enc.SetIndent("", "  ")
-				return enc.Encode(map[string]any{
-					"db":    name,
-					"bytes": string(data),
-				})
-			}
-			return renderTemplateBody(c.OutOrStdout(), name, data)
+			return runTemplateShowItem(c.OutOrStdout(), name, kind, group, provenance, asJSON)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
+	cmd.Flags().StringVar(&kind, "kind", "", "item kind: schema (default) | agent | config | docs-template")
+	cmd.Flags().StringVar(&group, "group", "", "agent subdir (kind=agent only)")
+	cmd.Flags().StringVar(&provenance, "provenance", "", "source: ta (binary) | home (default home, fall back to binary)")
 	return cmd
+}
+
+// runTemplateShowSchema resolves a schema fragment name with optional
+// provenance pinning. Empty provenance means "prefer home, fall back
+// to binary" — preserves the F15 default behavior. Explicit
+// `--provenance=ta` reaches the binary library directly so binary-only
+// fragments (e.g. `[ta] agents`) are reachable; `--provenance=home`
+// reads strictly from `~/.ta/schema.toml`.
+func runTemplateShowSchema(out io.Writer, name, provFlag string, asJSON bool) error {
+	data, prov, err := resolveSchemaForShow(name, provFlag)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]any{
+			"db":         name,
+			"provenance": string(prov),
+			"bytes":      string(data),
+		})
+	}
+	return renderTemplateBody(out, name, data)
+}
+
+// resolveSchemaForShow looks up one schema fragment honoring
+// provenance pinning. Returns the bytes plus the resolved provenance
+// so JSON callers can see which source actually answered.
+func resolveSchemaForShow(name, provFlag string) ([]byte, templates.Provenance, error) {
+	switch provFlag {
+	case "":
+		// Default: prefer home, fall back to binary. ShowDB is the
+		// canonical home read; ShowItem with ProvenanceBinary handles
+		// the binary fragment library.
+		data, err := templates.ShowDB(name)
+		if err == nil {
+			return data, templates.ProvenanceHome, nil
+		}
+		if !errors.Is(err, templates.ErrDBNotFound) && !errors.Is(err, templates.ErrItemNotFound) {
+			return nil, "", err
+		}
+		binData, binErr := templates.ShowItem(templates.Item{
+			Kind: templates.KindSchema, Name: name, Provenance: templates.ProvenanceBinary,
+		})
+		if binErr == nil {
+			return binData, templates.ProvenanceBinary, nil
+		}
+		// Surface the original ErrDBNotFound so existing tests'
+		// "not found" diagnostics remain stable.
+		return nil, "", err
+	case "home":
+		data, err := templates.ShowDB(name)
+		if err != nil {
+			return nil, "", err
+		}
+		return data, templates.ProvenanceHome, nil
+	case "ta":
+		data, err := templates.ShowItem(templates.Item{
+			Kind: templates.KindSchema, Name: name, Provenance: templates.ProvenanceBinary,
+		})
+		if err != nil {
+			return nil, "", fmt.Errorf("show: schema %q not found in binary library: %w", name, err)
+		}
+		return data, templates.ProvenanceBinary, nil
+	default:
+		return nil, "", fmt.Errorf("unknown --provenance %q (want ta|home)", provFlag)
+	}
+}
+
+func runTemplateShowItem(out io.Writer, name, kindFlag, group, provFlag string, asJSON bool) error {
+	kind, err := parseShowKind(kindFlag)
+	if err != nil {
+		return err
+	}
+	provs := []templates.Provenance{templates.ProvenanceHome, templates.ProvenanceBinary}
+	if provFlag != "" {
+		switch provFlag {
+		case "home":
+			provs = []templates.Provenance{templates.ProvenanceHome}
+		case "ta":
+			provs = []templates.Provenance{templates.ProvenanceBinary}
+		default:
+			return fmt.Errorf("unknown --provenance %q (want ta|home)", provFlag)
+		}
+	}
+	for _, p := range provs {
+		data, err := templates.ShowItem(templates.Item{
+			Kind: kind, Name: name, Group: group, Provenance: p,
+		})
+		if err == nil {
+			if asJSON {
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				return enc.Encode(map[string]any{
+					"kind":       string(kind),
+					"name":       name,
+					"group":      group,
+					"provenance": string(p),
+					"bytes":      string(data),
+				})
+			}
+			fmt.Fprint(out, string(data))
+			if len(data) > 0 && data[len(data)-1] != '\n' {
+				fmt.Fprintln(out)
+			}
+			return nil
+		}
+		if !errors.Is(err, templates.ErrItemNotFound) {
+			return err
+		}
+	}
+	return fmt.Errorf("show: %s %q (group=%q) not found in any provenance", kind, name, group)
+}
+
+func parseShowKind(s string) (templates.Kind, error) {
+	switch s {
+	case "schema":
+		return templates.KindSchema, nil
+	case "agent":
+		return templates.KindAgent, nil
+	case "config":
+		return templates.KindConfig, nil
+	case "docs-template":
+		return templates.KindDocsTemplate, nil
+	default:
+		return "", fmt.Errorf("unknown --kind %q (want schema|agent|config|docs-template)", s)
+	}
 }
 
 func renderTemplateBody(w io.Writer, name string, data []byte) error {
@@ -174,34 +405,141 @@ type templateSaveReport struct {
 func newTemplateSaveCmd() *cobra.Command {
 	var overwrite bool
 	var asJSON bool
+	var kind string
+	var path string
+	var group string
+	var canonical string
 	cmd := &cobra.Command{
 		Use:   "save [<db>...]",
-		Short: "Merge dbs from <cwd>/.ta/schema.toml into ~/.ta/schema.toml",
-		Long: "Reads `<cwd>/.ta/schema.toml`, validates it through the meta-schema, " +
-			"and merges the named dbs into `~/.ta/schema.toml`. With no positional " +
-			"args, every db declared in the project schema is merged. With one or more " +
-			"positional db names, only the named subset is merged. " +
-			"Same-name conflicts: on a TTY without `--overwrite`, a single huh.Confirm " +
-			"asks whether to replace the conflicting home dbs (yes = all, no = skip " +
-			"all). Off-TTY without `--overwrite`, conflicts are auto-skipped. " +
-			"`--overwrite` forces replacement on every conflict, no prompt. " +
-			"After the merge, the result is re-validated through schema.LoadBytes " +
-			"to enforce cross-db invariants (overlapping paths, id collisions); " +
-			"a failure leaves `~/.ta/schema.toml` byte-identical.",
+		Short: "Promote project content to ~/.ta (schema | agent | config | docs-template)",
+		Long: "Promote project content into the home library. Default kind is " +
+			"`schema`: reads `<cwd>/.ta/schema.toml`, validates it through the " +
+			"meta-schema, and merges the named dbs into `~/.ta/schema.toml`. " +
+			"`--kind=agent --path=<file> [--group=<subdir>]` copies an agent .md " +
+			"file into `~/.ta/agents/<group>/<basename>` (creating `<group>` if " +
+			"missing). `--kind=config --canonical=<name>` copies a project file " +
+			"into `~/.ta/configs/<canonical>`; `--kind=docs-template " +
+			"--canonical=<name>` does the same for `~/.ta/docs-templates/<canonical>.md`. " +
+			"Schema mode keeps the F15 conflict semantics (TTY huh.Confirm or " +
+			"`--overwrite`); other kinds error on existing destinations unless " +
+			"`--overwrite` is set.",
 		Example: `  ta template save
   ta template save plans
   ta template save plans notes
-  ta template save plans --overwrite --json`,
+  ta template save --kind=agent --path=./.claude/agents/builder.md --group=go
+  ta template save --kind=config --path=./.mcp.json --canonical=mcp.json
+  ta template save --kind=docs-template --path=./CLAUDE.md --canonical=CLAUDE`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			return runTemplateSave(c.OutOrStdout(), args, overwrite, asJSON)
+			switch kind {
+			case "", "schema":
+				return runTemplateSave(c.OutOrStdout(), args, overwrite, asJSON)
+			case "agent":
+				return runTemplateSaveAgent(c.OutOrStdout(), path, group, overwrite, asJSON)
+			case "config":
+				return runTemplateSaveFlat(c.OutOrStdout(), path, canonical, overwrite, asJSON, "config")
+			case "docs-template":
+				return runTemplateSaveFlat(c.OutOrStdout(), path, canonical, overwrite, asJSON, "docs-template")
+			default:
+				return fmt.Errorf("unknown --kind %q (want schema|agent|config|docs-template)", kind)
+			}
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace same-name dbs in ~/.ta/schema.toml without prompting")
+	cmd.Flags().StringVar(&kind, "kind", "", "what to save: schema (default) | agent | config | docs-template")
+	cmd.Flags().StringVar(&path, "path", "", "source file path (required for kind=agent|config|docs-template)")
+	cmd.Flags().StringVar(&group, "group", "", "agent subdir name under ~/.ta/agents/ (kind=agent only; empty = flat)")
+	cmd.Flags().StringVar(&canonical, "canonical", "", "destination filename (kind=config|docs-template; defaults to basename of --path)")
+	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace existing destination without prompting")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered notice")
 	return cmd
+}
+
+// runTemplateSaveAgent reads --path and copies it into
+// `~/.ta/agents/<group>/<basename>`. Empty group → flat layout.
+func runTemplateSaveAgent(out io.Writer, srcPath, group string, overwrite, asJSON bool) error {
+	if srcPath == "" {
+		return errors.New("save --kind=agent: --path is required")
+	}
+	body, err := os.ReadFile(srcPath)
+	if err != nil {
+		return fmt.Errorf("save: read %s: %w", srcPath, err)
+	}
+	base := filepath.Base(srcPath)
+	if !strings.HasSuffix(base, ".md") {
+		return fmt.Errorf("save --kind=agent: source %q must end in .md", srcPath)
+	}
+	name := strings.TrimSuffix(base, ".md")
+	if err := templates.SaveAgent(name, group, body, overwrite); err != nil {
+		return err
+	}
+	report := templateSaveKindReport{
+		Kind:    "agent",
+		Source:  srcPath,
+		Group:   group,
+		Name:    name,
+		Written: true,
+	}
+	return emitTemplateSaveKindReport(out, report, asJSON)
+}
+
+// runTemplateSaveFlat handles --kind=config and --kind=docs-template.
+// canonical defaults to filepath.Base(path) when empty.
+func runTemplateSaveFlat(out io.Writer, srcPath, canonical string, overwrite, asJSON bool, kind string) error {
+	if srcPath == "" {
+		return fmt.Errorf("save --kind=%s: --path is required", kind)
+	}
+	body, err := os.ReadFile(srcPath)
+	if err != nil {
+		return fmt.Errorf("save: read %s: %w", srcPath, err)
+	}
+	if canonical == "" {
+		canonical = filepath.Base(srcPath)
+		if kind == "docs-template" {
+			canonical = strings.TrimSuffix(canonical, ".md")
+		}
+	}
+	switch kind {
+	case "config":
+		if err := templates.SaveConfig(canonical, body, overwrite); err != nil {
+			return err
+		}
+	case "docs-template":
+		if err := templates.SaveDocsTemplate(canonical, body, overwrite); err != nil {
+			return err
+		}
+	}
+	report := templateSaveKindReport{
+		Kind:    kind,
+		Source:  srcPath,
+		Name:    canonical,
+		Written: true,
+	}
+	return emitTemplateSaveKindReport(out, report, asJSON)
+}
+
+// templateSaveKindReport is the JSON shape for non-schema save kinds.
+type templateSaveKindReport struct {
+	Kind    string `json:"kind"`
+	Source  string `json:"source"`
+	Group   string `json:"group,omitempty"`
+	Name    string `json:"name"`
+	Written bool   `json:"written"`
+}
+
+func emitTemplateSaveKindReport(w io.Writer, r templateSaveKindReport, asJSON bool) error {
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	}
+	headline := r.Kind + ":" + r.Name
+	if r.Group != "" {
+		headline = r.Kind + ":" + r.Group + "/" + r.Name
+	}
+	detail := []string{"source: " + r.Source}
+	return render.New(w).Success("ta template save", headline, detail)
 }
 
 // runTemplateSave orchestrates the save flow: read project schema,
@@ -481,26 +819,98 @@ type templateDeleteReport struct {
 func newTemplateDeleteCmd() *cobra.Command {
 	var force bool
 	var asJSON bool
+	var kind string
+	var group string
 	cmd := &cobra.Command{
-		Use:   "delete <db>",
-		Short: "Remove one db from ~/.ta/schema.toml",
-		Long: "Removes the named db from `~/.ta/schema.toml`. Confirms via huh " +
-			"on a TTY; requires `--force` off-TTY. Missing dbs error loudly " +
-			"with templates.ErrDBNotFound. Removing the last db rewrites the " +
-			"file as a comment-only header so subsequent commands see an " +
-			"explicit empty-registry state.",
+		Use:   "delete <name>",
+		Short: "Remove one item from the home template library",
+		Long: "Removes one home-library item. Default `--kind=schema` removes the " +
+			"named db from `~/.ta/schema.toml`. `--kind=agent --group=<group>` " +
+			"removes one home agent. `--kind=config` / `--kind=docs-template` " +
+			"remove one home flat-library item. Binary items are read-only and " +
+			"refuse to delete (ErrReadOnly). Confirms via huh on a TTY; requires " +
+			"`--force` off-TTY.",
 		Example: `  ta template delete old-plans
-  ta template delete old-plans --force`,
+  ta template delete old-plans --force
+  ta template delete go-builder --kind=agent --group=go --force
+  ta template delete CLAUDE --kind=docs-template --force`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runTemplateDelete(c.OutOrStdout(), args[0], force, asJSON)
+			if kind == "" || kind == "schema" {
+				return runTemplateDelete(c.OutOrStdout(), args[0], force, asJSON)
+			}
+			return runTemplateDeleteItem(c.OutOrStdout(), args[0], kind, group, force, asJSON)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "skip the huh confirm prompt")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered notice")
+	cmd.Flags().StringVar(&kind, "kind", "", "item kind: schema (default) | agent | config | docs-template")
+	cmd.Flags().StringVar(&group, "group", "", "agent subdir (kind=agent only)")
 	return cmd
+}
+
+func runTemplateDeleteItem(out io.Writer, name, kindFlag, group string, force, asJSON bool) error {
+	nonInteractive := force || asJSON
+	switch {
+	case force:
+		// fall through
+	case ttyInteractive(nonInteractive):
+		ok, err := promptConfirm(fmt.Sprintf("Delete home %s %q?", kindFlag, name))
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("delete: aborted; %s %q left in place", kindFlag, name)
+		}
+	default:
+		return fmt.Errorf("delete: %s %q requires --force off a TTY", kindFlag, name)
+	}
+
+	switch kindFlag {
+	case "agent":
+		if err := templates.DeleteAgent(name, group); err != nil {
+			return err
+		}
+	case "config":
+		if err := templates.DeleteConfig(name); err != nil {
+			return err
+		}
+	case "docs-template":
+		if err := templates.DeleteDocsTemplate(name); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown --kind %q (want schema|agent|config|docs-template)", kindFlag)
+	}
+	report := templateDeleteKindReport{
+		Kind:    kindFlag,
+		Group:   group,
+		Name:    name,
+		Deleted: true,
+	}
+	return emitTemplateDeleteKindReport(out, report, asJSON)
+}
+
+type templateDeleteKindReport struct {
+	Kind    string `json:"kind"`
+	Group   string `json:"group,omitempty"`
+	Name    string `json:"name"`
+	Deleted bool   `json:"deleted"`
+}
+
+func emitTemplateDeleteKindReport(w io.Writer, r templateDeleteKindReport, asJSON bool) error {
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	}
+	headline := r.Kind + ":" + r.Name
+	if r.Group != "" {
+		headline = r.Kind + ":" + r.Group + "/" + r.Name
+	}
+	return render.New(w).Success("ta template delete", headline, nil)
 }
 
 func runTemplateDelete(out io.Writer, name string, force, asJSON bool) error {

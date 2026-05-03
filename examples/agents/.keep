@@ -1,0 +1,6 @@
+# Placeholder so the directory ships in embed.FS even with no agent
+# files yet. Filtered out by the templates package at enumeration
+# time. Real agent .md files land in user-defined `<group>/` subdirs
+# (e.g. `examples/agents/go/<name>.md`); add them via `ta template
+# save --kind=agent --path=<file> --group=<group>` from a project,
+# or hand-author and re-run `mage build`.

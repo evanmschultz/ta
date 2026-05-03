@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/evanmschultz/ta/internal/mcpsrv"
 	"github.com/evanmschultz/ta/internal/ops"
+	"github.com/evanmschultz/ta/internal/templates"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -607,5 +609,97 @@ on_create = [
 	}
 	if strings.Contains(string(body), "[plans.drop-001-qa]") {
 		t.Errorf("plans.toml has spawned child despite no_spawn=true; body:\n%s", body)
+	}
+}
+
+// ---- F24 init tool tests ------------------------------------------
+
+// initFixtureFS returns a synthetic binary library for the init MCP
+// tool tests. We can't rely on cmd/ta's main.init to inject the real
+// binary source from this package, so we register one directly via
+// templates.SetBinarySource.
+func initFixtureFS(t *testing.T) {
+	t.Helper()
+	templates.SetBinarySource(fstest.MapFS{
+		"examples/schemas/plans.toml": &fstest.MapFile{
+			Data: []byte(initToolPlansSchema),
+		},
+		"examples/agents/.keep":         &fstest.MapFile{Data: []byte("")},
+		"examples/configs/.keep":        &fstest.MapFile{Data: []byte("")},
+		"examples/docs-templates/.keep": &fstest.MapFile{Data: []byte("")},
+	})
+	t.Cleanup(func() { templates.SetBinarySource(nil) })
+}
+
+const initToolPlansSchema = `
+[plans]
+paths = ["plans.toml"]
+description = "Init-tool test plans db."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+required = true
+`
+
+// TestInitToolPreviewLists confirms preview returns the available
+// payload across binary + home.
+func TestInitToolPreviewLists(t *testing.T) {
+	initFixtureFS(t)
+	homeRoot := t.TempDir()
+	restore := templates.SetRootForTest(homeRoot)
+	t.Cleanup(restore)
+
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "init", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "preview",
+	})
+	if res.IsError {
+		t.Fatalf("init preview errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("parse: %v\n%s", err, body)
+	}
+	if payload["available"] == nil {
+		t.Errorf("missing available: %s", body)
+	}
+}
+
+// TestInitToolApplyConflictError surfaces an MCP-level error when
+// on_conflict=error and a destination conflicts.
+func TestInitToolApplyConflictError(t *testing.T) {
+	initFixtureFS(t)
+	homeRoot := t.TempDir()
+	restore := templates.SetRootForTest(homeRoot)
+	t.Cleanup(restore)
+
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	// Pre-seed the project schema so the apply will conflict on
+	// `plans` (already declared in the project's .ta/schema.toml).
+	res := callTool(t, c, "init", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "apply",
+		"target": fx.projectRoot,
+		"selections": map[string]any{
+			"schemas": []any{"plans"},
+		},
+		"on_conflict": "error",
+	})
+	if !res.IsError {
+		t.Fatalf("expected error on conflict; got %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), "conflict") {
+		t.Errorf("error should mention conflict: %s", firstText(t, res))
 	}
 }

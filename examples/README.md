@@ -16,26 +16,30 @@ ta-shipped + their-own across categories.
 ```
 examples/
 ├── README.md                  # this file
-├── schemas/                   # schema fragments — selected dbs merge into <project>/.ta/schema.toml
-│   └── cascade.toml           # default cascade-methodology schema (drops/plans/discussions/project + repo-files + claude_agents)
-├── agents/                    # selected files copy to <project>/.claude/agents/
-│   ├── go/                    # for Go projects (used to dogfood ta itself)
-│   ├── fe/                    # for FE projects
-│   └── generic/               # language-neutral (future)
+├── schemas/                   # schema fragments — selected dbs merge into <target>/.ta/schema.toml
+│   ├── cascade.toml           # default cascade-methodology schema (drops/plans/discussions/project + repo-files + claude_agents)
+│   └── agents.toml            # agents-as-records schema (paths = ["agents/*/*.md"])
+├── agents/                    # selected files copy to <target>/.claude/agents/<group>/<name>.md
+│                              # (project) or ~/.ta/agents/<group>/<name>.md (home target).
+│                              # `<group>` is whatever the user chose at save time —
+│                              # ta does not infer language; the picker enumerates
+│                              # whatever subdirs exist. Use `ta template save
+│                              # --kind=agent --path=<file> --group=<group>` to populate.
 ├── configs/                   # selected files copy to their canonical destinations
-│                              #   claude-settings.json   → <project>/.claude/settings.json
-│                              #   codex-config.toml      → <project>/.codex/config.toml
-│                              #   mcp.json               → <project>/.mcp.json
-│                              #   gitignore              → <project>/.gitignore
-└── docs-templates/            # selected files copy to <project>/ root with canonical names
+│                              #   claude-settings.json   → <target>/.claude/settings.json
+│                              #   codex-config.toml      → <target>/.codex/config.toml
+│                              #   mcp.json               → <target>/.mcp.json
+│                              #   gitignore              → <target>/.gitignore
+└── docs-templates/            # selected files copy to <target>/ root with canonical names
     ├── CLAUDE.md
     ├── README.md
     ├── CONTRIBUTING.md
     └── SECURITY.md
-
-# Legacy (will retire once F4 + embed-via-embed.FS strategy lands):
-└── schema.toml                # MVP-era single example schema; replaced by schemas/cascade.toml
 ```
+
+The `agents/`, `configs/`, and `docs-templates/` directories ship as
+empty trees with `.keep` sentinels until F25 populates them. The
+templates package filters `.keep` out at enumeration time.
 
 ## How `ta init` Uses This
 
@@ -143,13 +147,16 @@ into `~/.ta/schema.toml`). Future commands extend the pattern:
 
 ### `agents/`
 
-Currently empty subdirs. When the agent-MD work lands (near-last per
-sequencing), this populates from `~/.claude/agents/` — copying
-`go-builder-agent.md`, `go-planning-agent.md`, etc. into
-`agents/go/`. Generalized language-neutral versions go in
-`agents/generic/` before public release. For now ta itself
-dogfoods using whatever the dev places in `ta/main/.claude/agents/`
-directly.
+Currently empty (`.keep` sentinel only). User-defined `<group>/`
+subdirs populate as the user saves agents from projects via
+`ta template save --kind=agent --path=<file> --group=<group>`. ta
+does not infer or enforce a language taxonomy — `<group>` is
+whatever the user named at save time. The picker reads each
+existing `<group>/` subdir as one MultiSelect group during
+`ta init`.
+
+Flat agents (saved without `--group`) land directly under
+`agents/` and are surfaced as the `(ungrouped)` group in the picker.
 
 ### `configs/`
 

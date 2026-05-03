@@ -22,9 +22,19 @@ import (
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
+	taroot "github.com/evanmschultz/ta"
 	"github.com/evanmschultz/ta/internal/mcpsrv"
 	"github.com/evanmschultz/ta/internal/render"
+	"github.com/evanmschultz/ta/internal/templates"
 )
+
+func init() {
+	// Inject the binary-embedded `examples/` tree so the templates
+	// package can serve binary-provenance items alongside home-side
+	// items in init pickers / template list / MCP previews. See
+	// `embed.go` at the repo root for the embed directive itself.
+	templates.SetBinarySource(taroot.EmbeddedExamples())
+}
 
 const appName = "ta"
 

@@ -52,12 +52,15 @@ const (
 // initFlags is the parsed `ta init` flag set, collected in one struct
 // so the bootstrap logic does not need seven positional arguments.
 type initFlags struct {
-	template   string
-	noClaude   bool
-	noCodex    bool
-	force      bool
-	asJSON     bool
-	nonInterRq bool // non-interactive because of flags, not TTY absence
+	template       string
+	noClaude       bool
+	noCodex        bool
+	force          bool
+	asJSON         bool
+	nonInterRq     bool // non-interactive because of flags, not TTY absence
+	target         string
+	selectionsFile string
+	onConflict     string
 }
 
 // initReport is the structured outcome of `ta init`. The --json emit
@@ -108,10 +111,10 @@ func newInitCmd() *cobra.Command {
 			"`ta init` does NOT create that file itself — edit it by hand to " +
 			"tune future `ta init` runs on the same path. --path defaults to " +
 			"cwd; relative or absolute accepted (V2-PLAN §12.17.5 [A1]).",
-		Example: "  ta init\n  ta init --path /abs/path/to/new-project --template plans\n  ta init --path /abs/path --template plans --no-codex --json",
+		Example: "  ta init\n  ta init --path /abs/path/to/new-project --template plans\n  ta init --selections-file selections.json --on-conflict=skip\n  ta init --target ~/.ta --selections-file home-bootstrap.json",
 		Args:    cobra.NoArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			target, err := resolveCLIPath(c)
+			target, err := resolveInitTarget(c, f)
 			if err != nil {
 				return err
 			}
@@ -119,8 +122,9 @@ func newInitCmd() *cobra.Command {
 			// piping stdout expect structured JSON and cannot complete
 			// a huh form. Without this, `ta init --json` from a TTY
 			// would block on the picker then emit JSON afterward (QA
-			// falsification §12.14 LOW-2 finding).
-			f.nonInterRq = f.template != "" || f.asJSON
+			// falsification §12.14 LOW-2 finding). --selections-file
+			// is non-interactive by definition.
+			f.nonInterRq = f.template != "" || f.asJSON || f.selectionsFile != ""
 			return runInit(c.OutOrStdout(), c.ErrOrStderr(), c.InOrStdin(), target, f)
 		},
 		SilenceUsage:  true,
@@ -131,22 +135,97 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&f.noCodex, "no-codex", false, "skip .codex/config.toml generation")
 	cmd.Flags().BoolVar(&f.force, "force", false, "overwrite an existing .ta/schema.toml without prompting")
 	cmd.Flags().BoolVar(&f.asJSON, "json", false, "emit JSON instead of laslig-rendered notices")
+	cmd.Flags().StringVar(&f.target, "target", "", "directory to install items into (overrides --path; use --target=$HOME/.ta to bootstrap the home library)")
+	cmd.Flags().StringVar(&f.selectionsFile, "selections-file", "", "JSON file declaring multi-category selections (skips huh picker)")
+	cmd.Flags().StringVar(&f.onConflict, "on-conflict", "", "conflict policy for multi-category apply: error|skip|overwrite|force (default error)")
 	addPathFlag(cmd)
 	return cmd
 }
 
-// runInit orchestrates bootstrap: mkdir -p the target, resolve
-// template choice (flag or picker), validate schema write (force /
-// confirm path), write schema, then write the two MCP configs honoring
-// flags and `<path>/.ta/config.toml`. `errOut` receives diagnostic
-// warnings (e.g. skipped malformed templates) so they never pollute
-// stdout — agents reading `--json` output on stdout see no warning
-// prefix.
+// resolveInitTarget combines `--target` and `--path` into a single
+// absolute target directory. `--target` wins when both are set; the
+// existing `--path` plumbing remains for backward compat with the
+// pre-F24 single-schema flow. Tilde-expansion is handled here so
+// `--target=~/.ta` works for home-library bootstrap (F24 lock #8).
+func resolveInitTarget(cmd *cobra.Command, f initFlags) (string, error) {
+	if f.target == "" {
+		return resolveCLIPath(cmd)
+	}
+	expanded, err := expandTilde(f.target)
+	if err != nil {
+		return "", fmt.Errorf("resolve --target %q: %w", f.target, err)
+	}
+	abs, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", fmt.Errorf("resolve --target %q: %w", f.target, err)
+	}
+	return filepath.Clean(abs), nil
+}
+
+// expandTilde rewrites a leading `~` or `~/` against $HOME so users
+// can type `--target=~/.ta` without shell expansion (e.g. when the
+// flag value is quoted or comes from a JSON config). Non-tilde
+// inputs pass through unchanged.
+func expandTilde(p string) (string, error) {
+	if p == "" {
+		return p, nil
+	}
+	if p == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return home, nil
+	}
+	if strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, strings.TrimPrefix(p, "~/")), nil
+	}
+	return p, nil
+}
+
+// runInit dispatches between two execution paths:
+//
+//   - The legacy single-schema path (pre-F24): `--template <db>`, the
+//     huh single-multi-select db picker, or `bootstrap.default_template`.
+//     Writes one `<target>/.ta/schema.toml` plus the two MCP configs.
+//   - The multi-category path (F24): `--selections-file` or the huh
+//     multi-group picker. Writes selected items to the four
+//     destination categories. When `--target=$HOME/.ta`, items land
+//     in the home library instead of a project tree (F24 lock #8).
+//
+// `errOut` receives diagnostic warnings (e.g. skipped malformed
+// templates) so they never pollute stdout — agents reading `--json`
+// output on stdout see no warning prefix.
 func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) error {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", target, err)
 	}
+	if isMultiCategoryRun(f) {
+		return runInitMultiCategory(out, errOut, target, f)
+	}
+	return runInitLegacy(out, errOut, in, target, f)
+}
 
+// isMultiCategoryRun reports whether the F24 multi-category code path
+// should fire. The new path is selected when:
+//   - `--selections-file` is set (explicit JSON-driven flow), OR
+//   - `--target` is set (signals multi-category intent — even on TTY
+//     the picker should run there), OR
+//   - `--on-conflict` is set (only meaningful in the multi-cat flow).
+//
+// Without any of these, the legacy single-schema path fires for
+// backward compat with pre-F24 callers and tests.
+func isMultiCategoryRun(f initFlags) bool {
+	return f.selectionsFile != "" || f.target != "" || f.onConflict != ""
+}
+
+// runInitLegacy is the pre-F24 single-schema bootstrap. Untouched
+// from the F15 / §12.17.5 contract.
+func runInitLegacy(out, errOut io.Writer, in io.Reader, target string, f initFlags) error {
 	bootCfg, err := readBootstrapConfig(target)
 	if err != nil {
 		return err

@@ -1,0 +1,4 @@
+# Placeholder so the directory ships in embed.FS even with no doc
+# templates yet. Filtered out by the templates package at enumeration
+# time. Real doc skeletons (README.md, CLAUDE.md, CONTRIBUTING.md,
+# SECURITY.md) land here in F25.
