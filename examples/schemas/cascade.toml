@@ -268,34 +268,15 @@ type = "string"
 format = "markdown"
 description = "Most recent failure detail — used by planner edits to inform fix directives."
 
-# Completion contract
+# Completion contract — declared as type=table (any-shape map). F21
+# does not support nested-table inner-shape validation today; the
+# inner sub-fields (start_criteria, completion_criteria, etc.) live
+# inside the runtime value but are not type-checked. Re-introduce
+# inner validation when ta gains direct nested-table shape support
+# (post-F21 / F21.4-style follow-up).
 [project.bases.ActionItem.fields.completion_contract]
 type = "table"
-description = "Structured contract describing how the item enters and exits."
-
-[project.bases.ActionItem.fields.completion_contract.fields.start_criteria]
-type = "array"
-element_type = "ChecklistItem"
-
-[project.bases.ActionItem.fields.completion_contract.fields.completion_criteria]
-type = "array"
-element_type = "ChecklistItem"
-
-[project.bases.ActionItem.fields.completion_contract.fields.completion_checklist]
-type = "array"
-element_type = "ChecklistItem"
-
-[project.bases.ActionItem.fields.completion_contract.fields.completion_evidence]
-type = "array"
-element_type = "string"
-
-[project.bases.ActionItem.fields.completion_contract.fields.completion_notes]
-type = "string"
-format = "markdown"
-
-[project.bases.ActionItem.fields.completion_contract.fields.require_children_complete]
-type = "boolean"
-default = true
+description = "Structured contract describing how the item enters and exits. Suggested keys: start_criteria, completion_criteria, completion_checklist, completion_evidence, completion_notes, require_children_complete."
 
 # ============================================================================
 # Reusable element types (F21.3 type aliases) — referenced from element_type.
