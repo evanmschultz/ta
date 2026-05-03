@@ -35,10 +35,18 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/evanmschultz/ta/internal/backend/md"
 	"github.com/evanmschultz/ta/internal/configmerge"
 	"github.com/evanmschultz/ta/internal/fsatomic"
 	"github.com/evanmschultz/ta/internal/templates"
 )
+
+// ErrFlattenCollision is returned by Apply when two distinct agent
+// selections resolve to the same flattened destination leaf during
+// project install. Auto-renaming would silently shadow one source, so
+// the install fails fast and names both source paths so the operator
+// can disambiguate at the schema level.
+var ErrFlattenCollision = errors.New("initapply: agent flatten collision")
 
 // Selections is the picker-output / wire-input shape.
 //
@@ -566,12 +574,41 @@ func resolveSchemaBytes(name, provenance string) ([]byte, error) {
 
 func applyAgents(target string, sels []AgentSelection, policy Policy) (Result, error) {
 	res := Result{}
+	if len(sels) == 0 {
+		return res, nil
+	}
+	// F33 collision detection happens BEFORE any disk write so a
+	// collision never partially-applies. Two source paths flattening to
+	// the same dest leaf is a schema-level ambiguity; auto-renaming
+	// would silently shadow one source.
+	flatten := !IsHomeRoot(target)
+	if flatten {
+		seen := map[string]string{}
+		for _, sel := range sels {
+			dest := agentDestPath(target, sel.Group, sel.Name)
+			key := agentKey(sel)
+			if other, dup := seen[dest]; dup {
+				return res, fmt.Errorf("%w: %q and %q both flatten to %s", ErrFlattenCollision, other, key, filepath.Base(dest))
+			}
+			seen[dest] = key
+		}
+	}
 	for _, sel := range sels {
 		eff := sel
 		eff.Provenance = effectiveProvenance(target, sel.Provenance)
 		body, err := resolveAgentBytes(eff)
 		if err != nil {
 			return res, err
+		}
+		// F33 frontmatter rewrite: project install + grouped agent →
+		// frontmatter `name` must match the flattened filename stem.
+		// Claude Code keys agents off the frontmatter name, not the
+		// filename, so the two would drift apart without this rewrite.
+		if flatten && sel.Group != "" {
+			body, err = rewriteAgentFrontmatterName(body, sel.Group+"-"+sel.Name, agentKey(sel))
+			if err != nil {
+				return res, err
+			}
 		}
 		dest := agentDestPath(target, sel.Group, sel.Name)
 		key := agentKey(sel)
@@ -581,6 +618,57 @@ func applyAgents(target string, sels []AgentSelection, policy Policy) (Result, e
 	sort.Strings(res.Skipped)
 	sort.Strings(res.Conflicts)
 	return res, nil
+}
+
+// rewriteAgentFrontmatterName parses YAML frontmatter from body, sets
+// the `name` field to flatName, and re-emits the file with the
+// rewritten frontmatter ahead of the original body. The reassembly
+// uses the same encoder as the file-as-record backend (md.EncodeFrontmatter)
+// so byte-level shape (alphabetical key order, single trailing newline
+// per fence) stays identical to what the backend would have written
+// directly.
+//
+// Loud-error invariant: missing or malformed frontmatter on a
+// file-as-record agent surfaces as an error rather than a silent
+// passthrough — agents are file-as-record and MUST carry frontmatter
+// AND a `name:` field. Missing fence means corrupted source; missing
+// `name:` field means the source was authored without the Claude Code
+// frontmatter contract (Claude Code requires `name` per
+// https://code.claude.com/docs/en/subagents.md). Synthesizing one
+// silently would mask schema-level authoring bugs from the operator.
+// sourceKey is the agent identity used in the error message so the
+// operator can locate the offending source file.
+//
+// Lossy round-trip: yaml.v3 strips comments on encode, so any
+// `# rationale` notes in the source frontmatter are lost in the
+// rewritten output. Acceptable trade-off pre-MVP since Claude Code's
+// frontmatter convention does not include comments and the alternative
+// (yaml.Node-based comment-preserving rewrite) is significantly more
+// complex.
+func rewriteAgentFrontmatterName(body []byte, flatName, sourceKey string) ([]byte, error) {
+	front, rest, err := md.SplitFrontmatter(body)
+	if err != nil {
+		return nil, fmt.Errorf("initapply: agent %s frontmatter malformed: %w", sourceKey, err)
+	}
+	if front == nil {
+		return nil, fmt.Errorf("initapply: agent %s missing required frontmatter — file-as-record agents need a `name:` field for flatten rewrite", sourceKey)
+	}
+	fields, err := md.DecodeFrontmatter(front)
+	if err != nil {
+		return nil, fmt.Errorf("initapply: agent %s frontmatter decode: %w", sourceKey, err)
+	}
+	if _, ok := fields["name"]; !ok {
+		return nil, fmt.Errorf("initapply: agent %s frontmatter missing required `name:` field — Claude Code's subagent format requires it (https://code.claude.com/docs/en/subagents.md)", sourceKey)
+	}
+	fields["name"] = flatName
+	encoded, err := md.EncodeFrontmatter(fields, "")
+	if err != nil {
+		return nil, fmt.Errorf("initapply: agent %s frontmatter encode: %w", sourceKey, err)
+	}
+	out := make([]byte, 0, len(encoded)+len(rest))
+	out = append(out, encoded...)
+	out = append(out, rest...)
+	return out, nil
 }
 
 func agentKey(sel AgentSelection) string {
@@ -622,12 +710,21 @@ func resolveAgentBytes(sel AgentSelection) ([]byte, error) {
 }
 
 func agentDestPath(target, group, name string) string {
+	if IsHomeRoot(target) {
+		// Home target preserves the nested layout — home IS the
+		// nested-by-group source of truth.
+		leaf := name + ".md"
+		if group != "" {
+			leaf = filepath.Join(group, leaf)
+		}
+		return filepath.Join(target, "agents", leaf)
+	}
+	// F33 project flatten: nested home `<group>/<name>.md` lands flat
+	// at `.claude/agents/<group>-<name>.md`. Ungrouped agents (empty
+	// group) have no group prefix to merge in, so they stay `<name>.md`.
 	leaf := name + ".md"
 	if group != "" {
-		leaf = filepath.Join(group, leaf)
-	}
-	if IsHomeRoot(target) {
-		return filepath.Join(target, "agents", leaf)
+		leaf = group + "-" + name + ".md"
 	}
 	return filepath.Join(target, ".claude", "agents", leaf)
 }

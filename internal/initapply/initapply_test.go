@@ -1,6 +1,7 @@
 package initapply_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,15 +165,16 @@ func TestApply_SchemaConflictPolicyOverwrite(t *testing.T) {
 }
 
 func TestApply_AgentsLandInClaudeAgents(t *testing.T) {
-	// F32: empty-provenance + project target = home only. Pre-seed an
-	// agent under home/agents/go/builder.md so the resolver finds it.
+	// F33: project install flattens <group>/<name>.md → <group>-<name>.md
+	// at the destination. Home library stays nested. Frontmatter `name`
+	// is rewritten to match the flattened destination stem.
 	setupBinary(t)
 	homeRoot := setupHome(t)
 	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
 	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(homeAgent, []byte("# go-builder\nbody\n"), 0o644); err != nil {
+	if err := os.WriteFile(homeAgent, []byte(agentWithName("builder")), 0o644); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 	target := t.TempDir()
@@ -187,8 +189,233 @@ func TestApply_AgentsLandInClaudeAgents(t *testing.T) {
 	if len(report.Agents.Written) != 1 {
 		t.Errorf("Agents.Written = %v", report.Agents.Written)
 	}
-	if _, err := os.Stat(filepath.Join(target, ".claude", "agents", "go", "builder.md")); err != nil {
-		t.Errorf("agent not at expected path: %v", err)
+	// F33: nested home → flat project leaf.
+	if _, err := os.Stat(filepath.Join(target, ".claude", "agents", "go-builder.md")); err != nil {
+		t.Errorf("agent not at flattened path: %v", err)
+	}
+	// F33: nested project layout MUST NOT exist post-flatten.
+	if _, err := os.Stat(filepath.Join(target, ".claude", "agents", "go", "builder.md")); err == nil {
+		t.Errorf("nested project agent path leaked despite F33 flatten")
+	}
+}
+
+// agentWithName builds a minimal frontmatter+body agent fixture whose
+// `name` field matches the supplied stem. Used by the F33 nested→flat
+// tests to verify name-rewrite behavior end-to-end.
+func agentWithName(name string) string {
+	return "---\nname: " + name + "\ndescription: test agent\n---\nbody\n"
+}
+
+// TestApplyAgents_NestedToFlat_RewritesPath locks the F33 path-rewrite
+// rule for project installs: nested home `agents/<group>/<name>.md` lands
+// flat at `.claude/agents/<group>-<name>.md`.
+func TestApplyAgents_NestedToFlat_RewritesPath(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(homeAgent, []byte(agentWithName("builder")), 0o644); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	target := t.TempDir()
+
+	sel := initapply.Selections{
+		Agents: []initapply.AgentSelection{{Group: "go", Name: "builder"}},
+	}
+	if _, err := initapply.Apply(target, sel, initapply.PolicyError); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, ".claude", "agents", "go-builder.md")); err != nil {
+		t.Errorf("flat dest missing: %v", err)
+	}
+}
+
+// TestApplyAgents_NestedToFlat_RewritesFrontmatterName locks the
+// frontmatter `name`-field rewrite. The on-disk filename and the
+// frontmatter `name` MUST stay in sync after flattening — Claude Code's
+// agent loader keys off the frontmatter name, not the filename.
+func TestApplyAgents_NestedToFlat_RewritesFrontmatterName(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(homeAgent, []byte(agentWithName("builder")), 0o644); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	target := t.TempDir()
+
+	sel := initapply.Selections{
+		Agents: []initapply.AgentSelection{{Group: "go", Name: "builder"}},
+	}
+	if _, err := initapply.Apply(target, sel, initapply.PolicyError); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, ".claude", "agents", "go-builder.md"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(got), "name: go-builder") {
+		t.Errorf("frontmatter name not rewritten to go-builder: %s", got)
+	}
+	if strings.Contains(string(got), "name: builder\n") {
+		t.Errorf("original name survived rewrite: %s", got)
+	}
+	// Body must survive the round-trip.
+	if !strings.Contains(string(got), "body\n") {
+		t.Errorf("body lost during frontmatter rewrite: %s", got)
+	}
+}
+
+// TestApplyAgents_FlattenCollision_Errors locks the F33 collision-detection
+// rule. Two source agents whose flattened destinations resolve to the
+// same on-disk leaf must surface ErrFlattenCollision before any write.
+// Auto-renaming would silently shadow one source.
+func TestApplyAgents_FlattenCollision_Errors(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	// Two distinct sources that BOTH flatten to `go-builder.md`:
+	//   agents/go/builder.md          → go-builder.md
+	//   agents/go-builder/.md (n/a — group cannot end in hyphen here);
+	// instead use a synthetic ungrouped agent literally named
+	// "go-builder" + a grouped agent {go, builder}. Both flatten to the
+	// same dest leaf because the ungrouped path is `<name>.md` and the
+	// grouped path is `<group>-<name>.md`.
+	groupedSrc := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(groupedSrc), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(groupedSrc, []byte(agentWithName("builder")), 0o644); err != nil {
+		t.Fatalf("seed grouped: %v", err)
+	}
+	flatSrc := filepath.Join(homeRoot, "agents", "go-builder.md")
+	if err := os.WriteFile(flatSrc, []byte(agentWithName("go-builder")), 0o644); err != nil {
+		t.Fatalf("seed flat: %v", err)
+	}
+	target := t.TempDir()
+
+	sel := initapply.Selections{
+		Agents: []initapply.AgentSelection{
+			{Group: "go", Name: "builder"},
+			{Name: "go-builder"},
+		},
+	}
+	_, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err == nil {
+		t.Fatal("expected ErrFlattenCollision, got nil")
+	}
+	if !errors.Is(err, initapply.ErrFlattenCollision) {
+		t.Errorf("err = %v, want ErrFlattenCollision", err)
+	}
+	// Source-path identity in the message: the locked design says
+	// conflict logs name the source path, not the flattened dest.
+	if !strings.Contains(err.Error(), "go/builder") || !strings.Contains(err.Error(), "go-builder") {
+		t.Errorf("collision error should name both source paths: %v", err)
+	}
+}
+
+// TestApplyAgents_HomeTarget_StaysNested locks the `--target-system`
+// path: home target keeps the nested layout because home IS the nested
+// shape. No flatten, no frontmatter rewrite.
+func TestApplyAgents_HomeTarget_StaysNested(t *testing.T) {
+	setupBinary(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".ta")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	restore := templates.SetRootForTest(target)
+	t.Cleanup(restore)
+
+	sel := initapply.Selections{
+		Agents: []initapply.AgentSelection{{Group: "go", Name: "builder"}},
+	}
+	if _, err := initapply.Apply(target, sel, initapply.PolicyOverwrite); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	// Home target → nested.
+	if _, err := os.Stat(filepath.Join(target, "agents", "go", "builder.md")); err != nil {
+		t.Errorf("home agent not at nested path: %v", err)
+	}
+	// Home target must NOT flatten.
+	if _, err := os.Stat(filepath.Join(target, "agents", "go-builder.md")); err == nil {
+		t.Errorf("home target accidentally flattened")
+	}
+	// Frontmatter must NOT be rewritten on home target — body should
+	// match the binary fragment seeded by setupBinary verbatim.
+	got, err := os.ReadFile(filepath.Join(target, "agents", "go", "builder.md"))
+	if err != nil {
+		t.Fatalf("read home agent: %v", err)
+	}
+	if string(got) != "# go-builder\nbody\n" {
+		t.Errorf("home agent rewritten unexpectedly: %q", got)
+	}
+}
+
+// TestApplyAgents_UngroupedAgent_NoRewrite locks the empty-group case.
+// An ungrouped (top-level) agent has no group prefix to flatten in, so
+// path stays `<name>.md` and frontmatter `name` stays unchanged.
+func TestApplyAgents_UngroupedAgent_NoRewrite(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	homeAgent := filepath.Join(homeRoot, "agents", "solo.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(homeAgent, []byte(agentWithName("solo")), 0o644); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	target := t.TempDir()
+
+	sel := initapply.Selections{
+		Agents: []initapply.AgentSelection{{Name: "solo"}},
+	}
+	if _, err := initapply.Apply(target, sel, initapply.PolicyError); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	dest := filepath.Join(target, ".claude", "agents", "solo.md")
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// Path stays `<name>.md`, frontmatter `name` stays `solo`.
+	if !strings.Contains(string(got), "name: solo\n") {
+		t.Errorf("ungrouped agent name unexpectedly rewritten: %s", got)
+	}
+}
+
+// TestApplyAgents_FrontmatterMissingNameField_LoudFails locks the QA-
+// falsifier follow-up: when source frontmatter exists but lacks a
+// required `name:` field, F33 must error rather than silently
+// synthesize one. Claude Code's subagent contract requires `name`;
+// silently synthesizing would mask schema-authoring bugs.
+func TestApplyAgents_FrontmatterMissingNameField_LoudFails(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Frontmatter present but no `name:` field.
+	body := "---\ndescription: missing name\n---\nbody\n"
+	if err := os.WriteFile(homeAgent, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	target := t.TempDir()
+
+	sel := initapply.Selections{
+		Agents: []initapply.AgentSelection{{Group: "go", Name: "builder"}},
+	}
+	_, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err == nil {
+		t.Fatal("expected error for missing name field, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing required `name:` field") {
+		t.Errorf("error message should name the missing field, got: %v", err)
 	}
 }
 

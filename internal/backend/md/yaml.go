@@ -22,6 +22,16 @@ func DecodeFrontmatter(front []byte) (map[string]any, error) {
 	return decodeFrontmatter(front)
 }
 
+// EncodeFrontmatter is the exported alias for encodeFrontmatter. The
+// initapply F33 nested→flat agent transform needs to re-emit frontmatter
+// with a rewritten `name` field while keeping byte-level determinism
+// (alphabetical key order, single trailing newline) identical to what
+// the file-as-record backend writes; sharing the encoder is the only
+// way to avoid divergent emission paths drifting apart.
+func EncodeFrontmatter(fields map[string]any, bodyField string) ([]byte, error) {
+	return encodeFrontmatter(fields, bodyField)
+}
+
 // splitFrontmatter splits buf into (front, body) on the YAML
 // frontmatter contract: the buffer must open with a line containing
 // exactly `---` (followed by a newline) and contain a matching closing
