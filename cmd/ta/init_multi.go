@@ -147,13 +147,13 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 		// Title goes on the FIELD only — leaving Group title empty so
 		// huh doesn't render the same label twice. Height pins the
 		// option viewport to the visible terminal area so long lists
-		// scroll instead of overflowing. Description surfaces the
-		// quit + filter-clear hints since huh's help bar only shows
-		// field-level bindings (Quit lives at the form level).
+		// scroll instead of overflowing. The q-quit hint lives in
+		// the bottom help bar (jammed into the Toggle binding's help
+		// text via tafKeyMap), NOT in a per-field Description — one
+		// place for keymap info, not two.
 		groups = append(groups, huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title(bucketTitle(k.kind, k.group)).
-				Description("q quit • esc clears filter").
 				Options(opts...).
 				Value(slot).
 				Height(pickerHeight),

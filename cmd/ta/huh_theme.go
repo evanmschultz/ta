@@ -2,6 +2,7 @@ package main
 
 import (
 	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -76,9 +77,15 @@ func tafKeyMap() *huh.KeyMap {
 		key.WithKeys("down", "j", "ctrl+n"),
 		key.WithHelp("j", "down"),
 	)
+	// Toggle help also carries the q-quit hint because huh's help bar
+	// only surfaces field-level bindings (`MultiSelect.KeyBinds()`
+	// returns a hardcoded list that omits form-level Quit). Cramming
+	// it into the Toggle help text keeps everything in one place — the
+	// bottom help bar — instead of duplicating across a per-field
+	// Description block.
 	km.MultiSelect.Toggle = key.NewBinding(
 		key.WithKeys("space", "x"),
-		key.WithHelp("x/space", "toggle"),
+		key.WithHelp("x/space", "toggle • q quit"),
 	)
 	// Same vim-help convention for Select-field navigation (used by
 	// the bare-`ta` huh menu in main.go and template-show flows).
@@ -93,16 +100,29 @@ func tafKeyMap() *huh.KeyMap {
 	return km
 }
 
-// tafForm wraps `huh.NewForm` with the project's standard theme and
-// keymap so every cmd/ta picker / confirm / form renders consistently
-// AND defends the queued-stdin attack surface. New huh sites MUST go
-// through this constructor — `rg 'huh\.NewForm\(' cmd/ta/` should
-// match nothing outside this file post-F18 (QA-falsification gate).
-// The wrapper is transparent off-TTY: `WithTheme` and `WithKeyMap`
-// only affect `View()` rendering and key dispatch, so unit tests that
-// build a form and never call `Run()` see no behavioral change.
+// tafForm wraps `huh.NewForm` with the project's standard theme,
+// keymap, and view hook so every cmd/ta picker / confirm / form
+// renders consistently AND defends the queued-stdin attack surface.
+// New huh sites MUST go through this constructor — `rg 'huh\.NewForm\(' cmd/ta/`
+// should match nothing outside this file post-F18 (QA-falsification gate).
+//
+// `WithViewHook` flips `view.AltScreen = true` on every render so the
+// TUI lives in the terminal's alternate screen buffer; on exit the
+// alternate screen tears down and the previous main-screen state
+// returns. Net result: laslig success notices and fang error blocks
+// emit cleanly AFTER the form, with no residual TUI frame in the
+// scrollback.
+//
+// The wrapper is transparent off-TTY: `WithTheme`, `WithKeyMap`, and
+// `WithViewHook` only affect `View()` rendering and key dispatch, so
+// unit tests that build a form and never call `Run()` see no
+// behavioral change.
 func tafForm(groups ...*huh.Group) *huh.Form {
 	return huh.NewForm(groups...).
 		WithTheme(tafTheme()).
-		WithKeyMap(tafKeyMap())
+		WithKeyMap(tafKeyMap()).
+		WithViewHook(func(v tea.View) tea.View {
+			v.AltScreen = true
+			return v
+		})
 }
