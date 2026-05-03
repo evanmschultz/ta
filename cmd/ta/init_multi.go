@@ -19,12 +19,12 @@ import (
 // (selections-file or huh picker) into an initapply.Selections and
 // hands the actual disk writes off to internal/initapply so the CLI
 // path matches the MCP path byte-for-byte.
-func runInitMultiCategory(out, _ io.Writer, target string, f initFlags) error {
+func runInitMultiCategory(out, errOut io.Writer, target string, f initFlags) error {
 	policyStr := f.onConflict
 	if policyStr == "" {
 		policyStr = "error"
 	}
-	sel, err := resolveSelections(f)
+	sel, err := resolveSelections(errOut, f)
 	if err != nil {
 		return err
 	}
@@ -53,13 +53,27 @@ func runInitMultiCategory(out, _ io.Writer, target string, f initFlags) error {
 
 // resolveSelections reads `--selections-file` when set, runs the huh
 // multi-group picker on TTY, or errors loudly off-TTY without a
-// selections file.
-func resolveSelections(f initFlags) (initapply.Selections, error) {
+// selections file. When home is empty in the off-TTY error path, we
+// emit the laslig "home library is empty" notice + friendly error
+// pointing at examples/ and `ta template save` so the legacy V2-PLAN
+// §12.17.5 [D2] guidance survives the F24 multi-category gate flip.
+func resolveSelections(errOut io.Writer, f initFlags) (initapply.Selections, error) {
 	if f.selectionsFile != "" {
 		return readSelectionsFile(f.selectionsFile)
 	}
 	if !ttyInteractive(f.nonInterRq) {
-		return initapply.Selections{}, errors.New("init: no selections; pass --selections-file or run on a TTY for the picker")
+		// Off-TTY without --selections-file. If home is empty AND the
+		// binary library has nothing actionable either, route through
+		// the legacy emptyHomeError so the user sees concrete pointers
+		// to populate the library. Otherwise the user just needs to
+		// pass --selections-file or use a TTY.
+		emitInitLegacyWarning(errOut)
+		reg, _, lerr := templates.LoadHome()
+		if lerr == nil && len(reg.DBs) == 0 {
+			root, _ := templates.Root()
+			return initapply.Selections{}, emptyHomeError(errOut, root)
+		}
+		return initapply.Selections{}, errors.New("init: no selections; pass --selections-file or run on a TTY for the picker. Sample schemas live in the ta repo under examples/, or run `ta template save` from a project to populate ~/.ta/")
 	}
 	return runMultiCategoryPicker()
 }

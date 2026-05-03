@@ -228,16 +228,20 @@ func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) er
 }
 
 // isMultiCategoryRun reports whether the F24 multi-category code path
-// should fire. The new path is selected when:
-//   - `--selections-file` is set (explicit JSON-driven flow), OR
-//   - `--target` is set (signals multi-category intent — even on TTY
-//     the picker should run there), OR
-//   - `--on-conflict` is set (only meaningful in the multi-cat flow).
+// should fire. The legacy single-schema path is reserved for the one
+// case it still uniquely covers: `--template <db>`, the non-interactive
+// single-db shortcut that extracts one home-side db verbatim. Every
+// other shape — bare `ta init`, `--selections-file`, `--target`,
+// `--on-conflict` — goes through the multi-category picker so binary
+// defaults shipped via embed.FS (`[ta]` provenance) surface alongside
+// any home-side items.
 //
-// Without any of these, the legacy single-schema path fires for
-// backward compat with pre-F24 callers and tests.
+// This gate fixes the post-F24 regression where a fresh install (empty
+// `~/.ta/schema.toml`) errored "home library is empty" instead of
+// offering the binary-shipped cascade / agents schemas the picker now
+// has access to.
 func isMultiCategoryRun(f initFlags) bool {
-	return f.selectionsFile != "" || f.target != "" || f.onConflict != ""
+	return f.template == ""
 }
 
 // runInitLegacy is the pre-F24 single-schema bootstrap. Untouched
