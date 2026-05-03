@@ -3,17 +3,26 @@ package main
 import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // tafTheme returns the canonical huh theme for every interactive form
-// in `cmd/ta/`. Wrapping `huh.ThemeDracula` in `huh.ThemeFunc` defers
-// the dark-vs-light decision to bubbletea's runtime background-color
-// query (`Form.hasDarkBg`), so the same theme value works on both
-// dark and light terminals without `lipgloss.HasDarkBackground` being
-// called eagerly at form-construction time. F18 lock: Dracula across
-// all 9 huh sites; no per-site palette overrides.
+// in `cmd/ta/`. Wraps `huh.ThemeDracula` and strips the focused-field
+// thick left border so the picker reads as plain rows instead of a
+// boxed-off block. The dark-vs-light decision still defers to
+// bubbletea's runtime background query — wrapping in `huh.ThemeFunc`
+// preserves that lazy resolution.
 func tafTheme() huh.Theme {
-	return huh.ThemeFunc(huh.ThemeDracula)
+	return huh.ThemeFunc(func(isDark bool) *huh.Styles {
+		s := huh.ThemeDracula(isDark)
+		// Drop the left-border accent on focused fields. The Dracula
+		// default uses `lipgloss.ThickBorder().BorderLeft(true)` which
+		// renders a `┃` column down every focused field; we want flat
+		// rows.
+		s.Focused.Base = s.Focused.Base.BorderStyle(lipgloss.HiddenBorder())
+		s.Blurred.Base = s.Blurred.Base.BorderStyle(lipgloss.HiddenBorder())
+		return s
+	})
 }
 
 // tafKeyMap returns the canonical huh keymap for every interactive
@@ -48,6 +57,16 @@ func tafKeyMap() *huh.KeyMap {
 	km.Confirm.Toggle = key.NewBinding(
 		key.WithKeys("right", "left"),
 		key.WithHelp("←/→", "toggle"),
+	)
+	// Bind `q` (and Esc) to Quit alongside the default ctrl+c so any
+	// huh form in cmd/ta/ exits on a single keystroke. huh dispatches
+	// Quit at the form level BEFORE field-level filter input, so a
+	// `q` typed while a MultiSelect filter is active will quit rather
+	// than insert into the filter — acceptable tradeoff for a
+	// universal exit key.
+	km.Quit = key.NewBinding(
+		key.WithKeys("ctrl+c", "q", "esc"),
+		key.WithHelp("q", "quit"),
 	)
 	return km
 }
