@@ -109,6 +109,106 @@ func (r *Resolver) ResolveID(id string) (Resolved, schema.DB, error) {
 		"%w: %q", ErrIDDoesNotMatchAnyDB, id)
 }
 
+// ResolveIDInDB is the type-aware companion to ResolveID. It is the
+// resolver used by Create / Update / Delete when the caller has
+// supplied a db-qualified --type (e.g. `agents.agent`): the caller's
+// declared db is the authoritative anchor, so the mount-iteration
+// loop is constrained to that db only. A bare 2-segment id like
+// `<group>.<name>` no longer falls through alphabetically to a
+// different db (e.g. `claude_agents/*.md`) when the caller's intent
+// was `agents/*/*.md` — it errors with the expected shape derived
+// from the named db's mount wildcards.
+//
+// On miss, returns an error of the form:
+//
+//	db %q does not accept id %q (expected shape: <description>; got %d segments, need %d)
+//
+// where the description is derived from the db's mount(s) — for a
+// `agents/*/*.md` mount the shape is `<group>.<name>.<bracket-key>`.
+//
+// Returns ErrIDDoesNotMatchAnyDB when dbName is not in the registry
+// (mirrors the resolver's overall miss sentinel for a consistent
+// error shape across the surface). Read paths that do not pass
+// --type (Get, List, search) keep using plain ResolveID — only the
+// mutation-with-type path benefits from the constraint.
+func (r *Resolver) ResolveIDInDB(id, dbName string) (Resolved, schema.DB, error) {
+	if id == "" {
+		return Resolved{}, schema.DB{}, fmt.Errorf("%w: empty", ErrBadID)
+	}
+	dbDecl, ok := r.registry.DBs[dbName]
+	if !ok {
+		return Resolved{}, schema.DB{}, fmt.Errorf(
+			"%w: db %q not declared in registry", ErrIDDoesNotMatchAnyDB, dbName)
+	}
+	parts := strings.Split(id, ".")
+	if slices.Contains(parts, "") {
+		return Resolved{}, schema.DB{}, fmt.Errorf(
+			"%w: %q has empty segment", ErrBadID, id)
+	}
+	for _, mount := range dbDecl.Paths {
+		res, ok, err := tryParseAgainstMount(parts, dbDecl, mount, r.root)
+		if err != nil {
+			return Resolved{}, schema.DB{}, err
+		}
+		if !ok {
+			continue
+		}
+		return res, dbDecl, nil
+	}
+	return Resolved{}, schema.DB{}, fmt.Errorf(
+		"%w: db %q does not accept id %q (%s; got %d segments)",
+		ErrIDDoesNotMatchAnyDB, dbName, id, expectedShapeForDB(dbDecl), len(parts))
+}
+
+// expectedShapeForDB renders a human-readable expected-shape
+// description for dbDecl, derived from the db's mount wildcards. A
+// single-mount db produces a single shape; multi-mount dbs produce a
+// "one of: ..." list. Used by ResolveIDInDB's miss-error to tell the
+// caller exactly what id grammar the named db accepts.
+func expectedShapeForDB(dbDecl schema.DB) string {
+	if len(dbDecl.Paths) == 0 {
+		return "expected shape: <unknown> (db has no mounts)"
+	}
+	shapes := make([]string, 0, len(dbDecl.Paths))
+	for _, mount := range dbDecl.Paths {
+		shape, segs := mountExpectedShape(mount, dbDecl.Format)
+		shapes = append(shapes, fmt.Sprintf("%s, need %d", shape, segs))
+	}
+	if len(shapes) == 1 {
+		return "expected shape: " + shapes[0]
+	}
+	return "expected one of: " + strings.Join(shapes, " | ")
+}
+
+// mountExpectedShape derives a human-readable id-grammar template
+// from one mount entry (e.g. `agents/*/*.md` →
+// `<group>.<name>.<bracket-key>`, segs=3). The caller composes the
+// template with a "got N segments, need M" suffix.
+//
+// Wildcard-segment names are synthesized in declaration order:
+// `<seg-1>`, `<seg-2>`, etc. (kept generic — without inspecting the
+// concrete filesystem we cannot infer semantic names like `group`).
+// Each wildcard contributes one segment; the leaf static segment
+// (with format extension stripped) contributes one segment when
+// non-empty; the bracket-key contributes one segment.
+func mountExpectedShape(mount string, format schema.Format) (string, int) {
+	_, residualSegs := splitMountSegments(mount)
+	expected := stripFormatExt(residualSegs, format)
+	parts := make([]string, 0, len(expected)+1)
+	wildIdx := 0
+	for _, seg := range expected {
+		if seg == "*" {
+			wildIdx++
+			parts = append(parts, fmt.Sprintf("<seg-%d>", wildIdx))
+			continue
+		}
+		// Literal residual segment (e.g. `db` in `workflow/*/db.toml`).
+		parts = append(parts, seg)
+	}
+	parts = append(parts, "<bracket-key>")
+	return "expected shape: " + strings.Join(parts, "."), len(parts)
+}
+
 // tryParseAgainstMount attempts to parse parts against one mount entry
 // of one db under the F10 id grammar. Returns (resolved, true, nil)
 // on a successful match, (zero, false, nil) when the mount's expected

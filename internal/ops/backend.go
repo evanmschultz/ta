@@ -2,6 +2,7 @@ package ops
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/evanmschultz/ta/internal/backend/md"
 	"github.com/evanmschultz/ta/internal/backend/toml"
@@ -82,18 +83,58 @@ func tomlScannerTypes(dbDecl schema.DB, resolved db.Resolved) []record.DeclaredT
 }
 
 // backendSectionPath converts the resolved id into the path shape
-// each backend expects for Find/Emit/Splice.
+// each backend expects for Find/Emit/Splice. The two formats deliver
+// asymmetric shapes by design (F30):
 //
-// Per F10 the on-disk bracket IS the id verbatim. For single-file
-// dbs the bracket starts with the file-relpath; for multi-file dbs
-// the bracket is the bracket-key alone (relative to its file).
-func backendSectionPath(dbDecl schema.DB, resolved db.Resolved) string {
+//   - FormatTOML: returns the on-disk bracket verbatim. Per F10 the
+//     bracket IS the id; for single-file dbs the bracket starts with
+//     the file-relpath, for multi-file dbs the bracket is the
+//     bracket-key alone. bareType is unused on this branch.
+//   - FormatMD: returns `<file-relpath>.<bareType>.<bracket-key>`.
+//     The md backend's relativeAddress walks the section's dotted
+//     segments left-to-right looking for the FIRST segment matching
+//     a declared type-name; that segment anchors the relative
+//     address it returns to the scanner's matcher. Pre-F10 sections
+//     carried the type in the id; post-F10 the canonical id is
+//     `<file-relpath>.<bracket-key>` and the type lives in the index.
+//     Inserting bareType BETWEEN file-relpath and bracket-key
+//     restores the shape relativeAddress expects: file-relpath
+//     segments are stripped as qualifiers, bareType anchors, and
+//     bracket-key becomes the chain that must match the scanner's
+//     `<bareType>.<heading-slug-chain>` for a record at the H<level>
+//     declared as bareType. For the canonical case where the
+//     bracket-key IS the leaf heading slug, the chain length is 1
+//     and the address shape equals `<bareType>.<bracket-key>`. A
+//     more aspirational fix would refactor md.Backend to take type
+//     as a separate Find/Emit/Splice parameter — that is an F31
+//     follow-up; for F30 the asymmetric backendSectionPath is the
+//     minimal-disruption surgical fix.
+//
+// bareType is the BARE type name (e.g. `agent`, not `agents.agent`)
+// already resolved by ops via resolveTypeForID. Callers MUST resolve
+// the type before invoking this function for MD-format dbs; an empty
+// bareType on the MD branch produces a malformed section path that
+// md.Backend.relativeAddress will reject as ErrNotDeclaredType.
+func backendSectionPath(dbDecl schema.DB, resolved db.Resolved, bareType string) string {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
 		return tomlBracketPath(resolved)
 	case schema.FormatMD:
-		// MD addresses are still type-anchored; pass the canonical id.
-		return resolved.Canonical()
+		// MD addresses are type-anchored per md.Backend.relativeAddress;
+		// insert bareType between file-relpath and bracket-key so the
+		// canonical F10 id (which omits the type) parses against the
+		// backend's declared-type table.
+		parts := make([]string, 0, 3)
+		if resolved.FileRelPath != "" {
+			parts = append(parts, resolved.FileRelPath)
+		}
+		if bareType != "" {
+			parts = append(parts, bareType)
+		}
+		if resolved.BracketKey != "" {
+			parts = append(parts, resolved.BracketKey)
+		}
+		return strings.Join(parts, ".")
 	default:
 		return resolved.Canonical()
 	}

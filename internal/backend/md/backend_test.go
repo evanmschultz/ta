@@ -883,6 +883,59 @@ func TestSpliceOrphanSiblingCreationRejected(t *testing.T) {
 	}
 }
 
+// TestCreate_MD_RoundTripsAfterF10 exercises the F30 ops contract
+// from the md backend's perspective: a section path of shape
+// `<file-relpath>.<bareType>.<bracket-key>` (the type-anchored shape
+// ops produces post-F30 via backendSectionPath) round-trips through
+// Emit + Splice + Find without ErrNotDeclaredType. Pre-F30 the ops
+// layer was passing the canonical F10 id (no type) and md.Backend's
+// relativeAddress could not anchor it; this test locks in the new
+// contract from the backend's side.
+func TestCreate_MD_RoundTripsAfterF10(t *testing.T) {
+	// Schema mirrors the agents-style db: H1 declared as `agent`.
+	types := []record.DeclaredType{
+		{Name: "agent", Heading: 1},
+	}
+	b, err := NewBackend(types)
+	if err != nil {
+		t.Fatalf("NewBackend: %v", err)
+	}
+	// File-relpath `foo.bar` (from mount agents/*/*.md → file
+	// agents/foo/bar.md), bracket-key `qux`. Ops inserts the bareType
+	// `agent` between them to produce section `foo.bar.agent.qux`.
+	// relativeAddress strips `foo.bar` as qualifier and anchors on
+	// `agent`, leaving `agent.qux` to match the scanner's address
+	// for the H1 heading "Qux" inside the file.
+	const section = "foo.bar.agent.qux"
+	emitted, err := b.Emit(section, record.Record{"body": "hello world"})
+	if err != nil {
+		t.Fatalf("Emit %q: %v", section, err)
+	}
+	out, err := b.Splice(nil, section, emitted)
+	if err != nil {
+		t.Fatalf("Splice into empty buf: %v", err)
+	}
+	if !bytes.Contains(out, []byte("# Qux")) {
+		t.Errorf("Splice output missing H1 'Qux': %q", out)
+	}
+	if !bytes.Contains(out, []byte("hello world")) {
+		t.Errorf("Splice output missing body: %q", out)
+	}
+	// Find round-trip: the same type-anchored section path must
+	// locate the section we just emitted.
+	sec, ok, err := b.Find(out, section)
+	if err != nil {
+		t.Fatalf("Find %q: %v", section, err)
+	}
+	if !ok {
+		t.Fatalf("Find %q: not found in %q", section, out)
+	}
+	span := string(out[sec.Range[0]:sec.Range[1]])
+	if !strings.Contains(span, "# Qux") || !strings.Contains(span, "hello world") {
+		t.Errorf("Find span %q missing heading or body", span)
+	}
+}
+
 // TestSpliceOrphanReplaceStillWorks verifies the READ/WRITE asymmetry
 // only bites NEW inserts. Replacing an EXISTING orphan record goes
 // through the exact-address match branch in Splice, which does not

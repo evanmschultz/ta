@@ -212,6 +212,130 @@ func TestUnknownIDFailsLoudly(t *testing.T) {
 	}
 }
 
+// TestCreate_TypeAwareResolverConstraintToDB locks in the F29 fix:
+// when --type names db `agents` (mount `agents/*/*.md`) and the id
+// has only 2 segments, ops MUST surface the resolver's missing-shape
+// error rather than silently falling through to db `claude_agents`
+// (mount `claude_agents/*.md`, accepts 2-segment ids
+// alphabetically-first). Pre-F29 the id resolved to claude_agents and
+// then ops's type cross-check fired a confusing "type mismatch"; post-
+// F29 the resolver itself rejects with the expected shape and segment
+// count.
+func TestCreate_TypeAwareResolverConstraintToDB(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[claude_agents]
+paths = ["claude_agents/*.md"]
+
+[claude_agents.agent]
+description = "A claude agent"
+heading = 1
+
+[claude_agents.agent.fields.body]
+type = "string"
+required = false
+
+[agents]
+paths = ["agents/*/*.md"]
+
+[agents.agent]
+description = "An agent"
+heading = 1
+
+[agents.agent.fields.body]
+type = "string"
+required = false
+`)
+	// 2-segment id `foo.bar` with --type agents.agent (3-segment mount)
+	// must error with the expected shape + segment count, not silently
+	// fall through to claude_agents (whose mount accepts 2 segments).
+	_, _, err := ops.Create(root, "foo.bar", "agents.agent", map[string]any{
+		"body": "x",
+	})
+	if err == nil {
+		t.Fatal("expected error for 2-segment id under --type agents.agent")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		`db "agents"`, `does not accept id "foo.bar"`, "expected shape", "<bracket-key>", "got 2 segments",
+	} {
+		if !contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+	// Sanity: the misleading pre-F29 error path should NOT fire — the
+	// resolver constraint rejects before type-mismatch can surface.
+	if contains(msg, "type mismatch") || contains(msg, "type db") {
+		t.Errorf("expected resolver-shape error, got type-mismatch fallthrough: %q", msg)
+	}
+}
+
+// TestCreate_F29WritesToConstrainedDBFile is the regression lock for
+// the falsification finding on F29: when two MD dbs both accept the
+// same id (different mount prefixes but compatible segment counts),
+// the F29 resolver must constrain BOTH the mount-iteration AND the
+// file-path used by the write. Pre-fix, ops constrained the resolved
+// view but then went back through resolver.ResolveWrite which re-ran
+// unconstrained ResolveID and wrote to the alphabetically-first db's
+// file — silent corruption.
+//
+// The setup mirrors the falsifier's reproducer: db `agents` mounts
+// `agents/*/*.md` (accepts 3-seg ids `<dir>.<base>.<bracket>`); db
+// `claude_agents` mounts `.claude/agents/*.md` (accepts ids
+// `<base>.<bracket>` — but ALSO accepts a 3-seg id of the form
+// `<dir>.<base>.<bracket>` if the dir segment fits the wildcard
+// because the static prefix is `.claude/agents/`). Caller asks for
+// `--type=claude_agents.agent`. The write MUST land in
+// `<root>/.claude/agents/agents.md`, NOT `<root>/agents/agents/demo-1.md`.
+func TestCreate_F29WritesToConstrainedDBFile(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[agents]
+paths = ["agents/*/*.md"]
+
+[agents.agent]
+description = "An agent (multi-dir mount)"
+heading = 1
+
+[agents.agent.fields.body]
+type = "string"
+required = false
+
+[claude_agents]
+paths = [".claude/agents/*.md"]
+
+[claude_agents.agent]
+description = "A claude agent (single-dir mount)"
+heading = 1
+
+[claude_agents.agent.fields.body]
+type = "string"
+required = false
+`)
+	// 3-segment id, --type=claude_agents.agent. The constrained
+	// resolver picks claude_agents (its mount is `.claude/agents/*.md`,
+	// where `agents` is the file basename and `demo-1.somekey` is the
+	// bracket — F10 single-wildcard mount). The unconstrained resolver
+	// would alphabetically prefer `agents` (mount `agents/*/*.md`,
+	// where `agents.demo-1` would split into dir+base and `somekey`
+	// into bracket).
+	_, _, err := ops.Create(root, "agents.demo-1.somekey", "claude_agents.agent", map[string]any{
+		"body": "hello world",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// The write MUST land under .claude/agents/, not under agents/.
+	claudePath := filepath.Join(root, ".claude", "agents", "agents.md")
+	wrongPath := filepath.Join(root, "agents", "agents", "demo-1.md")
+	if _, err := os.Stat(claudePath); err != nil {
+		t.Errorf("expected write at constrained db path %q, stat err: %v", claudePath, err)
+	}
+	if _, err := os.Stat(wrongPath); err == nil {
+		t.Errorf("write landed at unconstrained db path %q — F29 file-path constraint regressed", wrongPath)
+	}
+}
+
 func contains(s, substr string) bool {
 	for i := 0; i+len(substr) <= len(s); i++ {
 		if s[i:i+len(substr)] == substr {

@@ -283,10 +283,23 @@ func (b *Backend) Splice(buf []byte, section string, emitted []byte) ([]byte, er
 	return nil, fmt.Errorf("%w: %q missing while splicing %q", ErrParentMissing, parentAddr, section)
 }
 
-// relativeAddress strips any leading "<db>" or "<db>.<instance>"
-// qualifiers from section and returns the "<type-name>.<chain>"
-// relative address the scanner and addresses produce. Returns ok=false
-// when section contains no segment that matches a declared type name.
+// relativeAddress strips any leading qualifier segments from section
+// and returns the "<type-name>.<chain>" relative address the scanner
+// and addresses produce. Returns ok=false when section contains no
+// segment that matches a declared type name.
+//
+// Per the F30 ops contract (internal/ops/backend.go.backendSectionPath),
+// MD-format dbs receive sections of shape
+// `<file-relpath>.<bareType>.<bracket-key>` (e.g.
+// `foo.bar.agent.qux`). Everything before the bareType segment is
+// qualifier (db-name, instance, file-relpath); the bareType segment
+// anchors the relative address; everything after is the chain that
+// must match the scanner's `<bareType>.<heading-slug-chain>` for a
+// declared heading. Pre-F10 sections carried the type in the id
+// itself; F10 moved type into the index and F30 restored the
+// type-anchored shape at the ops/md-backend boundary. The
+// relativeAddress contract on this side is unchanged — it has always
+// been "find first segment matching a declared type, return tail".
 //
 // Addresses are segment-aligned: a declared type name "section" only
 // matches when the preceding character (if any) is '.'. This prevents

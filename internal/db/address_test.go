@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/evanmschultz/ta/internal/schema"
@@ -213,6 +214,71 @@ func TestResolveIDHomeRelativeMount(t *testing.T) {
 	want := filepath.Join(home, ".ta", "projects", "foo", "db.toml")
 	if res.FilePath != want {
 		t.Errorf("res.FilePath = %q, want %q", res.FilePath, want)
+	}
+}
+
+// TestResolveIDInDBHappyPath: a 3-segment id under a glob mount
+// resolves to the named db without falling through to any other db
+// in the registry. This is the F29 base case — the named db is the
+// authoritative anchor when --type is supplied.
+func TestResolveIDInDBHappyPath(t *testing.T) {
+	r := NewResolver("/proj", testRegistry())
+	res, dbDecl, err := r.ResolveIDInDB("ta.db.task_001", "plan_db")
+	if err != nil {
+		t.Fatalf("ResolveIDInDB: %v", err)
+	}
+	if dbDecl.Name != "plan_db" {
+		t.Errorf("dbDecl.Name = %q, want plan_db", dbDecl.Name)
+	}
+	if res.DBName != "plan_db" {
+		t.Errorf("res.DBName = %q, want plan_db", res.DBName)
+	}
+	if res.FileRelPath != "ta.db" || res.BracketKey != "task_001" {
+		t.Errorf("res = %+v", res)
+	}
+}
+
+// TestResolveIDInDBRejectsWithExpectedShape: a 2-segment id against a
+// db whose mount needs 3 segments errors with a message that names
+// the expected shape and segment count. The id `g.n` would resolve
+// successfully against `readme` (single-file mount, 2 segments) under
+// plain ResolveID — but type-aware lookup constrained to `plan_db`
+// must reject it loudly.
+func TestResolveIDInDBRejectsWithExpectedShape(t *testing.T) {
+	r := NewResolver("/proj", testRegistry())
+	_, _, err := r.ResolveIDInDB("g.n", "plan_db")
+	if err == nil {
+		t.Fatal("expected error for 2-segment id under glob mount")
+	}
+	if !errors.Is(err, ErrIDDoesNotMatchAnyDB) {
+		t.Errorf("expected ErrIDDoesNotMatchAnyDB, got %v", err)
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		`db "plan_db"`, `does not accept id "g.n"`, "expected shape", "<bracket-key>", "got 2 segments",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}
+
+// TestResolveIDInDBUnknownDB: a db name not declared in the registry
+// surfaces ErrIDDoesNotMatchAnyDB with a message naming the db. F29
+// constrains iteration to the named db, so the missing-db case has
+// to surface here rather than silently falling through to plain
+// ResolveID semantics.
+func TestResolveIDInDBUnknownDB(t *testing.T) {
+	r := NewResolver("/proj", testRegistry())
+	_, _, err := r.ResolveIDInDB("ta.db.task_001", "nope")
+	if err == nil {
+		t.Fatal("expected error for unknown db name")
+	}
+	if !errors.Is(err, ErrIDDoesNotMatchAnyDB) {
+		t.Errorf("expected ErrIDDoesNotMatchAnyDB, got %v", err)
+	}
+	if !strings.Contains(err.Error(), `"nope"`) {
+		t.Errorf("error %q should name the unknown db", err.Error())
 	}
 }
 

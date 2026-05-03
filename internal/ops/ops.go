@@ -45,6 +45,36 @@ func declaredTypeNames(dbDecl schema.DB) map[string]struct{} {
 	return out
 }
 
+// resolveIDForCallerType is the type-aware resolver entry point used
+// by Create / Update / Delete. When typeName is db-qualified (e.g.
+// `agents.agent`) the resolver is constrained to the named db via
+// ResolveIDInDB — preventing an alphabetically-earlier db with a
+// looser mount shape from swallowing the id under plain ResolveID
+// (F29). When typeName is empty (Get and other read paths that do
+// not require --type) or malformed (no dot), falls back to plain
+// ResolveID and lets resolveTypeForID surface ErrTypeNotQualified
+// downstream so the caller sees a single unified error path.
+//
+// Note the asymmetry across ops endpoints: Create requires --type,
+// Update and Delete accept it as a cross-check but do not require
+// it, and Get does not pass --type at all. F29's tightening only
+// applies when --type was actually supplied; the legacy "first db
+// whose mount accepts the id" semantics survive for the read /
+// type-less mutation paths so existing call sites keep working.
+func resolveIDForCallerType(resolver *db.Resolver, id, typeName string) (db.Resolved, schema.DB, error) {
+	if typeName == "" {
+		return resolver.ResolveID(id)
+	}
+	dbPart, _, ok := strings.Cut(typeName, ".")
+	if !ok || dbPart == "" {
+		// Not db-qualified or empty db part — let plain ResolveID
+		// run; resolveTypeForID downstream surfaces the canonical
+		// ErrTypeNotQualified for this case.
+		return resolver.ResolveID(id)
+	}
+	return resolver.ResolveIDInDB(id, dbPart)
+}
+
 // Get reads one record. Per F10 (PLAN §12.17.9): type is OPTIONAL on
 // read paths; the index is the authoritative type source. typeName,
 // when non-empty, MUST be db-qualified (e.g. `plans.task`); a bare
@@ -75,7 +105,7 @@ func Get(path, id, typeName string, fields []string) (GetResult, error) {
 	if err != nil {
 		return GetResult{}, err
 	}
-	backendSection := backendSectionPath(dbDecl, resolved)
+	backendSection := backendSectionPath(dbDecl, resolved, bareType)
 	sec, ok, err := backend.Find(buf, backendSection)
 	if err != nil {
 		return GetResult{}, fmt.Errorf("locate %q in %s: %w", id, filePath, err)
@@ -127,7 +157,7 @@ func GetAllFields(path, id, typeName string) (GetResult, schema.SectionType, err
 	if err != nil {
 		return GetResult{}, typeSt, err
 	}
-	backendSection := backendSectionPath(dbDecl, resolved)
+	backendSection := backendSectionPath(dbDecl, resolved, bareType)
 	sec, found, err := backend.Find(buf, backendSection)
 	if err != nil {
 		return GetResult{}, typeSt, fmt.Errorf("locate %q in %s: %w", id, filePath, err)
@@ -194,7 +224,12 @@ func CreateWithOptions(path, id, typeName string, data map[string]any, opts Crea
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	resolved, dbDecl, err := resolver.ResolveID(id)
+	// F29: Create requires --type and is db-qualified, so constrain
+	// the mount-iteration loop to the caller's named db. Prevents an
+	// alphabetically-earlier db with a looser mount shape (e.g.
+	// `claude_agents/*.md`) from swallowing a 2-segment id when the
+	// caller's intent was a different db (`agents/*/*.md`).
+	resolved, dbDecl, err := resolveIDForCallerType(resolver, id, typeName)
 	if err != nil {
 		return "", nil, err
 	}
@@ -224,7 +259,7 @@ func CreateWithOptions(path, id, typeName string, data map[string]any, opts Crea
 	// Pre-create probe on the parent. Runs after spawn pre-validation
 	// so any spec-level error fires before this read; runs before the
 	// parent write so a parent-id collision aborts cleanly.
-	parentPlan, err := planRecordWrite(resolver, dbDecl, resolved, id, bareType, data)
+	parentPlan, err := planRecordWrite(dbDecl, resolved, id, bareType, data)
 	if err != nil {
 		return "", nil, err
 	}
@@ -250,7 +285,7 @@ func CreateWithOptions(path, id, typeName string, data map[string]any, opts Crea
 	// landed and missing ids.
 	landed := []string{id}
 	for i, intent := range spawnIntents {
-		childPlan, err := planRecordWrite(resolver, intent.dbDecl, intent.resolved,
+		childPlan, err := planRecordWrite(intent.dbDecl, intent.resolved,
 			intent.id, intent.bareType, intent.data)
 		if err != nil {
 			missing := collectIntentIDs(spawnIntents[i:])
@@ -312,7 +347,7 @@ func probeSpawnChild(intent spawnIntent) error {
 	if err != nil {
 		return err
 	}
-	backendSection := backendSectionPath(intent.dbDecl, intent.resolved)
+	backendSection := backendSectionPath(intent.dbDecl, intent.resolved, intent.bareType)
 	if _, exists, err := backend.Find(buf, backendSection); err != nil {
 		return fmt.Errorf("pre-create probe %q: %w", intent.id, err)
 	} else if exists {
@@ -345,16 +380,16 @@ type recordWritePlan struct {
 // executeRecordWrite. Validation against the registry is the caller's
 // responsibility — done before this helper runs.
 func planRecordWrite(
-	resolver *db.Resolver,
 	dbDecl schema.DB,
 	resolved db.Resolved,
 	id, bareType string,
 	data map[string]any,
 ) (recordWritePlan, error) {
-	_, _, filePath, err := resolver.ResolveWrite(id, "")
-	if err != nil {
-		return recordWritePlan{}, err
-	}
+	// F29: use resolved.FilePath directly. Going back through
+	// resolver.ResolveWrite would re-run unconstrained ResolveID and
+	// silently switch to a different db's file when two dbs accept
+	// the same id with different mount prefixes.
+	filePath := resolved.FilePath
 	backend, err := buildBackend(dbDecl, resolved)
 	if err != nil {
 		return recordWritePlan{}, err
@@ -363,7 +398,7 @@ func planRecordWrite(
 	if err != nil {
 		return recordWritePlan{}, err
 	}
-	backendSection := backendSectionPath(dbDecl, resolved)
+	backendSection := backendSectionPath(dbDecl, resolved, bareType)
 	if _, exists, err := backend.Find(buf, backendSection); err != nil {
 		return recordWritePlan{}, fmt.Errorf("pre-create probe %q: %w", id, err)
 	} else if exists {
@@ -532,21 +567,26 @@ func Update(path, id, typeName string, data map[string]any) (string, []string, e
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	resolved, dbDecl, err := resolver.ResolveID(id)
+	// F29: when the caller supplied --type, constrain mount-iteration
+	// to the named db. Falls back to plain ResolveID when typeName is
+	// empty (Update treats --type as optional cross-check).
+	resolved, dbDecl, err := resolveIDForCallerType(resolver, id, typeName)
 	if err != nil {
 		return "", nil, err
 	}
-	// File-existence first so a missing backing file surfaces as
-	// ErrFileNotFound rather than as ErrIndexMissing / ErrTypeUnresolved.
-	_, _, filePath, err := resolver.ResolveRead(id)
-	if err != nil {
-		// ResolveRead returns ErrInstanceNotFound when the file is
-		// missing; surface that as ErrFileNotFound for parity with the
-		// pre-F10 contract.
-		if errors.Is(err, db.ErrInstanceNotFound) {
-			return "", nil, fmt.Errorf("%w: %v", ErrFileNotFound, err)
+	// F29: use resolved.FilePath directly. Going back through
+	// resolver.ResolveRead would re-run unconstrained ResolveID and
+	// silently switch to a different db's file when two dbs accept
+	// the same id with different mount prefixes. File-existence check
+	// stays here (ahead of resolveTypeForID) so a missing backing file
+	// surfaces as ErrFileNotFound rather than as ErrIndexMissing /
+	// ErrTypeUnresolved.
+	filePath := resolved.FilePath
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
 		}
-		return "", nil, err
+		return "", nil, fmt.Errorf("stat %s: %w", filePath, err)
 	}
 	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
 	if err != nil {
@@ -572,7 +612,7 @@ func Update(path, id, typeName string, data map[string]any) (string, []string, e
 	if err != nil {
 		return "", nil, err
 	}
-	backendSection := backendSectionPath(dbDecl, resolved)
+	backendSection := backendSectionPath(dbDecl, resolved, bareType)
 
 	st, ok := dbDecl.Types[bareType]
 	if !ok {
@@ -737,9 +777,26 @@ func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteRes
 		return DeleteResult{Sources: resolution.Sources}, err
 	}
 
+	// F29: when --type is supplied for a record-level delete, re-run
+	// resolution constrained to the named db so a 2-segment id does
+	// not silently fall through to an alphabetically-earlier db with
+	// a looser mount shape. File-level delete operates on bare
+	// file-relpaths and does not take --type, so the constraint only
+	// applies on the record branch.
+	if level == db.LevelRecord && typeName != "" {
+		if dbPart, _, ok := strings.Cut(typeName, "."); ok && dbPart != "" {
+			constrained, constrainedDB, cerr := resolver.ResolveIDInDB(id, dbPart)
+			if cerr != nil {
+				return DeleteResult{Sources: resolution.Sources, Level: db.LevelRecord}, cerr
+			}
+			resolved = constrained
+			dbDecl = constrainedDB
+		}
+	}
+
 	switch level {
 	case db.LevelRecord:
-		return deleteRecord(path, resolution.Sources, resolver, dbDecl, resolved, id, typeName)
+		return deleteRecord(path, resolution.Sources, dbDecl, resolved, id, typeName)
 	case db.LevelFile:
 		if !opts.Force {
 			return DeleteResult{Sources: resolution.Sources, Level: db.LevelFile, FilePath: resolved.FilePath},
@@ -760,14 +817,17 @@ func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteRes
 // the record bytes out of the backing file, prune the index entry,
 // then return the post-delete count of records remaining in the same
 // file (file-scoped, per F20 lock).
-func deleteRecord(path string, sources []string, resolver *db.Resolver, dbDecl schema.DB, resolved db.Resolved, id, typeName string) (DeleteResult, error) {
-	if _, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl)); err != nil {
-		return DeleteResult{Sources: sources, Level: db.LevelRecord}, err
-	}
-	_, _, filePath, err := resolver.ResolveRead(id)
+func deleteRecord(path string, sources []string, dbDecl schema.DB, resolved db.Resolved, id, typeName string) (DeleteResult, error) {
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
 	if err != nil {
 		return DeleteResult{Sources: sources, Level: db.LevelRecord}, err
 	}
+	// F29: use resolved.FilePath directly. Going back through
+	// resolver.ResolveRead would re-run unconstrained ResolveID and
+	// silently switch to a different db's file when two dbs accept
+	// the same id with different mount prefixes. The os.ReadFile
+	// below catches a missing backing file and maps to ErrFileNotFound.
+	filePath := resolved.FilePath
 	buf, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -781,7 +841,7 @@ func deleteRecord(path string, sources []string, resolver *db.Resolver, dbDecl s
 	if err != nil {
 		return DeleteResult{Sources: sources, Level: db.LevelRecord}, err
 	}
-	backendSection := backendSectionPath(dbDecl, resolved)
+	backendSection := backendSectionPath(dbDecl, resolved, bareType)
 	sec, ok, err := backend.Find(buf, backendSection)
 	if err != nil {
 		return DeleteResult{Sources: sources, Level: db.LevelRecord},
