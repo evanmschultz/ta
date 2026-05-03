@@ -215,7 +215,11 @@ func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) er
 	// fang's red-error renderer does not paint the noun "aborted" as a
 	// failure; emit a soft laslig info notice on out and return nil so
 	// the process exits 0. Other errors continue to bubble up.
-	if errors.Is(err, errInitAborted) {
+	//
+	// Same treatment for `huh.ErrUserAborted` — fired when the user
+	// presses `q` / `ctrl+c` to exit any tafForm. Both shapes mean
+	// "user said no, walk away cleanly".
+	if errors.Is(err, errInitAborted) || errors.Is(err, huh.ErrUserAborted) {
 		_ = render.New(out).Notice(
 			laslig.NoticeInfoLevel,
 			"init aborted",

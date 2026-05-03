@@ -58,15 +58,37 @@ func tafKeyMap() *huh.KeyMap {
 		key.WithKeys("right", "left"),
 		key.WithHelp("←/→", "toggle"),
 	)
-	// Bind `q` (and Esc) to Quit alongside the default ctrl+c so any
-	// huh form in cmd/ta/ exits on a single keystroke. huh dispatches
-	// Quit at the form level BEFORE field-level filter input, so a
-	// `q` typed while a MultiSelect filter is active will quit rather
-	// than insert into the filter — acceptable tradeoff for a
-	// universal exit key.
+	// Quit is `q` and `ctrl+c` only — `esc` is reserved for clearing
+	// the filter (huh's default `ClearFilter` binding). Help text
+	// surfaces `q` so the user knows the universal exit.
 	km.Quit = key.NewBinding(
-		key.WithKeys("ctrl+c", "q", "esc"),
+		key.WithKeys("ctrl+c", "q"),
 		key.WithHelp("q", "quit"),
+	)
+	// MultiSelect navigation: keep arrow + vim keys live but show
+	// vim keys in the help bar (matches the rest of the project's
+	// keystroke aesthetic). Toggle help shows both x and space.
+	km.MultiSelect.Up = key.NewBinding(
+		key.WithKeys("up", "k", "ctrl+p"),
+		key.WithHelp("k", "up"),
+	)
+	km.MultiSelect.Down = key.NewBinding(
+		key.WithKeys("down", "j", "ctrl+n"),
+		key.WithHelp("j", "down"),
+	)
+	km.MultiSelect.Toggle = key.NewBinding(
+		key.WithKeys("space", "x"),
+		key.WithHelp("x/space", "toggle"),
+	)
+	// Same vim-help convention for Select-field navigation (used by
+	// the bare-`ta` huh menu in main.go and template-show flows).
+	km.Select.Up = key.NewBinding(
+		key.WithKeys("up", "k", "ctrl+p"),
+		key.WithHelp("k", "up"),
+	)
+	km.Select.Down = key.NewBinding(
+		key.WithKeys("down", "j", "ctrl+n"),
+		key.WithHelp("j", "down"),
 	)
 	return km
 }
