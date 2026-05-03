@@ -268,15 +268,43 @@ type = "string"
 format = "markdown"
 description = "Most recent failure detail — used by planner edits to inform fix directives."
 
-# Completion contract — declared as type=table (any-shape map). F21
-# does not support nested-table inner-shape validation today; the
-# inner sub-fields (start_criteria, completion_criteria, etc.) live
-# inside the runtime value but are not type-checked. Re-introduce
-# inner validation when ta gains direct nested-table shape support
-# (post-F21 / F21.4-style follow-up).
+# Completion contract — direct nested-table inner shape declared
+# inline via F28's `fields` key. Each runtime value is a single
+# table; sub-fields are recursively validated via dotted paths
+# (e.g. completion_contract.start_criteria).
 [project.bases.ActionItem.fields.completion_contract]
 type = "table"
-description = "Structured contract describing how the item enters and exits. Suggested keys: start_criteria, completion_criteria, completion_checklist, completion_evidence, completion_notes, require_children_complete."
+description = "Structured contract describing how the item enters and exits."
+
+[project.bases.ActionItem.fields.completion_contract.fields.start_criteria]
+type = "array"
+element_type = "ChecklistItem"
+description = "Checklist of preconditions that must hold before the item can transition todo→in_progress."
+
+[project.bases.ActionItem.fields.completion_contract.fields.completion_criteria]
+type = "array"
+element_type = "ChecklistItem"
+description = "Checklist of behavior-level assertions that mark the item complete."
+
+[project.bases.ActionItem.fields.completion_contract.fields.completion_checklist]
+type = "array"
+element_type = "ChecklistItem"
+description = "Concrete operator-facing checklist tracked across the item's lifecycle."
+
+[project.bases.ActionItem.fields.completion_contract.fields.completion_evidence]
+type = "array"
+element_type = "string"
+description = "References (ta record ids, URLs, file paths) demonstrating completion."
+
+[project.bases.ActionItem.fields.completion_contract.fields.completion_notes]
+type = "string"
+format = "markdown"
+description = "Free prose summarizing the completion outcome."
+
+[project.bases.ActionItem.fields.completion_contract.fields.require_children_complete]
+type = "boolean"
+default = true
+description = "Whether all child action items must reach state=complete before this item can transition to complete."
 
 # ============================================================================
 # Reusable element types (F21.3 type aliases) — referenced from element_type.
@@ -627,6 +655,7 @@ description = "Contribution rules. Sections addressable."
 
 [contributing.section]
 heading = 2
+description = "An H2 section of CONTRIBUTING.md."
 
 [contributing.section.fields.body]
 type = "string"
@@ -638,6 +667,7 @@ description = "Security policy. Sections addressable."
 
 [security.section]
 heading = 2
+description = "An H2 section of SECURITY.md."
 
 [security.section.fields.body]
 type = "string"
@@ -649,6 +679,7 @@ description = "Project Claude Code rules + cascade discipline. Sections addressa
 
 [claude_md.section]
 heading = 2
+description = "An H2 section of CLAUDE.md — addressable so project.standards_markdown_id can link to a specific section."
 
 [claude_md.section.fields.body]
 type = "string"

@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -156,5 +158,51 @@ element_type = "ChecklistItem"
 `
 	if _, err := LoadBytes([]byte(src)); err != nil {
 		t.Fatalf("user schema using F21 grammar should load: %v", err)
+	}
+}
+
+// TestMetaSchema_SelfHostsNestedFieldsKey locks the F28 contract on the
+// TestExamplesCascadeRoundTrips locks the binary-shipped cascade
+// schema (`examples/schemas/cascade.toml`) against the loader so any
+// future drift — missing required descriptions, retired meta-fields,
+// non-canonical syntax — fails CI loudly instead of surfacing only
+// when a user runs `ta init`. Same lock for `examples/schemas/agents.toml`.
+// Path resolution is relative to the test's working dir
+// (`internal/schema/`), reaching up two levels to the repo root.
+func TestExamplesLoadCleanly(t *testing.T) {
+	for _, rel := range []string{
+		"../../examples/schemas/cascade.toml",
+		"../../examples/schemas/agents.toml",
+	} {
+		t.Run(filepath.Base(rel), func(t *testing.T) {
+			data, err := os.ReadFile(rel)
+			if err != nil {
+				t.Fatalf("read %s: %v", rel, err)
+			}
+			if _, err := LoadBytes(data); err != nil {
+				t.Errorf("examples schema %s must load cleanly: %v", rel, err)
+			}
+		})
+	}
+}
+
+// meta-schema: the field kind must declare a `fields` sub-field and that
+// declaration must itself parse cleanly under the new grammar (self-host
+// check).
+func TestMetaSchema_SelfHostsNestedFieldsKey(t *testing.T) {
+	reg, err := LoadBytes([]byte(MetaSchemaTOML))
+	if err != nil {
+		t.Fatalf("meta-schema load: %v", err)
+	}
+	field, ok := reg.DBs["ta_schema"].Types["field"]
+	if !ok {
+		t.Fatal("missing ta_schema.field kind")
+	}
+	fieldsDecl, ok := field.Fields["fields"]
+	if !ok {
+		t.Fatal("ta_schema.field.fields.fields missing — F28 grammar must be declared on the meta-schema")
+	}
+	if fieldsDecl.Type != TypeTable {
+		t.Errorf("ta_schema.field.fields.fields.Type = %q, want %q", fieldsDecl.Type, TypeTable)
 	}
 }

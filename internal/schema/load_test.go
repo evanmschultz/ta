@@ -1632,3 +1632,429 @@ required = true
 			stored)
 	}
 }
+
+// ----------------------------------------------------------------------------
+// F28 — direct nested-table inner-shape validation (`fields` on tables).
+// ----------------------------------------------------------------------------
+
+func TestBuildField_AcceptsFields(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.contract]
+type = "table"
+description = "Structured completion gate."
+
+[plans.task.fields.contract.fields.start]
+type = "string"
+
+[plans.task.fields.contract.fields.complete]
+type = "boolean"
+default = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	contract := reg.DBs["plans"].Types["task"].Fields["contract"]
+	if contract.Type != TypeTable {
+		t.Fatalf("contract.Type = %q, want %q", contract.Type, TypeTable)
+	}
+	start, ok := contract.Fields["start"]
+	if !ok {
+		t.Fatal("contract.Fields missing start")
+	}
+	if start.Type != TypeString {
+		t.Errorf("contract.Fields[start].Type = %q, want %q", start.Type, TypeString)
+	}
+	complete, ok := contract.Fields["complete"]
+	if !ok {
+		t.Fatal("contract.Fields missing complete")
+	}
+	if complete.Type != TypeBoolean {
+		t.Errorf("contract.Fields[complete].Type = %q, want %q", complete.Type, TypeBoolean)
+	}
+}
+
+func TestBuildField_RejectsFieldsOnNonTable(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.bogus]
+type = "string"
+
+[plans.task.fields.bogus.fields.inner]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for fields on non-table field")
+	}
+	if !strings.Contains(err.Error(), `fields is only valid on type = "table"`) {
+		t.Errorf("error should mention the type-table requirement: %v", err)
+	}
+}
+
+func TestBuildField_RejectsFieldsOnArray(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.things]
+type = "array"
+element_type = "string"
+
+[plans.task.fields.things.fields.inner]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for fields on array field")
+	}
+	if !strings.Contains(err.Error(), `fields is only valid on type = "table"`) {
+		t.Errorf("error should mention the type-table requirement: %v", err)
+	}
+}
+
+func TestBuildField_RejectsFieldsAlongsideElementFields(t *testing.T) {
+	// Regression: `type = "table"` with stray `element_fields` was already
+	// rejected by the F21 invariant (element_fields requires type=array).
+	// Make sure introducing F28's `fields` key did not silently relax that
+	// gate.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.contract]
+type = "table"
+
+[plans.task.fields.contract.element_fields.start]
+type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for element_fields on table-typed field")
+	}
+	if !strings.Contains(err.Error(), `element_fields is only valid on type = "array"`) {
+		t.Errorf("error should mention the array-only requirement: %v", err)
+	}
+}
+
+func TestBuildField_RejectsFieldsAlongsideElementType(t *testing.T) {
+	// Regression: `type = "table"` plus `element_type` was already rejected
+	// by F21 (element_type requires type=array). F28 must not relax that.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.contract]
+type = "table"
+element_type = "string"
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for element_type on table-typed field")
+	}
+	if !strings.Contains(err.Error(), `element_type is only valid on type = "array"`) {
+		t.Errorf("error should mention the array-only requirement: %v", err)
+	}
+}
+
+func TestBuildField_NestedFieldsRecursive(t *testing.T) {
+	// Three-level deep nested-table chain: contract.checklist.item.text.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.contract]
+type = "table"
+
+[plans.task.fields.contract.fields.checklist]
+type = "table"
+
+[plans.task.fields.contract.fields.checklist.fields.item]
+type = "table"
+
+[plans.task.fields.contract.fields.checklist.fields.item.fields.text]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	contract := reg.DBs["plans"].Types["task"].Fields["contract"]
+	checklist, ok := contract.Fields["checklist"]
+	if !ok {
+		t.Fatal("missing contract.fields.checklist")
+	}
+	item, ok := checklist.Fields["item"]
+	if !ok {
+		t.Fatal("missing contract.fields.checklist.fields.item")
+	}
+	text, ok := item.Fields["text"]
+	if !ok {
+		t.Fatal("missing contract.fields.checklist.fields.item.fields.text")
+	}
+	if text.Type != TypeString {
+		t.Errorf("leaf text.Type = %q, want %q", text.Type, TypeString)
+	}
+	if !text.Required {
+		t.Error("leaf text.Required should be true")
+	}
+}
+
+func TestBuildField_NestedFieldsArrayInside(t *testing.T) {
+	// Nested table with an array sub-field: the inner array's element_type
+	// must thread through buildField.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.contract]
+type = "table"
+
+[plans.task.fields.contract.fields.tags]
+type = "array"
+element_type = "string"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	contract := reg.DBs["plans"].Types["task"].Fields["contract"]
+	tags, ok := contract.Fields["tags"]
+	if !ok {
+		t.Fatal("missing contract.fields.tags")
+	}
+	if tags.Type != TypeArray {
+		t.Errorf("tags.Type = %q, want %q", tags.Type, TypeArray)
+	}
+	if tags.ElementType != TypeString {
+		t.Errorf("tags.ElementType = %q, want %q", tags.ElementType, TypeString)
+	}
+}
+
+func TestBuildField_NestedFieldsAliasInside(t *testing.T) {
+	// A nested-table sub-field declares element_type = "<alias>"; alias
+	// inlining must recurse through Fields to reach it.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.types.ChecklistItem]
+description = "x"
+
+[plans.types.ChecklistItem.fields.id]
+type = "string"
+required = true
+
+[plans.types.ChecklistItem.fields.complete]
+type = "boolean"
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.contract]
+type = "table"
+
+[plans.task.fields.contract.fields.items]
+type = "array"
+element_type = "ChecklistItem"
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	contract := reg.DBs["plans"].Types["task"].Fields["contract"]
+	items, ok := contract.Fields["items"]
+	if !ok {
+		t.Fatal("missing contract.fields.items")
+	}
+	// After inlining, items.ElementType should resolve to "table" and
+	// ElementFields should carry the alias's resolved fields.
+	if items.ElementType != TypeTable {
+		t.Errorf("items.ElementType = %q, want %q (alias should inline)", items.ElementType, TypeTable)
+	}
+	if _, ok := items.ElementFields["id"]; !ok {
+		t.Errorf("items.ElementFields missing id sub-field; got %v", items.ElementFields)
+	}
+	if _, ok := items.ElementFields["complete"]; !ok {
+		t.Errorf("items.ElementFields missing complete sub-field; got %v", items.ElementFields)
+	}
+}
+
+func TestBuildField_RejectsUnknownKeyMessageMentionsFields(t *testing.T) {
+	// The unknown-key error string must list `fields` so agents can
+	// discover the new key.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+bogus_key = 42
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for unknown key")
+	}
+	if !strings.Contains(err.Error(), "fields") {
+		t.Errorf("unknown-key error should list `fields` in allowed set: %v", err)
+	}
+}
+
+func TestCloneField_DeepClonesFields(t *testing.T) {
+	// Two siblings extending the same base whose field carries an inner
+	// nested-table shape. Mutating one resolved sibling's Fields map
+	// must not bleed into the other.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.WithContract]
+description = "x"
+
+[plans.bases.WithContract.fields.contract]
+type = "table"
+
+[plans.bases.WithContract.fields.contract.fields.start]
+type = "string"
+
+[plans.bases.WithContract.fields.contract.fields.complete]
+type = "boolean"
+
+[plans.task]
+description = "x"
+extends = "WithContract"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.note]
+description = "x"
+extends = "WithContract"
+
+[plans.note.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	taskContract := reg.DBs["plans"].Types["task"].Fields["contract"]
+	noteContract := reg.DBs["plans"].Types["note"].Fields["contract"]
+	if len(taskContract.Fields) != 2 || len(noteContract.Fields) != 2 {
+		t.Fatalf("expected 2 sub-fields on each sibling; task=%v note=%v",
+			taskContract.Fields, noteContract.Fields)
+	}
+	// Mutate one sibling's resolved Fields map. If the maps alias the
+	// shared base copy, the other sibling will see the change too.
+	delete(taskContract.Fields, "start")
+	if _, ok := noteContract.Fields["start"]; !ok {
+		t.Errorf("note.contract.Fields aliased task.contract.Fields — cloneField did not deep-copy Fields")
+	}
+}
+
+func TestExpandBases_NestedTableInBase(t *testing.T) {
+	// A base declares a nested-table field. The concrete type extending
+	// it must inherit the inner-shape declaration.
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.bases.WithContract]
+description = "x"
+
+[plans.bases.WithContract.fields.contract]
+type = "table"
+
+[plans.bases.WithContract.fields.contract.fields.start]
+type = "string"
+required = true
+
+[plans.task]
+description = "x"
+extends = "WithContract"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	contract := reg.DBs["plans"].Types["task"].Fields["contract"]
+	if contract.Type != TypeTable {
+		t.Errorf("inherited contract.Type = %q, want %q", contract.Type, TypeTable)
+	}
+	start, ok := contract.Fields["start"]
+	if !ok {
+		t.Fatal("inherited contract missing fields.start")
+	}
+	if !start.Required {
+		t.Error("inherited start.Required should be true")
+	}
+}

@@ -45,6 +45,7 @@ const (
 	fieldKeyDefault       = "default"
 	fieldKeyElementType   = "element_type"
 	fieldKeyElementFields = "element_fields"
+	fieldKeyFields        = "fields"
 )
 
 // Type-level keys recognised on a [<db>.<type>] table (alongside the
@@ -1288,6 +1289,20 @@ func inlineFieldRecursive(
 		}
 		f.ElementFields = out
 	}
+	// Direct nested-table inner shape (F28). Sub-fields can themselves
+	// declare `element_type = "<alias>"` which must resolve through the
+	// same alias-inlining path used for top-level fields.
+	if len(f.Fields) > 0 {
+		out := make(map[string]Field, len(f.Fields))
+		for k, sub := range f.Fields {
+			expanded, err := inlineFieldRecursive(sub, rawAliases, resolved, visiting, chain)
+			if err != nil {
+				return Field{}, err
+			}
+			out[k] = expanded
+		}
+		f.Fields = out
+	}
 	return f, nil
 }
 
@@ -1316,6 +1331,7 @@ func cloneFieldMap(in map[string]Field) map[string]Field {
 func cloneField(f Field) Field {
 	out := f
 	out.ElementFields = cloneFieldMap(f.ElementFields)
+	out.Fields = cloneFieldMap(f.Fields)
 	if f.Enum != nil {
 		out.Enum = append([]any(nil), f.Enum...)
 	}
@@ -1689,9 +1705,30 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 				subFields[sname] = sub
 			}
 			f.ElementFields = subFields
+		case fieldKeyFields:
+			tbl, ok := val.(map[string]any)
+			if !ok {
+				return Field{}, fmt.Errorf(
+					"schema: %s.fields: must be a table, got %T", scope, val)
+			}
+			subFields := make(map[string]Field, len(tbl))
+			for sname, sval := range tbl {
+				sbody, ok := sval.(map[string]any)
+				if !ok {
+					return Field{}, fmt.Errorf(
+						"schema: %s.fields.%s: must be a table, got %T",
+						scope, sname, sval)
+				}
+				sub, err := buildField(db, typeName, fname+".fields."+sname, sbody)
+				if err != nil {
+					return Field{}, err
+				}
+				subFields[sname] = sub
+			}
+			f.Fields = subFields
 		default:
 			return Field{}, fmt.Errorf(
-				"schema: %s: unknown key %q (allowed: type, required, description, enum, format, default, element_type, element_fields)",
+				"schema: %s: unknown key %q (allowed: type, required, description, enum, format, default, element_type, element_fields, fields)",
 				scope, key)
 		}
 	}
@@ -1728,6 +1765,14 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 				"schema: %s: element_fields requires element_type = \"table\" (got %q)",
 				scope, f.ElementType)
 		}
+	}
+	// `fields` (direct nested-table inner shape) is valid only when
+	// type = "table". Per F28: arrays of tables use element_fields;
+	// non-table fields cannot carry an inner field shape.
+	if len(f.Fields) > 0 && f.Type != TypeTable {
+		return Field{}, fmt.Errorf(
+			"schema: %s: fields is only valid on type = \"table\" (got type %q)",
+			scope, f.Type)
 	}
 	// element_type validity: must be a primitive (excluding "array"), the
 	// literal "table", or an alias name. Alias resolution happens in

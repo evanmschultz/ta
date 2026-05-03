@@ -136,6 +136,10 @@ description = "When type = \"array\", the per-element type. One of the seven pri
 type = "table"
 description = "When element_type = \"table\", the per-element field shape. Each sub-key is itself a [field] body (recursive; arbitrary nesting depth). Forbidden when element_type is anything other than \"table\". Required fields inside element_fields apply to every element of the array."
 
+[ta_schema.field.fields.fields]
+type = "table"
+description = "When type = \"table\", the per-instance field shape declared inline. Each sub-key is itself a [field] body (recursive; arbitrary nesting depth). Forbidden when type is anything other than \"table\". Required fields inside `fields` apply to the single nested table value (not per-element — element_fields covers arrays of tables). Aliases (element_type = \"<alias>\") are not supported on the outer field; alias references go through element_type chains for arrays only."
+
 # ----------------------------------------------------------------------------
 # Aliases — reusable record-shape declarations under [<schema>.types.<alias>].
 # At load time, every alias body (description + fields map, same shape as

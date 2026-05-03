@@ -776,3 +776,192 @@ required = true
 		t.Fatalf("failures = %+v", ve.Failures)
 	}
 }
+
+// ----------------------------------------------------------------------------
+// F28 — direct nested-table inner-shape validation (`fields` on tables).
+// ----------------------------------------------------------------------------
+
+const nestedContractSchema = `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.completion_contract]
+type = "table"
+description = "Structured completion gate."
+
+[plans.task.fields.completion_contract.fields.start_criteria]
+type = "array"
+element_type = "string"
+required = true
+
+[plans.task.fields.completion_contract.fields.completion_notes]
+type = "string"
+
+[plans.task.fields.completion_contract.fields.require_children_complete]
+type = "boolean"
+default = true
+`
+
+func TestValidate_NestedTableHappyPath(t *testing.T) {
+	reg, err := Load(strings.NewReader(nestedContractSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.t1", map[string]any{
+		"id": "t1",
+		"completion_contract": map[string]any{
+			"start_criteria":            []any{"a", "b"},
+			"completion_notes":          "all good",
+			"require_children_complete": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}
+
+func TestValidate_NestedTableMissingRequired(t *testing.T) {
+	reg, err := Load(strings.NewReader(nestedContractSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.t1", map[string]any{
+		"id": "t1",
+		"completion_contract": map[string]any{
+			"completion_notes": "missing start_criteria",
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	if len(ve.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1: %+v", len(ve.Failures), ve.Failures)
+	}
+	f := ve.Failures[0]
+	if f.Kind != FailureMissingRequired {
+		t.Errorf("kind = %q, want %q", f.Kind, FailureMissingRequired)
+	}
+	if f.Field != "completion_contract.start_criteria" {
+		t.Errorf("field = %q, want %q", f.Field, "completion_contract.start_criteria")
+	}
+}
+
+func TestValidate_NestedTableTypeMismatch(t *testing.T) {
+	reg, err := Load(strings.NewReader(nestedContractSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.t1", map[string]any{
+		"id": "t1",
+		"completion_contract": map[string]any{
+			"start_criteria":            []any{"a"},
+			"require_children_complete": "not-a-bool",
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	var seen *FieldFailure
+	for _, f := range ve.Failures {
+		if f.Field == "completion_contract.require_children_complete" {
+			seen = f
+			break
+		}
+	}
+	if seen == nil {
+		t.Fatalf("missing failure for completion_contract.require_children_complete: %+v", ve.Failures)
+	}
+	if seen.Kind != FailureTypeMismatch {
+		t.Errorf("kind = %q, want %q", seen.Kind, FailureTypeMismatch)
+	}
+}
+
+func TestValidate_NestedTableUnknownSubField(t *testing.T) {
+	reg, err := Load(strings.NewReader(nestedContractSchema))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.t1", map[string]any{
+		"id": "t1",
+		"completion_contract": map[string]any{
+			"start_criteria": []any{"a"},
+			"bogus":          "extra",
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	var seen *FieldFailure
+	for _, f := range ve.Failures {
+		if f.Field == "completion_contract.bogus" {
+			seen = f
+			break
+		}
+	}
+	if seen == nil {
+		t.Fatalf("missing failure for completion_contract.bogus: %+v", ve.Failures)
+	}
+	if seen.Kind != FailureUnknownField {
+		t.Errorf("kind = %q, want %q", seen.Kind, FailureUnknownField)
+	}
+}
+
+func TestValidate_NestedTableTwoLevelsDeep(t *testing.T) {
+	src := `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "x"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.outer]
+type = "table"
+
+[plans.task.fields.outer.fields.inner]
+type = "table"
+
+[plans.task.fields.outer.fields.inner.fields.leaf]
+type = "boolean"
+required = true
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = reg.Validate("plans.task.t1", map[string]any{
+		"id": "t1",
+		"outer": map[string]any{
+			"inner": map[string]any{
+				// missing required leaf
+			},
+		},
+	})
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+	if len(ve.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1: %+v", len(ve.Failures), ve.Failures)
+	}
+	f := ve.Failures[0]
+	if f.Field != "outer.inner.leaf" {
+		t.Errorf("field = %q, want %q", f.Field, "outer.inner.leaf")
+	}
+	if f.Kind != FailureMissingRequired {
+		t.Errorf("kind = %q, want %q", f.Kind, FailureMissingRequired)
+	}
+}

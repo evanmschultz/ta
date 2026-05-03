@@ -123,6 +123,16 @@ func validateField(path string, field Field, val any) []*FieldFailure {
 	if field.Type == TypeArray && (field.ElementType != "" || len(field.ElementFields) > 0) {
 		return validateArrayElements(path, field, val)
 	}
+	// Direct nested-table recursion (F28): walk the table's runtime
+	// value against each declared sub-field. Path format is
+	// "<field>.<sub>" — no bracket token, since this is a single
+	// table value rather than an array element. The same helper that
+	// drives array-element table walks (validateNestedTable) handles
+	// missing-required + per-sub-field validation + unknown-key
+	// detection; only the path prefix differs.
+	if field.Type == TypeTable && len(field.Fields) > 0 {
+		return validateNestedTable(path, field.Fields, val)
+	}
 	return nil
 }
 
@@ -165,7 +175,7 @@ func validateArrayElements(path string, field Field, val any) []*FieldFailure {
 				continue
 			}
 			if len(field.ElementFields) > 0 {
-				out = append(out, validateElementTable(elemPath, field.ElementFields, elem)...)
+				out = append(out, validateNestedTable(elemPath, field.ElementFields, elem)...)
 			}
 		case "":
 			// No element_type declared: nothing more to check past the
@@ -187,17 +197,24 @@ func validateArrayElements(path string, field Field, val any) []*FieldFailure {
 	return out
 }
 
-// validateElementTable runs missing-required + per-sub-field checks on
-// one array-element table value. Sub-field failures inherit the
-// elemPath as their prefix so the final FieldFailure.Field reads
-// "<parent>[<i>].<sub>".
-func validateElementTable(elemPath string, fields map[string]Field, val any) []*FieldFailure {
+// validateNestedTable runs missing-required + per-sub-field checks on
+// one table value, parameterized by the path prefix every sub-field
+// failure inherits. Two callers, one helper:
+//
+//   - Array-of-tables sub-field walk (`element_fields`): caller passes
+//     `<field>[<i>]`; failures read `<field>[<i>].<sub>`.
+//   - Direct nested-table sub-field walk (`fields`, F28): caller passes
+//     the bare `<field>`; failures read `<field>.<sub>`.
+//
+// The dotted concatenation here is identical for both callers — only
+// the prefix changes.
+func validateNestedTable(pathPrefix string, fields map[string]Field, val any) []*FieldFailure {
 	rv := reflect.ValueOf(val)
 	if rv.Kind() != reflect.Map {
 		return []*FieldFailure{{
-			Field:        elemPath,
+			Field:        pathPrefix,
 			Kind:         FailureTypeMismatch,
-			Message:      fmt.Sprintf("field %q has type %q, expected %q", elemPath, describeType(val), TypeTable),
+			Message:      fmt.Sprintf("field %q has type %q, expected %q", pathPrefix, describeType(val), TypeTable),
 			ExpectedType: TypeTable,
 			ActualType:   describeType(val),
 		}}
@@ -208,9 +225,9 @@ func validateElementTable(elemPath string, fields map[string]Field, val any) []*
 		ks, ok := k.Interface().(string)
 		if !ok {
 			return []*FieldFailure{{
-				Field:   elemPath,
+				Field:   pathPrefix,
 				Kind:    FailureTypeMismatch,
-				Message: fmt.Sprintf("field %q has non-string map key %v", elemPath, k.Interface()),
+				Message: fmt.Sprintf("field %q has non-string map key %v", pathPrefix, k.Interface()),
 			}}
 		}
 		flat[ks] = rv.MapIndex(k).Interface()
@@ -226,7 +243,7 @@ func validateElementTable(elemPath string, fields map[string]Field, val any) []*
 		if _, present := flat[fname]; present {
 			continue
 		}
-		subPath := elemPath + "." + fname
+		subPath := pathPrefix + "." + fname
 		out = append(out, &FieldFailure{
 			Field:         subPath,
 			Kind:          FailureMissingRequired,
@@ -240,7 +257,7 @@ func validateElementTable(elemPath string, fields map[string]Field, val any) []*
 	// sub-field detection.
 	for _, fname := range sortedKeys(flat) {
 		sub, known := fields[fname]
-		subPath := elemPath + "." + fname
+		subPath := pathPrefix + "." + fname
 		if !known {
 			out = append(out, &FieldFailure{
 				Field:   subPath,

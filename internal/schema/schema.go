@@ -114,6 +114,16 @@ type Field struct {
 	// ElementType == "table". Each entry is itself a Field, so nesting
 	// is unbounded. Empty when ElementType is a primitive or unset.
 	ElementFields map[string]Field
+	// Fields is the inner-shape declaration for a direct (non-array)
+	// nested table field, populated when Type == "table" and the
+	// schema declares per-instance sub-fields inline via
+	// `[<...>.fields.<f>.fields.<sub>]`. Each entry is itself a
+	// Field, so nesting is unbounded — TOML's bracket grammar is
+	// the practical depth limit (no cap; cycle detection in alias
+	// inlining covers correctness because each nested-table path is
+	// declared inline and unique by construction). Empty when no
+	// inner shape is declared (any-shape map). Per F28.
+	Fields map[string]Field
 }
 
 // SectionType is a named collection of fields, e.g. "build_task" or

@@ -37,17 +37,21 @@ const (
 type FieldFailure struct {
 	// Field is the name of the offending field, as it appeared (or would
 	// have appeared) in the section data map. Per F21 the Field grammar
-	// is now extended with bracket and dot tokens for failures inside
-	// typed-array and element-table fields:
+	// is extended with bracket and dot tokens for failures inside
+	// typed-array and element-table fields; per F28 it also covers
+	// failures inside direct (non-array) nested-table fields:
 	//
-	//   - Flat scalar (unchanged):       "status"
-	//   - Array element:                 "paths[2]"
-	//   - Table element field:           "completion_checklist[1].complete"
-	//   - Nested array element field:    "matrix[3].cells[7]"
+	//   - Flat scalar (unchanged):           "status"
+	//   - Array element:                     "paths[2]"
+	//   - Table element field (array):       "completion_checklist[1].complete"
+	//   - Nested array element field:        "matrix[3].cells[7]"
+	//   - Nested table sub-field (F28):      "completion_contract.start_criteria"
 	//
 	// "[<int>]" is a zero-based array index; ".<name>" is a table
 	// field access. There is never a leading dot — the top-level
-	// segment is the bare field identifier.
+	// segment is the bare field identifier. Direct nested-table
+	// failures use the bare dotted form (no `[i]` token) because the
+	// outer field is a single table value, not an array.
 	Field string `json:"field"`
 	// Kind categorizes the failure; see the FailureKind constants.
 	Kind FailureKind `json:"kind"`
