@@ -202,3 +202,11 @@ Each lands at project root with its canonical name.
   in `ta/main/.claude/agents/` where Claude Code reads them.
   `examples/agents/<lang>/` holds the binary-embedded SOURCE that
   `ta init` copies INTO `<target-project>/.claude/agents/`.
+
+## TUI demos
+
+Interactive bubbletea surfaces driven by `ta init` (and friends)
+have animated VHS recordings under [`../cmd/ta/testdata/vhs/`](../cmd/ta/testdata/vhs/):
+multi-category picker, filter mode, select-all, target-system
+bootstrap, confirm overwrite, form-create, root menu. See the main
+README "TUI demos" section for the full per-tape index.

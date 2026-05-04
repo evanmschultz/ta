@@ -16,9 +16,9 @@ ta is a Go project. The active LSP is gopls. Before spawning any `go-qa-proof-ag
 - **Manual fallback**: invoke `gopls-sync` skill or restart the agent runner from `/Users/evanschultz/Documents/Code/hylla/ta/main` (the active checkout) if the hook doesn't help.
 - **Authoritative verification stays `mage check`** — LSP refresh ensures QA's evidence layer matches build truth, but mage check is the gate. Never trust LSP diagnostics over a passing mage check.
 
-## TUI stack — bubbletea/bubbles/lipgloss/glamour/laslig (huh is being removed)
+## TUI stack — bubbletea/bubbles/lipgloss/glamour/laslig (huh removed)
 
-Target stack: `charm.land/bubbletea/v2`, `charm.land/bubbles/v2`, `charm.land/lipgloss/v2`, `charm.land/glamour/v2`, `github.com/evanmschultz/laslig`. NO huh in the long run. Existing huh usage (`ta init` multi-category picker) stays pre-dogfood; replace slice-by-slice. New TUI surface MUST go bubbletea-direct.
+Target stack: `charm.land/bubbletea/v2`, `charm.land/bubbles/v2`, `charm.land/lipgloss/v2`, `charm.land/glamour/v2`, `github.com/evanmschultz/laslig`. F38d closed huh removal — zero `charm.land/huh/v2` references in source or `go.mod`. New TUI surface MUST stay bubbletea-direct. VHS demos for picker / confirm / form / menu live under `cmd/ta/testdata/vhs/`.
 
 ## TUI verification — teatest + goldens + VHS, never self-report
 

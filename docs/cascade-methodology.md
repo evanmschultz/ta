@@ -497,6 +497,10 @@ is the data layer; the client is the orchestrator.
 Suited to single-user / small-team workflows where the working tree is
 the source of truth and dispatch is human/LLM-driven.
 
+ta's interactive TUI (bubbletea-based picker / form / confirm / menu)
+ships with VHS recordings under `cmd/ta/testdata/vhs/` — see the
+ta repo README "TUI demos" section for the full per-tape index.
+
 ### 10.2 Tillsyn — Runtime Substrate With Headless Dispatch
 
 Tillsyn (https://github.com/evanmschultz/tillsyn — in development)
