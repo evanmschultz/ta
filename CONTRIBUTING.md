@@ -14,7 +14,7 @@ ta is a tiny MCP server that lets LLM coding agents read and write structured TO
 
 Agents working on the same checkout in a cascade share one working tree. Running the full module's tests at any sub-module node produces a verdict polluted by sibling agents' in-flight work. Each agent runs ONLY the tests its slice owns:
 
-- **Below-package** (single-file or tight-cluster builds): `mage testFunc <pattern>` (single test) or `mage testFuncs <Test1> <Test2> ...` (several joined via `|`). Optional `TA_TEST_PKG=./internal/ops` env scopes to one package.
+- **Below-package** (single-file or tight-cluster builds): `mage testFunc <pattern>` (single test) or `mage testFunc '<Test1>|<Test2>|...'` (several joined via `|` regex). Optional `TA_TEST_PKG=./internal/ops` env scopes to one package.
 - **Package-level** (segment / confluence work that owns one package): `mage testPkg ./internal/ops`. End-to-end verdict for the package.
 - **Module-level** (orchestrator / drop close): `mage check`. Full integration verdict — the ONLY level that runs the full suite.
 

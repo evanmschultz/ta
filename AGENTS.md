@@ -35,7 +35,7 @@ Mirrors `CLAUDE.md` § "Pre-MVP cleanup tracker — MVP-feature-completion launc
 
 ## Cascade isolation — agents test ONLY their slice
 
-Mirrors `CLAUDE.md` § "Cascade isolation — agents test ONLY their slice". An agent running below strict package level uses `mage testFunc <pattern>` or `mage testFuncs <Test1> <Test2> ...` (with optional `TA_TEST_PKG=./pkg/path` scoping); a package-level QA uses `mage testPkg ./pkg/path`; orchestrator-level commit gate uses `mage check` (full module). Never invoke `go test` / `go vet` / `gofmt` / `gofumpt` directly.
+Mirrors `CLAUDE.md` § "Cascade isolation — agents test ONLY their slice". An agent running below strict package level uses `mage testFunc <pattern>` (or `mage testFunc '<Test1>|<Test2>|...'` for several, pipe-joined regex), with optional `TA_TEST_PKG=./pkg/path` scoping; a package-level QA uses `mage testPkg ./pkg/path`; orchestrator-level commit gate uses `mage check` (full module). Never invoke `go test` / `go vet` / `gofmt` / `gofumpt` directly.
 
 ## Cascade methodology — canonical reference
 

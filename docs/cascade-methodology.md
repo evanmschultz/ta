@@ -191,7 +191,7 @@ The depth threshold is a project-tunable starting value.
 
 Cascade nodes share one checkout on disk. While siblings run concurrently, the working tree carries WIP from every active builder. Running the entire module's test suite at any sub-module node gives a verdict muddied by other agents' edits. Each agent's verification MUST scope down to what its slice owns:
 
-- **Below-package agents** (single-file or tight-cluster droplet builds) run a name-pattern test invocation — the build runner exposes a "run only these test functions" target. In ta's reference implementation that's `mage testFunc <pattern>` / `mage testFuncs <Test1> <Test2> ...`, optionally narrowed by package via `TA_TEST_PKG=<path>`. The runner translates to `go test -run <pattern> <pkg>`. The agent's verdict reports only its own functions; sibling WIP outside that scope is invisible.
+- **Below-package agents** (single-file or tight-cluster droplet builds) run a name-pattern test invocation — the build runner exposes a "run only these test functions" target. In ta's reference implementation that's `mage testFunc <pattern>` (one or several joined into a `|`-regex like `mage testFunc 'TestA|TestB|TestC'`), optionally narrowed by package via `TA_TEST_PKG=<path>`. The runner translates to `go test -run <pattern> <pkg>`. The agent's verdict reports only its own functions; sibling WIP outside that scope is invisible.
 - **Package-level agents** (segment / confluence work that owns one package) run the full package: `mage testPkg <path>` / `go test <pkg>`. Verdict reflects the package end-to-end.
 - **Orchestrator / drop-close** runs the full module: `mage check` / `go test ./...`. This is the integration verdict — the only level where cross-package interactions are tested.
 

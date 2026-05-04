@@ -55,13 +55,13 @@ ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — 
 
 A builder or QA agent operating below strict package level MUST run only the tests their slice owns — not the whole module. Sibling agents racing on the same checkout produce a polluted working tree; running `mage Test` (full module) gives a verdict muddied by other agents' WIP.
 
-- **Below-package scope**: `mage testFunc TestMyThing` (single test) or `mage testFuncs TestA TestB TestC` (multiple) or with package narrowing via `TA_TEST_PKG=./internal/ops mage testFunc TestMyThing`. Routes through `go test -run <pattern>`.
+- **Below-package scope**: `mage testFunc TestMyThing` (single test) or `mage testFunc 'TestA|TestB|TestC'` (multiple, pipe-joined regex) or with package narrowing via `TA_TEST_PKG=./internal/ops mage testFunc TestMyThing`. Routes through `go test -run <pattern>`.
 - **Package-level scope**: `mage testPkg ./internal/ops`. One package end-to-end; verdict reflects exactly what the slice owns.
 - **Module-level scope**: `mage Test` (or `mage Check`). Run by orchestrator-level QA + commit gate, not by sub-package agents mid-build.
 
 The agent runner reports its verdict against the scope it owns. Higher-level QA (segment, confluence, drop) escalates to wider scopes. Orchestrator runs the whole. This mirrors the cascade methodology's "QA at the level integration actually happens" rule (`docs/cascade-methodology.md` §4).
 
-Memory rule still applies: NEVER invoke raw `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`. Always route through mage. The `--project` flag and the testFunc / testFuncs / testPkg targets are how an agent narrows scope without bypassing the gate. Test output auto-detects TTY status via `laslig/gotestout` — agents and CI pipes get plain text without env-var gymnastics.
+Memory rule still applies: NEVER invoke raw `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`. Always route through mage. The `--project` flag and the testFunc / testPkg targets are how an agent narrows scope without bypassing the gate. Test output auto-detects TTY status via `laslig/gotestout` — agents and CI pipes get plain text without env-var gymnastics.
 
 ## Cascade methodology — canonical reference
 

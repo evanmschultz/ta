@@ -1,0 +1,14 @@
+# Minimal fixture home library for VHS smoke recordings — F38d-1.
+# Mirrors the shape of ~/.ta/schema.toml so a tape running with
+# `Env HOME` pointed at fixture_home/ surfaces a populated picker
+# rather than the empty-home guard. Real schema content is not
+# exercised by the smoke tape; the marker FIXTURE_HOME_PRESENT
+# proves the home dir is reachable.
+
+[[schemas]]
+name = "plans"
+description = "Plan documents pinned for fixture-home smoke."
+fields = [
+  { name = "title", type = "string", required = true },
+  { name = "status", type = "string", format = "enum", enum = ["open", "in_progress", "done"], required = true },
+]

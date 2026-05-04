@@ -180,15 +180,6 @@ func TestFunc(pattern string) error {
 	return runGoTest(pkg, "-run", pattern)
 }
 
-// TestFuncs is the multi-pattern shorthand: joins the given function
-// names with `|` and delegates to TestFunc.
-func TestFuncs(names ...string) error {
-	if len(names) == 0 {
-		return fmt.Errorf("testFuncs: at least one test name required")
-	}
-	return TestFunc(strings.Join(names, "|"))
-}
-
 // TestPkg runs every test in ONE package path. Cascade discipline:
 // package-level QA invokes `mage testPkg ./internal/ops` so the
 // verdict reflects exactly what their slice owns.
@@ -210,14 +201,86 @@ func Cover() error {
 	return run("go", "tool", "cover", "-func=coverage.out")
 }
 
-// runGoTest invokes `go test -json -race -count=1 [extraArgs] <pkg>`
-// and pipes the event stream through laslig/gotestout for TTY-aware
-// rendering. gotestout's FormatAuto policy emits a styled summary on
-// terminals and plain text otherwise; agents and CI pipes get the
-// raw plain output without env-var gymnastics. A non-zero `go test`
-// exit translates to a wrapped error including the failed-test count.
+// Vhs renders every `cmd/ta/testdata/vhs/*.tape` through the `vhs`
+// CLI and asserts a per-tape positive-content marker landed in the
+// produced `.txt` artifact. Each tape MUST carry a `# expect: <text>`
+// header — the marker is a deterministic post-action string the
+// model's View() emits in response to the tape's input. After vhs
+// runs, this target greps the matching .txt for the marker; an empty
+// or vacuous tape (one that produces no terminal output) fails loud
+// instead of silently passing. `vhs` is not gated by mage check;
+// missing vhs binary fails the target with an install hint but does
+// not block other gates.
+func Vhs() error {
+	if _, err := exec.LookPath("vhs"); err != nil {
+		return fmt.Errorf("vhs binary not on PATH; install with `go install charm.land/vhs/v2@latest` or `brew install vhs`: %w", err)
+	}
+	tapes, err := filepath.Glob("cmd/ta/testdata/vhs/*.tape")
+	if err != nil {
+		return fmt.Errorf("vhs: glob tapes: %w", err)
+	}
+	if len(tapes) == 0 {
+		return fmt.Errorf("vhs: no tapes found under cmd/ta/testdata/vhs/")
+	}
+	for _, tape := range tapes {
+		marker, err := readTapeExpectMarker(tape)
+		if err != nil {
+			return err
+		}
+		if err := run("vhs", tape); err != nil {
+			return fmt.Errorf("vhs: render %s: %w", tape, err)
+		}
+		txtPath := strings.TrimSuffix(tape, ".tape") + ".txt"
+		out, err := os.ReadFile(txtPath)
+		if err != nil {
+			return fmt.Errorf("vhs: read produced .txt %s: %w", txtPath, err)
+		}
+		if !strings.Contains(string(out), marker) {
+			return fmt.Errorf("vhs: marker %q absent in %s (vacuous tape)", marker, txtPath)
+		}
+	}
+	return nil
+}
+
+// readTapeExpectMarker scans a .tape file for the first line of the
+// form `# expect: <marker>` and returns the trimmed marker. Tapes
+// without the header fail the Vhs target loud — the marker is the
+// only thing distinguishing a real-rendering tape from a no-op.
+func readTapeExpectMarker(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("vhs: read tape %s: %w", path, err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(trimmed, "# expect:"); ok {
+			marker := strings.TrimSpace(rest)
+			if marker == "" {
+				return "", fmt.Errorf("vhs: tape %s has empty `# expect:` marker", path)
+			}
+			return marker, nil
+		}
+	}
+	return "", fmt.Errorf("vhs: tape %s missing `# expect: <marker>` header", path)
+}
+
+// runGoTest invokes `go test -json -race -count=1 [extraArgs]
+// [$TA_GO_TEST_FLAGS] <pkg>` and pipes the event stream through
+// laslig/gotestout for TTY-aware rendering. gotestout's FormatAuto
+// policy emits a styled summary on terminals and plain text
+// otherwise; agents and CI pipes get the raw plain output without
+// env-var gymnastics. A non-zero `go test` exit translates to a
+// wrapped error including the failed-test count. The
+// TA_GO_TEST_FLAGS envvar is whitespace-tokenized via strings.Fields
+// and each non-empty token appended after the `-run <pattern>` hand-
+// off so callers can flip `-update`, `-race=false`, `-timeout=30s`,
+// or any combination without forcing a magefile edit. Empty / unset
+// is a no-op.
 func runGoTest(pkg string, extraArgs ...string) error {
 	args := append([]string{"test", "-json", "-race", "-count=1"}, extraArgs...)
+	for _, tok := range strings.Fields(os.Getenv("TA_GO_TEST_FLAGS")) {
+		args = append(args, tok)
+	}
 	args = append(args, pkg)
 	cmd := exec.Command("go", args...)
 	cmd.Stderr = os.Stderr

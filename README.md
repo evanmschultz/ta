@@ -142,7 +142,7 @@ When multiple agents work on the same checkout in a cascade, full-module `mage t
 
 ```sh
 mage testFunc TestMyThing                       # one test, whole module
-mage testFuncs TestA TestB TestC                # several tests, joined via `|`
+mage testFunc 'TestA|TestB|TestC'               # several tests, pipe-joined regex
 TA_TEST_PKG=./internal/ops mage testFunc TestX  # narrow scope further
 mage testPkg ./internal/ops                     # full package, end-to-end
 mage check                                      # full module — orchestrator-level

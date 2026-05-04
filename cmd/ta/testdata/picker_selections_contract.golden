@@ -1,0 +1,18 @@
+OnConflict = 'skip'
+
+[[Schemas]]
+  Name = 'plans'
+  Provenance = 'ta'
+
+[[Agents]]
+  Group = 'default-go'
+  Name = 'go-builder'
+  Provenance = 'home'
+
+[[Configs]]
+  Name = 'claude-mcp'
+  Provenance = 'ta'
+
+[[DocsTemplates]]
+  Name = 'cascade'
+  Provenance = 'home'
