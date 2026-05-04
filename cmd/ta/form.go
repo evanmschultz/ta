@@ -2,12 +2,11 @@
 //
 //   - dispatchWidget, FormField, stringifyForField, and all four
 //     validators are preserved verbatim — they are pure functions on
-//     schema.Field and don't touch huh.
+//     schema.Field and don't depend on any external form library.
 //
 //   - FormFor's signature shape is preserved: returns (*formModel,
-//     []FormField, collect). First return is now *formModel instead
-//     of *huh.Form. Callers run the model via tea.NewProgram(form,
-//     tea.WithAltScreen()).Run() then invoke collect.
+//     []FormField, collect). Callers run the model via
+//     runFormProgram(form) then invoke collect.
 //
 //   - WidgetConfirm reuses F38d-4's confirmModel pattern in-line; the
 //     form embeds a per-field cursor so the confirm widget shares the
@@ -124,7 +123,7 @@ type formWidget struct {
 }
 
 // FormFor builds a formModel from the declared fields of typeSt.
-// Signature shape preserved from the huh-coupled version.
+// Signature shape preserved from the prior version.
 func FormFor(typeSt schema.SectionType, prefill map[string]any, isUpdate bool) (*formModel, []FormField, func() (map[string]any, error)) {
 	names := make([]string, 0, len(typeSt.Fields))
 	for name := range typeSt.Fields {

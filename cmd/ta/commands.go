@@ -1044,7 +1044,7 @@ func newDeleteCmd() *cobra.Command {
 }
 
 // runDeleteSingle preserves the pre-F37 single-positional flow,
-// including the TTY huh.Confirm fallback path and the verbose remaining-
+// including the TTY confirm fallback path and the verbose remaining-
 // in-file output. F37 batch mode does NOT inherit the TTY confirm —
 // batch deletes refuse file-level removal without an explicit per-item
 // force=true (mirroring MCP semantics where there is no TTY to prompt).
@@ -1165,7 +1165,7 @@ func deleteBatchToMutationRows(results []deleteItemResult) []mutationRow {
 }
 
 // confirmFileDelete prompts the user to confirm a file-level delete.
-// Wraps a huh.Confirm so the prompt body matches the existing
+// Wraps the bubbletea confirm so the prompt body matches the existing
 // confirmOverwrite shape used by `ta init` (consistent visual idiom).
 func confirmFileDelete(id, filePath string) (bool, error) {
 	return runConfirmProgram(
@@ -1412,7 +1412,7 @@ func renderSearchHits(w io.Writer, path string, hits []ops.SearchHit) error {
 
 // collectCreateData is the create-side entrypoint for field data.
 // Preserves the non-interactive --data / --data-file contract and, when
-// neither is set and stdin is a TTY, runs the interactive huh form
+// neither is set and stdin is a TTY, runs the interactive bubbletea form
 // built from the resolved type's declared fields. Off-TTY with no flags
 // errors politely so agents and scripts fail loudly instead of hanging
 // on stdin.

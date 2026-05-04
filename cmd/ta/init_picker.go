@@ -39,7 +39,6 @@ type pickedItem struct {
 type PickerOption func(*pickerModel)
 
 // WithPickerHeader prepends a single styled banner above all groups.
-// Replaces the legacy huh.NewNote header used by pickDBs.
 func WithPickerHeader(title, description string) PickerOption {
 	return func(m *pickerModel) {
 		m.headerTitle = title
@@ -556,7 +555,7 @@ func runPickerProgram(m *pickerModel) ([]pickedItem, error) {
 
 // pickerHeaderForBuckets renders a stable, sorted header for one
 // (kind, group) bucket — re-uses the existing bucketTitle helper so the
-// section labels match the legacy huh.Title strings byte-identically.
+// section labels match the legacy bucket-title strings byte-identically.
 func pickerHeaderForBucket(b pickerBucket) string {
 	return bucketTitle(b.key.kind, b.key.group)
 }

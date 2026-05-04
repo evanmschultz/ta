@@ -13,7 +13,7 @@ import (
 // TestDispatchWidgetTable is the table-driven regression lock for the
 // (Field.Type, Field.Format, Enum) → WidgetKind mapping per V2-PLAN
 // §12.17.5 [D1]. dispatchWidget is a pure function on schema.Field, so
-// we do not need a live huh form or TTY to exercise the table.
+// we do not need a live bubbletea form or TTY to exercise the table.
 func TestDispatchWidgetTable(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -315,7 +315,7 @@ func TestFormForCollectUpdateEmptyStringBlankRetains(t *testing.T) {
 // TestFormForCollectCreateRequiredFailsOnBlank proves a required
 // field left blank on create (no prefill, form validators bypassed
 // by direct accumulator write) surfaces an error from collect. In
-// the live form huh's Validate callback fires first, but the
+// the live form the bubbletea Validate callback fires first, but the
 // collect-side guard is the belt-and-suspenders layer.
 func TestFormForCollectCreateRequiredFailsOnBlank(t *testing.T) {
 	typeSt := schema.SectionType{
@@ -336,7 +336,7 @@ func TestFormForCollectCreateRequiredFailsOnBlank(t *testing.T) {
 
 // TestFormForCollectJSONTextareaInvalid proves the JSON array/table
 // validator path errors on malformed JSON through the collect side.
-// The huh-side Validate fires the same check at edit time; the
+// The bubbletea-side Validate fires the same check at edit time; the
 // collect-side repeat is defensive since we bypass the form in tests.
 func TestFormForCollectJSONTextareaInvalid(t *testing.T) {
 	typeSt := schema.SectionType{

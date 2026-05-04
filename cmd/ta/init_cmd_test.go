@@ -33,9 +33,9 @@ func seedTemplateLibrary(t *testing.T) string {
 }
 
 // runInitCmd is a test helper that invokes newInitCmd with args and
-// captured stdio. It sets up a stdin that is NOT a TTY so huh pickers
-// never fire — tests must pass --template to exercise non-interactive
-// paths.
+// captured stdio. It sets up a stdin that is NOT a TTY so interactive
+// pickers never fire — tests must pass --template to exercise
+// non-interactive paths.
 func runInitCmd(t *testing.T, args ...string) (stdout string, stderr string, err error) {
 	t.Helper()
 	cmd := newInitCmd()
@@ -902,7 +902,8 @@ func TestFormatLegacyWarning_NoFiles(t *testing.T) {
 
 // TestFormatLegacyWarning_WithFiles asserts the helper produces a
 // non-empty (title, description) pair naming both the count and the
-// legacy filename. The picker renders this pair via huh.NewNote.
+// legacy filename. The picker renders this pair as a styled banner
+// via WithPickerHeader.
 func TestFormatLegacyWarning_WithFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "schema.toml"),

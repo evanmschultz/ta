@@ -55,8 +55,8 @@ func seedCwdSchema(t *testing.T, body string) {
 }
 
 // runTemplateCmd is the standard harness for `ta template <sub> ...`.
-// Stdin is always a nil reader — huh never fires because test stdin
-// is not a TTY.
+// Stdin is always a nil reader — the confirm prompt never fires because
+// test stdin is not a TTY.
 func runTemplateCmd(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	cmd := newTemplateCmd()

@@ -1,4 +1,4 @@
-// F38d-5 bubbletea menu model. Replaces the huh.Select that drove
+// F38d-5 bubbletea menu model. Replaces the prior select widget that drove
 // runMenu. Renders a vertical list of subcommand rows with a cursor
 // the user moves via j/k or up/down; enter submits the highlighted
 // row's name; q / ctrl+c exits the menu cleanly (returns ""). The

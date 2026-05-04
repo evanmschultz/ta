@@ -1,4 +1,4 @@
-// F38d-4 bubbletea confirm model. Replaces every huh.NewConfirm call
+// F38d-4 bubbletea confirm model. Replaces every prior confirm call
 // site in cmd/ta/. Hand-rolled per Falsifier R1.10 (bubbles v2 has no
 // confirm component) so we can pin the F18+F16 hardening contract by
 // construction:

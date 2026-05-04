@@ -750,7 +750,7 @@ func Delete(path, id, typeName string) (string, []string, error) {
 //     index entry whose canonical id begins with `<file-relpath>.`.
 //     Requires opts.Force=true; otherwise ErrFileDeleteRequiresForce
 //     fires before any disk mutation. The CLI gates the prompt off-TTY
-//     and converts an interactive `huh.Confirm=true` into Force=true;
+//     and converts an interactive confirm `true` into Force=true;
 //     the MCP delete tool requires force=true unconditionally because
 //     it has no TTY available.
 //   - LevelGlobRoot (bare file-relpath that resolves to multiple

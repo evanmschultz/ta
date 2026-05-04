@@ -26,8 +26,8 @@ var (
 
 	// ErrFileDeleteRequiresForce is returned by delete when the caller
 	// names a file-level id (one whole file) without setting Force=true
-	// in DeleteOptions. The CLI surfaces this off-TTY (where huh.Confirm
-	// cannot prompt); the MCP delete tool surfaces it whenever
+	// in DeleteOptions. The CLI surfaces this off-TTY (where the
+	// confirm prompt cannot fire); the MCP delete tool surfaces it whenever
 	// `force=true` is omitted (no TTY is ever available on the MCP
 	// transport).
 	ErrFileDeleteRequiresForce = errors.New("ops: file-level delete requires --force / force=true")

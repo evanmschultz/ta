@@ -187,7 +187,7 @@ func TestVersionFallsBackToDevel(t *testing.T) {
 }
 
 // TestMenuItemsSkipsHelpAndCompletion locks in the V2-PLAN §12.16 menu
-// contract: the huh subcommand menu shown for bare `ta` on a TTY must
+// contract: the bubbletea subcommand menu shown for bare `ta` on a TTY must
 // omit cobra's default `help` command and the `completion` command (if
 // any). Hidden commands are also skipped. Each menu row carries the
 // subcommand name and Short description, so every registered non-hidden

@@ -136,7 +136,7 @@ func newInitCmd() *cobra.Command {
 			}
 			// --json is treated as a non-interactive request: agents
 			// piping stdout expect structured JSON and cannot complete
-			// a huh form. Without this, `ta init --json` from a TTY
+			// the bubbletea form. Without this, `ta init --json` from a TTY
 			// would block on the picker then emit JSON afterward (QA
 			// falsification §12.14 LOW-2 finding). --selections-file
 			// is non-interactive by definition.
@@ -221,9 +221,9 @@ func expandTilde(p string) (string, error) {
 // runInit dispatches between two execution paths:
 //
 //   - The legacy single-schema path (pre-F24): `--template <db>`, the
-//     huh single-multi-select db picker, or `bootstrap.default_template`.
+//     single-group multi-select db picker, or `bootstrap.default_template`.
 //     Writes one `<target>/.ta/schema.toml` plus the two MCP configs.
-//   - The multi-category path (F24): `--selections-file` or the huh
+//   - The multi-category path (F24): `--selections-file` or the bubbletea
 //     multi-group picker. Writes selected items to the four
 //     destination categories. When `--target=$HOME/.ta`, items land
 //     in the home library instead of a project tree (F24 lock #8).
@@ -297,7 +297,7 @@ func runInitLegacy(out, errOut io.Writer, in io.Reader, target string, f initFla
 
 	// If the picker / non-interactive flow did not lock in claude/codex
 	// toggles, the effective-toggles layer already picked defaults. On
-	// an interactive TTY with no explicit toggles, ask through huh.
+	// an interactive TTY with no explicit toggles, ask through the picker.
 	if interactive(in, out, f) && !bootCfgHasMCPKeys(bootCfg) && !f.noClaude && !f.noCodex {
 		c, x, err := promptMCPToggles(effClaude, effCodex)
 		if err != nil {
@@ -390,14 +390,11 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 		return "", nil, err
 	}
 
-	// F18: legacy-warning content moves INSIDE the huh frame as a Note
-	// rendered in the SAME group as the picker — Note's Skip()=true
-	// (when not the only field in the group) means navigation skips
-	// past it, but Group.getContent() still renders all fields stacked,
-	// so the warning appears as a non-interactive header above the
-	// MultiSelect on the same page. Off-TTY paths still get the laslig
-	// warning to errOut above; on the picker path the laslig surface
-	// stays quiet so it does not compete with huh for the render frame.
+	// F18: legacy-warning content moves INSIDE the picker frame as a
+	// styled banner above the group list. Off-TTY paths still get the
+	// laslig warning to errOut above; on the picker path the laslig
+	// surface stays quiet so it does not compete with the bubbletea
+	// program for the render frame.
 	legacyTitle, legacyDesc := formatLegacyWarning()
 
 	selected, err := pickDBs(infos, legacyTitle, legacyDesc)
@@ -420,8 +417,8 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 //
 // Used on the non-picker paths only post-F18 (`--template <db>`,
 // off-TTY default-template, off-TTY error). The picker path renders
-// the same content via `huh.NewNote` inside the form frame so laslig
-// and huh do not compete for the render frame.
+// the same content via the picker's styled banner inside the model
+// frame so laslig and bubbletea do not compete for the render frame.
 func emitInitLegacyWarning(errOut io.Writer) {
 	files, err := templates.LegacyTemplateFiles()
 	if err != nil || len(files) == 0 {
@@ -445,7 +442,7 @@ func emitInitLegacyWarning(errOut io.Writer) {
 // any legacy `~/.ta/<name>.toml` files that should be merged into
 // `schema.toml`. Empty strings mean no legacy files were found and the
 // caller should skip rendering. Used by `pickDBs` to render the
-// warning INSIDE the huh frame as a Note group, replacing the laslig
+// warning INSIDE the picker frame as a styled banner, replacing the laslig
 // warning on the picker path.
 func formatLegacyWarning() (title, description string) {
 	files, err := templates.LegacyTemplateFiles()
@@ -653,7 +650,7 @@ func schemaSourceLabel(selected []string) string {
 }
 
 // writeSchema handles the .ta/schema.toml write: directory creation,
-// existence + --force + huh-confirm flow, then atomic write.
+// existence + --force + bubbletea-confirm flow, then atomic write.
 func writeSchema(in io.Reader, out io.Writer, schemaPath string, data []byte, f initFlags) error {
 	if err := os.MkdirAll(filepath.Dir(schemaPath), 0o755); err != nil {
 		return fmt.Errorf("create .ta dir: %w", err)

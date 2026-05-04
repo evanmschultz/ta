@@ -419,7 +419,7 @@ func newTemplateSaveCmd() *cobra.Command {
 			"missing). `--kind=config --canonical=<name>` copies a project file " +
 			"into `~/.ta/configs/<canonical>`; `--kind=docs-template " +
 			"--canonical=<name>` does the same for `~/.ta/docs-templates/<canonical>.md`. " +
-			"Schema mode keeps the F15 conflict semantics (TTY huh.Confirm or " +
+			"Schema mode keeps the F15 conflict semantics (TTY confirm prompt or " +
 			"`--overwrite`); other kinds error on existing destinations unless " +
 			"`--overwrite` is set.",
 		Example: `  ta template save
@@ -627,7 +627,7 @@ func validateDBNameForCLI(name string) error {
 // detectSaveConflicts returns the sorted set of db names that would
 // collide between the project schema and the current home schema,
 // scoped to the (possibly empty) names filter. Used by runTemplateSave
-// to size the huh prompt without performing a write. Loading the
+// to size the confirm prompt without performing a write. Loading the
 // project Registry costs one parse on bytes already validated upstream
 // — cheap relative to the round-trip risk of double-calling SaveDBs.
 func detectSaveConflicts(projectBytes []byte, names []string) ([]string, error) {
@@ -720,7 +720,7 @@ func newTemplateApplyCmd() *cobra.Command {
 			"schema containing just that db, and writes it to " +
 			"`<path>/.ta/schema.toml`. --path defaults to cwd; relative or " +
 			"absolute accepted. Creates the `.ta/` directory if missing. " +
-			"If the target already exists, confirms via huh on a TTY or " +
+			"If the target already exists, confirms on a TTY or " +
 			"requires `--force` off-TTY. Schema-only — does NOT touch " +
 			"`.mcp.json` / `.codex/config.toml` (use `ta init` for a full " +
 			"bootstrap).",
@@ -816,7 +816,7 @@ func newTemplateDeleteCmd() *cobra.Command {
 			"named db from `~/.ta/schema.toml`. `--kind=agent --group=<group>` " +
 			"removes one home agent. `--kind=config` / `--kind=docs-template` " +
 			"remove one home flat-library item. Binary items are read-only and " +
-			"refuse to delete (ErrReadOnly). Confirms via huh on a TTY; requires " +
+			"refuse to delete (ErrReadOnly). Confirms on a TTY; requires " +
 			"`--force` off-TTY.",
 		Example: `  ta template delete old-plans
   ta template delete old-plans --force
@@ -832,7 +832,7 @@ func newTemplateDeleteCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "skip the huh confirm prompt")
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirm prompt")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered notice")
 	cmd.Flags().StringVar(&kind, "kind", "", "item kind: schema (default) | agent | config | docs-template")
 	cmd.Flags().StringVar(&group, "group", "", "agent subdir (kind=agent only)")
@@ -944,7 +944,7 @@ func emitTemplateDeleteReport(w io.Writer, r templateDeleteReport, asJSON bool) 
 	return render.New(w).Success("ta template delete", r.Name, nil)
 }
 
-// ---- shared huh helpers ---------------------------------------------
+// ---- shared confirm helpers -----------------------------------------
 
 // promptConfirm is the shared bubbletea confirm used by apply /
 // delete flows (init has its own confirmOverwrite for title

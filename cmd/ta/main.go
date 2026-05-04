@@ -42,8 +42,8 @@ const longDescription = "# ta\n\n" +
 	"Tiny MCP server (and matching CLI) that exposes TOML and Markdown " +
 	"files as schema-validated, agent-accessible structured data.\n\n" +
 	"Running `ta` with no subcommand is dual-mode:\n\n" +
-	"- On an interactive terminal (TTY), shows a huh picker of the available " +
-	"subcommands.\n" +
+	"- On an interactive terminal (TTY), shows an interactive picker of " +
+	"the available subcommands.\n" +
 	"- When spawned by an MCP client (e.g. Claude Code — stdio pipes, no TTY), " +
 	"starts the MCP server. Register it via `.mcp.json` or `claude mcp add`; " +
 	"the stdio handshake makes the server path fire automatically.\n\n" +
@@ -144,7 +144,7 @@ func newRootCmd() *cobra.Command {
 		},
 	})
 	// Register the help command eagerly so `Find`-based lookups (tests,
-	// the huh root menu) see it without having to invoke Execute first.
+	// the bubbletea root menu) see it without having to invoke Execute first.
 	// cobra's Execute would otherwise call this lazily.
 	cmd.InitDefaultHelpCmd()
 	return cmd
@@ -152,7 +152,7 @@ func newRootCmd() *cobra.Command {
 
 // runRoot is the bare-`ta` entrypoint. Dual behavior per V2-PLAN §14.3:
 //
-//   - BOTH stdin and stdout are TTYs → launch a huh select over the
+//   - BOTH stdin and stdout are TTYs → launch a bubbletea select over the
 //     available subcommands. The chosen subcommand runs with `--help` so
 //     the user sees usage + Example for the picked command, because most
 //     subcommands require positional args that the picker cannot collect.
