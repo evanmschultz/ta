@@ -467,7 +467,10 @@ func bracketKeyForFilter(addr string, dbDecl schema.DB, inst db.Instance, single
 //     legacy bracket form `[<type>.<id-tail>]` is retained for glob
 //     mounts because brackets in those files cannot share a uniform
 //     prefix without re-introducing a type segment).
-//   - MD: every declared type with its heading.
+//   - MD section-mode: every declared type with its heading.
+//   - MD file-as-record (F31): one type per db (mixed-mode prohibition);
+//     dispatch to FileRecordBackend so heading=0 does not trip
+//     md.NewBackend's [1, 6] validator (F38b).
 func buildBackendForSearch(dbDecl schema.DB, fileRelPath string, singleFile bool) (record.Backend, error) {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
@@ -482,6 +485,18 @@ func buildBackendForSearch(dbDecl schema.DB, fileRelPath string, singleFile bool
 		}
 		return toml.NewBackend(types), nil
 	case schema.FormatMD:
+		if schema.DBHasFileAsRecord(dbDecl) {
+			fileType, st, ok := singleFileRecordType(dbDecl)
+			if !ok {
+				return nil, fmt.Errorf("search: db %q has file-as-record types but none resolved", dbDecl.Name)
+			}
+			types := []record.DeclaredType{{Name: fileType}}
+			b, err := md.NewFileRecordBackend(types, fileType, st.BodyField)
+			if err != nil {
+				return nil, fmt.Errorf("search: build file-as-record backend for db %q: %w", dbDecl.Name, err)
+			}
+			return b, nil
+		}
 		types := make([]record.DeclaredType, 0, len(dbDecl.Types))
 		for typeName, t := range dbDecl.Types {
 			types = append(types, record.DeclaredType{
@@ -500,6 +515,21 @@ func buildBackendForSearch(dbDecl schema.DB, fileRelPath string, singleFile bool
 	}
 }
 
+// singleFileRecordType is the search-package mirror of
+// ops.singleFileRecordType. Per F31's mixed-mode prohibition (load.go
+// enforces) at most one file-as-record type can exist per db; this
+// helper folds the lookup. Duplicated here rather than exported from
+// schema to avoid premature package-API expansion (revisit when a
+// fourth caller emerges; see F38b locked decisions).
+func singleFileRecordType(dbDecl schema.DB) (string, schema.SectionType, bool) {
+	for name, t := range dbDecl.Types {
+		if t.IsFileRecord() {
+			return name, t, true
+		}
+	}
+	return "", schema.SectionType{}, false
+}
+
 // fullAddress returns the caller-visible id for a backend-relative
 // record address. Per F10:
 //   - TOML single-file: backend addr is "<file-relpath>.<bracket-key>"
@@ -507,7 +537,10 @@ func buildBackendForSearch(dbDecl schema.DB, fileRelPath string, singleFile bool
 //   - TOML multi-file: backend addr is "<type>.<id-tail>" relative to
 //     its file; prepend the file-relpath so the id is
 //     "<file-relpath>.<type>.<id-tail>".
-//   - MD: backend addr is "<type>.<chain...>"; prepend the file-relpath.
+//   - MD section-mode: backend addr is "<type>.<chain...>"; prepend the
+//     file-relpath.
+//   - MD file-as-record (F31): the file IS the record; the id is the
+//     file-relpath itself with no bracket-key or type suffix.
 func fullAddress(dbDecl schema.DB, inst db.Instance, backendAddr string, singleFile bool) string {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
@@ -516,6 +549,9 @@ func fullAddress(dbDecl schema.DB, inst db.Instance, backendAddr string, singleF
 		}
 		return inst.Slug + "." + backendAddr
 	case schema.FormatMD:
+		if schema.DBHasFileAsRecord(dbDecl) {
+			return inst.Slug
+		}
 		return inst.Slug + "." + backendAddr
 	default:
 		return backendAddr
@@ -524,13 +560,19 @@ func fullAddress(dbDecl schema.DB, inst db.Instance, backendAddr string, singleF
 
 // decodeFields returns the parsed field map for one located record.
 // For TOML: walk the already-decoded root via the record's bracket path.
-// For MD body-only (§5.3.3): the "body" field is everything after the
-// heading line.
+// For MD section-mode (§5.3.3): the "body" field is everything after
+// the heading line; only "body" is backed.
+// For MD file-as-record (F31): frontmatter holds typed fields, body
+// holds the markdown under the type's BodyField; every declared field
+// is potentially backed.
 func decodeFields(dbDecl schema.DB, typeSt schema.SectionType, tomlRoot map[string]any, buf []byte, sec record.Section, backendAddr string) (map[string]any, error) {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
 		return walkTOMLPath(tomlRoot, backendAddr)
 	case schema.FormatMD:
+		if typeSt.IsFileRecord() {
+			return decodeFileRecordFields(buf, typeSt)
+		}
 		raw := buf[sec.Range[0]:sec.Range[1]]
 		body := stripHeadingLine(raw)
 		out := map[string]any{}
@@ -544,6 +586,41 @@ func decodeFields(dbDecl schema.DB, typeSt schema.SectionType, tomlRoot map[stri
 		return nil, fmt.Errorf("%w: db %q format=%q",
 			ErrUnsupportedFormat, dbDecl.Name, dbDecl.Format)
 	}
+}
+
+// decodeFileRecordFields parses the frontmatter + body of a
+// file-as-record buffer and returns every declared field as a map.
+// Frontmatter fields decode via md.DecodeFrontmatter; the BodyField
+// is populated from the body bytes. Mirrors
+// ops.extractFileRecordFields but populates every declared field
+// (search needs the full record for regex/match filtering, not a
+// caller-named subset).
+func decodeFileRecordFields(buf []byte, st schema.SectionType) (map[string]any, error) {
+	out := make(map[string]any, len(st.Fields))
+	if len(buf) == 0 {
+		return out, nil
+	}
+	front, body, err := md.SplitFrontmatter(buf)
+	if err != nil {
+		return nil, fmt.Errorf("file-as-record: split frontmatter: %w", err)
+	}
+	var fm map[string]any
+	if front != nil {
+		fm, err = md.DecodeFrontmatter(front)
+		if err != nil {
+			return nil, fmt.Errorf("file-as-record: decode frontmatter: %w", err)
+		}
+	}
+	for name := range st.Fields {
+		if name == st.BodyField {
+			out[name] = string(body)
+			continue
+		}
+		if v, ok := fm[name]; ok {
+			out[name] = v
+		}
+	}
+	return out, nil
 }
 
 // walkTOMLPath descends the pelletier-decoded root by the dotted segs of
@@ -668,8 +745,15 @@ func validateScopeMatchSemantics(reg schema.Registry, plan searchPlan, q Query) 
 //
 // Names not declared on typeSt are left to matchFilterErrors /
 // fieldFilterError (the unknown-field surface, scope-dependent).
+//
+// File-as-record types (F31) bypass this check: their layout backs
+// every declared field (frontmatter + body), so md.CheckBackableFields'
+// body-only restriction does not apply.
 func mdLayoutCheck(dbDecl schema.DB, typeSt schema.SectionType, q Query) error {
 	if dbDecl.Format != schema.FormatMD {
+		return nil
+	}
+	if typeSt.IsFileRecord() {
 		return nil
 	}
 	names := make([]string, 0, len(q.Match)+1)

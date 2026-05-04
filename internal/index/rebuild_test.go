@@ -65,6 +65,24 @@ type = "string"
 description = "body"
 `
 
+const fileRecordSchema = `[claude_agents]
+paths = ["claude_agents/*.md"]
+description = "Claude agent prompts"
+
+[claude_agents.agent]
+description = "agent"
+record_per = "file"
+body_field = "prompt"
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+required = true
+`
+
 func TestRebuildEmptyProjectProducesEmptyIndex(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".ta", "schema.toml"), singleFileSchema)
@@ -193,6 +211,40 @@ Config goes here.
 		}
 		if entry.Type != "section" {
 			t.Errorf("entry %q: Type = %q, want section", k, entry.Type)
+		}
+	}
+}
+
+// TestRebuildFileRecordDB exercises the F38b dispatch fix: index.Rebuild
+// against a file-as-record db must NOT trip md.NewBackend's
+// `heading must be in [1, 6]` validator. The canonical id for each
+// record is the file-relpath itself (no bracket-key, no type segment),
+// and the entry's Type is the declared file-as-record type.
+func TestRebuildFileRecordDB(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".ta", "schema.toml"), fileRecordSchema)
+	writeFile(t, filepath.Join(root, "claude_agents", "writer.md"),
+		"---\nname: writer\n---\nyou are a writer.\n")
+	writeFile(t, filepath.Join(root, "claude_agents", "editor.md"),
+		"---\nname: editor\n---\nyou are an editor.\n")
+
+	res, err := index.Rebuild(root)
+	if err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	if res.RecordsIndexed != 2 {
+		t.Errorf("RecordsIndexed = %d, want 2 (have: %v)",
+			res.RecordsIndexed, keysOf(res.Index.Records))
+	}
+	wantKeys := []string{"writer", "editor"}
+	for _, k := range wantKeys {
+		entry, ok := res.Index.Records[k]
+		if !ok {
+			t.Errorf("missing entry %q; have: %v", k, keysOf(res.Index.Records))
+			continue
+		}
+		if entry.Type != "agent" {
+			t.Errorf("entry %q: Type = %q, want agent", k, entry.Type)
 		}
 	}
 }

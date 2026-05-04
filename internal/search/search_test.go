@@ -624,6 +624,66 @@ func TestSearchMDBody(t *testing.T) {
 	}
 }
 
+// ---- MD file-as-record (F31, F38b) ----------------------------------
+
+const fileRecordSchema = `
+[claude_agents]
+paths = ["claude_agents/*.md"]
+description = "Claude agent prompt files."
+
+[claude_agents.agent]
+description = "An agent prompt."
+record_per = "file"
+body_field = "prompt"
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+`
+
+// TestSearchFileRecordDB exercises the F38b dispatch fix: search.Run
+// against a file-as-record db must NOT trip md.NewBackend's
+// `heading must be in [1, 6]` validator. With the dispatch wired
+// correctly the FileRecordBackend serves one record per file with the
+// file-relpath itself as the id (no bracket-key, no type segment).
+func TestSearchFileRecordDB(t *testing.T) {
+	root := writeSchemaProject(t, fileRecordSchema)
+	if err := os.MkdirAll(filepath.Join(root, "claude_agents"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	writer := "---\nname: writer\n---\nyou are a writer.\n"
+	editor := "---\nname: editor\n---\nyou are an editor.\n"
+	if err := os.WriteFile(filepath.Join(root, "claude_agents", "writer.md"), []byte(writer), 0o644); err != nil {
+		t.Fatalf("seed writer: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "claude_agents", "editor.md"), []byte(editor), 0o644); err != nil {
+		t.Fatalf("seed editor: %v", err)
+	}
+
+	hits, err := search.Run(search.Query{Path: root})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(hits) != 2 {
+		t.Fatalf("got %d hits, want 2: %+v", len(hits), hits)
+	}
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.ID] = true
+	}
+	wantIDs := []string{"writer", "editor"}
+	for _, w := range wantIDs {
+		if !got[w] {
+			t.Errorf("missing id %q; got %v", w, got)
+		}
+	}
+}
+
 // ---- scope parsing edges -------------------------------------------
 
 func TestEmptyPathErrors(t *testing.T) {

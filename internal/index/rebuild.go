@@ -194,7 +194,15 @@ func listAtPrefix(buf []byte, dbDecl schema.DB, types []record.DeclaredType) ([]
 // indexMDBuf enumerates every declared MD heading-section in buf and
 // adds an entry. MD addresses returned by List are `<type>.<chain>`;
 // the canonical id prepends the instance slug.
+//
+// File-as-record dbs (F31) emit ONE record per file with the
+// file-relpath itself as the canonical id (no chain, no bracket-key);
+// dispatch to FileRecordBackend so heading=0 does not trip
+// md.NewBackend's [1, 6] validator (F38b).
 func indexMDBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, stamp time.Time) error {
+	if schema.DBHasFileAsRecord(dbDecl) {
+		return indexFileRecordBuf(idx, dbDecl, inst, buf, stamp)
+	}
 	types := mdDeclaredTypes(dbDecl)
 	be, err := md.NewBackend(types)
 	if err != nil {
@@ -213,6 +221,49 @@ func indexMDBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, stam
 		idx.Put(canonical, Entry{Type: typeName, Created: stamp, Updated: stamp})
 	}
 	return nil
+}
+
+// indexFileRecordBuf indexes a single file-as-record buffer (F31). Per
+// the F38b locked decision the file IS the record: the canonical id is
+// the instance slug (file-relpath) verbatim with no type segment, and
+// the record's type is the one declared file-as-record type on the db
+// (mixed-mode is rejected at schema load).
+//
+// An empty buffer yields no entry — `FileRecordBackend.List` returns
+// no addresses for an empty buf, so the caller sees an unbacked id and
+// the index correctly omits the record.
+func indexFileRecordBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, stamp time.Time) error {
+	fileType, st, ok := singleFileRecordType(dbDecl)
+	if !ok {
+		return fmt.Errorf("index: db %q has file-as-record types but none resolved", dbDecl.Name)
+	}
+	types := []record.DeclaredType{{Name: fileType}}
+	be, err := md.NewFileRecordBackend(types, fileType, st.BodyField)
+	if err != nil {
+		return fmt.Errorf("md file-as-record backend: %w", err)
+	}
+	addresses, err := be.List(buf, "")
+	if err != nil {
+		return err
+	}
+	for range addresses {
+		idx.Put(inst.Slug, Entry{Type: fileType, Created: stamp, Updated: stamp})
+	}
+	return nil
+}
+
+// singleFileRecordType is the index-package mirror of
+// ops.singleFileRecordType. Per F31's mixed-mode prohibition at most
+// one file-as-record type can exist per db. Duplicated here rather
+// than exported from schema (revisit when a fourth caller emerges; see
+// F38b locked decisions).
+func singleFileRecordType(dbDecl schema.DB) (string, schema.SectionType, bool) {
+	for name, t := range dbDecl.Types {
+		if t.IsFileRecord() {
+			return name, t, true
+		}
+	}
+	return "", schema.SectionType{}, false
 }
 
 // canonicalForBracket joins the instance slug with a TOML bracket path
