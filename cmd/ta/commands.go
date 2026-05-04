@@ -1436,7 +1436,7 @@ func collectCreateData(c *cobra.Command, path, id, dataInline, dataFile string) 
 		return nil, err
 	}
 	form, _, collect := FormFor(typeSt, nil, false)
-	if err := form.Run(); err != nil {
+	if err := runFormProgram(form); err != nil {
 		return nil, fmt.Errorf("form: %w", err)
 	}
 	return collect()
@@ -1467,7 +1467,7 @@ func collectUpdateData(c *cobra.Command, path, id, dataInline, dataFile string) 
 		return nil, err
 	}
 	form, _, collect := FormFor(typeSt, res.Fields, true)
-	if err := form.Run(); err != nil {
+	if err := runFormProgram(form); err != nil {
 		return nil, fmt.Errorf("form: %w", err)
 	}
 	return collect()

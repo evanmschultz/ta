@@ -53,8 +53,22 @@ var (
 )
 
 // === F38d-3: formModel styles ===
-// (empty until F38d-3 lands)
-//
+var (
+	formTitleStyle = lipgloss.NewStyle().
+			Foreground(charmtone.Hazy).
+			Bold(true)
+
+	formActiveLabelStyle = lipgloss.NewStyle().
+				Foreground(charmtone.Citron).
+				Bold(true)
+
+	formIdleLabelStyle = lipgloss.NewStyle().
+				Foreground(charmtone.Smoke)
+
+	formHelpStyle = lipgloss.NewStyle().
+			Foreground(charmtone.Smoke)
+)
+
 // === F38d-4: confirmModel styles ===
 var (
 	confirmCursorStyle = lipgloss.NewStyle().

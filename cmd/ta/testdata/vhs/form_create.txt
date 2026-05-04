@@ -1,0 +1,423 @@
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+> rm -rf /tmp/ta-vhs-form && mkdir -p /tmp/ta-vhs-form/.ta
+> cat > /tmp/ta-vhs-form/.ta/schema.toml << "EOF"
+> [plans]
+> paths = ["plans.toml"]
+>
+> [plans.task]
+> description = "A task."
+>
+> [plans.task.fields]
+>
+> [plans.task.fields.id]
+> type = "string"
+> required = true
+>
+> [plans.task.fields.status]
+> type = "string"
+> required = true
+> EOF
+>
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+> rm -rf /tmp/ta-vhs-form && mkdir -p /tmp/ta-vhs-form/.ta
+> cat > /tmp/ta-vhs-form/.ta/schema.toml << "EOF"
+> [plans]
+> paths = ["plans.toml"]
+>
+> [plans.task]
+> description = "A task."
+>
+> [plans.task.fields]
+>
+> [plans.task.fields.id]
+> type = "string"
+> required = true
+>
+> [plans.task.fields.status]
+> type = "string"
+> required = true
+> EOF
+> ./bin/ta create plans.t1 --type plans.task --path /tmp/ta-vhs-form
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Fill task
+
+▶ id *
+    > i
+
+  status *
+    > s
+
+tab next  shift+tab prev  enter advance/submit  ctrl+enter submit textarea  esc abort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Fill task
+
+▶ id *
+    > i
+
+  status *
+    > s
+
+tab next  shift+tab prev  enter advance/submit  ctrl+enter submit textarea  esc abort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
