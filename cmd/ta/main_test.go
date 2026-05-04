@@ -1,6 +1,10 @@
 package main
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -22,6 +26,115 @@ func TestRootCmdWiring(t *testing.T) {
 	}
 	if f := cmd.Flags().Lookup("log-startup"); f == nil {
 		t.Error("--log-startup flag not registered")
+	}
+	if f := cmd.Flags().Lookup("project"); f == nil {
+		t.Error("--project flag not registered")
+	}
+}
+
+// makeProjectDir materializes a directory with a .ta/schema.toml file
+// at <root>/<name> so resolveProjectPath sees a valid project. Returns
+// the absolute path to the project root.
+func makeProjectDir(t *testing.T, root, name string) string {
+	t.Helper()
+	abs := filepath.Join(root, name)
+	if err := os.MkdirAll(filepath.Join(abs, ".ta"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(abs, ".ta", "schema.toml"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatalf("write schema: %v", err)
+	}
+	return abs
+}
+
+// stubGetwd returns a getwd function that yields a fixed value so
+// tests can prove cwd-fallback behavior independently of the test
+// process's actual working directory.
+func stubGetwd(path string) func() (string, error) {
+	return func() (string, error) { return path, nil }
+}
+
+func TestServeFlag_ProjectAbsolutePath_AcceptsExistingSchema(t *testing.T) {
+	tmp := t.TempDir()
+	proj := makeProjectDir(t, tmp, "proj")
+	got, err := resolveProjectPath(proj, stubGetwd("/should/not/be/used"))
+	if err != nil {
+		t.Fatalf("resolveProjectPath: %v", err)
+	}
+	if got != filepath.Clean(proj) {
+		t.Errorf("got %q, want %q", got, proj)
+	}
+}
+
+func TestServeFlag_ProjectRelativePath_Errors(t *testing.T) {
+	_, err := resolveProjectPath("relative/path", stubGetwd("/cwd"))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "must be absolute") {
+		t.Errorf("error %q missing 'must be absolute'", err)
+	}
+}
+
+func TestServeFlag_ProjectNonexistent_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	missing := filepath.Join(tmp, "nope")
+	_, err := resolveProjectPath(missing, stubGetwd("/cwd"))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	// Must surface the underlying not-exist; wrap target verified via
+	// errors.Is so message wording can evolve.
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("error %v does not wrap os.ErrNotExist", err)
+	}
+}
+
+func TestServeFlag_ProjectMissingSchema_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	// A directory exists but has no .ta/schema.toml.
+	bare := filepath.Join(tmp, "bare")
+	if err := os.MkdirAll(bare, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	_, err := resolveProjectPath(bare, stubGetwd("/cwd"))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	want := "has no .ta/schema.toml"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q missing %q", err, want)
+	}
+}
+
+func TestServeFlag_ProjectWinsOverCwd(t *testing.T) {
+	tmp := t.TempDir()
+	proj := makeProjectDir(t, tmp, "flagproj")
+	cwd := makeProjectDir(t, tmp, "cwdproj")
+	got, err := resolveProjectPath(proj, stubGetwd(cwd))
+	if err != nil {
+		t.Fatalf("resolveProjectPath: %v", err)
+	}
+	if got == cwd {
+		t.Errorf("flag-set path was overridden by cwd %q", cwd)
+	}
+	if got != filepath.Clean(proj) {
+		t.Errorf("got %q, want %q (flag should win)", got, proj)
+	}
+}
+
+func TestServeFlag_NoFlag_FallsBackToCwd(t *testing.T) {
+	tmp := t.TempDir()
+	cwd := makeProjectDir(t, tmp, "cwdproj")
+	got, err := resolveProjectPath("", stubGetwd(cwd))
+	if err != nil {
+		t.Fatalf("resolveProjectPath: %v", err)
+	}
+	// Empty flag means cwd is used unchanged — no validation is applied
+	// to cwd because the pre-flag behavior delegated that to mcpsrv /
+	// ops layers, and this test locks that contract in.
+	if got != cwd {
+		t.Errorf("got %q, want %q", got, cwd)
 	}
 }
 

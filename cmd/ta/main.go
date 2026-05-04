@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 
 	fang "charm.land/fang/v2"
@@ -79,7 +80,10 @@ func main() {
 }
 
 func newRootCmd() *cobra.Command {
-	var logStartup bool
+	var (
+		logStartup  bool
+		projectFlag string
+	)
 	cmd := &cobra.Command{
 		Use:   appName,
 		Short: "MCP server (and matching CLI) for schema-validated TOML",
@@ -89,12 +93,17 @@ func newRootCmd() *cobra.Command {
   ta template list`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runRoot(c, logStartup)
+			return runRoot(c, logStartup, projectFlag)
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	cmd.Flags().BoolVar(&logStartup, "log-startup", false, "log a startup banner to stderr before serving")
+	// --project pins the MCP server to a specific project directory at
+	// boot, for clients (e.g. some .mcp.json shapes) that cannot set the
+	// child process's cwd. Empty value falls back to os.Getwd(); set
+	// values must be absolute, exist, and contain .ta/schema.toml.
+	cmd.Flags().StringVar(&projectFlag, "project", "", "absolute project path for MCP serve mode (default: cwd)")
 	cmd.AddCommand(
 		newGetCmd(),
 		newListSectionsCmd(),
@@ -152,11 +161,11 @@ func newRootCmd() *cobra.Command {
 //     stdio, unchanged from the pre-§12.16 behavior. MCP clients spawn
 //     `ta` with stdio pipes (not TTYs), so this keeps existing
 //     `.mcp.json` / `claude mcp add` invocations working byte-identically.
-func runRoot(cmd *cobra.Command, logStartup bool) error {
+func runRoot(cmd *cobra.Command, logStartup bool, projectFlag string) error {
 	if ttyInteractive(false) {
 		return runMenu(cmd)
 	}
-	return runServe(cmd.Context(), cmd.ErrOrStderr(), logStartup)
+	return runServe(cmd.Context(), cmd.ErrOrStderr(), logStartup, projectFlag)
 }
 
 // runMenu presents a huh.Select over the root's subcommand names and
@@ -219,19 +228,21 @@ func menuItems(root *cobra.Command) []menuItem {
 	return items
 }
 
-func runServe(ctx context.Context, stderr io.Writer, logStartup bool) error {
+func runServe(ctx context.Context, stderr io.Writer, logStartup bool, projectFlag string) error {
 	// Post-V2-PLAN §12.11 / §14.9, mcpsrv.Config.ProjectPath is
-	// required. Bare `ta` without a TTY is spawned by an MCP client
-	// whose stdio handshake wrapper sets cwd to the project root, so
-	// os.Getwd() is the canonical project path here.
-	cwd, err := os.Getwd()
+	// required. Default source is os.Getwd() — MCP clients whose stdio
+	// handshake sets the child cwd to the project root rely on it. The
+	// --project flag overrides cwd for clients that cannot control the
+	// spawn cwd; resolveProjectPath validates absoluteness, existence,
+	// and the presence of .ta/schema.toml.
+	projectPath, err := resolveProjectPath(projectFlag, os.Getwd)
 	if err != nil {
 		return err
 	}
 	srv, err := mcpsrv.New(mcpsrv.Config{
 		Name:        appName,
 		Version:     version(),
-		ProjectPath: cwd,
+		ProjectPath: projectPath,
 	})
 	if err != nil {
 		return err
@@ -240,6 +251,40 @@ func runServe(ctx context.Context, stderr io.Writer, logStartup bool) error {
 		renderStartupNotice(stderr)
 	}
 	return srv.Run(ctx)
+}
+
+// resolveProjectPath picks the MCP server's project path. Precedence:
+// non-empty flag wins over cwd. A flag value must be absolute, must
+// exist, and must contain .ta/schema.toml as a regular file. Empty
+// flag falls back to getwd unchanged — preserving the pre-flag default
+// behavior for stdio handshake clients that already set the spawn cwd.
+//
+// Factored out of runServe so unit tests can drive validation without
+// booting the MCP server.
+func resolveProjectPath(flag string, getwd func() (string, error)) (string, error) {
+	if flag == "" {
+		cwd, err := getwd()
+		if err != nil {
+			return "", err
+		}
+		return cwd, nil
+	}
+	if !filepath.IsAbs(flag) {
+		return "", fmt.Errorf("--project must be absolute, got %q", flag)
+	}
+	info, err := os.Stat(flag)
+	if err != nil {
+		return "", fmt.Errorf("--project %q: %w", flag, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("--project %q is not a directory", flag)
+	}
+	schemaPath := filepath.Join(flag, ".ta", "schema.toml")
+	schemaInfo, err := os.Stat(schemaPath)
+	if err != nil || !schemaInfo.Mode().IsRegular() {
+		return "", fmt.Errorf("--project %q has no .ta/schema.toml", flag)
+	}
+	return filepath.Clean(flag), nil
 }
 
 func renderStartupNotice(w io.Writer) {
