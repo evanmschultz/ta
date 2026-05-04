@@ -29,9 +29,9 @@ NEVER claim TUI behavior works without a captured artifact.
 - **VHS** (`charm.land/vhs`) for visual artifacts (animated `.gif` / `.txt`) when structural goldens don't catch cursor / color / timing drift. Artifacts committed under `testdata/vhs/`.
 - The agent runner MUST run these tools and inspect the artifacts. Self-narration is not evidence.
 
-## Pre-MVP cleanup tracker
+## Pre-MVP-feature-completion cleanup tracker
 
-Mirrors `CLAUDE.md` § "Pre-MVP cleanup tracker". Phasing: dogfood → full CLI → full TUI overhaul (100% huh-free). MVP launches with zero tech debt. Track open items there.
+Mirrors `CLAUDE.md` § "Pre-MVP cleanup tracker — MVP-feature-completion launches clean". Phasing: dogfood → full CLI → full TUI overhaul (100% huh-free). First tagged release is `v0.1.0` — no "v1" semantics. Track open items in CLAUDE.md.
 
 ## Cascade methodology — canonical reference
 

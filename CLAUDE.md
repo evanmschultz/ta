@@ -34,11 +34,11 @@ NEVER claim TUI behavior works without a captured artifact. Self-reported "the p
 - **The orchestrator (me) MUST run these tools and inspect the artifacts.** Not self-narration. If a golden test doesn't exist for a TUI claim, write one. If a VHS recording would catch what a golden can't, run vhs.
 - **Before claiming "the TUI looks right"**: golden + vhs artifact must exist and match expected. If golden diff is intentional → re-record + commit. If unintentional → fix.
 
-## Pre-MVP cleanup tracker — MVP launches clean
+## Pre-MVP cleanup tracker — MVP-feature-completion launches clean
 
-ta is pre-v1. Phasing: **dogfood** (minor issues OK if MCP + basic CLI work) → **full CLI refinement** → **full TUI overhaul** (100% huh-free, bubbletea + bubbles + lipgloss + glamour + laslig). MVP MUST launch with **zero tech debt** — every item below is closed before v1 ships.
+ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — there's no "v1" semantics here, just "every MVP feature works without known issues". Phasing: **dogfood** (minor issues OK if MCP + basic CLI work) → **full CLI refinement** → **full TUI overhaul** (100% huh-free, bubbletea + bubbles + lipgloss + glamour + laslig). MVP-feature-completion MUST launch with **zero tech debt** — every item below is closed before `v0.1.0` is tagged.
 
-**Open pre-MVP items** (close before MVP, may carry through dogfood):
+**Open pre-MVP-feature-completion items** (close before `v0.1.0`, may carry through dogfood):
 
 - **Huh removal** — `charm.land/huh/v2` referenced in 6 non-test files: `cmd/ta/init_cmd.go`, `cmd/ta/init_multi.go`, `cmd/ta/huh_form.go`, `cmd/ta/huh_theme.go`, `cmd/ta/commands.go`, `cmd/ta/template_cmd.go`, `cmd/ta/main.go`. F38d migrates `init_multi.go::runMultiCategoryPicker` only. Track each remaining file as an F39+ slice; goal = zero huh imports by end of dogfood.
 - **F23 runtime-fill semantics** — `cascade.droplet` auto_spawn block in `examples/schemas/cascade.toml` is COMMENTED OUT pending F23 supporting `{now}` / `{state.initial}` / `{parent.<field>}` token expansion for required-no-default fields. Without it, dogfood requires manual QA twin creation per droplet. Schedule as architectural slice post-F38.
@@ -49,7 +49,7 @@ ta is pre-v1. Phasing: **dogfood** (minor issues OK if MCP + basic CLI work) →
 - **TUI expansion** (post-dogfood, post-CLI-refinement, post-huh-removal) — `-t` / `--tui` flag for browse/search/edit, glamour-rendered preview panes, vim-style multi-select, line numbers in record blocks. Locked direction; out of pre-MVP scope.
 - **Magefile uses `gofmt`, not `gofumpt`** — memory rule says gofumpt routed through mage; magefile contradicts. Update magefile or revisit memory. Out of F38 scope.
 
-**MVP gate**: every item above is either closed or explicitly punted to post-v1 with a tracking issue. No `// TODO` / `// HACK` / `// XXX` comments left in source.
+**MVP-feature-completion gate**: every item above is either closed or explicitly punted to post-`v0.1.0` with a tracking issue. No `// TODO` / `// HACK` / `// XXX` comments left in source.
 
 ## Cascade methodology — canonical reference
 
@@ -64,3 +64,23 @@ When orchestrating a cascade in this project — point at `docs/cascade-methodol
 - Mutating commands (`ta create`, `ta update`, `ta delete`, `ta schema --action=create|update|delete`) return a concise laslig success notice on both surfaces; their MCP counterparts already return JSON. Use `--verbose` on the CLI when you want the post-mutation record echoed back.
 - All `mage <target>` invocations from agents MUST set `MAGEFILE_JSON=1`. This routes `mage test` / `mage check` / `mage cover` through `go test -json` for agent-parseable output. Fmt, Vet, and Tidy emit plain text either way — only the test-runner step changes.
 - Bare `ta` without a TTY is the MCP server — no explicit subcommand needed when registering in `.mcp.json` / `.codex/config.toml`.
+
+## MCP server — pinning the project directory
+
+`ta`'s MCP-server invariant is one project per process: the server resolves its schema from the spawn cwd by default. Two ways to make sure the cwd is right:
+
+- **Launch Claude Code FROM the active project checkout.** The Claude Code process inherits its own cwd to spawned MCP servers, so starting Claude in `/abs/path/to/project` gives `ta` the right project automatically. This is the simplest path and the recommended default.
+- **Use `--project <abs-path>` in the MCP server invocation** when the launcher cannot control the spawn cwd. Add the flag to the spawn command in your `.mcp.json` registration:
+
+  ```json
+  {
+    "mcpServers": {
+      "ta": {
+        "command": "ta",
+        "args": ["--project", "/abs/path/to/project"]
+      }
+    }
+  }
+  ```
+
+  The path must be absolute, must exist, and must contain `.ta/schema.toml`. Empty / unset → cwd fallback (existing behavior). The flag wins over cwd when both are present.
