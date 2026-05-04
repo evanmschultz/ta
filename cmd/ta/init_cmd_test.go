@@ -11,6 +11,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/evanmschultz/ta/internal/initapply"
 	"github.com/evanmschultz/ta/internal/schema"
 	"github.com/evanmschultz/ta/internal/templates"
 )
@@ -1076,5 +1077,75 @@ func TestInitCmdTargetSystemBootstrapsHomeFromBinary(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "[plans]") {
 		t.Errorf("binary fragment did not land in home: %s", got)
+	}
+}
+
+// ---- F38c picker provenance filter (target-conditional) ------------
+
+// f38cMixedItems returns a fixture covering both provenances across
+// every kind/group bucket the picker exercises. The same slice feeds
+// both target-conditional cases so a filter regression on either side
+// surfaces immediately.
+func f38cMixedItems() []templates.Item {
+	return []templates.Item{
+		{Kind: templates.KindSchema, Name: "binplans", Provenance: templates.ProvenanceBinary},
+		{Kind: templates.KindSchema, Name: "homeplans", Provenance: templates.ProvenanceHome},
+		{Kind: templates.KindAgent, Group: "go", Name: "binagent", Provenance: templates.ProvenanceBinary},
+		{Kind: templates.KindAgent, Group: "go", Name: "homeagent", Provenance: templates.ProvenanceHome},
+		{Kind: templates.KindConfig, Name: "bincfg", Provenance: templates.ProvenanceBinary},
+		{Kind: templates.KindConfig, Name: "homecfg", Provenance: templates.ProvenanceHome},
+		{Kind: templates.KindDocsTemplate, Name: "bindoc", Provenance: templates.ProvenanceBinary},
+		{Kind: templates.KindDocsTemplate, Name: "homedoc", Provenance: templates.ProvenanceHome},
+	}
+}
+
+// TestRunMultiCategoryPicker_ProjectTargetFiltersBinaryItems locks the
+// F38c contract: a project target (anything that is NOT $HOME/.ta)
+// strips ProvenanceBinary items from the picker buckets so the user
+// cannot select [ta] items into a project tree. The F32 strict-
+// provenance rule applies at LIST time, not just APPLY time.
+func TestRunMultiCategoryPicker_ProjectTargetFiltersBinaryItems(t *testing.T) {
+	// Pin HOME so IsHomeRoot returns false for the project target below.
+	t.Setenv("HOME", t.TempDir())
+
+	target := t.TempDir() // a project dir, not $HOME/.ta
+	if initapply.IsHomeRoot(target) {
+		t.Fatalf("test fixture must be a project target, got home root: %s", target)
+	}
+	got := buildPickerBuckets(f38cMixedItems(), target)
+	if len(got) == 0 {
+		t.Fatal("expected non-empty buckets after filter")
+	}
+	for _, b := range got {
+		for _, it := range b.items {
+			if it.Provenance != templates.ProvenanceHome {
+				t.Errorf("bucket %v leaked %s item %q (want home-only)", b.key, it.Provenance, it.Name)
+			}
+		}
+	}
+}
+
+// TestRunMultiCategoryPicker_HomeTargetFiltersHomeItems locks the
+// inverse: --target-system (target == $HOME/.ta) keeps ProvenanceBinary
+// items only — that path bootstraps the home library FROM the binary,
+// so home items would be a self-referential no-op.
+func TestRunMultiCategoryPicker_HomeTargetFiltersHomeItems(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	target := filepath.Join(home, ".ta")
+	if !initapply.IsHomeRoot(target) {
+		t.Fatalf("test fixture must be home root, got: %s", target)
+	}
+	got := buildPickerBuckets(f38cMixedItems(), target)
+	if len(got) == 0 {
+		t.Fatal("expected non-empty buckets after filter")
+	}
+	for _, b := range got {
+		for _, it := range b.items {
+			if it.Provenance != templates.ProvenanceBinary {
+				t.Errorf("bucket %v leaked %s item %q (want binary-only)", b.key, it.Provenance, it.Name)
+			}
+		}
 	}
 }

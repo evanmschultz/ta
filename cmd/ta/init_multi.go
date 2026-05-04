@@ -88,7 +88,7 @@ func resolveSelections(errOut io.Writer, target string, f initFlags) (initapply.
 		emitInitLegacyWarning(errOut)
 		return initapply.Selections{}, errors.New("init: no selections; pass --selections-file or run on a TTY for the picker. Sample schemas live in the ta repo under examples/, or run `ta template save` from a project to populate ~/.ta/")
 	}
-	return runMultiCategoryPicker()
+	return runMultiCategoryPicker(target)
 }
 
 // homeLibraryIsEmpty reports whether the home side of every category
@@ -132,21 +132,43 @@ type bucketKey struct {
 	group string
 }
 
-// runMultiCategoryPicker presents one huh MultiSelect group per
-// (category, group) bucket. Empty buckets are omitted. Returns the
-// composed selections payload.
-func runMultiCategoryPicker() (initapply.Selections, error) {
-	all, err := templates.ListAll()
-	if err != nil {
-		return initapply.Selections{}, err
-	}
-	if len(all) == 0 {
-		return initapply.Selections{}, errors.New("init: no items available in binary or home library")
-	}
+// pickerBucket pairs a sorted bucketKey with its items. Returned in
+// stable order from buildPickerBuckets so the picker renders groups
+// deterministically across runs.
+type pickerBucket struct {
+	key   bucketKey
+	items []templates.Item
+}
 
+// filterByTargetProvenance keeps only the items whose Provenance
+// matches the target's provenance scope: home target keeps binary
+// items (the --target-system bootstrap path); project target keeps
+// home items (F32 strict-provenance at LIST time).
+func filterByTargetProvenance(items []templates.Item, target string) []templates.Item {
+	var keep templates.Provenance
+	if initapply.IsHomeRoot(target) {
+		keep = templates.ProvenanceBinary
+	} else {
+		keep = templates.ProvenanceHome
+	}
+	out := make([]templates.Item, 0, len(items))
+	for _, it := range items {
+		if it.Provenance == keep {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// buildPickerBuckets groups items by (kind, group) after applying the
+// F32 LIST-time provenance filter, returning the sorted slice the
+// picker iterates. Extracted from runMultiCategoryPicker so the
+// filter+bucket pipeline is exercised without a TTY.
+func buildPickerBuckets(items []templates.Item, target string) []pickerBucket {
+	filtered := filterByTargetProvenance(items, target)
 	buckets := make(map[bucketKey][]templates.Item)
 	keys := []bucketKey{}
-	for _, it := range all {
+	for _, it := range filtered {
 		k := bucketKey{kind: it.Kind, group: it.Group}
 		if _, exists := buckets[k]; !exists {
 			keys = append(keys, k)
@@ -159,13 +181,40 @@ func runMultiCategoryPicker() (initapply.Selections, error) {
 		}
 		return keys[i].group < keys[j].group
 	})
-
-	groups := make([]*huh.Group, 0, len(keys))
-	picks := make([]*[]string, 0, len(keys))
-	pickKeys := make([]bucketKey, 0, len(keys))
-	pickerHeight := pickerVisibleHeight()
+	out := make([]pickerBucket, 0, len(keys))
 	for _, k := range keys {
-		items := buckets[k]
+		out = append(out, pickerBucket{key: k, items: buckets[k]})
+	}
+	return out
+}
+
+// runMultiCategoryPicker presents one huh MultiSelect group per
+// (category, group) bucket. Empty buckets are omitted. Returns the
+// composed selections payload. Items are filtered by target provenance
+// (F32 strict-provenance at LIST time): home target sees only binary
+// items (the --target-system bootstrap path), project target sees
+// only home items.
+func runMultiCategoryPicker(target string) (initapply.Selections, error) {
+	all, err := templates.ListAll()
+	if err != nil {
+		return initapply.Selections{}, err
+	}
+	if len(all) == 0 {
+		return initapply.Selections{}, errors.New("init: no items available in binary or home library")
+	}
+
+	pickerBuckets := buildPickerBuckets(all, target)
+	if len(pickerBuckets) == 0 {
+		return initapply.Selections{}, errors.New("init: no items available in binary or home library")
+	}
+
+	groups := make([]*huh.Group, 0, len(pickerBuckets))
+	picks := make([]*[]string, 0, len(pickerBuckets))
+	pickKeys := make([]bucketKey, 0, len(pickerBuckets))
+	pickerHeight := pickerVisibleHeight()
+	for _, b := range pickerBuckets {
+		k := b.key
+		items := b.items
 		opts := make([]huh.Option[string], 0, len(items))
 		for _, it := range items {
 			opts = append(opts, huh.NewOption(itemDisplay(it), itemKey(it)))
@@ -363,12 +412,15 @@ func bucketTitle(kind templates.Kind, group string) string {
 	}
 }
 
+// itemDisplay renders one option label. F38c drops the
+// [provenance] prefix because the picker is now single-source per
+// invocation (filterByTargetProvenance), making the tag redundant
+// noise.
 func itemDisplay(it templates.Item) string {
-	tag := "[" + string(it.Provenance) + "] "
 	if it.Description == "" {
-		return tag + it.Name
+		return it.Name
 	}
-	return tag + it.Name + " — " + it.Description
+	return it.Name + " — " + it.Description
 }
 
 func itemKey(it templates.Item) string {
