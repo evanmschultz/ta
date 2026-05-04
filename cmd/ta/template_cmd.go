@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	"charm.land/huh/v2"
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
@@ -672,18 +671,7 @@ func detectSaveConflicts(projectBytes []byte, names []string) ([]string, error) 
 func promptSaveConflicts(conflicts []string) (bool, error) {
 	title := fmt.Sprintf("Overwrite %d existing db(s) in ~/.ta/schema.toml? [%s]",
 		len(conflicts), strings.Join(conflicts, ", "))
-	var ok bool
-	form := tafForm(huh.NewGroup(
-		huh.NewConfirm().
-			Title(title).
-			Affirmative("Overwrite").
-			Negative("Skip").
-			Value(&ok),
-	))
-	if err := form.Run(); err != nil {
-		return false, fmt.Errorf("save-conflict prompt: %w", err)
-	}
-	return ok, nil
+	return runConfirmProgram(title, "Overwrite", "Skip", false)
 }
 
 func emitTemplateSaveReport(w io.Writer, r templateSaveReport, asJSON bool) error {
@@ -958,17 +946,9 @@ func emitTemplateDeleteReport(w io.Writer, r templateDeleteReport, asJSON bool) 
 
 // ---- shared huh helpers ---------------------------------------------
 
-// promptConfirm is the shared huh.Confirm used by apply/delete (and
-// by init via confirmOverwrite, kept separate for title phrasing).
+// promptConfirm is the shared bubbletea confirm used by apply /
+// delete flows (init has its own confirmOverwrite for title
+// phrasing).
 func promptConfirm(title string) (bool, error) {
-	var ok bool
-	form := tafForm(huh.NewGroup(
-		huh.NewConfirm().
-			Title(title).
-			Value(&ok),
-	))
-	if err := form.Run(); err != nil {
-		return false, fmt.Errorf("confirm prompt: %w", err)
-	}
-	return ok, nil
+	return runConfirmProgram(title, "Yes", "No", false)
 }

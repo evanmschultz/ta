@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	"charm.land/huh/v2"
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
@@ -1169,16 +1168,10 @@ func deleteBatchToMutationRows(results []deleteItemResult) []mutationRow {
 // Wraps a huh.Confirm so the prompt body matches the existing
 // confirmOverwrite shape used by `ta init` (consistent visual idiom).
 func confirmFileDelete(id, filePath string) (bool, error) {
-	var ok bool
-	form := tafForm(huh.NewGroup(
-		huh.NewConfirm().
-			Title(fmt.Sprintf("Delete entire file %s (id=%q)?", filePath, id)).
-			Value(&ok),
-	))
-	if err := form.Run(); err != nil {
-		return false, fmt.Errorf("confirm prompt: %w", err)
-	}
-	return ok, nil
+	return runConfirmProgram(
+		fmt.Sprintf("Delete entire file %s (id=%q)?", filePath, id),
+		"Yes", "No", false,
+	)
 }
 
 // emitDeleteNotice renders the post-delete laslig SUCCESS notice. The

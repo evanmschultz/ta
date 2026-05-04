@@ -52,12 +52,22 @@ var (
 			Foreground(charmtone.Smoke)
 )
 
-//
 // === F38d-3: formModel styles ===
 // (empty until F38d-3 lands)
 //
 // === F38d-4: confirmModel styles ===
-// (empty until F38d-4 lands)
+var (
+	confirmCursorStyle = lipgloss.NewStyle().
+				Foreground(charmtone.Cherry).
+				Bold(true)
+
+	confirmIdleStyle = lipgloss.NewStyle().
+				Foreground(charmtone.Smoke)
+
+	confirmHelpStyle = lipgloss.NewStyle().
+				Foreground(charmtone.Smoke)
+)
+
 //
 // === F38d-5: menuModel styles ===
 // (empty until F38d-5 lands)

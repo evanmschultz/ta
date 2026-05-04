@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 
-	"charm.land/huh/v2"
 	"github.com/charmbracelet/x/term"
 	"github.com/evanmschultz/laslig"
 	"github.com/pelletier/go-toml/v2"
@@ -683,16 +682,10 @@ func writeSchema(in io.Reader, out io.Writer, schemaPath string, data []byte, f 
 }
 
 func confirmOverwrite(path string) (bool, error) {
-	var ok bool
-	form := tafForm(huh.NewGroup(
-		huh.NewConfirm().
-			Title(fmt.Sprintf("Overwrite existing %s?", path)).
-			Value(&ok),
-	))
-	if err := form.Run(); err != nil {
-		return false, fmt.Errorf("confirm prompt: %w", err)
-	}
-	return ok, nil
+	return runConfirmProgram(
+		fmt.Sprintf("Overwrite existing %s?", path),
+		"Yes", "No", false,
+	)
 }
 
 // promptMCPToggles offers the two MCP-target toggles via a single
