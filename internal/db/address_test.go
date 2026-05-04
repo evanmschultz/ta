@@ -375,6 +375,125 @@ func TestResolveID_SectionOnlyDB_StillRequiresBracketKey(t *testing.T) {
 	}
 }
 
+// claudeAgentsRegistry mirrors the F35 consolidated single-db
+// multi-mount shape: one `claude_agents` db with a 2-segment glob mount
+// (home library `agents/<kind>/<name>.md`) AND a 1-segment glob mount
+// (project install `.claude/agents/<flat-name>.md`). Both produce
+// file-as-record `agent` records.
+func claudeAgentsRegistry() schema.Registry {
+	return schema.Registry{DBs: map[string]schema.DB{
+		"claude_agents": {
+			Name:   "claude_agents",
+			Paths:  []string{"agents/*/*.md", ".claude/agents/*.md"},
+			Format: schema.FormatMD,
+			Types: map[string]schema.SectionType{
+				"agent": {
+					Name:      "agent",
+					RecordPer: schema.RecordPerFile,
+					BodyField: "prompt",
+				},
+			},
+		},
+	}}
+}
+
+// TestResolveID_ClaudeAgents_MultiMount_ResolveHome locks the F35
+// single-db multi-mount happy path on the home library mount: a
+// 2-segment id like `go.builder` resolves to
+// `<root>/agents/go/builder.md` under the `agents/*/*.md` mount.
+func TestResolveID_ClaudeAgents_MultiMount_ResolveHome(t *testing.T) {
+	r := NewResolver("/proj", claudeAgentsRegistry())
+
+	res, dbDecl, err := r.ResolveID("go.builder")
+	if err != nil {
+		t.Fatalf("ResolveID(go.builder): %v", err)
+	}
+	if dbDecl.Name != "claude_agents" {
+		t.Errorf("dbDecl.Name = %q, want claude_agents", dbDecl.Name)
+	}
+	if res.FileRelPath != "go.builder" {
+		t.Errorf("res.FileRelPath = %q, want go.builder", res.FileRelPath)
+	}
+	if res.BracketKey != "" {
+		t.Errorf("res.BracketKey = %q, want empty (file-as-record)", res.BracketKey)
+	}
+	if want := filepath.Join("/proj", "agents", "go", "builder.md"); res.FilePath != want {
+		t.Errorf("res.FilePath = %q, want %q", res.FilePath, want)
+	}
+}
+
+// TestResolveID_ClaudeAgents_MultiMount_ResolveProject locks the F35
+// single-db multi-mount happy path on the project install mount: a
+// 1-segment id like `go-builder` resolves to
+// `<root>/.claude/agents/go-builder.md` under the
+// `.claude/agents/*.md` mount.
+func TestResolveID_ClaudeAgents_MultiMount_ResolveProject(t *testing.T) {
+	r := NewResolver("/proj", claudeAgentsRegistry())
+
+	res, dbDecl, err := r.ResolveID("go-builder")
+	if err != nil {
+		t.Fatalf("ResolveID(go-builder): %v", err)
+	}
+	if dbDecl.Name != "claude_agents" {
+		t.Errorf("dbDecl.Name = %q, want claude_agents", dbDecl.Name)
+	}
+	if res.FileRelPath != "go-builder" {
+		t.Errorf("res.FileRelPath = %q, want go-builder", res.FileRelPath)
+	}
+	if res.BracketKey != "" {
+		t.Errorf("res.BracketKey = %q, want empty (file-as-record)", res.BracketKey)
+	}
+	if want := filepath.Join("/proj", ".claude", "agents", "go-builder.md"); res.FilePath != want {
+		t.Errorf("res.FilePath = %q, want %q", res.FilePath, want)
+	}
+}
+
+// TestResolveID_ClaudeAgents_MultiMount_OvershootSkipsToNextMount is
+// the F35 P0 regression lock for the resolver upper-bound fix. The
+// home mount `agents/*/*.md` expects file-relpath length 2; the project
+// mount `.claude/agents/*.md` expects file-relpath length 1. With ONLY
+// the upper-bound check in place, an id with length 2 does not silently
+// match the project mount with a stray bracket-key tail (file-as-record
+// dbs have no bracket-key) — the project mount skips, the home mount
+// matches, and the id resolves under the home mount.
+//
+// Pre-fix, with the project mount declared FIRST (alphabetical / iter
+// order isn't guaranteed), the file-as-record id `go.builder` could be
+// silently absorbed by the project mount with FileRelPath=`go` and
+// BracketKey=`builder` — wrong db, wrong on-disk file. The test
+// declares the project mount first to exercise the skip path.
+func TestResolveID_ClaudeAgents_MultiMount_OvershootSkipsToNextMount(t *testing.T) {
+	reg := schema.Registry{DBs: map[string]schema.DB{
+		"claude_agents": {
+			Name:   "claude_agents",
+			Paths:  []string{".claude/agents/*.md", "agents/*/*.md"},
+			Format: schema.FormatMD,
+			Types: map[string]schema.SectionType{
+				"agent": {
+					Name:      "agent",
+					RecordPer: schema.RecordPerFile,
+					BodyField: "prompt",
+				},
+			},
+		},
+	}}
+	r := NewResolver("/proj", reg)
+
+	res, _, err := r.ResolveID("go.builder")
+	if err != nil {
+		t.Fatalf("ResolveID(go.builder): %v", err)
+	}
+	if res.BracketKey != "" {
+		t.Errorf("res.BracketKey = %q, want empty — overshoot must skip the 1-segment project mount, not match it with a stray bracket-key", res.BracketKey)
+	}
+	if res.FileRelPath != "go.builder" {
+		t.Errorf("res.FileRelPath = %q, want go.builder (matched against the 2-segment home mount)", res.FileRelPath)
+	}
+	if want := filepath.Join("/proj", "agents", "go", "builder.md"); res.FilePath != want {
+		t.Errorf("res.FilePath = %q, want %q (home mount), got the wrong mount", res.FilePath, want)
+	}
+}
+
 func TestResolvedCanonical(t *testing.T) {
 	cases := []struct {
 		res  Resolved

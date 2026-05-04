@@ -163,18 +163,17 @@ element_type = "ChecklistItem"
 	}
 }
 
-// TestMetaSchema_SelfHostsNestedFieldsKey locks the F28 contract on the
-// TestExamplesCascadeRoundTrips locks the binary-shipped cascade
-// schema (`examples/schemas/cascade.toml`) against the loader so any
-// future drift — missing required descriptions, retired meta-fields,
-// non-canonical syntax — fails CI loudly instead of surfacing only
-// when a user runs `ta init`. Same lock for `examples/schemas/agents.toml`.
+// TestExamplesLoadCleanly locks the binary-shipped schemas
+// (`examples/schemas/cascade.toml`, `examples/schemas/claude_agents.toml`)
+// against the loader so any future drift — missing required descriptions,
+// retired meta-fields, non-canonical syntax — fails CI loudly instead
+// of surfacing only when a user runs `ta init`.
 // Path resolution is relative to the test's working dir
 // (`internal/schema/`), reaching up two levels to the repo root.
 func TestExamplesLoadCleanly(t *testing.T) {
 	for _, rel := range []string{
 		"../../examples/schemas/cascade.toml",
-		"../../examples/schemas/agents.toml",
+		"../../examples/schemas/claude_agents.toml",
 	} {
 		t.Run(filepath.Base(rel), func(t *testing.T) {
 			data, err := os.ReadFile(rel)
@@ -188,33 +187,31 @@ func TestExamplesLoadCleanly(t *testing.T) {
 	}
 }
 
-// TestExamplesAgentsRoundTrip locks the F34 contract on the binary-shipped
-// agent files: every `examples/agents/ta/*.md` file must be a valid
-// `agents_home.agent` record under the `agents.toml` schema. The file
-// must split cleanly into frontmatter + body via md.SplitFrontmatter,
-// the frontmatter must decode into a typed map via md.DecodeFrontmatter,
-// and the resulting fields (with the body folded into `prompt` per the
-// `body_field` declaration) must validate against the schema's `agent`
-// type. Drift here — missing required fields, unknown frontmatter keys,
-// empty bodies, name/stem mismatches — fails CI loudly instead of
-// surfacing only when a user runs `ta init` against the binary library.
+// TestExamplesClaudeAgentsRoundTrip locks the F35 contract on the
+// binary-shipped agent files: every `examples/agents/ta/*.md` file must
+// be a valid `claude_agents.agent` record under the consolidated
+// `claude_agents.toml` schema. The file must split cleanly into
+// frontmatter + body via md.SplitFrontmatter, the frontmatter must
+// decode into a typed map via md.DecodeFrontmatter, and the resulting
+// fields (with the body folded into `prompt` per the `body_field`
+// declaration) must validate against the schema's `agent` type. Drift
+// here — missing required fields, unknown frontmatter keys, empty
+// bodies, name/stem mismatches — fails CI loudly instead of surfacing
+// only when a user runs `ta init` against the binary library.
 //
 // Path resolution is relative to the test's working dir
 // (`internal/schema/`), reaching up two levels to the repo root.
-func TestExamplesAgentsRoundTrip(t *testing.T) {
-	schemaBytes, err := os.ReadFile("../../examples/schemas/agents.toml")
+func TestExamplesClaudeAgentsRoundTrip(t *testing.T) {
+	schemaBytes, err := os.ReadFile("../../examples/schemas/claude_agents.toml")
 	if err != nil {
-		t.Fatalf("read agents schema: %v", err)
+		t.Fatalf("read claude_agents schema: %v", err)
 	}
 	reg, err := LoadBytes(schemaBytes)
 	if err != nil {
-		t.Fatalf("load agents schema: %v", err)
+		t.Fatalf("load claude_agents schema: %v", err)
 	}
-	if _, ok := reg.DBs["agents_home"]; !ok {
-		t.Fatal("agents_home db missing — F34 schema regressed")
-	}
-	if _, ok := reg.DBs["agents_project"]; !ok {
-		t.Fatal("agents_project db missing — F34 schema regressed")
+	if _, ok := reg.DBs["claude_agents"]; !ok {
+		t.Fatal("claude_agents db missing — F35 schema regressed")
 	}
 
 	matches, err := filepath.Glob("../../examples/agents/ta/*.md")
@@ -247,11 +244,8 @@ func TestExamplesAgentsRoundTrip(t *testing.T) {
 			}
 			fields["prompt"] = string(body)
 
-			if err := reg.Validate("agents_home.agent", fields); err != nil {
-				t.Errorf("validate against agents_home.agent: %v", err)
-			}
-			if err := reg.Validate("agents_project.agent", fields); err != nil {
-				t.Errorf("validate against agents_project.agent: %v", err)
+			if err := reg.Validate("claude_agents.agent", fields); err != nil {
+				t.Errorf("validate against claude_agents.agent: %v", err)
 			}
 
 			stem := strings.TrimSuffix(filepath.Base(path), ".md")
@@ -262,9 +256,10 @@ func TestExamplesAgentsRoundTrip(t *testing.T) {
 	}
 }
 
-// meta-schema: the field kind must declare a `fields` sub-field and that
-// declaration must itself parse cleanly under the new grammar (self-host
-// check).
+// TestMetaSchema_SelfHostsNestedFieldsKey locks the F28 contract on
+// the meta-schema: the field kind must declare a `fields` sub-field and
+// that declaration must itself parse cleanly under the new grammar
+// (self-host check).
 func TestMetaSchema_SelfHostsNestedFieldsKey(t *testing.T) {
 	reg, err := LoadBytes([]byte(MetaSchemaTOML))
 	if err != nil {
@@ -280,5 +275,123 @@ func TestMetaSchema_SelfHostsNestedFieldsKey(t *testing.T) {
 	}
 	if fieldsDecl.Type != TypeTable {
 		t.Errorf("ta_schema.field.fields.fields.Type = %q, want %q", fieldsDecl.Type, TypeTable)
+	}
+}
+
+// TestExamplesCascadeSchema_DBNames locks the F35 db-name consolidation:
+// the cascade schema declares the new `cascade` and `agents_md` dbs and
+// the renamed `claude_agents` (split out into its own file) is NOT
+// re-declared here. Pre-F35 names (`drops`, `claude_md`,
+// `agents_home`, `agents_project`) must be gone — anything still
+// referencing them is stale and would silently load via merge.
+func TestExamplesCascadeSchema_DBNames(t *testing.T) {
+	data, err := os.ReadFile("../../examples/schemas/cascade.toml")
+	if err != nil {
+		t.Fatalf("read cascade schema: %v", err)
+	}
+	reg, err := LoadBytes(data)
+	if err != nil {
+		t.Fatalf("load cascade schema: %v", err)
+	}
+	for _, want := range []string{"cascade", "agents_md"} {
+		if _, ok := reg.DBs[want]; !ok {
+			t.Errorf("cascade schema missing db %q (F35 consolidation)", want)
+		}
+	}
+	for _, gone := range []string{"drops", "claude_md", "agents_home", "agents_project"} {
+		if _, ok := reg.DBs[gone]; ok {
+			t.Errorf("cascade schema still declares retired db %q (F35 must remove)", gone)
+		}
+	}
+}
+
+// TestExamplesCascadeSchema_TypeShape locks the F35 type list under the
+// cascade db: drop, segment, confluence, droplet, planner, qa_proof,
+// qa_falsification, failure must all be declared. segment + confluence
+// are first-class types post-F35 (pre-F35 they were enum values on
+// `[drops.planner.fields.structural_type]`).
+func TestExamplesCascadeSchema_TypeShape(t *testing.T) {
+	data, err := os.ReadFile("../../examples/schemas/cascade.toml")
+	if err != nil {
+		t.Fatalf("read cascade schema: %v", err)
+	}
+	reg, err := LoadBytes(data)
+	if err != nil {
+		t.Fatalf("load cascade schema: %v", err)
+	}
+	cascade, ok := reg.DBs["cascade"]
+	if !ok {
+		t.Fatal("cascade db missing")
+	}
+	want := []string{
+		"drop", "segment", "confluence", "droplet",
+		"planner", "qa_proof", "qa_falsification", "failure",
+	}
+	for _, name := range want {
+		t.Run(name, func(t *testing.T) {
+			if _, ok := cascade.Types[name]; !ok {
+				t.Errorf("cascade.%s missing", name)
+			}
+		})
+	}
+}
+
+// TestExamplesAgentsMD_MountList locks the F35 multi-mount on the
+// renamed `agents_md` db: paths must include AGENTS.md (Codex
+// convention) AND CLAUDE.md (Claude Code convention) so projects
+// shipping either or both are tracked uniformly.
+func TestExamplesAgentsMD_MountList(t *testing.T) {
+	data, err := os.ReadFile("../../examples/schemas/cascade.toml")
+	if err != nil {
+		t.Fatalf("read cascade schema: %v", err)
+	}
+	reg, err := LoadBytes(data)
+	if err != nil {
+		t.Fatalf("load cascade schema: %v", err)
+	}
+	db, ok := reg.DBs["agents_md"]
+	if !ok {
+		t.Fatal("agents_md db missing")
+	}
+	want := []string{"AGENTS.md", "CLAUDE.md"}
+	if len(db.Paths) != len(want) {
+		t.Fatalf("agents_md.Paths = %v, want %v", db.Paths, want)
+	}
+	for i, p := range want {
+		if db.Paths[i] != p {
+			t.Errorf("agents_md.Paths[%d] = %q, want %q", i, db.Paths[i], p)
+		}
+	}
+}
+
+// TestExamplesClaudeAgents_MultiMount locks the F35 single-db
+// multi-mount shape: claude_agents declares both the home library
+// (`agents/*/*.md`) and the project install (`.claude/agents/*.md`) on
+// one type, replacing the pre-F35 split between `agents_home` and
+// `agents_project`.
+func TestExamplesClaudeAgents_MultiMount(t *testing.T) {
+	data, err := os.ReadFile("../../examples/schemas/claude_agents.toml")
+	if err != nil {
+		t.Fatalf("read claude_agents schema: %v", err)
+	}
+	reg, err := LoadBytes(data)
+	if err != nil {
+		t.Fatalf("load claude_agents schema: %v", err)
+	}
+	db, ok := reg.DBs["claude_agents"]
+	if !ok {
+		t.Fatal("claude_agents db missing")
+	}
+	want := []string{"agents/*/*.md", ".claude/agents/*.md"}
+	if len(db.Paths) != len(want) {
+		t.Fatalf("claude_agents.Paths = %v, want %v", db.Paths, want)
+	}
+	for i, p := range want {
+		if db.Paths[i] != p {
+			t.Errorf("claude_agents.Paths[%d] = %q, want %q", i, db.Paths[i], p)
+		}
+	}
+	if _, ok := db.Types["agent"]; !ok {
+		t.Error("claude_agents.agent type missing")
 	}
 }

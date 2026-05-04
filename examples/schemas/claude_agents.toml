@@ -1,0 +1,73 @@
+# Claude Code subagent schema — single db, multi-mount.
+#
+# One `claude_agents` db tracks BOTH on-disk layouts Claude Code
+# uses for subagent definition files via two mount globs:
+#
+#   - `agents/*/*.md`          — the user's home library at
+#                                `~/.ta/agents/<kind>/<name>.md`.
+#                                Subagents live nested by kind; this is
+#                                the portable, kind-organized collection
+#                                you build up across projects.
+#   - `.claude/agents/*.md`    — the per-project install at
+#                                `<project>/.claude/agents/*.md`.
+#                                Claude Code's project-scoped agent
+#                                loader requires a flat directory; the
+#                                F33 install transform flattens nested
+#                                home `<kind>/<name>.md` to
+#                                `<kind>-<name>.md` at the destination.
+#
+# A single db with multi-mount keeps the type definition DRY: both
+# layouts produce records with the same Claude Code frontmatter
+# contract, and the F35 resolver upper-bound fix guarantees a
+# 2-segment home id (`<kind>.<name>`) never silently matches the
+# project mount and a 1-segment project id (`<flat-name>`) never
+# silently matches the home mount.
+#
+# The agent type uses the F31 file-as-record shape: each markdown
+# file is one whole record whose typed fields live in YAML
+# frontmatter and whose body becomes the `prompt` field. The schema
+# is shipped via embed.FS and is selectable from `ta init`'s
+# multi-category picker.
+#
+# Field set tracks Claude Code's subagent frontmatter contract:
+# `name` (required, must match filename stem), `description` (required,
+# tells Claude when to delegate), `tools` (optional comma-separated
+# allowlist; omitting inherits the orchestrator's tool set), `model`
+# (optional Claude model id), `color` (optional UI hint).
+
+[claude_agents]
+paths = ["agents/*/*.md", ".claude/agents/*.md"]
+description = "Claude Code subagent definitions. Tracks both the home library (`agents/<kind>/<name>.md`, kind-nested) and the per-project install (`.claude/agents/<flat-name>.md`, flat). Each markdown file is one agent record with YAML frontmatter as fields and the body as the system prompt."
+
+[claude_agents.agent]
+description = "One Claude Code subagent definition. Filename stem is the agent's `name` field; body is the agent's system prompt. Stem layout differs by mount: home library uses `<kind>/<name>.md` (e.g. `agents/go/builder.md` → name `builder`); project install uses flat `<kind>-<name>.md` (e.g. `.claude/agents/go-builder.md` → name `go-builder`)."
+record_per = "file"
+body_field = "prompt"
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+description = "Subagent identifier. Lowercase letters, digits, and hyphens only (Claude Code rule). Must match the filename stem so the on-disk name and the frontmatter name stay in sync. Home-nested example: `agents/go/builder.md` → `name = \"builder\"`. Project-flat example: `.claude/agents/go-builder.md` → `name = \"go-builder\"` (post-flatten)."
+
+[claude_agents.agent.fields.description]
+type = "string"
+required = true
+description = "When Claude should delegate to this subagent. Surfaced to the orchestrator as the routing hint at agent-selection time."
+
+[claude_agents.agent.fields.tools]
+type = "string"
+description = "Optional comma-separated tool allowlist (e.g. 'Read, Edit, Bash, mcp__hylla__hylla_search'). Omit to inherit the orchestrator's full tool set. Stored as a single YAML scalar to match Claude Code's frontmatter convention."
+
+[claude_agents.agent.fields.model]
+type = "string"
+description = "Optional Claude model identifier override (e.g. 'sonnet', 'opus'). Omit to use the orchestrator's default."
+
+[claude_agents.agent.fields.color]
+type = "string"
+description = "Optional UI hint for the Claude Code agent picker. Free-form; not enforced."
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+description = "Markdown body — the subagent's system prompt. Mounted from the file body, not from frontmatter."

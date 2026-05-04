@@ -248,6 +248,14 @@ func tryParseAgainstMount(parts []string, dbDecl schema.DB, mount, root string) 
 	if len(parts) < minLen {
 		return Resolved{}, false, nil
 	}
+	// File-as-record dbs have no bracket-key tail. An id with MORE
+	// segments than the mount's file-relpath is not a section anchor —
+	// it cannot belong to this mount. Skip (not error) so multi-mount
+	// iteration tries the next mount; preserves the existing skip-on-
+	// mismatch contract for file-relpath segment matching above.
+	if hasFileRecord && len(parts) > len(expected) {
+		return Resolved{}, false, nil
+	}
 	for i, seg := range expected {
 		if seg == "*" {
 			continue

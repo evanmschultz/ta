@@ -1,9 +1,9 @@
 # Default cascade schema — DRAFT (2026-05-01)
 #
-# Tracks the agent-cascade methodology in a project: drops, planners,
-# droplets, QA records, plans, discussions, plus the project node and
-# the standard repo files (README, CONTRIBUTING, SECURITY, CLAUDE.md,
-# .claude/agents/*).
+# Tracks the agent-cascade methodology in a project: drops, segments,
+# confluences, droplets, planners, QA records, plans, discussions,
+# plus the project node and the standard repo files (README,
+# CONTRIBUTING, SECURITY, AGENTS.md/CLAUDE.md).
 #
 # Built against ta meta-schema language extensions (F21/F22/F23). This
 # file uses `extends`, `element_type`, `element_fields` constructs that
@@ -436,7 +436,7 @@ description = "One-paragraph elevator pitch for the project."
 
 [project.project.fields.standards_markdown_id]
 type = "string"
-description = "ta record id of the CLAUDE.md section that holds the project's standards/conventions. Avoids duplicating prose between project.toml and CLAUDE.md."
+description = "ta record id of the AGENTS.md / CLAUDE.md section that holds the project's standards/conventions. Avoids duplicating prose between project.toml and the agent rules file."
 
 [project.project.fields.vocabulary]
 type = "table"
@@ -523,113 +523,140 @@ enum = [""]
 default = ""
 
 # ============================================================================
-# Drops — cascade trees. Each drop is a directory containing a single
-# drop.toml that holds the drop, its planners, droplets, QA, failures.
+# Cascade — drop trees. Each drop is a directory under
+# `.ta/cascade/drops/drop_*/` containing a single drop.toml that holds
+# the drop, its segments, confluences, droplets, planners, QA records,
+# failures.
 # ============================================================================
 
-[drops]
+[cascade]
 paths = [".ta/cascade/drops/drop_*/drop.toml"]
-description = "Cascade trees — drops + their planners, droplets, QA records, failures."
+description = "Cascade trees — drops + their segments, confluences, droplets, planners, QA records, failures."
 
-[drops.drop]
+[cascade.drop]
 extends = "ActionItem"
 description = "L1 cascade root — one self-contained unit of work."
 
-[drops.drop.fields.structural_type]
+[cascade.drop.fields.structural_type]
 type = "string"
 required = true
 enum = ["drop"]
 
-[drops.drop.fields.drop_number]
+[cascade.drop.fields.drop_number]
 type = "integer"
 required = true
 description = "Sequential drop number (matches the drop_N directory)."
 
-# Auto-spawn rule (F23b): creating a drop generates the required QA twin records.
-# Implementation pending; prose here documents intent.
-# [drops.drop.auto_spawn]
-# on_create = [
-#     { type = "drops.qa_proof", count = 1, fields = { role = "qa-proof", state = "todo" } },
-#     { type = "drops.qa_falsification", count = 1, fields = { role = "qa-falsification", state = "todo" } },
-# ]
-
-[drops.planner]
+# Interior planner node — first-class type. Writes directives for child
+# planners (segment/confluence) or droplets, never both in the same node.
+[cascade.segment]
 extends = "ActionItem"
-description = "Interior planner node — writes directives for child planners or droplets, never both in same node."
+description = "Interior cascade node — splits a drop into parallel work streams. Has children. structural_type=segment."
 
-[drops.planner.fields.structural_type]
+[cascade.segment.fields.structural_type]
 type = "string"
 required = true
-enum = ["segment", "confluence"]
+enum = ["segment"]
 
-[drops.droplet]
+# Confluence — merge/gate node that blocks until upstream segments
+# complete, then routes the merged work to its child droplets.
+[cascade.confluence]
+extends = "ActionItem"
+description = "Cascade gate node — blocks until upstream segments/droplets are complete, then releases its children. structural_type=confluence."
+
+[cascade.confluence.fields.structural_type]
+type = "string"
+required = true
+enum = ["confluence"]
+
+[cascade.droplet]
 extends = "ActionItem"
 description = "Atomic build leaf — what a builder agent finishes in one shot. Touches one file (or tight cluster) with a few blocks of change."
 
-[drops.droplet.fields.structural_type]
+[cascade.droplet.fields.structural_type]
 type = "string"
 required = true
 enum = ["droplet"]
 
-[drops.droplet.fields.irreducible]
+[cascade.droplet.fields.irreducible]
 type = "boolean"
 default = false
 description = "True if this droplet cannot be further decomposed (e.g. single function-signature change rippling through one file). Plan-QA validates the claim."
 
-[drops.qa_proof]
+# F23b auto-spawn intent: every droplet creation should generate the
+# required QA twin records (qa_proof + qa_falsification) so the build
+# leaf cannot slip past review by accident. Activation is blocked
+# until the cascade.qa_proof / cascade.qa_falsification target types
+# can satisfy F23's static-payload contract — every required-no-default
+# field on the target type (title, state, created_at, updated_at,
+# target_id) must either gain a default in the base chain or F23 must
+# grow runtime-fill semantics. Until then this block stays as
+# documented intent under the droplet (the right structural home),
+# not under [cascade.drop] where it sat as a stale comment pre-F35.
+# [cascade.droplet.auto_spawn]
+# on_create = [
+#     { type = "cascade.qa_proof",         id_template = "{parent_id}-qa-proof",         fields = { role = "qa-proof"         } },
+#     { type = "cascade.qa_falsification", id_template = "{parent_id}-qa-falsification", fields = { role = "qa-falsification" } },
+# ]
+
+[cascade.planner]
+extends = "ActionItem"
+description = "Generic planner action item — interior cascade work that doesn't fit segment or confluence (e.g. plan-revision, retro)."
+
+[cascade.qa_proof]
 extends = "ActionItem"
 description = "QA proof record — verifies evidence completeness and reasoning coherence."
 
-[drops.qa_proof.fields.role]
+[cascade.qa_proof.fields.role]
 type = "string"
 required = true
 enum = ["qa-proof", "qa-a11y", "qa-visual"]
 
-[drops.qa_proof.fields.target_id]
+[cascade.qa_proof.fields.target_id]
 type = "string"
 required = true
 description = "ta record id of the action item this QA pass verifies."
 
-[drops.qa_falsification]
+[cascade.qa_falsification]
 extends = "ActionItem"
 description = "QA falsification record — actively attacks the target's conclusion via counterexamples, hidden dependencies, contract drift."
 
-[drops.qa_falsification.fields.role]
+[cascade.qa_falsification.fields.role]
 type = "string"
 required = true
 enum = ["qa-falsification"]
 
-[drops.qa_falsification.fields.target_id]
+[cascade.qa_falsification.fields.target_id]
 type = "string"
 required = true
 description = "ta record id of the action item this QA pass attacks."
 
-[drops.failure]
+[cascade.failure]
 extends = "NodeBase"
 description = "Captured failure artifact — what went wrong, when, where, with what context. Persistent record for cascade post-mortems."
 
-[drops.failure.fields.target_id]
+[cascade.failure.fields.target_id]
 type = "string"
 required = true
 description = "ta record id of the action item that failed."
 
-[drops.failure.fields.failure_kind]
+[cascade.failure.fields.failure_kind]
 type = "string"
 required = true
 enum = ["build", "test", "qa-proof", "qa-falsification", "blocker", "other"]
 
-[drops.failure.fields.diagnostic]
+[cascade.failure.fields.diagnostic]
 type = "string"
 format = "markdown"
 required = true
 description = "What broke and how it was identified."
 
-[drops.failure.fields.fix_directive]
+[cascade.failure.fields.fix_directive]
 type = "string"
 format = "markdown"
 description = "Planner-authored direction for the fix."
 
-[drops.failure.fields.context_blocks]
+[cascade.failure.fields.context_blocks]
 type = "array"
 element_type = "ContextBlock"
 
@@ -673,42 +700,17 @@ description = "An H2 section of SECURITY.md."
 type = "string"
 format = "markdown"
 
-[claude_md]
-paths = ["CLAUDE.md"]
-description = "Project Claude Code rules + cascade discipline. Sections addressable so project.standards_markdown_id can link to a specific section."
+# Project agent-rules file. Tracks both AGENTS.md (Codex convention)
+# and CLAUDE.md (Claude Code convention); a project may ship one or
+# the other or both, and the multi-mount keeps the schema agnostic.
+[agents_md]
+paths = ["AGENTS.md", "CLAUDE.md"]
+description = "Project agent-rules file — Codex (AGENTS.md) and Claude Code (CLAUDE.md) conventions. Sections addressable so project.standards_markdown_id can link to a specific section."
 
-[claude_md.section]
+[agents_md.section]
 heading = 2
-description = "An H2 section of CLAUDE.md — addressable so project.standards_markdown_id can link to a specific section."
+description = "An H2 section of AGENTS.md / CLAUDE.md — addressable so project.standards_markdown_id can link to a specific section."
 
-[claude_md.section.fields.body]
+[agents_md.section.fields.body]
 type = "string"
 format = "markdown"
-
-[claude_agents]
-paths = [".claude/agents/*.md"]
-description = "Cascade subagent definitions. Each file is one agent record (heading=1)."
-
-[claude_agents.agent]
-heading = 1
-description = "One subagent definition."
-
-[claude_agents.agent.fields.role]
-type = "string"
-required = true
-enum = ["builder", "qa-proof", "qa-falsification", "qa-a11y", "qa-visual",
-        "design", "commit", "planner", "research"]
-
-[claude_agents.agent.fields.model_hint]
-type = "string"
-description = "Suggested model tier (e.g. 'sonnet', 'opus', 'haiku')."
-
-[claude_agents.agent.fields.scope_constraints]
-type = "string"
-format = "markdown"
-description = "What the agent is allowed and not allowed to do."
-
-[claude_agents.agent.fields.body]
-type = "string"
-format = "markdown"
-description = "The full agent prompt body — what Claude Code reads when spawning this subagent."

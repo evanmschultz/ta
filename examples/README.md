@@ -17,8 +17,8 @@ ta-shipped + their-own across categories.
 examples/
 ├── README.md                  # this file
 ├── schemas/                   # schema fragments — selected dbs merge into <target>/.ta/schema.toml
-│   ├── cascade.toml           # default cascade-methodology schema (drops/plans/discussions/project + repo-files + claude_agents)
-│   └── agents.toml            # agents-as-records schema (paths = ["agents/*/*.md"])
+│   ├── cascade.toml           # default cascade-methodology schema (cascade/plans/discussions/project + repo-files including agents_md)
+│   └── claude_agents.toml     # Claude Code subagent schema; single multi-mount db tracks both `agents/<kind>/<name>.md` (home library) and `.claude/agents/<flat-name>.md` (project install)
 ├── agents/                    # selected files copy to <target>/.claude/agents/<group>/<name>.md
 │                              # (project) or ~/.ta/agents/<group>/<name>.md (home target).
 │                              # `<group>` is whatever the user chose at save time —
@@ -140,10 +140,20 @@ into `~/.ta/schema.toml`). Future commands extend the pattern:
 
 - `cascade.toml` — full cascade-methodology schema. Declares
   NodeBase + ActionItem base types; Comment / ChecklistItem /
-  ContextBlock / ResourceRef aliases; cascade dbs (drops, plans,
-  discussions, project); standard repo-file tracking dbs (readme,
-  contributing, security, claude_md); and `claude_agents` for
-  tracking `.claude/agents/*.md` files.
+  ContextBlock / ResourceRef aliases; cascade dbs (cascade, plans,
+  discussions, project); and standard repo-file tracking dbs
+  (readme, contributing, security, agents_md — multi-mount tracking
+  both AGENTS.md and CLAUDE.md). The `cascade` db declares
+  drop / segment / confluence / droplet / planner / qa_proof /
+  qa_falsification / failure as first-class types under
+  `.ta/cascade/drops/drop_*/drop.toml`. Droplet auto-spawn of
+  qa_proof + qa_falsification twins is staged in the schema as a
+  commented intent block on `[cascade.droplet]`, pending F23
+  static-payload validator extension to support runtime-fill
+  semantics for inherited timestamp + lifecycle fields.
+- `claude_agents.toml` — Claude Code subagent definitions. Single
+  `claude_agents` db with two mounts: `agents/*/*.md` for the home
+  library and `.claude/agents/*.md` for the per-project install.
 
 ### `agents/`
 
