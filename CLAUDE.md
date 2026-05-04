@@ -16,6 +16,16 @@ ta is a Go project. The active LSP is gopls. Before spawning any `go-qa-proof-ag
 - **Manual fallback**: invoke the `/gopls-sync` skill or restart Claude Code from `/Users/evanschultz/Documents/Code/hylla/ta/main` (the active checkout) if the hook doesn't help.
 - **Authoritative verification stays `MAGEFILE_JSON=1 mage check`** — LSP refresh ensures QA's evidence layer matches build truth, but mage check is the gate. Never trust LSP diagnostics over a passing mage check.
 
+## TUI / huh form discipline — verify with goldens before claiming PASS
+
+ta uses `huh` forms for the `ta init` multi-category picker today and will grow more TUI surface during dogfood (a `bubbletea`-based browse / search / edit TUI per the roadmap). **NEVER claim TUI behavior works without verifying against a golden snapshot or equivalent capture.** Self-reported "the picker looks right" is not evidence; the dev has been burned by it.
+
+- **Pattern**: `internal/render/schema_flow_test.go::assertSchemaFlowGolden` is the canonical example for laslig output. Materializes a `testdata/*.golden` on first run, byte-compares on subsequent runs. Use the same pattern for huh forms (capture rendered output in test mode, snapshot to `.golden`, compare).
+- **Pre-dogfood scope**: cover at minimum the huh picker output for `ta init` multi-category (`cmd/ta/init_multi.go`) — empty-home error, populated-home picker rendering, off-TTY mode, post-pick success notice. Each gets a `.golden` fixture.
+- **Post-dogfood scope**: when the bubbletea TUI lands, use `charm.land/x/exp/teatest` for snapshot capture of the model state at key transitions (initial, after navigation, after select, after submit, on error).
+- **Before claiming "the TUI looks right"**: run the relevant golden test. If no golden exists, write one. If the golden differs from current output, decide whether the change is intentional (re-record) or a regression (fix).
+- **Don't waste the dev's time**: false-positive "TUI works!" claims that fall apart on the dev's first manual run are the failure mode this rule prevents.
+
 ## Cascade methodology — canonical reference
 
 The agent cascade methodology that ta dogfoods (and the future article / blog post seeds from) lives at [`docs/cascade-methodology.md`](docs/cascade-methodology.md). It's the **app-agnostic** version: thesis, droplet shape, role and model bindings, QA placement, nesting model, failure handling, audit trail, reference implementations. The older Tillsyn-flavored draft (`AGENT_CASCADE_DESIGN.md`) was retired — `docs/cascade-methodology.md` is the canonical source for any cascade questions, planning conversations, and the eventual article.
