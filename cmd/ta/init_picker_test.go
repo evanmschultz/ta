@@ -175,6 +175,99 @@ func TestPickerSubmitEmpty(t *testing.T) {
 	}
 }
 
+// TestPickerInitial_RendersGroupHeaders asserts the initial render
+// emits one group-header line per fixture group. Acts as a static
+// "boot path renders" smoke against drift.
+func TestPickerInitial_RendersGroupHeaders(t *testing.T) {
+	t.Parallel()
+	m := newPickerModel(simpleTestGroups())
+	view := m.View()
+	if !strings.Contains(view.Content, "Group A") {
+		t.Errorf("expected Group A header, got: %q", view.Content)
+	}
+	if !strings.Contains(view.Content, "Group B") {
+		t.Errorf("expected Group B header, got: %q", view.Content)
+	}
+}
+
+// TestPickerExpandCollapseGroup hits l/h on a group header and
+// asserts the collapsed flag flips. Default state is expanded; l
+// is a no-op while expanded; h collapses; l re-expands.
+func TestPickerExpandCollapseGroup(t *testing.T) {
+	t.Parallel()
+	m := newPickerModel(simpleTestGroups())
+	// Cursor starts on group 0. h collapses.
+	updated, _ := m.Update(keyMsgRune('h'))
+	pm := updated.(*pickerModel)
+	if !pm.collapsed[0] {
+		t.Fatalf("expected group 0 collapsed after h, got expanded")
+	}
+	// l re-expands.
+	updated, _ = pm.Update(keyMsgRune('l'))
+	pm = updated.(*pickerModel)
+	if pm.collapsed[0] {
+		t.Fatalf("expected group 0 expanded after l, got collapsed")
+	}
+}
+
+// TestPickerFilterMode_PromptRendered drives `/` then types a
+// pattern; asserts the filter prompt and visible-count status
+// line both render.
+func TestPickerFilterMode_PromptRendered(t *testing.T) {
+	t.Parallel()
+	m := newPickerModel(simpleTestGroups())
+	updated, _ := m.Update(keyMsgRune('/'))
+	pm := updated.(*pickerModel)
+	if !pm.filterMode {
+		t.Fatalf("expected filterMode=true after /, got false")
+	}
+	updated, _ = pm.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	pm = updated.(*pickerModel)
+	if pm.filter != "a" {
+		t.Fatalf("expected filter=%q, got %q", "a", pm.filter)
+	}
+	view := pm.View()
+	if !strings.Contains(view.Content, "/ a_") {
+		t.Errorf("expected filter prompt '/ a_', got: %q", view.Content)
+	}
+	if !strings.Contains(view.Content, "of") || !strings.Contains(view.Content, "visible") {
+		t.Errorf("expected visible-count status, got: %q", view.Content)
+	}
+}
+
+// TestPickerSelectAllInGroup_WithFilter narrows the visible leaves
+// via filter, hits space on the group header, and asserts only
+// the filter-visible leaves got toggled — hidden leaves stay
+// untouched.
+func TestPickerSelectAllInGroup_WithFilter(t *testing.T) {
+	t.Parallel()
+	m := newPickerModel(simpleTestGroups())
+	// Open filter, narrow to "alpha" only.
+	updated, _ := m.Update(keyMsgRune('/'))
+	pm := updated.(*pickerModel)
+	for _, r := range "alpha" {
+		updated, _ = pm.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		pm = updated.(*pickerModel)
+	}
+	// Exit filter mode keeping the pattern.
+	updated, _ = pm.Update(keyMsgRune('\r'))
+	pm = updated.(*pickerModel)
+	if pm.filterMode {
+		t.Fatalf("expected filter mode exited after enter")
+	}
+	// Cursor sits on group 0 header. Space toggles only visible
+	// leaves under "alpha" — that's leaf 0 only; leaf 1 (beta)
+	// stays unselected.
+	updated, _ = pm.Update(keyMsgRune(' '))
+	pm = updated.(*pickerModel)
+	if !pm.selected[0][0] {
+		t.Errorf("expected leaf [0][0] (alpha) selected, got %v", pm.selected[0])
+	}
+	if pm.selected[0][1] {
+		t.Errorf("expected leaf [0][1] (beta) NOT selected (filter-hidden), got %v", pm.selected[0])
+	}
+}
+
 // TestPickerSelectAllInGroup_NoFilter drives space on the first group
 // header and asserts every leaf in that group flipped to selected.
 func TestPickerSelectAllInGroup_NoFilter(t *testing.T) {

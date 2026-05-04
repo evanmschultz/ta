@@ -1,14 +1,54 @@
-# Minimal fixture home library for VHS smoke recordings — F38d-1.
-# Mirrors the shape of ~/.ta/schema.toml so a tape running with
-# `Env HOME` pointed at fixture_home/ surfaces a populated picker
-# rather than the empty-home guard. Real schema content is not
-# exercised by the smoke tape; the marker FIXTURE_HOME_PRESENT
-# proves the home dir is reachable.
+# Minimal fixture home library for VHS smoke recordings.
+# Three dbs with a single record type each, exercising the picker
+# render with deterministic content.
 
-[[schemas]]
-name = "plans"
+[plans]
 description = "Plan documents pinned for fixture-home smoke."
-fields = [
-  { name = "title", type = "string", required = true },
-  { name = "status", type = "string", format = "enum", enum = ["open", "in_progress", "done"], required = true },
-]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "A single planning task."
+
+[plans.task.fields]
+
+[plans.task.fields.title]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+format = "enum"
+enum = ["open", "in_progress", "done"]
+required = true
+
+[ledger]
+description = "Lightweight project ledger."
+paths = ["ledger.toml"]
+
+[ledger.entry]
+description = "One ledger entry."
+
+[ledger.entry.fields]
+
+[ledger.entry.fields.kind]
+type = "string"
+required = true
+
+[ledger.entry.fields.note]
+type = "string"
+
+[bookmarks]
+description = "Project bookmarks."
+paths = ["bookmarks.toml"]
+
+[bookmarks.link]
+description = "A single bookmark."
+
+[bookmarks.link.fields]
+
+[bookmarks.link.fields.url]
+type = "string"
+required = true
+
+[bookmarks.link.fields.tag]
+type = "string"
