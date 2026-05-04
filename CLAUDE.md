@@ -16,15 +16,23 @@ ta is a Go project. The active LSP is gopls. Before spawning any `go-qa-proof-ag
 - **Manual fallback**: invoke the `/gopls-sync` skill or restart Claude Code from `/Users/evanschultz/Documents/Code/hylla/ta/main` (the active checkout) if the hook doesn't help.
 - **Authoritative verification stays `MAGEFILE_JSON=1 mage check`** — LSP refresh ensures QA's evidence layer matches build truth, but mage check is the gate. Never trust LSP diagnostics over a passing mage check.
 
-## TUI / huh form discipline — verify with goldens before claiming PASS
+## TUI stack — bubbletea/bubbles/lipgloss/glamour/laslig (huh is being removed)
 
-ta uses `huh` forms for the `ta init` multi-category picker today and will grow more TUI surface during dogfood (a `bubbletea`-based browse / search / edit TUI per the roadmap). **NEVER claim TUI behavior works without verifying against a golden snapshot or equivalent capture.** Self-reported "the picker looks right" is not evidence; the dev has been burned by it.
+ta's TUI direction:
 
-- **Pattern**: `internal/render/schema_flow_test.go::assertSchemaFlowGolden` is the canonical example for laslig output. Materializes a `testdata/*.golden` on first run, byte-compares on subsequent runs. Use the same pattern for huh forms (capture rendered output in test mode, snapshot to `.golden`, compare).
-- **Pre-dogfood scope**: cover at minimum the huh picker output for `ta init` multi-category (`cmd/ta/init_multi.go`) — empty-home error, populated-home picker rendering, off-TTY mode, post-pick success notice. Each gets a `.golden` fixture.
-- **Post-dogfood scope**: when the bubbletea TUI lands, use `charm.land/x/exp/teatest` for snapshot capture of the model state at key transitions (initial, after navigation, after select, after submit, on error).
-- **Before claiming "the TUI looks right"**: run the relevant golden test. If no golden exists, write one. If the golden differs from current output, decide whether the change is intentional (re-record) or a regression (fix).
-- **Don't waste the dev's time**: false-positive "TUI works!" claims that fall apart on the dev's first manual run are the failure mode this rule prevents.
+- **Target stack**: `charm.land/bubbletea/v2` (program/model loop), `charm.land/bubbles/v2` (list/text/spinner primitives), `charm.land/lipgloss/v2` (styling), `charm.land/glamour/v2` (markdown rendering inside TUI panes), `github.com/evanmschultz/laslig` (CLI render — already used). NO huh.
+- **Migration plan**: huh stays where it works pre-dogfood (today: `ta init` multi-category picker). Replace huh slice-by-slice as TUI surface grows. Goal: zero huh imports by end of dogfood. New TUI surface MUST go bubbletea-direct from day one — do not add new huh forms.
+- **Why**: huh's form abstraction blocks features ta needs (collapsible groups in pickers, custom multi-pane layouts, search-as-you-type filtering, glamour-rendered preview panes). Bubbletea-direct gives full control.
+
+## TUI verification — teatest + goldens + VHS, never self-report
+
+NEVER claim TUI behavior works without a captured artifact. Self-reported "the picker looks right" is not evidence; the dev has been burned by it (twice).
+
+- **Golden snapshots** for structural output (text content, layout, fields-rendered, error messages). Pattern: `internal/render/schema_flow_test.go::assertSchemaFlowGolden`. Materializes `testdata/*.golden` on first run, byte-compares thereafter. Use for laslig output AND bubbletea View() snapshots driven through teatest.
+- **`charm.land/x/exp/teatest`** for headless drive of bubbletea models. Captures View() at key transitions (initial, after navigation, after select, after submit, on error). Same `.golden` pattern.
+- **VHS** (`charm.land/vhs`) for visual capture (animated `.gif` / `.txt` artifacts of the TUI in motion). Used when structural goldens don't capture the issue (cursor flicker, color drift, animation timing). Run via mage target; produced artifacts committed under `testdata/vhs/`.
+- **The orchestrator (me) MUST run these tools and inspect the artifacts.** Not self-narration. If a golden test doesn't exist for a TUI claim, write one. If a VHS recording would catch what a golden can't, run vhs.
+- **Before claiming "the TUI looks right"**: golden + vhs artifact must exist and match expected. If golden diff is intentional → re-record + commit. If unintentional → fix.
 
 ## Cascade methodology — canonical reference
 

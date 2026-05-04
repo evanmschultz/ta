@@ -16,14 +16,18 @@ ta is a Go project. The active LSP is gopls. Before spawning any `go-qa-proof-ag
 - **Manual fallback**: invoke `gopls-sync` skill or restart the agent runner from `/Users/evanschultz/Documents/Code/hylla/ta/main` (the active checkout) if the hook doesn't help.
 - **Authoritative verification stays `MAGEFILE_JSON=1 mage check`** — LSP refresh ensures QA's evidence layer matches build truth, but mage check is the gate. Never trust LSP diagnostics over a passing mage check.
 
-## TUI / huh form discipline — verify with goldens before claiming PASS
+## TUI stack — bubbletea/bubbles/lipgloss/glamour/laslig (huh is being removed)
 
-ta uses `huh` forms for the `ta init` multi-category picker today and will grow more TUI surface during dogfood. NEVER claim TUI behavior works without verifying against a golden snapshot or equivalent capture. Self-reported "the picker looks right" is not evidence.
+Target stack: `charm.land/bubbletea/v2`, `charm.land/bubbles/v2`, `charm.land/lipgloss/v2`, `charm.land/glamour/v2`, `github.com/evanmschultz/laslig`. NO huh in the long run. Existing huh usage (`ta init` multi-category picker) stays pre-dogfood; replace slice-by-slice. New TUI surface MUST go bubbletea-direct.
 
-- **Pattern**: `internal/render/schema_flow_test.go::assertSchemaFlowGolden` is the canonical example. Materializes a `testdata/*.golden` on first run, byte-compares on subsequent runs.
-- **Pre-dogfood scope**: cover at minimum the huh picker output for `ta init` multi-category (`cmd/ta/init_multi.go`).
-- **Post-dogfood scope**: when the bubbletea TUI lands, use `charm.land/x/exp/teatest` for snapshot capture.
-- **Before claiming "the TUI looks right"**: run the relevant golden test. If no golden exists, write one. Don't waste the dev's time on false-positive PASS claims.
+## TUI verification — teatest + goldens + VHS, never self-report
+
+NEVER claim TUI behavior works without a captured artifact.
+
+- **Golden snapshots** via `internal/render/schema_flow_test.go::assertSchemaFlowGolden` pattern.
+- **`charm.land/x/exp/teatest`** for headless drive of bubbletea models — captures View() at key transitions, snapshots to `.golden`.
+- **VHS** (`charm.land/vhs`) for visual artifacts (animated `.gif` / `.txt`) when structural goldens don't catch cursor / color / timing drift. Artifacts committed under `testdata/vhs/`.
+- The agent runner MUST run these tools and inspect the artifacts. Self-narration is not evidence.
 
 ## Cascade methodology — canonical reference
 
