@@ -104,80 +104,123 @@ func firstText(t *testing.T, res *mcp.CallToolResult) string {
 	return ""
 }
 
+// TestRoundTripCreateGetUpdateDelete exercises the F37 universal items[]
+// shape end-to-end: each of create / get / update / delete carries a
+// length-1 items[] envelope and the response shape carries results[].
+// The substantive assertion (record body comes back from get) plus the
+// envelope shape are the regression locks here.
 func TestRoundTripCreateGetUpdateDelete(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
 
-	// Create with db-qualified type.
+	// Create with db-qualified type via items[].
 	res := callTool(t, c, "create", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans.demo-1",
-		"type": "plans.task",
-		"data": map[string]any{"id": "demo-1", "status": "todo"},
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-1",
+				"type": "plans.task",
+				"data": map[string]any{"id": "demo-1", "status": "todo"},
+			},
+		},
 	})
 	if res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
 	}
 
-	// Get returns the record bytes.
+	// Get returns the record bytes inside results[].
 	res = callTool(t, c, "get", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans.demo-1",
+		"items": []any{
+			map[string]any{"id": "plans.demo-1"},
+		},
 	})
 	if res.IsError {
 		t.Fatalf("get errored: %s", firstText(t, res))
 	}
-	if !strings.Contains(firstText(t, res), "[plans.demo-1]") {
-		t.Errorf("get response missing bracket header; body: %s", firstText(t, res))
+	body := firstText(t, res)
+	if !strings.Contains(body, "[plans.demo-1]") {
+		t.Errorf("get response missing bracket header; body: %s", body)
+	}
+	if !strings.Contains(body, `"found":true`) {
+		t.Errorf("get response missing found:true; body: %s", body)
 	}
 
-	// Update.
+	// Update via items[].
 	res = callTool(t, c, "update", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans.demo-1",
-		"data": map[string]any{"status": "done"},
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-1",
+				"data": map[string]any{"status": "done"},
+			},
+		},
 	})
 	if res.IsError {
 		t.Fatalf("update errored: %s", firstText(t, res))
 	}
 
-	// Delete.
+	// Delete via items[].
 	res = callTool(t, c, "delete", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans.demo-1",
+		"items": []any{
+			map[string]any{"id": "plans.demo-1"},
+		},
 	})
 	if res.IsError {
 		t.Fatalf("delete errored: %s", firstText(t, res))
 	}
 }
 
+// TestCreateRequiresType — under the F37 items[] shape, a missing
+// per-item `type` surfaces an envelope-level error ("items[i].type is
+// required") so misuse fails fast before any IO.
 func TestCreateRequiresType(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
 	res := callTool(t, c, "create", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans.demo-1",
-		"data": map[string]any{"id": "demo-1", "status": "todo"},
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-1",
+				"data": map[string]any{"id": "demo-1", "status": "todo"},
+			},
+		},
 	})
 	if !res.IsError {
 		t.Fatal("expected error for missing `type`")
 	}
+	if !strings.Contains(firstText(t, res), "type is required") {
+		t.Errorf("error should mention type is required: %s", firstText(t, res))
+	}
 }
 
+// TestCreateRejectsBareType — bare-slug type per item surfaces the
+// db-qualified rejection inside the per-item result rather than at the
+// envelope level (the items[] shape decouples envelope errors from per-
+// item errors).
 func TestCreateRejectsBareType(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
 	res := callTool(t, c, "create", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans.demo-1",
-		"type": "task", // bare slug, not db-qualified
-		"data": map[string]any{"id": "demo-1", "status": "todo"},
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-1",
+				"type": "task", // bare slug, not db-qualified
+				"data": map[string]any{"id": "demo-1", "status": "todo"},
+			},
+		},
 	})
-	if !res.IsError {
-		t.Fatal("expected error for bare type")
+	if res.IsError {
+		t.Fatalf("envelope-level error: %s", firstText(t, res))
 	}
-	if !strings.Contains(firstText(t, res), "db-qualified") {
-		t.Errorf("error should mention db-qualified form: %s", firstText(t, res))
+	body := firstText(t, res)
+	if !strings.Contains(body, "db-qualified") {
+		t.Errorf("per-item error should mention db-qualified form: %s", body)
+	}
+	if !strings.Contains(body, `"ok":false`) {
+		t.Errorf("results[0].ok must be false: %s", body)
 	}
 }
 
@@ -356,19 +399,30 @@ func TestStartupTolerantOfMissingSchema(t *testing.T) {
 	}
 }
 
+// TestUpdateMissingFile — under F37 the missing-file failure surfaces
+// per-item, not at the envelope; the response is a successful
+// {results: [{ok: false, error: "...file not found..."}]} envelope.
 func TestUpdateMissingFile(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
 	res := callTool(t, c, "update", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans.demo-1",
-		"data": map[string]any{"status": "todo"},
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-1",
+				"data": map[string]any{"status": "todo"},
+			},
+		},
 	})
-	if !res.IsError {
-		t.Fatal("expected update on missing file to error")
+	if res.IsError {
+		t.Fatalf("envelope-level error: %s", firstText(t, res))
 	}
-	if !strings.Contains(firstText(t, res), "file not found") {
-		t.Errorf("error should mention file not found: %s", firstText(t, res))
+	body := firstText(t, res)
+	if !strings.Contains(body, "file not found") {
+		t.Errorf("per-item error should mention file not found: %s", body)
+	}
+	if !strings.Contains(body, `"ok":false`) {
+		t.Errorf("results[0].ok must be false: %s", body)
 	}
 }
 
@@ -378,9 +432,13 @@ func TestSearchHits(t *testing.T) {
 	for _, id := range []string{"plans.t1", "plans.t2", "plans.t3"} {
 		res := callTool(t, c, "create", map[string]any{
 			"path": fx.projectRoot,
-			"id":   id,
-			"type": "plans.task",
-			"data": map[string]any{"id": id, "status": "todo"},
+			"items": []any{
+				map[string]any{
+					"id":   id,
+					"type": "plans.task",
+					"data": map[string]any{"id": id, "status": "todo"},
+				},
+			},
 		})
 		if res.IsError {
 			t.Fatalf("create %s errored: %s", id, firstText(t, res))
@@ -402,9 +460,10 @@ func TestSearchHits(t *testing.T) {
 	}
 }
 
-// TestDeleteToolFileLevelRequiresForce locks F19's MCP rule: file-
-// level delete (bare file-relpath) refuses without `force=true`,
-// because MCP has no TTY for interactive confirmation.
+// TestDeleteToolFileLevelRequiresForce locks F19's MCP rule under the
+// F37 items[] shape: file-level delete (bare file-relpath) refuses
+// without per-item `force=true`. The refusal surfaces as a per-item
+// error inside the results envelope.
 func TestDeleteToolFileLevelRequiresForce(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
@@ -415,13 +474,19 @@ func TestDeleteToolFileLevelRequiresForce(t *testing.T) {
 	// Without force.
 	res := callTool(t, c, "delete", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans",
+		"items": []any{
+			map[string]any{"id": "plans"},
+		},
 	})
-	if !res.IsError {
-		t.Fatalf("expected error for file-level delete without force; body: %s", firstText(t, res))
+	if res.IsError {
+		t.Fatalf("envelope-level error: %s", firstText(t, res))
 	}
-	if !strings.Contains(firstText(t, res), "force") {
-		t.Errorf("error should mention force=true: %s", firstText(t, res))
+	body := firstText(t, res)
+	if !strings.Contains(body, "force") {
+		t.Errorf("per-item error should mention force=true: %s", body)
+	}
+	if !strings.Contains(body, `"ok":false`) {
+		t.Errorf("results[0].ok must be false: %s", body)
 	}
 	// File still on disk.
 	if _, err := os.Stat(filepath.Join(fx.projectRoot, "plans.toml")); err != nil {
@@ -429,8 +494,9 @@ func TestDeleteToolFileLevelRequiresForce(t *testing.T) {
 	}
 }
 
-// TestDeleteToolFileLevelWithForce confirms force=true authorizes
-// file-level delete on the MCP surface and returns level="file".
+// TestDeleteToolFileLevelWithForce confirms per-item force=true
+// authorizes file-level delete and surfaces file_deleted=true in the
+// per-item result.
 func TestDeleteToolFileLevelWithForce(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)
 	c := newClient(t, fx.projectRoot)
@@ -439,74 +505,20 @@ func TestDeleteToolFileLevelWithForce(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	res := callTool(t, c, "delete", map[string]any{
-		"path":  fx.projectRoot,
-		"id":    "plans",
-		"force": true,
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans", "force": true},
+		},
 	})
 	if res.IsError {
 		t.Fatalf("delete errored: %s", firstText(t, res))
 	}
-	if !strings.Contains(firstText(t, res), `"level":"file"`) {
-		t.Errorf("response missing level=file: %s", firstText(t, res))
+	body := firstText(t, res)
+	if !strings.Contains(body, `"file_deleted":true`) {
+		t.Errorf("response missing file_deleted=true: %s", body)
 	}
 	if _, err := os.Stat(filepath.Join(fx.projectRoot, "plans.toml")); !os.IsNotExist(err) {
 		t.Errorf("plans.toml still exists after force file-level delete: %v", err)
-	}
-}
-
-// TestDeleteToolVerboseEmitsRemainingInFile locks F20's MCP shape: a
-// verbose record-level delete returns `remaining_in_file` with the
-// post-delete count of records remaining in the same file.
-func TestDeleteToolVerboseEmitsRemainingInFile(t *testing.T) {
-	fx := newFixtureWith(t, tomlTaskSchema)
-	c := newClient(t, fx.projectRoot)
-	for _, id := range []string{"plans.t1", "plans.t2", "plans.t3"} {
-		callTool(t, c, "create", map[string]any{
-			"path": fx.projectRoot,
-			"id":   id,
-			"type": "plans.task",
-			"data": map[string]any{"id": id, "status": "todo"},
-		})
-	}
-	res := callTool(t, c, "delete", map[string]any{
-		"path":    fx.projectRoot,
-		"id":      "plans.t1",
-		"verbose": true,
-	})
-	if res.IsError {
-		t.Fatalf("delete errored: %s", firstText(t, res))
-	}
-	body := firstText(t, res)
-	if !strings.Contains(body, `"remaining_in_file":2`) {
-		t.Errorf("response missing remaining_in_file=2: %s", body)
-	}
-	if !strings.Contains(body, `"level":"record"`) {
-		t.Errorf("response missing level=record: %s", body)
-	}
-}
-
-// TestDeleteToolNonVerboseOmitsRemainingInFile confirms the
-// `remaining_in_file` field is omitted from the wire shape when
-// `verbose` is unset (or false).
-func TestDeleteToolNonVerboseOmitsRemainingInFile(t *testing.T) {
-	fx := newFixtureWith(t, tomlTaskSchema)
-	c := newClient(t, fx.projectRoot)
-	callTool(t, c, "create", map[string]any{
-		"path": fx.projectRoot,
-		"id":   "plans.t1",
-		"type": "plans.task",
-		"data": map[string]any{"id": "t1", "status": "todo"},
-	})
-	res := callTool(t, c, "delete", map[string]any{
-		"path": fx.projectRoot,
-		"id":   "plans.t1",
-	})
-	if res.IsError {
-		t.Fatalf("delete errored: %s", firstText(t, res))
-	}
-	body := firstText(t, res)
-	if strings.Contains(body, "remaining_in_file") {
-		t.Errorf("non-verbose response should omit remaining_in_file: %s", body)
 	}
 }
 
@@ -544,9 +556,13 @@ on_create = [
 	c := newClient(t, fx.projectRoot)
 	res := callTool(t, c, "create", map[string]any{
 		"path": fx.projectRoot,
-		"id":   "plans.drop-001",
-		"type": "plans.drop",
-		"data": map[string]any{"title": "x"},
+		"items": []any{
+			map[string]any{
+				"id":   "plans.drop-001",
+				"type": "plans.drop",
+				"data": map[string]any{"title": "x"},
+			},
+		},
 	})
 	if res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
@@ -591,11 +607,15 @@ on_create = [
 	fx := newFixtureWith(t, spawnSchema)
 	c := newClient(t, fx.projectRoot)
 	res := callTool(t, c, "create", map[string]any{
-		"path":     fx.projectRoot,
-		"id":       "plans.drop-001",
-		"type":     "plans.drop",
-		"data":     map[string]any{"title": "x"},
-		"no_spawn": true,
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":       "plans.drop-001",
+				"type":     "plans.drop",
+				"data":     map[string]any{"title": "x"},
+				"no_spawn": true,
+			},
+		},
 	})
 	if res.IsError {
 		t.Fatalf("create errored: %s", firstText(t, res))
@@ -986,5 +1006,370 @@ func TestMCPMove_ResultsArrayMatchesInputOrder(t *testing.T) {
 		if got, _ := results[i]["src_id"].(string); got != want {
 			t.Errorf("results[%d].src_id = %q, want %q (order must match input)", i, got, want)
 		}
+	}
+}
+
+// ---- F37 universal items[] MCP tests --------------------------------
+
+// decodeBatchResults pulls the {path, results: [...]} envelope into
+// raw map slices the test cases can probe field-by-field.
+func decodeBatchResults(t *testing.T, body string) []map[string]any {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(body), &raw); err != nil {
+		t.Fatalf("parse JSON: %v\nbody: %s", err, body)
+	}
+	rs, _ := raw["results"].([]any)
+	out := make([]map[string]any, 0, len(rs))
+	for _, r := range rs {
+		if m, ok := r.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// TestMCPGet_BatchItems — multi-id items[]; results[] order matches input.
+func TestMCPGet_BatchItems(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	for _, id := range []string{"plans.t1", "plans.t2", "plans.t3"} {
+		callTool(t, c, "create", map[string]any{
+			"path": fx.projectRoot,
+			"items": []any{
+				map[string]any{
+					"id":   id,
+					"type": "plans.task",
+					"data": map[string]any{"id": id, "status": "todo"},
+				},
+			},
+		})
+	}
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.t3"},
+			map[string]any{"id": "plans.t1"},
+			map[string]any{"id": "plans.t2"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	results := decodeBatchResults(t, firstText(t, res))
+	if len(results) != 3 {
+		t.Fatalf("results len = %d, want 3", len(results))
+	}
+	wantOrder := []string{"plans.t3", "plans.t1", "plans.t2"}
+	for i, want := range wantOrder {
+		if got, _ := results[i]["id"].(string); got != want {
+			t.Errorf("results[%d].id = %q, want %q (input order)", i, got, want)
+		}
+		if found, _ := results[i]["found"].(bool); !found {
+			t.Errorf("results[%d].found = false, want true", i)
+		}
+	}
+}
+
+// TestMCPGet_DuplicateIdsAllowed — duplicate ids on read return the
+// record twice in input order (idempotent fetch).
+func TestMCPGet_DuplicateIdsAllowed(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.t1",
+				"type": "plans.task",
+				"data": map[string]any{"id": "t1", "status": "todo"},
+			},
+		},
+	})
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.t1"},
+			map[string]any{"id": "plans.t1"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	results := decodeBatchResults(t, firstText(t, res))
+	if len(results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(results))
+	}
+	for i, r := range results {
+		if id, _ := r["id"].(string); id != "plans.t1" {
+			t.Errorf("results[%d].id = %q, want plans.t1", i, id)
+		}
+	}
+}
+
+// TestMCPGet_EmptyItems_Errors — empty items array returns an envelope-
+// level error.
+func TestMCPGet_EmptyItems_Errors(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path":  fx.projectRoot,
+		"items": []any{},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on empty items")
+	}
+	if !strings.Contains(firstText(t, res), "no items provided") {
+		t.Errorf("error should mention 'no items provided': %s", firstText(t, res))
+	}
+}
+
+// TestMCPUpdate_BatchItems_HeterogeneousPatches — multi-id items[]
+// with per-item patches each landing distinct values.
+func TestMCPUpdate_BatchItems_HeterogeneousPatches(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	for _, id := range []string{"plans.t1", "plans.t2"} {
+		callTool(t, c, "create", map[string]any{
+			"path": fx.projectRoot,
+			"items": []any{
+				map[string]any{
+					"id":   id,
+					"type": "plans.task",
+					"data": map[string]any{"id": id, "status": "todo"},
+				},
+			},
+		})
+	}
+	res := callTool(t, c, "update", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.t1", "data": map[string]any{"status": "done"}},
+			map[string]any{"id": "plans.t2", "data": map[string]any{"status": "doing"}},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("update errored: %s", firstText(t, res))
+	}
+	results := decodeBatchResults(t, firstText(t, res))
+	if len(results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(results))
+	}
+	for _, r := range results {
+		if ok, _ := r["ok"].(bool); !ok {
+			t.Errorf("result not OK: %+v", r)
+		}
+	}
+}
+
+// TestMCPUpdate_DuplicateIds_Errors — duplicate ids on update reject loud.
+func TestMCPUpdate_DuplicateIds_Errors(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.t1",
+				"type": "plans.task",
+				"data": map[string]any{"id": "t1", "status": "todo"},
+			},
+		},
+	})
+	res := callTool(t, c, "update", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.t1", "data": map[string]any{"status": "done"}},
+			map[string]any{"id": "plans.t1", "data": map[string]any{"status": "doing"}},
+		},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on duplicate id")
+	}
+	if !strings.Contains(firstText(t, res), "duplicates id") {
+		t.Errorf("error should mention duplicate id: %s", firstText(t, res))
+	}
+}
+
+// TestMCPUpdate_EmptyItems_Errors — empty items[] errors loud.
+func TestMCPUpdate_EmptyItems_Errors(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "update", map[string]any{
+		"path":  fx.projectRoot,
+		"items": []any{},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on empty items")
+	}
+	if !strings.Contains(firstText(t, res), "no items provided") {
+		t.Errorf("error should mention 'no items provided': %s", firstText(t, res))
+	}
+}
+
+// TestMCPCreate_BatchItems — multi-id items[]; per-item create.
+func TestMCPCreate_BatchItems(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.t1",
+				"type": "plans.task",
+				"data": map[string]any{"id": "t1", "status": "todo"},
+			},
+			map[string]any{
+				"id":   "plans.t2",
+				"type": "plans.task",
+				"data": map[string]any{"id": "t2", "status": "doing"},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	results := decodeBatchResults(t, firstText(t, res))
+	if len(results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(results))
+	}
+	for _, r := range results {
+		if ok, _ := r["ok"].(bool); !ok {
+			t.Errorf("result not OK: %+v", r)
+		}
+	}
+	body, err := os.ReadFile(filepath.Join(fx.projectRoot, "plans.toml"))
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	for _, want := range []string{"[plans.t1]", "[plans.t2]"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("plans.toml missing %q: %s", want, body)
+		}
+	}
+}
+
+// TestMCPCreate_DuplicateIds_Errors — duplicate ids on create reject loud.
+func TestMCPCreate_DuplicateIds_Errors(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.t1",
+				"type": "plans.task",
+				"data": map[string]any{"id": "t1", "status": "todo"},
+			},
+			map[string]any{
+				"id":   "plans.t1",
+				"type": "plans.task",
+				"data": map[string]any{"id": "t1", "status": "doing"},
+			},
+		},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on duplicate id")
+	}
+	if !strings.Contains(firstText(t, res), "duplicates id") {
+		t.Errorf("error should mention duplicate id: %s", firstText(t, res))
+	}
+}
+
+// TestMCPCreate_EmptyItems_Errors — empty items[] errors loud.
+func TestMCPCreate_EmptyItems_Errors(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path":  fx.projectRoot,
+		"items": []any{},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on empty items")
+	}
+	if !strings.Contains(firstText(t, res), "no items provided") {
+		t.Errorf("error should mention 'no items provided': %s", firstText(t, res))
+	}
+}
+
+// TestMCPDelete_BatchItems — multi-id items[]; per-item delete.
+func TestMCPDelete_BatchItems(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	for _, id := range []string{"plans.t1", "plans.t2"} {
+		callTool(t, c, "create", map[string]any{
+			"path": fx.projectRoot,
+			"items": []any{
+				map[string]any{
+					"id":   id,
+					"type": "plans.task",
+					"data": map[string]any{"id": id, "status": "todo"},
+				},
+			},
+		})
+	}
+	res := callTool(t, c, "delete", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.t1"},
+			map[string]any{"id": "plans.t2"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("delete errored: %s", firstText(t, res))
+	}
+	results := decodeBatchResults(t, firstText(t, res))
+	if len(results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(results))
+	}
+	for _, r := range results {
+		if ok, _ := r["ok"].(bool); !ok {
+			t.Errorf("result not OK: %+v", r)
+		}
+	}
+}
+
+// TestMCPDelete_DuplicateIds_Errors — duplicate ids on delete reject loud.
+func TestMCPDelete_DuplicateIds_Errors(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.t1",
+				"type": "plans.task",
+				"data": map[string]any{"id": "t1", "status": "todo"},
+			},
+		},
+	})
+	res := callTool(t, c, "delete", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.t1"},
+			map[string]any{"id": "plans.t1"},
+		},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on duplicate id")
+	}
+	if !strings.Contains(firstText(t, res), "duplicates id") {
+		t.Errorf("error should mention duplicate id: %s", firstText(t, res))
+	}
+}
+
+// TestMCPDelete_EmptyItems_Errors — empty items[] errors loud.
+func TestMCPDelete_EmptyItems_Errors(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "delete", map[string]any{
+		"path":  fx.projectRoot,
+		"items": []any{},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on empty items")
+	}
+	if !strings.Contains(firstText(t, res), "no items provided") {
+		t.Errorf("error should mention 'no items provided': %s", firstText(t, res))
 	}
 }

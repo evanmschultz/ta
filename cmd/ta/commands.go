@@ -31,15 +31,23 @@ import (
 // returns every matching record in file-parse order; --limit (default
 // 10, -n shorthand) and --all control the cap. Full ids silently ignore
 // --limit / --all.
+//
+// F37 universal items[] shape: positional N≥1 ids are the same-payload
+// shorthand; --batch FILE|- reads {"items": [{id, fields?}, ...]} JSON
+// for heterogeneous reads. Length 1 still routes through the existing
+// scope-vs-single dispatch so id-prefix expansion stays intact. Length
+// ≥2 is single-record-per-item only — a scope-prefix in batch mode
+// would break the per-item single-result contract.
 func newGetCmd() *cobra.Command {
 	var fields []string
 	var asJSON bool
 	var limit int
 	var all bool
 	var typeName string
+	var batch string
 	cmd := &cobra.Command{
-		Use:   "get <id>",
-		Short: "Read one record by id, or every record under an id prefix; optionally extract declared field values",
+		Use:   "get <id> [<id>...]",
+		Short: "Read one or more records by id, or every record under an id prefix; optionally extract declared field values",
 		Long: "Mirrors the MCP tool `get`. A full id (e.g. `plans.demo-1`) " +
 			"returns one record; without --fields every declared field is " +
 			"rendered through the shared per-field helper (string fields as " +
@@ -51,15 +59,19 @@ func newGetCmd() *cobra.Command {
 			"{\"records\":[{id, fields}, ...]}. --limit (default 10, -n " +
 			"shorthand) and --all control the cap for id-prefix scopes; both " +
 			"are silently ignored for full-id reads and are mutually " +
-			"exclusive. With --json the laslig path is bypassed and JSON is " +
-			"written for agent consumption. --path defaults to cwd; relative " +
-			"or absolute accepted.",
+			"exclusive. F37: pass N≥2 positional ids (same --fields applied " +
+			"to each) or --batch FILE|- for heterogeneous reads — duplicate " +
+			"ids are allowed (idempotent reads return the record twice). " +
+			"With --json the laslig path is bypassed and JSON is written " +
+			"for agent consumption. --path defaults to cwd; relative or " +
+			"absolute accepted.",
 		Example: "  ta get plans.task-001\n" +
 			"  ta get --path /abs/proj plans.task-001 --fields status,body\n" +
-			"  ta get plans.task-001 --json\n" +
+			"  ta get plans.task-001 plans.task-002 plans.task-003 --json\n" +
+			"  ta get --batch reads.json --json\n" +
 			"  ta get plans --all --json\n" +
 			"  ta get plans --limit 5",
-		Args:          cobra.ExactArgs(1),
+		Args:          cobra.MinimumNArgs(0),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -67,38 +79,35 @@ func newGetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id := args[0]
-			isScope, err := ops.IsScopeAddress(path, id)
+			if batch != "" && len(args) > 0 {
+				return errors.New("ta get: use either positional ids or --batch, not both")
+			}
+			// Length-1 single-positional path preserves the pre-F37
+			// scope-vs-single dispatch so id-prefix expansion still works
+			// for `ta get plans` and friends. F37 batch semantics only
+			// kick in when the user opts into multi-id or --batch.
+			if batch == "" && len(args) == 1 {
+				return runGetSingle(c, path, args[0], typeName, fields, limit, all, asJSON)
+			}
+			items, err := collectGetItems(c.InOrStdin(), batch, args, fields)
 			if err != nil {
 				return err
 			}
-			if isScope {
-				return runGetScope(c, path, id, fields, limit, all, asJSON)
-			}
-			if asJSON {
-				res, err := ops.Get(path, id, typeName, fields)
-				if err != nil {
-					return err
-				}
-				return emitGetJSON(c.OutOrStdout(), id, res.Bytes, res.Fields, len(fields) > 0)
-			}
-			r := render.New(c.OutOrStdout())
-			if len(fields) == 0 {
-				res, typeSt, err := ops.GetAllFields(path, id, typeName)
-				if err != nil {
-					return err
-				}
-				return r.Record(id, render.BuildFields(typeSt, res.Fields))
-			}
-			res, err := ops.Get(path, id, typeName, fields)
-			if err != nil {
+			if err := validateGetItems(items); err != nil {
 				return err
 			}
-			rf, err := buildRenderFields(path, id, res.Fields, fields)
-			if err != nil {
+			results := runGetItems(path, items)
+			if err := emitGetBatch(c.OutOrStdout(), path, results, asJSON); err != nil {
 				return err
 			}
-			return r.Record(id, rf)
+			// Misses (found=false) are NOT a CLI failure for reads —
+			// they're a normal observable state. Genuine per-item
+			// errors (malformed id, schema resolve failure, IO issue)
+			// DO escalate to a non-zero exit so operators see them.
+			if anyGetErrored(results) {
+				return errors.New("ta get: one or more items errored")
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated declared field names to extract")
@@ -107,9 +116,202 @@ func newGetCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the record count at N when <id> is a prefix (default 10; ignored for full ids; mutually exclusive with --all)")
 	cmd.Flags().BoolVar(&all, "all", false, "return every record when <id> is a prefix (ignored for full ids; mutually exclusive with --limit)")
 	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
+	cmd.Flags().StringVar(&batch, "batch", "", "read {\"items\":[{id, fields?}, ...]} JSON from FILE (or `-` for stdin); mutually exclusive with positional ids")
 	cmd.MarkFlagsMutuallyExclusive("limit", "all")
 	addPathFlag(cmd)
 	return cmd
+}
+
+// runGetSingle is the pre-F37 single-positional path: one id, with
+// scope-vs-record dispatch and per-fields rendering preserved for back-
+// compat with existing `ta get plans.foo` and `ta get plans` flows.
+func runGetSingle(c *cobra.Command, path, id, typeName string, fields []string, limit int, all bool, asJSON bool) error {
+	isScope, err := ops.IsScopeAddress(path, id)
+	if err != nil {
+		return err
+	}
+	if isScope {
+		return runGetScope(c, path, id, fields, limit, all, asJSON)
+	}
+	if asJSON {
+		res, err := ops.Get(path, id, typeName, fields)
+		if err != nil {
+			return err
+		}
+		return emitGetJSON(c.OutOrStdout(), id, res.Bytes, res.Fields, len(fields) > 0)
+	}
+	r := render.New(c.OutOrStdout())
+	if len(fields) == 0 {
+		res, typeSt, err := ops.GetAllFields(path, id, typeName)
+		if err != nil {
+			return err
+		}
+		return r.Record(id, render.BuildFields(typeSt, res.Fields))
+	}
+	res, err := ops.Get(path, id, typeName, fields)
+	if err != nil {
+		return err
+	}
+	rf, err := buildRenderFields(path, id, res.Fields, fields)
+	if err != nil {
+		return err
+	}
+	return r.Record(id, rf)
+}
+
+// collectGetItems reconciles the positional shorthand and --batch forms
+// into a single []getItem slice. Positional applies the top-level
+// --fields to every id; --batch reads the heterogeneous JSON envelope
+// and lets each item carry its own optional fields override.
+func collectGetItems(stdin io.Reader, batch string, args, fields []string) ([]getItem, error) {
+	if batch != "" {
+		raw, err := readBatchEnvelope(stdin, batch)
+		if err != nil {
+			return nil, fmt.Errorf("ta get: %w", err)
+		}
+		items := make([]getItem, 0, len(raw))
+		for i, entry := range raw {
+			obj, ok := entry.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("ta get: items[%d] must be an object", i)
+			}
+			id, _ := obj["id"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("ta get: items[%d].id is required", i)
+			}
+			it := getItem{ID: id}
+			if rawFields, ok := obj["fields"].([]any); ok {
+				for j, fv := range rawFields {
+					s, ok := fv.(string)
+					if !ok {
+						return nil, fmt.Errorf("ta get: items[%d].fields[%d] must be a string", i, j)
+					}
+					it.Fields = append(it.Fields, s)
+				}
+			}
+			items = append(items, it)
+		}
+		return items, nil
+	}
+	items := make([]getItem, len(args))
+	for i, id := range args {
+		items[i] = getItem{ID: id, Fields: fields}
+	}
+	return items, nil
+}
+
+// validateGetItems guards the only batch-level get failure: an empty
+// items array. Duplicate ids are intentionally allowed for reads —
+// idempotent fetches stay cheap and the duplicate is preserved in
+// input order in results[].
+func validateGetItems(items []getItem) error {
+	if len(items) == 0 {
+		return errors.New("ta get: no items provided")
+	}
+	return nil
+}
+
+// runGetItems iterates items[] and runs each through ops.Get. A miss
+// (record not found) is NOT a per-item error for reads — `found=false`
+// surfaces in the result, matching MCP read semantics where missing
+// records are a normal observable state, not an exceptional one.
+func runGetItems(path string, items []getItem) []getItemResult {
+	results := make([]getItemResult, len(items))
+	for i, it := range items {
+		res, err := ops.Get(path, it.ID, "", it.Fields)
+		entry := getItemResult{ID: it.ID}
+		if err != nil {
+			// Records that don't exist surface as found=false rather
+			// than per-item errors so batch reads stay observation-
+			// friendly. Genuine failures (schema resolve, IO) keep the
+			// error string for the caller.
+			if isNotFound(err) {
+				results[i] = entry
+				continue
+			}
+			entry.Error = err.Error()
+			results[i] = entry
+			continue
+		}
+		entry.Found = true
+		if len(it.Fields) > 0 {
+			entry.Fields = res.Fields
+		} else {
+			entry.Bytes = string(res.Bytes)
+		}
+		results[i] = entry
+	}
+	return results
+}
+
+// isNotFound checks whether an ops.Get error represents a missing
+// record (record absent or backing file absent). Used by the batch
+// reader to translate misses into found=false instead of per-item
+// errors so read batches stay observation-friendly.
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ops.ErrRecordNotFound) || errors.Is(err, ops.ErrFileNotFound) {
+		return true
+	}
+	// ops.Get on a fully-qualified id that doesn't resolve in the
+	// backing buffer surfaces a wrapped fmt.Errorf carrying the
+	// substring "not found in" — see ops.Get's record-decode branch.
+	// We accept the substring fallback here so the reader stays
+	// resilient when ops widens or narrows the sentinel surface.
+	return strings.Contains(err.Error(), "not found")
+}
+
+// emitGetBatch writes the get results envelope. JSON mode emits the
+// {path, results} shape. Laslig mode emits one render block per result
+// — found rows go through the standard renderer; misses surface as a
+// single info notice line so the operator sees per-item state.
+func emitGetBatch(w io.Writer, path string, results []getItemResult, asJSON bool) error {
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(getBatchResult{Path: path, Results: results})
+	}
+	r := render.New(w)
+	for _, res := range results {
+		switch {
+		case res.Error != "":
+			if _, err := fmt.Fprintf(w, "ta get: %s: %s\n", res.ID, res.Error); err != nil {
+				return err
+			}
+		case !res.Found:
+			if err := r.Notice(laslig.NoticeInfoLevel, "get", "not found: "+res.ID, nil); err != nil {
+				return err
+			}
+		default:
+			// Found case: a single info notice keeps batch laslig output
+			// minimal. Fields-rendering for heterogeneous batch records
+			// would need per-id schema dispatch the JSON envelope already
+			// encodes far more cleanly; agents should pass --json for
+			// structured batch reads.
+			label := "found: " + res.ID
+			if len(res.Fields) > 0 {
+				label = "found (fields): " + res.ID
+			}
+			if err := r.Notice(laslig.NoticeInfoLevel, "get", label, nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// anyGetErrored reports whether any read result carries a non-empty
+// Error string. Misses (found=false with empty Error) do NOT count —
+// they are an observable state, not a failure.
+func anyGetErrored(results []getItemResult) bool {
+	for _, r := range results {
+		if r.Error != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // runGetScope is the id-prefix branch of `ta get`. Walks every record
@@ -377,23 +579,30 @@ func newCreateCmd() *cobra.Command {
 	var typeName string
 	var verbose bool
 	var noSpawn bool
+	var batch string
 	cmd := &cobra.Command{
-		Use:   "create <id>",
-		Short: "Create a new record (fails if it exists); mirrors MCP tool `create`.",
-		Long: "Create a new record at the given id. Fails if the record " +
-			"already exists. Creates the backing file and any intermediate " +
-			"directories on first use. --type is REQUIRED and must be " +
-			"db-qualified (`<db>.<type>`, e.g. `plans.task`). When the " +
+		Use:   "create <id> [<id>...]",
+		Short: "Create one or more records (fails if any exists); mirrors MCP tool `create`.",
+		Long: "Create one or more records at the given ids. Fails per-item " +
+			"if the record already exists. Creates the backing file and any " +
+			"intermediate directories on first use. --type is REQUIRED " +
+			"(positional form) and must be db-qualified (`<db>.<type>`, e.g. " +
+			"`plans.task`); same applies to each item in --batch. When the " +
 			"target type declares an [<db>.<type>.auto_spawn] block (F23), " +
 			"child records spawn automatically and atomically; pass " +
-			"--no-spawn to suppress. With --verbose, the newly-created " +
-			"record content is echoed after the success notice. --path " +
-			"defaults to cwd; relative or absolute accepted.",
+			"--no-spawn to suppress. With --verbose, each newly-created " +
+			"record content is echoed after the success notice. F37: pass " +
+			"N≥2 positional ids (same --type / --data / --no-spawn applied " +
+			"to each — duplicate ids reject loud) or --batch FILE|- for " +
+			"heterogeneous payloads. --path defaults to cwd; relative or " +
+			"absolute accepted.",
 		Example: "  ta create plans.task-001 --type plans.task --data '{\"id\":\"task-001\",\"status\":\"todo\"}'\n" +
 			"  ta create --path /abs/proj plans.task-001 --type plans.task --data-file payload.json\n" +
 			"  cat payload.json | ta create plans.task-001 --type plans.task --data-file -\n" +
+			"  ta create plans.t1 plans.t2 plans.t3 --type plans.task --data '{\"status\":\"todo\"}'\n" +
+			"  ta create --batch creates.json\n" +
 			"  ta create plans.drop-001 --type plans.drop --data '{\"title\":\"x\"}' --no-spawn",
-		Args:          cobra.ExactArgs(1),
+		Args:          cobra.MinimumNArgs(0),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -401,38 +610,185 @@ func newCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id := args[0]
-			data, err := collectCreateData(c, path, id, dataInline, dataFile)
+			if batch != "" && len(args) > 0 {
+				return errors.New("ta create: use either positional ids or --batch, not both")
+			}
+			// Length-1 single-positional path preserves the pre-F37
+			// non-batch flow so the interactive form / per-id auto_spawn
+			// fan-out / verbose echo all keep their existing semantics
+			// without per-batch routing changes. Length ≥ 2 and --batch
+			// take the new aggregated path.
+			if batch == "" && len(args) == 1 {
+				return runCreateSingle(c, path, args[0], typeName, dataInline, dataFile, ops.CreateOptions{NoSpawn: noSpawn}, verbose)
+			}
+			items, err := collectCreateItems(c.InOrStdin(), batch, args, typeName, dataInline, dataFile, noSpawn)
 			if err != nil {
 				return err
 			}
-			targetPath, sources, err := runCreate(path, id, typeName, data, ops.CreateOptions{NoSpawn: noSpawn})
-			if err != nil {
+			if err := validateCreateItems(items); err != nil {
 				return err
 			}
-			if err := noticeMutation(c.OutOrStdout(), "created", id, targetPath, sources); err != nil {
-				return err
-			}
-			if verbose {
-				return renderVerboseRecord(c.OutOrStdout(), path, id)
-			}
-			return nil
+			results := runCreateItems(path, items)
+			return finalizeMutationBatch(c.OutOrStdout(), "created",
+				createBatchToMutationRows(results),
+				createBatchAnyFailed(results))
 		},
 	}
-	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
-	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
-	cmd.Flags().StringVar(&typeName, "type", "", "REQUIRED db-qualified type (`<db>.<type>`, e.g. `plans.task`)")
-	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the newly-created record after the success notice")
+	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value (applied to every positional id; ignored with --batch)")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin (applied to every positional id; ignored with --batch)")
+	cmd.Flags().StringVar(&typeName, "type", "", "REQUIRED db-qualified type (`<db>.<type>`, e.g. `plans.task`); applies to every positional id; --batch carries per-item types")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo each newly-created record after its success notice")
 	cmd.Flags().BoolVar(&noSpawn, "no-spawn", false, "suppress any [<db>.<type>.auto_spawn] rules declared on the target type (F23); only the parent record is written")
+	cmd.Flags().StringVar(&batch, "batch", "", "read {\"items\":[{id, type, data, no_spawn?}, ...]} JSON from FILE (or `-` for stdin); mutually exclusive with positional ids")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
-	if err := cmd.MarkFlagRequired("type"); err != nil {
-		// MarkFlagRequired only errors when the named flag is not registered.
-		// We just registered it above, so this is a programming-error guard
-		// rather than a runtime path; surface via panic per cobra norms.
-		panic(fmt.Sprintf("ta: mark --type required: %v", err))
-	}
+	cmd.MarkFlagsMutuallyExclusive("data", "batch")
+	cmd.MarkFlagsMutuallyExclusive("data-file", "batch")
+	cmd.MarkFlagsMutuallyExclusive("type", "batch")
 	addPathFlag(cmd)
 	return cmd
+}
+
+// runCreateSingle preserves the pre-F37 single-positional flow so the
+// interactive form path, ops.CreateWithOptions auto_spawn fan-out, and
+// --verbose echo all keep their existing semantics without batch
+// routing changes. F37 batch mode lives in runCreateItems.
+func runCreateSingle(c *cobra.Command, path, id, typeName, dataInline, dataFile string, opts ops.CreateOptions, verbose bool) error {
+	data, err := collectCreateData(c, path, id, dataInline, dataFile)
+	if err != nil {
+		return err
+	}
+	targetPath, sources, err := runCreate(path, id, typeName, data, opts)
+	if err != nil {
+		return err
+	}
+	if err := noticeMutation(c.OutOrStdout(), "created", id, targetPath, sources); err != nil {
+		return err
+	}
+	if verbose {
+		return renderVerboseRecord(c.OutOrStdout(), path, id)
+	}
+	return nil
+}
+
+// collectCreateItems reconciles the positional + flag form with the
+// --batch form into a []createItem slice. Positional applies the top-
+// level --type / --data / --no-spawn to every id; --batch lets each
+// item carry its own type/data/no_spawn for heterogeneous create
+// batches.
+func collectCreateItems(stdin io.Reader, batch string, args []string, typeName, dataInline, dataFile string, noSpawn bool) ([]createItem, error) {
+	if batch != "" {
+		raw, err := readBatchEnvelope(stdin, batch)
+		if err != nil {
+			return nil, fmt.Errorf("ta create: %w", err)
+		}
+		items := make([]createItem, 0, len(raw))
+		for i, entry := range raw {
+			obj, ok := entry.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("ta create: items[%d] must be an object", i)
+			}
+			id, _ := obj["id"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("ta create: items[%d].id is required", i)
+			}
+			itemType, _ := obj["type"].(string)
+			if itemType == "" {
+				return nil, fmt.Errorf("ta create: items[%d].type is required (db-qualified)", i)
+			}
+			rawData, ok := obj["data"].(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("ta create: items[%d].data must be an object", i)
+			}
+			itemNoSpawn, _ := obj["no_spawn"].(bool)
+			items = append(items, createItem{
+				ID:      id,
+				Type:    itemType,
+				Data:    rawData,
+				NoSpawn: itemNoSpawn,
+			})
+		}
+		return items, nil
+	}
+	if typeName == "" {
+		return nil, errors.New("ta create: --type is required")
+	}
+	if dataInline == "" && dataFile == "" {
+		return nil, errors.New("ta create: --data or --data-file is required for batch positional form")
+	}
+	rawData, err := readJSONData(dataInline, dataFile, stdin)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]any
+	if err := json.Unmarshal(rawData, &data); err != nil {
+		return nil, fmt.Errorf("ta create: parse data JSON: %w", err)
+	}
+	items := make([]createItem, len(args))
+	for i, id := range args {
+		items[i] = createItem{
+			ID:      id,
+			Type:    typeName,
+			Data:    data,
+			NoSpawn: noSpawn,
+		}
+	}
+	return items, nil
+}
+
+// validateCreateItems rejects an empty items array and duplicate ids.
+// Duplicate ids on create are ambiguous: the second create will always
+// fail (record-already-exists) but the user almost certainly didn't
+// mean for that to be the expected outcome — reject loud.
+func validateCreateItems(items []createItem) error {
+	if len(items) == 0 {
+		return errors.New("ta create: no items provided")
+	}
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	if id, prev, here, dup := detectDuplicateIDs(ids); dup {
+		return fmt.Errorf("ta create: items[%d] duplicates id %q from items[%d]", here, id, prev)
+	}
+	return nil
+}
+
+// runCreateItems iterates items[] and runs each through ops.Create. A
+// per-item failure does NOT abort siblings; results aggregate in input
+// order so MCP/CLI callers can map N inputs to N outputs.
+func runCreateItems(path string, items []createItem) []createItemResult {
+	results := make([]createItemResult, len(items))
+	for i, it := range items {
+		_, _, err := ops.CreateWithOptions(path, it.ID, it.Type, it.Data, ops.CreateOptions{NoSpawn: it.NoSpawn})
+		entry := createItemResult{ID: it.ID}
+		if err != nil {
+			entry.Error = err.Error()
+		} else {
+			entry.OK = true
+		}
+		results[i] = entry
+	}
+	return results
+}
+
+// createBatchAnyFailed reports whether any create result failed.
+func createBatchAnyFailed(results []createItemResult) bool {
+	for _, r := range results {
+		if !r.OK {
+			return true
+		}
+	}
+	return false
+}
+
+// createBatchToMutationRows projects createItemResult into the laslig
+// rendering shape used by emitMutationLaslig.
+func createBatchToMutationRows(results []createItemResult) []mutationRow {
+	out := make([]mutationRow, len(results))
+	for i, r := range results {
+		out[i] = mutationRow{ID: r.ID, OK: r.OK, Err: r.Error}
+	}
+	return out
 }
 
 func newUpdateCmd() *cobra.Command {
@@ -440,9 +796,10 @@ func newUpdateCmd() *cobra.Command {
 	var dataFile string
 	var typeName string
 	var verbose bool
+	var batch string
 	cmd := &cobra.Command{
-		Use:   "update <id>",
-		Short: "PATCH an existing record; mirrors MCP tool `update`.",
+		Use:   "update <id> [<id>...]",
+		Short: "PATCH one or more existing records; mirrors MCP tool `update`.",
 		Long: "PATCH-style update: --data is a partial overlay, not a full " +
 			"replacement. Provided fields overwrite their stored values; " +
 			"unspecified fields keep their bytes verbatim. Empty --data ({}) " +
@@ -451,13 +808,17 @@ func newUpdateCmd() *cobra.Command {
 			"that default; null on a required field with no default errors. " +
 			"The merged record is atomically re-validated. Fails if the " +
 			"backing file does not exist; creates the record within the " +
-			"file when absent (record-level upsert). With --verbose, the " +
-			"updated record is echoed after the success notice. --path " +
-			"defaults to cwd; relative or absolute accepted.",
+			"file when absent (record-level upsert). With --verbose, each " +
+			"updated record is echoed after the success notice. F37: pass " +
+			"N≥2 positional ids (same --data applied to each — duplicate " +
+			"ids reject loud) or --batch FILE|- for heterogeneous patches. " +
+			"--path defaults to cwd; relative or absolute accepted.",
 		Example: "  ta update plans.task-001 --data '{\"status\":\"done\"}'\n" +
 			"  ta update plans.task-001 --data '{\"notes\":null}'    # clear optional field\n" +
+			"  ta update plans.t1 plans.t2 plans.t3 --data '{\"status\":\"done\"}'\n" +
+			"  ta update --batch patches.json\n" +
 			"  ta update --path /abs/proj plans.task-001 --data-file patch.json --verbose",
-		Args:          cobra.ExactArgs(1),
+		Args:          cobra.MinimumNArgs(0),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -465,56 +826,188 @@ func newUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id := args[0]
-			data, err := collectUpdateData(c, path, id, dataInline, dataFile)
+			if batch != "" && len(args) > 0 {
+				return errors.New("ta update: use either positional ids or --batch, not both")
+			}
+			if batch == "" && len(args) == 1 {
+				return runUpdateSingle(c, path, args[0], typeName, dataInline, dataFile, verbose)
+			}
+			items, err := collectUpdateItems(c.InOrStdin(), batch, args, typeName, dataInline, dataFile)
 			if err != nil {
 				return err
 			}
-			targetPath, sources, err := runUpdate(path, id, typeName, data)
-			if err != nil {
+			if err := validateUpdateItems(items); err != nil {
 				return err
 			}
-			if err := noticeMutation(c.OutOrStdout(), "updated", id, targetPath, sources); err != nil {
-				return err
-			}
-			if verbose {
-				return renderVerboseRecord(c.OutOrStdout(), path, id)
-			}
-			return nil
+			results := runUpdateItems(path, items)
+			return finalizeMutationBatch(c.OutOrStdout(), "updated",
+				updateBatchToMutationRows(results),
+				updateBatchAnyFailed(results))
 		},
 	}
-	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value")
-	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin")
+	cmd.Flags().StringVar(&dataInline, "data", "", "inline JSON object of field → value (applied to every positional id; ignored with --batch)")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "read JSON data from file; use `-` for stdin (applied to every positional id; ignored with --batch)")
 	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
-	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the updated record after the success notice")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the updated record after the success notice (single-id form only)")
+	cmd.Flags().StringVar(&batch, "batch", "", "read {\"items\":[{id, data, type?}, ...]} JSON from FILE (or `-` for stdin); mutually exclusive with positional ids")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
+	cmd.MarkFlagsMutuallyExclusive("data", "batch")
+	cmd.MarkFlagsMutuallyExclusive("data-file", "batch")
+	cmd.MarkFlagsMutuallyExclusive("type", "batch")
 	addPathFlag(cmd)
 	return cmd
+}
+
+// runUpdateSingle preserves the pre-F37 single-positional flow (TTY
+// form support, --verbose echo) so existing tests + interactive
+// patterns keep working unchanged.
+func runUpdateSingle(c *cobra.Command, path, id, typeName, dataInline, dataFile string, verbose bool) error {
+	data, err := collectUpdateData(c, path, id, dataInline, dataFile)
+	if err != nil {
+		return err
+	}
+	targetPath, sources, err := runUpdate(path, id, typeName, data)
+	if err != nil {
+		return err
+	}
+	if err := noticeMutation(c.OutOrStdout(), "updated", id, targetPath, sources); err != nil {
+		return err
+	}
+	if verbose {
+		return renderVerboseRecord(c.OutOrStdout(), path, id)
+	}
+	return nil
+}
+
+// collectUpdateItems reconciles positional + --batch into a []updateItem
+// slice. Positional applies the top-level --data / --type to every id;
+// --batch lets each item carry its own patch + optional type override.
+func collectUpdateItems(stdin io.Reader, batch string, args []string, typeName, dataInline, dataFile string) ([]updateItem, error) {
+	if batch != "" {
+		raw, err := readBatchEnvelope(stdin, batch)
+		if err != nil {
+			return nil, fmt.Errorf("ta update: %w", err)
+		}
+		items := make([]updateItem, 0, len(raw))
+		for i, entry := range raw {
+			obj, ok := entry.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("ta update: items[%d] must be an object", i)
+			}
+			id, _ := obj["id"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("ta update: items[%d].id is required", i)
+			}
+			rawData, ok := obj["data"].(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("ta update: items[%d].data must be an object", i)
+			}
+			itemType, _ := obj["type"].(string)
+			items = append(items, updateItem{ID: id, Data: rawData, Type: itemType})
+		}
+		return items, nil
+	}
+	if dataInline == "" && dataFile == "" {
+		return nil, errors.New("ta update: --data or --data-file is required for batch positional form")
+	}
+	rawData, err := readJSONData(dataInline, dataFile, stdin)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]any
+	if err := json.Unmarshal(rawData, &data); err != nil {
+		return nil, fmt.Errorf("ta update: parse data JSON: %w", err)
+	}
+	items := make([]updateItem, len(args))
+	for i, id := range args {
+		items[i] = updateItem{ID: id, Data: data, Type: typeName}
+	}
+	return items, nil
+}
+
+// validateUpdateItems rejects empty items and duplicate ids. Two patches
+// against the same id in one batch produces an unobservable interleave
+// of writes; reject loud.
+func validateUpdateItems(items []updateItem) error {
+	if len(items) == 0 {
+		return errors.New("ta update: no items provided")
+	}
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	if id, prev, here, dup := detectDuplicateIDs(ids); dup {
+		return fmt.Errorf("ta update: items[%d] duplicates id %q from items[%d]; ambiguous patch order", here, id, prev)
+	}
+	return nil
+}
+
+// runUpdateItems iterates items[] and runs each through ops.Update.
+// Per-item failures aggregate; siblings continue.
+func runUpdateItems(path string, items []updateItem) []updateItemResult {
+	results := make([]updateItemResult, len(items))
+	for i, it := range items {
+		_, _, err := ops.Update(path, it.ID, it.Type, it.Data)
+		entry := updateItemResult{ID: it.ID}
+		if err != nil {
+			entry.Error = err.Error()
+		} else {
+			entry.OK = true
+		}
+		results[i] = entry
+	}
+	return results
+}
+
+// updateBatchAnyFailed reports whether any update result failed.
+func updateBatchAnyFailed(results []updateItemResult) bool {
+	for _, r := range results {
+		if !r.OK {
+			return true
+		}
+	}
+	return false
+}
+
+// updateBatchToMutationRows projects updateItemResult to the shared
+// mutationRow shape consumed by finalizeMutationBatch.
+func updateBatchToMutationRows(results []updateItemResult) []mutationRow {
+	out := make([]mutationRow, len(results))
+	for i, r := range results {
+		out[i] = mutationRow{ID: r.ID, OK: r.OK, Err: r.Error}
+	}
+	return out
 }
 
 func newDeleteCmd() *cobra.Command {
 	var typeName string
 	var force bool
 	var verbose bool
+	var batch string
 	cmd := &cobra.Command{
-		Use:   "delete <id>",
-		Short: "Remove a record or file; mirrors MCP tool `delete`.",
+		Use:   "delete <id> [<id>...]",
+		Short: "Remove one or more records or files; mirrors MCP tool `delete`.",
 		Long: "Remove a record (bytes spliced out) by full id, or remove a " +
 			"whole file by passing a bare file-relpath that uniquely " +
 			"identifies one concrete file. A file-relpath that resolves " +
 			"through a glob mount to multiple concrete files refuses with " +
 			"an unscoped-glob error. File-level delete prompts for " +
-			"confirmation on a TTY; pass --force to skip the prompt for " +
-			"non-interactive callers. --verbose echoes the deleted id, the " +
-			"absolute file it lived in, and the count of records remaining " +
-			"in that file. --type is optional and cross-checks the " +
-			"supplied type against the index entry for the id. --path " +
-			"defaults to cwd; relative or absolute accepted.",
+			"confirmation on a TTY (single-id form only); pass --force to " +
+			"skip the prompt for non-interactive callers. --verbose echoes " +
+			"the deleted id, the absolute file it lived in, and the count " +
+			"of records remaining in that file. --type is optional and " +
+			"cross-checks the supplied type against the index entry for " +
+			"the id. F37: pass N≥2 positional ids (same --type / --force " +
+			"applied to each — duplicate ids reject loud) or --batch FILE|- " +
+			"for heterogeneous deletes. --path defaults to cwd; relative or " +
+			"absolute accepted.",
 		Example: `  ta delete plans.task-001
   ta delete --force plans
   ta delete --verbose plans.task-001
+  ta delete plans.t1 plans.t2 plans.t3
+  ta delete --batch deletes.json
   ta delete workflow.drop-3.db.task-001`,
-		Args:          cobra.ExactArgs(1),
+		Args:          cobra.MinimumNArgs(0),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -522,39 +1015,154 @@ func newDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id := args[0]
-			res, err := runDelete(path, id, typeName, ops.DeleteOptions{Force: force, Verbose: verbose})
-			if err == nil || !errors.Is(err, ops.ErrFileDeleteRequiresForce) {
-				if err != nil {
-					return err
-				}
-				return emitDeleteNotice(c.OutOrStdout(), id, res, verbose)
+			if batch != "" && len(args) > 0 {
+				return errors.New("ta delete: use either positional ids or --batch, not both")
 			}
-			// File-level delete needs Force; on TTY, surface a
-			// huh.Confirm and (on yes) retry with Force=true. Off-TTY,
-			// the original ErrFileDeleteRequiresForce surfaces.
-			if !ttyInteractive(false) {
-				return err
+			if batch == "" && len(args) == 1 {
+				return runDeleteSingle(c, path, args[0], typeName, force, verbose)
 			}
-			ok, confirmErr := confirmFileDelete(id, res.FilePath)
-			if confirmErr != nil {
-				return confirmErr
-			}
-			if !ok {
-				return fmt.Errorf("delete %q cancelled", id)
-			}
-			res, err = runDelete(path, id, typeName, ops.DeleteOptions{Force: true, Verbose: verbose})
+			items, err := collectDeleteItems(c.InOrStdin(), batch, args, typeName, force)
 			if err != nil {
 				return err
 			}
-			return emitDeleteNotice(c.OutOrStdout(), id, res, verbose)
+			if err := validateDeleteItems(items); err != nil {
+				return err
+			}
+			results := runDeleteItems(path, items)
+			return finalizeMutationBatch(c.OutOrStdout(), "deleted",
+				deleteBatchToMutationRows(results),
+				deleteBatchAnyFailed(results))
 		},
 	}
 	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
-	cmd.Flags().BoolVar(&force, "force", false, "skip the interactive confirmation prompt on file-level delete")
-	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the deleted id, its file path, and the count of records remaining in that file")
+	cmd.Flags().BoolVar(&force, "force", false, "skip the interactive confirmation prompt on file-level delete (applied to every positional id; ignored with --batch)")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the deleted id, its file path, and the count of records remaining in that file (single-id form only)")
+	cmd.Flags().StringVar(&batch, "batch", "", "read {\"items\":[{id, type?, force?}, ...]} JSON from FILE (or `-` for stdin); mutually exclusive with positional ids")
+	cmd.MarkFlagsMutuallyExclusive("type", "batch")
+	cmd.MarkFlagsMutuallyExclusive("force", "batch")
 	addPathFlag(cmd)
 	return cmd
+}
+
+// runDeleteSingle preserves the pre-F37 single-positional flow,
+// including the TTY huh.Confirm fallback path and the verbose remaining-
+// in-file output. F37 batch mode does NOT inherit the TTY confirm —
+// batch deletes refuse file-level removal without an explicit per-item
+// force=true (mirroring MCP semantics where there is no TTY to prompt).
+func runDeleteSingle(c *cobra.Command, path, id, typeName string, force, verbose bool) error {
+	res, err := runDelete(path, id, typeName, ops.DeleteOptions{Force: force, Verbose: verbose})
+	if err == nil || !errors.Is(err, ops.ErrFileDeleteRequiresForce) {
+		if err != nil {
+			return err
+		}
+		return emitDeleteNotice(c.OutOrStdout(), id, res, verbose)
+	}
+	if !ttyInteractive(false) {
+		return err
+	}
+	ok, confirmErr := confirmFileDelete(id, res.FilePath)
+	if confirmErr != nil {
+		return confirmErr
+	}
+	if !ok {
+		return fmt.Errorf("delete %q cancelled", id)
+	}
+	res, err = runDelete(path, id, typeName, ops.DeleteOptions{Force: true, Verbose: verbose})
+	if err != nil {
+		return err
+	}
+	return emitDeleteNotice(c.OutOrStdout(), id, res, verbose)
+}
+
+// collectDeleteItems reconciles the positional + flag form with --batch
+// into a []deleteItem slice. Positional applies the top-level --type +
+// --force to every id; --batch lets each item carry its own type +
+// force.
+func collectDeleteItems(stdin io.Reader, batch string, args []string, typeName string, force bool) ([]deleteItem, error) {
+	if batch != "" {
+		raw, err := readBatchEnvelope(stdin, batch)
+		if err != nil {
+			return nil, fmt.Errorf("ta delete: %w", err)
+		}
+		items := make([]deleteItem, 0, len(raw))
+		for i, entry := range raw {
+			obj, ok := entry.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("ta delete: items[%d] must be an object", i)
+			}
+			id, _ := obj["id"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("ta delete: items[%d].id is required", i)
+			}
+			itemType, _ := obj["type"].(string)
+			itemForce, _ := obj["force"].(bool)
+			items = append(items, deleteItem{ID: id, Type: itemType, Force: itemForce})
+		}
+		return items, nil
+	}
+	items := make([]deleteItem, len(args))
+	for i, id := range args {
+		items[i] = deleteItem{ID: id, Type: typeName, Force: force}
+	}
+	return items, nil
+}
+
+// validateDeleteItems rejects empty items and duplicate ids. Two
+// deletes of the same id in one batch is unambiguous (second is a
+// guaranteed miss) but it almost certainly signals a caller mistake;
+// reject loud and let the caller fix the input.
+func validateDeleteItems(items []deleteItem) error {
+	if len(items) == 0 {
+		return errors.New("ta delete: no items provided")
+	}
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	if id, prev, here, dup := detectDuplicateIDs(ids); dup {
+		return fmt.Errorf("ta delete: items[%d] duplicates id %q from items[%d]", here, id, prev)
+	}
+	return nil
+}
+
+// runDeleteItems iterates items[] and runs each through ops.Delete.
+// Per-item failures aggregate; siblings continue. The result carries
+// file_deleted=true when ops returned level=file so callers can
+// distinguish record-level from file-level removals at a glance.
+func runDeleteItems(path string, items []deleteItem) []deleteItemResult {
+	results := make([]deleteItemResult, len(items))
+	for i, it := range items {
+		res, err := ops.DeleteWithOptions(path, it.ID, it.Type, ops.DeleteOptions{Force: it.Force})
+		entry := deleteItemResult{ID: it.ID}
+		if err != nil {
+			entry.Error = err.Error()
+			results[i] = entry
+			continue
+		}
+		entry.OK = true
+		entry.FileDeleted = res.Level == db.LevelFile
+		results[i] = entry
+	}
+	return results
+}
+
+// deleteBatchAnyFailed reports whether any delete result failed.
+func deleteBatchAnyFailed(results []deleteItemResult) bool {
+	for _, r := range results {
+		if !r.OK {
+			return true
+		}
+	}
+	return false
+}
+
+// deleteBatchToMutationRows projects deleteItemResult to mutationRow.
+func deleteBatchToMutationRows(results []deleteItemResult) []mutationRow {
+	out := make([]mutationRow, len(results))
+	for i, r := range results {
+		out[i] = mutationRow{ID: r.ID, OK: r.OK, Err: r.Error}
+	}
+	return out
 }
 
 // confirmFileDelete prompts the user to confirm a file-level delete.

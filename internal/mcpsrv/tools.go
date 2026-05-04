@@ -19,26 +19,21 @@ func getTool() mcp.Tool {
 	return mcp.NewTool(
 		"get",
 		mcp.WithDescription(
-			"Read one record or every record under an id prefix. A full id (e.g. `plans.demo-1`) returns one record — raw bytes by default, or a {fields} object when 'fields' is set. An id prefix (e.g. `plans`) returns {records: [{id, fields}, ...]} in file-parse order; pass 'limit' (default 10) or 'all=true' to widen. 'limit' and 'all' are ignored for single-record ids.",
+			"Read one or more records by id. Universal items[] shape — length 1 = single, length >1 = batch. Each item: {id, fields?}. Misses (record not present) surface as `found: false` per item, NOT a tool-level error. Duplicate ids are allowed for reads (idempotent fetch returns the record twice in input order). Per-item failures (malformed id, schema resolve error) carry `error: \"...\"` in the result. Empty items[] errors at envelope level. Records[] envelope from the pre-F37 scope-prefix shape is gone — fetch a scope by calling list_sections then get with the resulting id list.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (e.g. `plans.demo-1`) or id prefix (e.g. `plans` to enumerate every record in plans.toml).")),
 		mcp.WithArray(
-			"fields",
-			mcp.Description("Optional array of declared field names. Full id: narrows the response to a {fields} object (unknown names error; absent returns raw bytes). Id prefix: narrows each record's fields map; absent returns every declared field."),
-			mcp.Items(map[string]any{"type": "string"}),
-		),
-		mcp.WithString(
-			"type",
-			mcp.Description("Optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id."),
-		),
-		mcp.WithNumber(
-			"limit",
-			mcp.Description("Optional cap on returned records when 'id' is a prefix. Default 10. Mutually exclusive with all=true. Ignored for single-record ids."),
-		),
-		mcp.WithBoolean(
-			"all",
-			mcp.Description("Optional. When true and 'id' is a prefix, return every record in scope; ignores limit. Ignored for single-record ids."),
+			"items",
+			mcp.Required(),
+			mcp.Description("Items to read. Each: {id (string, required), fields (string array, optional — narrows per-item response to a {fields} map)}. Empty array errors. Duplicate ids ALLOWED on read."),
+			mcp.Items(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":     map[string]any{"type": "string"},
+					"fields": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				},
+				"required": []any{"id"},
+			}),
 		),
 	)
 }
@@ -69,24 +64,23 @@ func createTool() mcp.Tool {
 	return mcp.NewTool(
 		"create",
 		mcp.WithDescription(
-			"Create a new record. Fails if the record already exists. Creates missing directories and the backing file. 'type' is REQUIRED and must be db-qualified (`<db>.<type>`, e.g. `plans.task`). When the target type declares an [<db>.<type>.auto_spawn] block (F23), child records are spawned automatically and atomically; pass no_spawn=true to suppress.",
+			"Create one or more records. Universal items[] shape — length 1 = single, length >1 = batch. Each item: {id, type (db-qualified), data, no_spawn?}. Fails per-item if the record already exists; per-item failures do NOT abort siblings. When a target type declares an [<db>.<type>.auto_spawn] block (F23), child records are spawned automatically and atomically per-item; pass no_spawn=true on an item to suppress its spawns. Empty items[] errors. Duplicate ids reject loud (ambiguous: second create always fails on collision).",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (e.g. `plans.demo-1`).")),
-		mcp.WithString(
-			"type",
+		mcp.WithArray(
+			"items",
 			mcp.Required(),
-			mcp.Description("REQUIRED declared record type, db-qualified (`<db>.<type>`, e.g. `plans.task`). The db must match the id's db."),
-		),
-		mcp.WithObject(
-			"data",
-			mcp.Required(),
-			mcp.Description("Field values. Validated against the declared type."),
-			mcp.AdditionalProperties(map[string]any{}),
-		),
-		mcp.WithBoolean(
-			"no_spawn",
-			mcp.Description("Optional. When true, suppresses any [<db>.<type>.auto_spawn] rules declared on the target type — only the parent record is written. Default: false (auto_spawn fires)."),
+			mcp.Description("Items to create. Each: {id (string, required), type (string, required, db-qualified `<db>.<type>`), data (object, required — validated against the declared type), no_spawn (bool, optional — suppress auto_spawn for this item)}. Empty array errors. Duplicate ids reject loud."),
+			mcp.Items(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":       map[string]any{"type": "string"},
+					"type":     map[string]any{"type": "string"},
+					"data":     map[string]any{"type": "object"},
+					"no_spawn": map[string]any{"type": "boolean"},
+				},
+				"required": []any{"id", "type", "data"},
+			}),
 		),
 	)
 }
@@ -95,19 +89,22 @@ func updateTool() mcp.Tool {
 	return mcp.NewTool(
 		"update",
 		mcp.WithDescription(
-			"PATCH-style update of an existing record. `data` is a partial overlay: provided fields overwrite their stored values, unspecified fields retain their bytes. Empty `data` ({}) is a no-op success. Null on a non-required field clears it; null on a required field with a schema default resets it to that default; null on a required field with no default errors. Merged record is atomically re-validated. Fails if the backing file does not exist. Creates the record within the file if absent (record-level upsert).",
+			"PATCH one or more existing records. Universal items[] shape — length 1 = single, length >1 = batch. Each item: {id, data (partial overlay), type?}. Provided fields overwrite stored values; unspecified fields retain their bytes. Empty `data` ({}) is a no-op success per item. Null on a non-required field clears it; null on a required field with a schema default resets it; null on a required field with no default errors. Merged record is atomically re-validated. Per-item failures do NOT abort siblings. Fails per-item if the backing file does not exist; creates the record within the file if absent (record-level upsert). Empty items[] errors. Duplicate ids reject loud (ambiguous patch order).",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (e.g. `plans.demo-1`).")),
-		mcp.WithObject(
-			"data",
+		mcp.WithArray(
+			"items",
 			mcp.Required(),
-			mcp.Description("Partial overlay: {field: value} pairs. Null clears an optional field or resets a required-with-default field; empty object is a no-op. Merged record validated against the declared type."),
-			mcp.AdditionalProperties(map[string]any{}),
-		),
-		mcp.WithString(
-			"type",
-			mcp.Description("Optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id."),
+			mcp.Description("Items to update. Each: {id (string, required), data (object, required — partial overlay), type (string, optional — db-qualified type cross-check)}. Empty array errors. Duplicate ids reject loud."),
+			mcp.Items(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":   map[string]any{"type": "string"},
+					"data": map[string]any{"type": "object"},
+					"type": map[string]any{"type": "string"},
+				},
+				"required": []any{"id", "data"},
+			}),
 		),
 	)
 }
@@ -116,21 +113,22 @@ func deleteTool() mcp.Tool {
 	return mcp.NewTool(
 		"delete",
 		mcp.WithDescription(
-			"Remove a record or a whole file. Never touches the schema. Pass a full id to remove one record. Pass a bare file-relpath that uniquely identifies one concrete file to remove the whole file (REQUIRES force=true — no TTY available on MCP). A file-relpath that resolves through a glob mount to multiple files refuses with an unscoped-glob error. Set verbose=true to include `remaining_in_file` (count of records left in the affected file) in the response.",
+			"Remove one or more records or files. Universal items[] shape — length 1 = single, length >1 = batch. Each item: {id, type?, force?}. Pass a full id to remove one record; pass a bare file-relpath that uniquely identifies one concrete file PLUS force=true on the item to remove the whole file (no TTY available on MCP). A file-relpath that resolves through a glob mount to multiple files refuses with an unscoped-glob error per item. Per-item failures do NOT abort siblings. Empty items[] errors. Duplicate ids reject loud (second delete is a guaranteed miss).",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Record id (`plans.demo-1`) or bare file-relpath (`plans`) to remove.")),
-		mcp.WithString(
-			"type",
-			mcp.Description("Optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id."),
-		),
-		mcp.WithBoolean(
-			"force",
-			mcp.Description("Required for file-level delete (whole-file removal). MCP has no TTY for interactive confirmation, so file-level delete refuses unless force=true. Ignored for record-level delete."),
-		),
-		mcp.WithBoolean(
-			"verbose",
-			mcp.Description("Optional. When true, the response includes `remaining_in_file` — the number of records left in the affected file after the delete (zero for file-level delete)."),
+		mcp.WithArray(
+			"items",
+			mcp.Required(),
+			mcp.Description("Items to delete. Each: {id (string, required), type (string, optional — db-qualified cross-check), force (bool, optional — required for file-level delete)}. Empty array errors. Duplicate ids reject loud."),
+			mcp.Items(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":    map[string]any{"type": "string"},
+					"type":  map[string]any{"type": "string"},
+					"force": map[string]any{"type": "boolean"},
+				},
+				"required": []any{"id"},
+			}),
 		),
 	)
 }
@@ -245,47 +243,6 @@ type mutationSuccess struct {
 	TargetPath  string   `json:"target_path,omitempty"`
 }
 
-// deleteSuccess extends mutationSuccess with F20's verbose payload:
-// RemainingInFile is the number of records left in the affected file
-// after the delete (zero for file-level delete). The pointer shape
-// keeps the field omitted from non-verbose responses so wire shape
-// stays minimal when the caller did not ask for it.
-type deleteSuccess struct {
-	Path            string   `json:"path"`
-	ID              string   `json:"id"`
-	Action          string   `json:"action"`
-	SchemaPaths     []string `json:"schema_paths,omitempty"`
-	TargetPath      string   `json:"target_path,omitempty"`
-	Level           string   `json:"level,omitempty"`
-	RemainingInFile *int     `json:"remaining_in_file,omitempty"`
-}
-
-type fieldsResult struct {
-	Path   string         `json:"path"`
-	ID     string         `json:"id"`
-	Fields map[string]any `json:"fields"`
-}
-
-// scopeRecord is one entry in an id-prefix `get` response.
-// ID is the full id; Fields is the decoded field map (filtered by the
-// caller's optional fields list). Bytes are intentionally omitted —
-// multi-record raw-bytes would be ambiguous across heterogeneous record
-// types.
-type scopeRecord struct {
-	ID     string         `json:"id"`
-	Fields map[string]any `json:"fields"`
-}
-
-// scopeResult is the MCP response shape for an id-prefix `get` call.
-// Records is the file-parse-order list of records the scope expanded
-// to; the top-level envelope uses the plural shape even when only one
-// record matched.
-type scopeResult struct {
-	Path    string        `json:"path"`
-	ID      string        `json:"id"`
-	Records []scopeRecord `json:"records"`
-}
-
 // schemaResult is the JSON body returned by handleSchema. Exactly one of
 // Type, DB, or DBs is populated per call. MetaSchemaTOML is populated iff
 // the caller passed scope = "ta_schema".
@@ -327,49 +284,132 @@ type fieldView struct {
 
 // ---- handlers --------------------------------------------------------
 
+// getResultItem mirrors one entry of the F37 universal results[]
+// response for the `get` tool. Found is true iff the record exists;
+// Bytes is populated when fields was unset on the request item; Fields
+// is populated when fields was set. Error names per-item failures
+// (resolver / IO) — record-not-found surfaces as Found=false WITHOUT
+// an error string per F37 read semantics.
+type getResultItem struct {
+	ID     string         `json:"id"`
+	Found  bool           `json:"found"`
+	Bytes  string         `json:"bytes,omitempty"`
+	Fields map[string]any `json:"fields,omitempty"`
+	Error  string         `json:"error,omitempty"`
+}
+
+// getResult is the {path, results: [...]} envelope for the F37 batch
+// `get` tool. Plural shape regardless of items[] length.
+type getResult struct {
+	Path    string          `json:"path"`
+	Results []getResultItem `json:"results"`
+}
+
+// getInputItem is the decoded shape of one items[] entry. Lower-cased
+// fields stay private to handleGet; the public wire shape is captured
+// in getResultItem.
+type getInputItem struct {
+	id     string
+	fields []string
+}
+
+// decodeGetItems walks the JSON-decoded items[] array and produces a
+// strongly-typed slice. Empty fields slices are represented as nil so
+// downstream callers can distinguish "no fields requested" (raw bytes)
+// from "fields requested but none named" (errors out at the schema
+// level).
+func decodeGetItems(arr []any) ([]getInputItem, string) {
+	out := make([]getInputItem, 0, len(arr))
+	for i, raw := range arr {
+		obj, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Sprintf("items[%d] must be an object", i)
+		}
+		id, _ := obj["id"].(string)
+		if id == "" {
+			return nil, fmt.Sprintf("items[%d].id is required", i)
+		}
+		var fields []string
+		if rawFields, ok := obj["fields"].([]any); ok {
+			fields = make([]string, 0, len(rawFields))
+			for j, fv := range rawFields {
+				s, ok := fv.(string)
+				if !ok {
+					return nil, fmt.Sprintf("items[%d].fields[%d] must be a string", i, j)
+				}
+				fields = append(fields, s)
+			}
+		}
+		out = append(out, getInputItem{id: id, fields: fields})
+	}
+	return out, ""
+}
+
+// handleGet dispatches the F37 universal items[] get tool. Per-item
+// misses surface as Found=false (NOT an error); per-item resolve / IO
+// failures surface as a non-empty Error string. Empty items[] is the
+// only batch-level failure (no work to do).
 func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, id, errRes := requirePathAndID(req)
-	if errRes != nil {
-		return errRes, nil
-	}
-	fields, hasFields, errRes := optionalStringArray(req, "fields")
-	if errRes != nil {
-		return errRes, nil
-	}
-	// limit/all per docs/PLAN.md §3.1 / §12.17.5 [B2]. Strict mutex at
-	// the adapter — endpoint is permissive (all wins). limit/all are
-	// only meaningful for scope-prefix addresses; single-record
-	// addresses silently ignore them.
-	limit := req.GetInt("limit", 0)
-	all := req.GetBool("all", false)
-	if limit > 0 && all {
-		return mcp.NewToolResultError("pass either limit or all, not both"), nil
-	}
-	isScope, err := ops.IsScopeAddress(path, id)
+	path, err := req.RequireString("path")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
 	}
-	typeName := req.GetString("type", "")
-	if isScope {
-		records, err := ops.GetScope(path, id, fields, limit, all)
+	args := req.GetArguments()
+	rawItems, ok := args["items"]
+	if !ok {
+		return mcp.NewToolResultError("missing required argument 'items'"), nil
+	}
+	itemsArr, ok := rawItems.([]any)
+	if !ok {
+		return mcp.NewToolResultError("argument 'items' must be an array"), nil
+	}
+	items, errMsg := decodeGetItems(itemsArr)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	if len(items) == 0 {
+		return mcp.NewToolResultError("ta get: no items provided"), nil
+	}
+	// Duplicate ids on read are intentionally allowed — idempotent
+	// fetch returns the record twice in input order. No detect-dup
+	// pass here.
+	results := make([]getResultItem, len(items))
+	for i, it := range items {
+		entry := getResultItem{ID: it.id}
+		res, err := ops.Get(path, it.id, "", it.fields)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			if isMCPNotFound(err) {
+				results[i] = entry
+				continue
+			}
+			entry.Error = err.Error()
+			results[i] = entry
+			continue
 		}
-		out := make([]scopeRecord, len(records))
-		for i, r := range records {
-			out[i] = scopeRecord{ID: r.ID, Fields: r.Fields}
+		entry.Found = true
+		if len(it.fields) > 0 {
+			entry.Fields = res.Fields
+		} else {
+			entry.Bytes = string(res.Bytes)
 		}
-		return mcp.NewToolResultJSON(scopeResult{Path: path, ID: id, Records: out})
+		results[i] = entry
 	}
-	res, err := ops.Get(path, id, typeName, fields)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	return mustJSON(getResult{Path: path, Results: results}), nil
+}
+
+// isMCPNotFound mirrors cmd/ta's isNotFound but lives here to keep
+// mcpsrv free of a cross-package dependency on the CLI helpers.
+// Treats record-not-found and file-not-found as misses; everything
+// else is a per-item error.
+func isMCPNotFound(err error) bool {
+	if err == nil {
+		return false
 	}
-	if !hasFields {
-		return mcp.NewToolResultText(string(res.Bytes)), nil
+	if errors.Is(err, ops.ErrRecordNotFound) || errors.Is(err, ops.ErrFileNotFound) {
+		return true
 	}
-	return mcp.NewToolResultJSON(fieldsResult{Path: path, ID: id, Fields: res.Fields})
+	return strings.Contains(err.Error(), "not found")
 }
 
 func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -397,101 +437,315 @@ func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	return mcp.NewToolResultJSON(listResult{Path: path, Sections: sections})
 }
 
+// createResultItem mirrors one entry of the F37 universal results[]
+// response for the `create` tool.
+type createResultItem struct {
+	ID    string `json:"id"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// createResult is the {path, results: [...]} envelope.
+type createResult struct {
+	Path    string             `json:"path"`
+	Results []createResultItem `json:"results"`
+}
+
+// createInputItem is the decoded shape of one create items[] entry.
+type createInputItem struct {
+	id       string
+	typeName string
+	data     map[string]any
+	noSpawn  bool
+}
+
+// decodeCreateItems walks the JSON-decoded items[] array.
+func decodeCreateItems(arr []any) ([]createInputItem, string) {
+	out := make([]createInputItem, 0, len(arr))
+	for i, raw := range arr {
+		obj, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Sprintf("items[%d] must be an object", i)
+		}
+		id, _ := obj["id"].(string)
+		if id == "" {
+			return nil, fmt.Sprintf("items[%d].id is required", i)
+		}
+		typeName, _ := obj["type"].(string)
+		if typeName == "" {
+			return nil, fmt.Sprintf("items[%d].type is required (db-qualified `<db>.<type>`)", i)
+		}
+		dataAny, ok := obj["data"]
+		if !ok {
+			return nil, fmt.Sprintf("items[%d].data is required", i)
+		}
+		data, ok := dataAny.(map[string]any)
+		if !ok {
+			return nil, fmt.Sprintf("items[%d].data must be an object", i)
+		}
+		noSpawn, _ := obj["no_spawn"].(bool)
+		out = append(out, createInputItem{
+			id:       id,
+			typeName: typeName,
+			data:     data,
+			noSpawn:  noSpawn,
+		})
+	}
+	return out, ""
+}
+
+// detectDuplicateIDs is the shared item-id duplicate detector for the
+// F37 mutation tools (create / update / delete). Returns ("", "") when
+// no duplicates are found.
+func detectDuplicateIDs(ids []string, action string) string {
+	seen := make(map[string]int, len(ids))
+	for i, id := range ids {
+		if prev, dup := seen[id]; dup {
+			return fmt.Sprintf(
+				"ta %s: items[%d] duplicates id %q from items[%d]",
+				action, i, id, prev)
+		}
+		seen[id] = i
+	}
+	return ""
+}
+
 func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, id, errRes := requirePathAndID(req)
-	if errRes != nil {
-		return errRes, nil
-	}
-	data, errRes := requireDataObject(req)
-	if errRes != nil {
-		return errRes, nil
-	}
-	typeName, err := req.RequireString("type")
+	path, err := req.RequireString("path")
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("missing required argument 'type': %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
 	}
-	noSpawn := req.GetBool("no_spawn", false)
-	filePath, sources, err := ops.CreateWithOptions(path, id, typeName, data, ops.CreateOptions{NoSpawn: noSpawn})
-	if err != nil {
-		return validationOrPlainError(err), nil
+	args := req.GetArguments()
+	rawItems, ok := args["items"]
+	if !ok {
+		return mcp.NewToolResultError("missing required argument 'items'"), nil
 	}
-	return mcp.NewToolResultJSON(mutationSuccess{
-		Path:        path,
-		ID:          id,
-		Action:      "create",
-		SchemaPaths: sources,
-		TargetPath:  filePath,
-	})
+	itemsArr, ok := rawItems.([]any)
+	if !ok {
+		return mcp.NewToolResultError("argument 'items' must be an array"), nil
+	}
+	items, errMsg := decodeCreateItems(itemsArr)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	if len(items) == 0 {
+		return mcp.NewToolResultError("ta create: no items provided"), nil
+	}
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.id
+	}
+	if msg := detectDuplicateIDs(ids, "create"); msg != "" {
+		return mcp.NewToolResultError(msg), nil
+	}
+	results := make([]createResultItem, len(items))
+	for i, it := range items {
+		_, _, err := ops.CreateWithOptions(path, it.id, it.typeName, it.data, ops.CreateOptions{NoSpawn: it.noSpawn})
+		entry := createResultItem{ID: it.id}
+		if err != nil {
+			// Validation errors stringify to JSON for backwards
+			// parity with the pre-F37 single-create error shape so
+			// agents that branched on the validation JSON keep working.
+			entry.Error = errorString(err)
+		} else {
+			entry.OK = true
+		}
+		results[i] = entry
+	}
+	return mustJSON(createResult{Path: path, Results: results}), nil
+}
+
+// updateResultItem mirrors one entry of the F37 universal results[]
+// response for the `update` tool.
+type updateResultItem struct {
+	ID    string `json:"id"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// updateResult is the {path, results: [...]} envelope.
+type updateResult struct {
+	Path    string             `json:"path"`
+	Results []updateResultItem `json:"results"`
+}
+
+// updateInputItem is the decoded shape of one update items[] entry.
+type updateInputItem struct {
+	id       string
+	data     map[string]any
+	typeName string
+}
+
+// decodeUpdateItems walks the JSON-decoded items[] array.
+func decodeUpdateItems(arr []any) ([]updateInputItem, string) {
+	out := make([]updateInputItem, 0, len(arr))
+	for i, raw := range arr {
+		obj, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Sprintf("items[%d] must be an object", i)
+		}
+		id, _ := obj["id"].(string)
+		if id == "" {
+			return nil, fmt.Sprintf("items[%d].id is required", i)
+		}
+		dataAny, ok := obj["data"]
+		if !ok {
+			return nil, fmt.Sprintf("items[%d].data is required", i)
+		}
+		data, ok := dataAny.(map[string]any)
+		if !ok {
+			return nil, fmt.Sprintf("items[%d].data must be an object", i)
+		}
+		typeName, _ := obj["type"].(string)
+		out = append(out, updateInputItem{id: id, data: data, typeName: typeName})
+	}
+	return out, ""
 }
 
 func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, id, errRes := requirePathAndID(req)
-	if errRes != nil {
-		return errRes, nil
-	}
-	data, errRes := requireDataObject(req)
-	if errRes != nil {
-		return errRes, nil
-	}
-	typeName := req.GetString("type", "")
-	filePath, sources, err := ops.Update(path, id, typeName, data)
+	path, err := req.RequireString("path")
 	if err != nil {
-		return validationOrPlainError(err), nil
+		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
 	}
-	return mcp.NewToolResultJSON(mutationSuccess{
-		Path:        path,
-		ID:          id,
-		Action:      "update",
-		SchemaPaths: sources,
-		TargetPath:  filePath,
-	})
+	args := req.GetArguments()
+	rawItems, ok := args["items"]
+	if !ok {
+		return mcp.NewToolResultError("missing required argument 'items'"), nil
+	}
+	itemsArr, ok := rawItems.([]any)
+	if !ok {
+		return mcp.NewToolResultError("argument 'items' must be an array"), nil
+	}
+	items, errMsg := decodeUpdateItems(itemsArr)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	if len(items) == 0 {
+		return mcp.NewToolResultError("ta update: no items provided"), nil
+	}
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.id
+	}
+	if msg := detectDuplicateIDs(ids, "update"); msg != "" {
+		return mcp.NewToolResultError(msg), nil
+	}
+	results := make([]updateResultItem, len(items))
+	for i, it := range items {
+		_, _, err := ops.Update(path, it.id, it.typeName, it.data)
+		entry := updateResultItem{ID: it.id}
+		if err != nil {
+			entry.Error = errorString(err)
+		} else {
+			entry.OK = true
+		}
+		results[i] = entry
+	}
+	return mustJSON(updateResult{Path: path, Results: results}), nil
+}
+
+// deleteResultItem mirrors one entry of the F37 universal results[]
+// response for the `delete` tool. FileDeleted is true iff the per-item
+// delete removed a whole file (level=file).
+type deleteResultItem struct {
+	ID          string `json:"id"`
+	OK          bool   `json:"ok"`
+	FileDeleted bool   `json:"file_deleted,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// deleteResultBatch is the {path, results: [...]} envelope returned by
+// the F37 delete tool. One results entry per input item, in input order.
+type deleteResultBatch struct {
+	Path    string             `json:"path"`
+	Results []deleteResultItem `json:"results"`
+}
+
+// deleteInputItem is the decoded shape of one delete items[] entry.
+type deleteInputItem struct {
+	id       string
+	typeName string
+	force    bool
+}
+
+// decodeDeleteItems walks the JSON-decoded items[] array.
+func decodeDeleteItems(arr []any) ([]deleteInputItem, string) {
+	out := make([]deleteInputItem, 0, len(arr))
+	for i, raw := range arr {
+		obj, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Sprintf("items[%d] must be an object", i)
+		}
+		id, _ := obj["id"].(string)
+		if id == "" {
+			return nil, fmt.Sprintf("items[%d].id is required", i)
+		}
+		typeName, _ := obj["type"].(string)
+		force, _ := obj["force"].(bool)
+		out = append(out, deleteInputItem{id: id, typeName: typeName, force: force})
+	}
+	return out, ""
 }
 
 func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, id, errRes := requirePathAndID(req)
-	if errRes != nil {
-		return errRes, nil
-	}
-	typeName := req.GetString("type", "")
-	force := req.GetBool("force", false)
-	verbose := req.GetBool("verbose", false)
-	res, err := ops.DeleteWithOptions(path, id, typeName, ops.DeleteOptions{Force: force, Verbose: verbose})
+	path, err := req.RequireString("path")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
 	}
-	out := deleteSuccess{
-		Path:        path,
-		ID:          id,
-		Action:      "delete",
-		SchemaPaths: res.Sources,
-		TargetPath:  res.FilePath,
-		Level:       deleteLevelName(res.Level),
+	args := req.GetArguments()
+	rawItems, ok := args["items"]
+	if !ok {
+		return mcp.NewToolResultError("missing required argument 'items'"), nil
 	}
-	if verbose {
-		n := res.RemainingInFile
-		out.RemainingInFile = &n
+	itemsArr, ok := rawItems.([]any)
+	if !ok {
+		return mcp.NewToolResultError("argument 'items' must be an array"), nil
 	}
-	return mcp.NewToolResultJSON(out)
+	items, errMsg := decodeDeleteItems(itemsArr)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	if len(items) == 0 {
+		return mcp.NewToolResultError("ta delete: no items provided"), nil
+	}
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.id
+	}
+	if msg := detectDuplicateIDs(ids, "delete"); msg != "" {
+		return mcp.NewToolResultError(msg), nil
+	}
+	results := make([]deleteResultItem, len(items))
+	for i, it := range items {
+		res, err := ops.DeleteWithOptions(path, it.id, it.typeName, ops.DeleteOptions{Force: it.force})
+		entry := deleteResultItem{ID: it.id}
+		if err != nil {
+			entry.Error = err.Error()
+			results[i] = entry
+			continue
+		}
+		entry.OK = true
+		entry.FileDeleted = res.Level == db.LevelFile
+		results[i] = entry
+	}
+	return mustJSON(deleteResultBatch{Path: path, Results: results}), nil
 }
 
-// deleteLevelName maps the resolver's delete-level enum to the
-// JSON-serialized name used in the MCP response. The name is part of
-// the wire shape so MCP clients can branch on file-vs-record without
-// re-parsing the id.
-func deleteLevelName(level db.DeleteLevel) string {
-	switch level {
-	case db.LevelRecord:
-		return "record"
-	case db.LevelFile:
-		return "file"
-	case db.LevelGlobRoot:
-		return "glob_root"
-	default:
-		return ""
+// errorString flattens an error into the wire-side string. ValidationErrors
+// stringify to JSON for the create/update batch result entries so MCP
+// callers can still branch on field-level validation detail without losing
+// the per-item err string envelope.
+func errorString(err error) string {
+	if vErr, ok := errors.AsType[*schema.ValidationError](err); ok {
+		raw, jerr := json.Marshal(vErr)
+		if jerr == nil {
+			return string(raw)
+		}
 	}
+	return err.Error()
 }
 
 // moveItemResult mirrors one entry of the universal results[] response
@@ -688,20 +942,6 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	return mcp.NewToolResultJSON(searchResult{Path: path, Scope: scope, Hits: jsonHits})
 }
 
-// validationOrPlainError wraps an error into an MCP tool result. If the
-// error is a *schema.ValidationError, it is surfaced as its JSON shape
-// (matching legacy upsert behavior); otherwise the plain Error string
-// is used.
-func validationOrPlainError(err error) *mcp.CallToolResult {
-	if vErr, ok := errors.AsType[*schema.ValidationError](err); ok {
-		raw, jerr := json.Marshal(vErr)
-		if jerr == nil {
-			return mcp.NewToolResultError(string(raw))
-		}
-	}
-	return mcp.NewToolResultError(err.Error())
-}
-
 func handleSchema(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
 	path, err := req.RequireString("path")
@@ -872,52 +1112,6 @@ func mustJSON(v any) *mcp.CallToolResult {
 		return mcp.NewToolResultError(fmt.Sprintf("encode JSON response: %v", err))
 	}
 	return res
-}
-
-func requirePathAndID(req mcp.CallToolRequest) (string, string, *mcp.CallToolResult) {
-	path, err := req.RequireString("path")
-	if err != nil {
-		return "", "", mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err))
-	}
-	id, err := req.RequireString("id")
-	if err != nil {
-		return "", "", mcp.NewToolResultError(fmt.Sprintf("invalid id arg: %v", err))
-	}
-	return path, id, nil
-}
-
-func requireDataObject(req mcp.CallToolRequest) (map[string]any, *mcp.CallToolResult) {
-	args := req.GetArguments()
-	dataAny, ok := args["data"]
-	if !ok {
-		return nil, mcp.NewToolResultError("missing required argument 'data'")
-	}
-	data, ok := dataAny.(map[string]any)
-	if !ok {
-		return nil, mcp.NewToolResultError("argument 'data' must be an object")
-	}
-	return data, nil
-}
-
-func optionalStringArray(req mcp.CallToolRequest, name string) ([]string, bool, *mcp.CallToolResult) {
-	args := req.GetArguments()
-	raw, ok := args[name]
-	if !ok {
-		return nil, false, nil
-	}
-	arr, ok := raw.([]any)
-	if !ok {
-		return nil, false, mcp.NewToolResultError(fmt.Sprintf("argument %q must be an array of strings", name))
-	}
-	out := make([]string, 0, len(arr))
-	for i, v := range arr {
-		s, ok := v.(string)
-		if !ok {
-			return nil, false, mcp.NewToolResultError(fmt.Sprintf("argument %q[%d] must be a string", name, i))
-		}
-		out = append(out, s)
-	}
-	return out, true, nil
 }
 
 // ---- schema view helpers (unchanged from pre-refactor) ---------------
