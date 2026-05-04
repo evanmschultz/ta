@@ -56,6 +56,7 @@ const longDescription = "# ta\n\n" +
 	"- `ta create <id> --data <json>` — create a new record\n" +
 	"- `ta update <id> --data <json>` — update an existing record\n" +
 	"- `ta delete <id>` — remove a record by id, or a whole file by id-prefix\n" +
+	"- `ta move <src-id> <dst-id> [--copy] [--type=<dst-db>.<type>]` — relocate a record (or copy with --copy)\n" +
 	"- `ta init` — bootstrap a project directory (schema + MCP configs)\n" +
 	"- `ta index rebuild` — regenerate the runtime record-type index at .ta/index.toml\n" +
 	"- `ta template (list|show|save|apply|delete)` — manage the ~/.ta library\n\n" +
@@ -100,6 +101,7 @@ func newRootCmd() *cobra.Command {
 		newCreateCmd(),
 		newUpdateCmd(),
 		newDeleteCmd(),
+		newMoveCmd(),
 		newSchemaCmd(),
 		newSearchCmd(),
 		newTemplateCmd(),

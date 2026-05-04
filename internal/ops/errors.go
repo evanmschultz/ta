@@ -101,4 +101,41 @@ var (
 	// wrapped message lists ids that landed and ids that did not so the
 	// operator can reconcile manually.
 	ErrSpawnPartialWrite = errors.New("ops: auto_spawn partial write")
+
+	// ErrMoveModeMismatch is returned by Move when src and dst dbs do
+	// not agree on the file-record vs section-mode boundary. The two
+	// backends have incompatible address contracts and cross-mode emit
+	// would either lose body bytes or yield malformed output, so the
+	// move is rejected loud.
+	ErrMoveModeMismatch = errors.New("ops: move: src and dst dbs differ on file-record vs section-mode")
+
+	// ErrMoveFormatMismatch is returned by Move when src and dst dbs do
+	// not share a Format (e.g. one TOML and one MD). Cross-format moves
+	// would require re-emitting bytes through a different backend with
+	// no shared canonical form, so the move is rejected loud.
+	ErrMoveFormatMismatch = errors.New("ops: move: src and dst dbs differ on backend format (MD vs TOML)")
+
+	// ErrMoveSelfMove is returned by Move when src and dst id are the
+	// same and Copy is false. Self-move is rejected as ambiguous —
+	// splicing src out and re-emitting at the same id is almost always
+	// a user mistake.
+	ErrMoveSelfMove = errors.New("ops: move: src and dst id are identical (use --copy if you meant to duplicate to self, but that is also rejected as ambiguous)")
+
+	// ErrMoveSelfCopy is returned by Move when src == dst and Copy is
+	// true. Copy-to-self is a no-op that would corrupt the index, so
+	// the operation is rejected loud.
+	ErrMoveSelfCopy = errors.New("ops: move: --copy with src == dst is rejected; copy must produce a distinct dst")
+
+	// ErrMoveDestExists is returned by Move when the destination id
+	// already names an existing record on disk and Force is false.
+	// Pass --force / force=true to overwrite.
+	ErrMoveDestExists = errors.New("ops: move: destination already exists; pass --force to overwrite")
+
+	// ErrMovePartialWrite is returned by Move when the dst write
+	// succeeded but the src cleanup splice failed. The dst record is
+	// correct on disk; the src record still exists at its original
+	// path. The wrapped message names both ids and the recovery hint
+	// so the operator can reconcile manually. Mirrors the no-auto-
+	// rollback discipline used by ErrSpawnPartialWrite.
+	ErrMovePartialWrite = errors.New("ops: move: dst write succeeded but src cleanup failed; both records currently exist on disk")
 )

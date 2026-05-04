@@ -135,6 +135,32 @@ func deleteTool() mcp.Tool {
 	)
 }
 
+func moveTool() mcp.Tool {
+	return mcp.NewTool(
+		"move",
+		mcp.WithDescription(
+			"Relocate one or more records. Universal items[] shape — length 1 = single, length >1 = batch. Each item: {src_id, dst_id, copy?, type?, force?}. Default copy=false (move semantics: src spliced out after dst lands). copy=true preserves src. type overrides dst type defaulting (db-qualified, e.g. `cascade.drop`); when omitted, defaulting picks src's bare type when both dbs declare it. force=true overwrites a colliding dst. Mode mismatch (file-record vs section-mode) and format mismatch (MD vs TOML) reject loudly per item; src==dst (self-move/copy) also rejects per item. Per-item failures do NOT abort siblings — results[] mirrors items[] in order with one entry per submitted item.",
+		),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
+		mcp.WithArray(
+			"items",
+			mcp.Required(),
+			mcp.Description("Items to move. Each: {src_id (string, required), dst_id (string, required), copy (bool, default false), type (string, db-qualified dst type override), force (bool, default false)}. Empty array errors. Duplicate src_id values error (ambiguous patch order on src splice)."),
+			mcp.Items(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"src_id": map[string]any{"type": "string"},
+					"dst_id": map[string]any{"type": "string"},
+					"copy":   map[string]any{"type": "boolean"},
+					"type":   map[string]any{"type": "string"},
+					"force":  map[string]any{"type": "boolean"},
+				},
+				"required": []any{"src_id", "dst_id"},
+			}),
+		),
+	)
+}
+
 func searchTool() mcp.Tool {
 	return mcp.NewTool(
 		"search",
@@ -466,6 +492,139 @@ func deleteLevelName(level db.DeleteLevel) string {
 	default:
 		return ""
 	}
+}
+
+// moveItemResult mirrors one entry of the universal results[] response
+// for the F36 move tool. Same shape as the CLI's moveItemResult; lives
+// here so mcpsrv stays free of a cross-package dependency on cmd/ta.
+type moveItemResult struct {
+	SrcID       string `json:"src_id"`
+	DstID       string `json:"dst_id"`
+	OK          bool   `json:"ok"`
+	Action      string `json:"action,omitempty"`
+	SrcFilePath string `json:"src_file,omitempty"`
+	DstFilePath string `json:"dst_file,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// moveResult is the {path, results: [...]} envelope returned by
+// handleMove. Plural shape regardless of the items[] length so MCP
+// callers always parse the same response shape.
+type moveResult struct {
+	Path    string           `json:"path"`
+	Results []moveItemResult `json:"results"`
+}
+
+// handleMove dispatches the F36 move tool. items[] is required;
+// per-item failures aggregate into results[] without aborting siblings.
+// Empty items[] and duplicate src_id values are both batch-level
+// failures (no records touched) per Decision 1.
+func handleMove(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = ctx
+	path, err := req.RequireString("path")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	}
+	args := req.GetArguments()
+	rawItems, ok := args["items"]
+	if !ok {
+		return mcp.NewToolResultError("missing required argument 'items'"), nil
+	}
+	itemsArr, ok := rawItems.([]any)
+	if !ok {
+		return mcp.NewToolResultError("argument 'items' must be an array"), nil
+	}
+	items, errMsg := decodeMoveItems(itemsArr)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	if len(items) == 0 {
+		return mcp.NewToolResultError("ta move: no items provided"), nil
+	}
+	if msg := detectDuplicateSrcID(items); msg != "" {
+		return mcp.NewToolResultError(msg), nil
+	}
+	results := make([]moveItemResult, len(items))
+	for i, it := range items {
+		res, err := ops.Move(path, it.srcID, it.dstID, it.typeName, ops.MoveOptions{
+			Copy:  it.copy,
+			Force: it.force,
+		})
+		entry := moveItemResult{
+			SrcID:       it.srcID,
+			DstID:       it.dstID,
+			SrcFilePath: res.SrcFilePath,
+			DstFilePath: res.DstFilePath,
+			Action:      res.Action,
+		}
+		if err != nil {
+			entry.Error = err.Error()
+		} else {
+			entry.OK = true
+		}
+		results[i] = entry
+	}
+	return mustJSON(moveResult{Path: path, Results: results}), nil
+}
+
+// moveInputItem is the decoded shape of one items[] entry. Lower-cased
+// fields stay private to handleMove; the public wire shape is decided
+// by the moveItemResult struct above.
+type moveInputItem struct {
+	srcID    string
+	dstID    string
+	typeName string
+	copy     bool
+	force    bool
+}
+
+// decodeMoveItems walks the JSON-decoded items[] array and produces a
+// strongly-typed slice. Returns ("", "") on success; on shape errors
+// returns ("", "<error message>") so the caller can surface a single
+// MCP error result.
+func decodeMoveItems(arr []any) ([]moveInputItem, string) {
+	out := make([]moveInputItem, 0, len(arr))
+	for i, raw := range arr {
+		obj, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Sprintf("items[%d] must be an object", i)
+		}
+		src, _ := obj["src_id"].(string)
+		dst, _ := obj["dst_id"].(string)
+		if src == "" {
+			return nil, fmt.Sprintf("items[%d].src_id is required", i)
+		}
+		if dst == "" {
+			return nil, fmt.Sprintf("items[%d].dst_id is required", i)
+		}
+		typeName, _ := obj["type"].(string)
+		copyFlag, _ := obj["copy"].(bool)
+		forceFlag, _ := obj["force"].(bool)
+		out = append(out, moveInputItem{
+			srcID:    src,
+			dstID:    dst,
+			typeName: typeName,
+			copy:     copyFlag,
+			force:    forceFlag,
+		})
+	}
+	return out, ""
+}
+
+// detectDuplicateSrcID scans the decoded items for a repeated src_id.
+// Per F36 Decision 1, two items with the same src induce ambiguous
+// patch order on src splice; reject the whole batch loud.
+func detectDuplicateSrcID(items []moveInputItem) string {
+	seen := make(map[string]int, len(items))
+	for i, it := range items {
+		if prev, dup := seen[it.srcID]; dup {
+			return fmt.Sprintf(
+				"ta move: items[%d] duplicates src_id %q from items[%d]; ambiguous patch order on src splice",
+				i, it.srcID, prev)
+		}
+		seen[it.srcID] = i
+	}
+	return ""
 }
 
 // searchHit is one entry in the search result payload. ID is the full

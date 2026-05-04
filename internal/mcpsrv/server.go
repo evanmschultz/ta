@@ -77,6 +77,7 @@ func (s *Server) registerTools() {
 	s.srv.AddTool(createTool(), handleCreate)
 	s.srv.AddTool(updateTool(), handleUpdate)
 	s.srv.AddTool(deleteTool(), handleDelete)
+	s.srv.AddTool(moveTool(), handleMove)
 	s.srv.AddTool(schemaTool(), handleSchema)
 	s.srv.AddTool(searchTool(), handleSearch)
 	s.srv.AddTool(initTool(), handleInit)

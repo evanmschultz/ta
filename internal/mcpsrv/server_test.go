@@ -709,3 +709,282 @@ func TestInitToolApplyConflictError(t *testing.T) {
 		t.Errorf("error should mention conflict: %s", firstText(t, res))
 	}
 }
+
+// ---- F36 move tool ----------------------------------------------------
+
+const moveToolSchema = `
+[plans]
+paths = ["plans.toml"]
+
+[plans.task]
+description = "A task"
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.title]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+required = true
+enum = ["todo", "doing", "done"]
+`
+
+// seedMoveTask seeds one record under plans.task for the move tool
+// fixtures. Reuses ops.Create directly so the in-process tests don't
+// have to round-trip through the MCP create handler each time.
+func seedMoveTask(t *testing.T, root, id string) {
+	t.Helper()
+	if _, _, err := ops.Create(root, id, "plans.task", map[string]any{
+		"id": id, "title": "x", "status": "todo",
+	}); err != nil {
+		t.Fatalf("seed %q: %v", id, err)
+	}
+}
+
+// decodeMoveResult unmarshals the MCP move tool response. Returns an
+// empty struct + reports the parse error via t.Fatalf so callers stay
+// concise.
+func decodeMoveResult(t *testing.T, body string) (path string, results []map[string]any) {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(body), &raw); err != nil {
+		t.Fatalf("parse move JSON: %v\nbody: %s", err, body)
+	}
+	path, _ = raw["path"].(string)
+	rs, _ := raw["results"].([]any)
+	for _, r := range rs {
+		if m, ok := r.(map[string]any); ok {
+			results = append(results, m)
+		}
+	}
+	return path, results
+}
+
+// TestMCPMove_BasicMove — single-item items[] with default move.
+func TestMCPMove_BasicMove(t *testing.T) {
+	fx := newFixtureWith(t, moveToolSchema)
+	seedMoveTask(t, fx.projectRoot, "plans.foo")
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "move", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"src_id": "plans.foo", "dst_id": "plans.bar"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("move errored: %s", firstText(t, res))
+	}
+	_, results := decodeMoveResult(t, firstText(t, res))
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	if ok, _ := results[0]["ok"].(bool); !ok {
+		t.Errorf("results[0].ok = false, want true: %+v", results[0])
+	}
+	if action, _ := results[0]["action"].(string); action != "move" {
+		t.Errorf("results[0].action = %q, want move", action)
+	}
+}
+
+// TestMCPMove_BatchMixedSuccess — multi-item items[] with some
+// succeeding and some failing; aggregated results in input order.
+func TestMCPMove_BatchMixedSuccess(t *testing.T) {
+	fx := newFixtureWith(t, moveToolSchema)
+	seedMoveTask(t, fx.projectRoot, "plans.a")
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "move", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"src_id": "plans.a", "dst_id": "plans.x"},
+			map[string]any{"src_id": "plans.does-not-exist", "dst_id": "plans.y"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("move tool errored at envelope level: %s", firstText(t, res))
+	}
+	_, results := decodeMoveResult(t, firstText(t, res))
+	if len(results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(results))
+	}
+	if ok, _ := results[0]["ok"].(bool); !ok {
+		t.Errorf("results[0].ok = false, want true (item 0 had a real src)")
+	}
+	if ok, _ := results[1]["ok"].(bool); ok {
+		t.Errorf("results[1].ok = true, want false (item 1 src missing)")
+	}
+}
+
+// TestMCPMove_CopyFlag — copy: true per item leaves src on disk.
+func TestMCPMove_CopyFlag(t *testing.T) {
+	fx := newFixtureWith(t, moveToolSchema)
+	seedMoveTask(t, fx.projectRoot, "plans.foo")
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "move", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"src_id": "plans.foo", "dst_id": "plans.bar", "copy": true},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("move errored: %s", firstText(t, res))
+	}
+	_, results := decodeMoveResult(t, firstText(t, res))
+	if action, _ := results[0]["action"].(string); action != "copy" {
+		t.Errorf("results[0].action = %q, want copy", action)
+	}
+	// Both records should now be readable.
+	if _, _, err := ops.GetAllFields(fx.projectRoot, "plans.foo", ""); err != nil {
+		t.Errorf("src missing after copy: %v", err)
+	}
+	if _, _, err := ops.GetAllFields(fx.projectRoot, "plans.bar", ""); err != nil {
+		t.Errorf("dst missing after copy: %v", err)
+	}
+}
+
+// TestMCPMove_ModeMismatchError — move with a mode-mismatched dst surfaces
+// the error inside the per-item result, not at the envelope.
+func TestMCPMove_ModeMismatchError(t *testing.T) {
+	const mixedSchema = `
+[notes]
+paths = ["notes.md"]
+
+[notes.note]
+description = "section-mode note"
+heading = 1
+
+[notes.note.fields.body]
+type = "string"
+
+[agents]
+paths = ["agents/*.md"]
+
+[agents.agent]
+description = "file-as-record agent"
+record_per = "file"
+body_field = "prompt"
+
+[agents.agent.fields.name]
+type = "string"
+required = true
+
+[agents.agent.fields.prompt]
+type = "string"
+required = true
+format = "markdown"
+`
+	fx := newFixtureWith(t, mixedSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "writer", "agents.agent", map[string]any{
+		"name":   "writer",
+		"prompt": "body",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "move", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"src_id": "writer", "dst_id": "notes.heading-1", "type": "notes.note"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("envelope-level error: %s", firstText(t, res))
+	}
+	_, results := decodeMoveResult(t, firstText(t, res))
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	if ok, _ := results[0]["ok"].(bool); ok {
+		t.Errorf("results[0].ok = true, want false (mode mismatch)")
+	}
+	if msg, _ := results[0]["error"].(string); !strings.Contains(msg, "file-record") {
+		t.Errorf("results[0].error = %q, want mode-mismatch text", msg)
+	}
+}
+
+// TestMCPMove_DuplicateSrcInBatch_Errors — same src_id appearing
+// twice in items[] errors loud BEFORE any per-item disk write.
+// Mirrors the CLI-level test for symmetric MCP coverage.
+func TestMCPMove_DuplicateSrcInBatch_Errors(t *testing.T) {
+	fx := newFixtureWith(t, moveToolSchema)
+	seedMoveTask(t, fx.projectRoot, "plans.foo")
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "move", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"src_id": "plans.foo", "dst_id": "plans.bar"},
+			map[string]any{"src_id": "plans.foo", "dst_id": "plans.baz"},
+		},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on duplicate src_id")
+	}
+	msg := firstText(t, res)
+	if !strings.Contains(msg, "plans.foo") {
+		t.Errorf("error should name the duplicate src_id: %s", msg)
+	}
+	// Confirm no disk write happened — plans.foo is still the only
+	// record on disk; plans.bar and plans.baz must NOT exist.
+	body, err := os.ReadFile(filepath.Join(fx.projectRoot, "plans.toml"))
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	got := string(body)
+	if !strings.Contains(got, "[plans.foo]") {
+		t.Errorf("plans.foo should still exist on disk")
+	}
+	if strings.Contains(got, "[plans.bar]") || strings.Contains(got, "[plans.baz]") {
+		t.Errorf("no per-item write should have happened on duplicate-src reject")
+	}
+}
+
+// TestMCPMove_EmptyItems_Errors — empty items array returns an
+// envelope-level error (not a per-item failure).
+func TestMCPMove_EmptyItems_Errors(t *testing.T) {
+	fx := newFixtureWith(t, moveToolSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "move", map[string]any{
+		"path":  fx.projectRoot,
+		"items": []any{},
+	})
+	if !res.IsError {
+		t.Fatal("expected envelope-level error on empty items")
+	}
+	if !strings.Contains(firstText(t, res), "no items provided") {
+		t.Errorf("error should mention 'no items provided': %s", firstText(t, res))
+	}
+}
+
+// TestMCPMove_ResultsArrayMatchesInputOrder — N items in → N results
+// out, in input order.
+func TestMCPMove_ResultsArrayMatchesInputOrder(t *testing.T) {
+	fx := newFixtureWith(t, moveToolSchema)
+	for _, id := range []string{"plans.a", "plans.b", "plans.c"} {
+		seedMoveTask(t, fx.projectRoot, id)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "move", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"src_id": "plans.c", "dst_id": "plans.z"},
+			map[string]any{"src_id": "plans.a", "dst_id": "plans.x"},
+			map[string]any{"src_id": "plans.b", "dst_id": "plans.y"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("move errored: %s", firstText(t, res))
+	}
+	_, results := decodeMoveResult(t, firstText(t, res))
+	if len(results) != 3 {
+		t.Fatalf("results len = %d, want 3", len(results))
+	}
+	wantSrc := []string{"plans.c", "plans.a", "plans.b"}
+	for i, want := range wantSrc {
+		if got, _ := results[i]["src_id"].(string); got != want {
+			t.Errorf("results[%d].src_id = %q, want %q (order must match input)", i, got, want)
+		}
+	}
+}
