@@ -6,8 +6,19 @@ ta is a tiny MCP server that lets LLM coding agents read and write structured TO
 
 - **mage-first**. All build / test / lint / format goes through mage targets; never invoke raw `go build`, `go test`, `go vet`, `gofmt`, or `gofumpt`.
 - **For agent-parseable output**: prefix any `mage` invocation with `MAGEFILE_JSON=1` so the test-runner step emits `go test -json`. Fmt / Vet / Tidy emit plain text either way.
-- **The authoritative gate**: `MAGEFILE_JSON=1 mage check`. Vet + FmtCheck + Test (with race) + Tidy. Must pass before any commit.
+- **Format**: `mage fmt` runs `gofumpt` (latest, auto-installed via `go install mvdan.cc/gofumpt@latest` if missing). gofumpt is a strict superset of `gofmt -s`.
+- **The authoritative gate**: `MAGEFILE_JSON=1 mage check`. FmtCheck + Vet + Test (with race) + Tidy. Must pass before any commit.
 - **Coverage gate**: ≥ 70% line coverage on touched packages.
+
+### Scope-narrowed test runs (cascade discipline)
+
+Agents working on the same checkout in a cascade share one working tree. Running the full module's tests at any sub-module node produces a verdict polluted by sibling agents' in-flight work. Each agent runs ONLY the tests its slice owns:
+
+- **Below-package** (single-file or tight-cluster builds): `mage testFunc <pattern>` (single test) or `mage testFuncs <Test1> <Test2> ...` (several joined via `|`). Optional `TA_TEST_PKG=./internal/ops` env scopes to one package.
+- **Package-level** (segment / confluence work that owns one package): `mage testPkg ./internal/ops`. End-to-end verdict for the package.
+- **Module-level** (orchestrator / drop close): `mage check`. Full integration verdict — the ONLY level that runs the full suite.
+
+The discipline mirrors `docs/cascade-methodology.md` §4.5 "Test-scope Isolation". The principle is universal across languages — wherever the build runner exposes a name-pattern test target (Cargo, vitest, pytest -k, etc.), the same level-by-level escalation applies.
 
 ## Cascade-agent workflow rules
 

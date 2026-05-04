@@ -33,6 +33,10 @@ NEVER claim TUI behavior works without a captured artifact.
 
 Mirrors `CLAUDE.md` § "Pre-MVP cleanup tracker — MVP-feature-completion launches clean". Phasing: dogfood → full CLI → full TUI overhaul (100% huh-free). First tagged release is `v0.1.0` — no "v1" semantics. Track open items in CLAUDE.md.
 
+## Cascade isolation — agents test ONLY their slice
+
+Mirrors `CLAUDE.md` § "Cascade isolation — agents test ONLY their slice". An agent running below strict package level uses `mage testFunc <pattern>` or `mage testFuncs <Test1> <Test2> ...` (with optional `TA_TEST_PKG=./pkg/path` scoping); a package-level QA uses `mage testPkg ./pkg/path`; orchestrator-level commit gate uses `mage check` (full module). Never invoke `go test` / `go vet` / `gofmt` / `gofumpt` directly.
+
 ## Cascade methodology — canonical reference
 
 The agent cascade methodology that ta dogfoods (and the future article / blog post seeds from) lives at [`docs/cascade-methodology.md`](docs/cascade-methodology.md). It's the **app-agnostic** version: thesis, droplet shape, role and model bindings, QA placement, nesting model, failure handling, audit trail, reference implementations.

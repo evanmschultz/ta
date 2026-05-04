@@ -51,6 +51,18 @@ ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — 
 
 **MVP-feature-completion gate**: every item above is either closed or explicitly punted to post-`v0.1.0` with a tracking issue. No `// TODO` / `// HACK` / `// XXX` comments left in source.
 
+## Cascade isolation — agents test ONLY their slice
+
+A builder or QA agent operating below strict package level MUST run only the tests their slice owns — not the whole module. Sibling agents racing on the same checkout produce a polluted working tree; running `mage Test` (full module) gives a verdict muddied by other agents' WIP.
+
+- **Below-package scope**: `MAGEFILE_JSON=1 mage testFunc TestMyThing` (single test) or `MAGEFILE_JSON=1 mage testFuncs TestA TestB TestC` (multiple) or with package narrowing via `TA_TEST_PKG=./internal/ops mage testFunc TestMyThing`. Routes through `go test -run <pattern>`.
+- **Package-level scope**: `MAGEFILE_JSON=1 mage testPkg ./internal/ops`. One package end-to-end; verdict reflects exactly what the slice owns.
+- **Module-level scope**: `MAGEFILE_JSON=1 mage Test` (or `mage Check`). Run by orchestrator-level QA + commit gate, not by sub-package agents mid-build.
+
+The agent runner reports its verdict against the scope it owns. Higher-level QA (segment, confluence, drop) escalates to wider scopes. Orchestrator runs the whole. This mirrors the cascade methodology's "QA at the level integration actually happens" rule (`docs/cascade-methodology.md` §4).
+
+Memory rule still applies: NEVER invoke raw `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`. Always route through mage. The `--project` flag, `MAGEFILE_JSON=1` env var, and the testFunc / testFuncs / testPkg targets are how an agent narrows scope without bypassing the gate.
+
 ## Cascade methodology — canonical reference
 
 The agent cascade methodology that ta dogfoods (and the future article / blog post seeds from) lives at [`docs/cascade-methodology.md`](docs/cascade-methodology.md). It's the **app-agnostic** version: thesis, droplet shape, role and model bindings, QA placement, nesting model, failure handling, audit trail, reference implementations. The older Tillsyn-flavored draft (`AGENT_CASCADE_DESIGN.md`) was retired — `docs/cascade-methodology.md` is the canonical source for any cascade questions, planning conversations, and the eventual article.

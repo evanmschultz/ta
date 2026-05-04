@@ -187,7 +187,19 @@ visibility into the constructed tree rooted at that L1. It checks:
 
 The depth threshold is a project-tunable starting value.
 
-### 4.5 Why No Droplet-Level LLM QA
+### 4.5 Test-scope Isolation — Agents Verify Only Their Slice
+
+Cascade nodes share one checkout on disk. While siblings run concurrently, the working tree carries WIP from every active builder. Running the entire module's test suite at any sub-module node gives a verdict muddied by other agents' edits. Each agent's verification MUST scope down to what its slice owns:
+
+- **Below-package agents** (single-file or tight-cluster droplet builds) run a name-pattern test invocation — the build runner exposes a "run only these test functions" target. In ta's reference implementation that's `mage testFunc <pattern>` / `mage testFuncs <Test1> <Test2> ...`, optionally narrowed by package via `TA_TEST_PKG=<path>`. The runner translates to `go test -run <pattern> <pkg>`. The agent's verdict reports only its own functions; sibling WIP outside that scope is invisible.
+- **Package-level agents** (segment / confluence work that owns one package) run the full package: `mage testPkg <path>` / `go test <pkg>`. Verdict reflects the package end-to-end.
+- **Orchestrator / drop-close** runs the full module: `mage check` / `go test ./...`. This is the integration verdict — the only level where cross-package interactions are tested.
+
+The same discipline applies to the build runner equivalents in other languages (Cargo workspaces with `cargo test -p <crate> <name>`, npm scripts with `vitest run -t <name>`, etc.). The principle is universal: **tests scope to the slice; QA escalates one level up; integration is the orchestrator's responsibility.**
+
+This pairs with §4.4's pre-QA LSP refresh — a fresh LSP plus a slice-scoped test run gives a clean evidence layer for the QA agent to reason against, without other agents' in-flight work corrupting either side.
+
+### 4.6 Why No Droplet-Level LLM QA
 
 Droplets are too small to QA meaningfully in isolation. Correctness at
 the droplet level is either trivially satisfied against the acceptance
@@ -195,7 +207,7 @@ criteria or obviously wrong — automated build+test catches the second
 case. LLM QA at this level pays full cost for near-zero signal. QA
 moves up to where integration actually happens.
 
-### 4.6 Pre-QA LSP Refresh — Universal Discipline
+### 4.7 Pre-QA LSP Refresh — Universal Discipline
 
 Build agents edit code on disk. The next QA agent spawned reads from
 disk via the language server (gopls for Go, tsserver for TypeScript,

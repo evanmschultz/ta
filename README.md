@@ -49,7 +49,32 @@ Verify the registration landed with:
 claude mcp list
 ```
 
-`ta` reads no runtime arguments; all tool arguments arrive over MCP. Use `ta --help` for a summary of CLI flags (`--version`, `--log-startup`).
+`ta` reads no runtime arguments; all tool arguments arrive over MCP. Use `ta --help` for a summary of CLI flags (`--version`, `--log-startup`, `--project`).
+
+### Pinning the project directory
+
+The MCP server resolves its schema from one project per process. By default that's the spawn cwd — which works whenever the MCP client launches `ta` with cwd set to the project root (e.g. starting Claude Code from inside the project checkout).
+
+For launchers that cannot control the spawn cwd, pass `--project <abs-path>` in the registration command. With `claude mcp add`:
+
+```sh
+claude mcp add --transport stdio ta -- ta --project /abs/path/to/project
+```
+
+Or hand-rolled in a `.mcp.json` your launcher accepts:
+
+```json
+{
+  "mcpServers": {
+    "ta": {
+      "command": "ta",
+      "args": ["--project", "/abs/path/to/project"]
+    }
+  }
+}
+```
+
+The flag must be absolute, must exist, and must contain `.ta/schema.toml`. Empty / unset → cwd fallback. The flag wins over cwd when both are present.
 
 ## Schemas
 
@@ -103,12 +128,27 @@ The on-disk bracket header IS the id — `[plans.task-001]` in `plans.toml`. The
 ## Building from source
 
 ```sh
-mage check   # fmtcheck, vet, test, tidy
+mage check   # fmtcheck, vet, test, tidy — full-module commit gate
 mage build   # produces ./bin/ta
 mage install # builds and drops the binary at $HOME/.local/bin/ta
+mage fmt     # run gofumpt (latest, auto-installed) in-place
 ```
 
 Run `mage -l` for the full target list.
+
+### Scope-narrowed test runs (cascade-friendly)
+
+When multiple agents work on the same checkout in a cascade, full-module `mage test` gives a verdict polluted by sibling agents' WIP. Each agent runs ONLY the tests their slice owns:
+
+```sh
+mage testFunc TestMyThing                       # one test, whole module
+mage testFuncs TestA TestB TestC                # several tests, joined via `|`
+TA_TEST_PKG=./internal/ops mage testFunc TestX  # narrow scope further
+mage testPkg ./internal/ops                     # full package, end-to-end
+mage check                                      # full module — orchestrator-level
+```
+
+`MAGEFILE_JSON=1` prefixes route the test runner through `-json` for agent-parseable output. Cascade methodology § "QA Placement" (`docs/cascade-methodology.md`) covers the level-by-level discipline; the rule of thumb is **agents test only what their slice owns; QA escalates one level up**.
 
 ## Cascade-agent workflow hooks
 
@@ -142,7 +182,7 @@ Register in `~/.claude/settings.json`:
 }
 ```
 
-The concept is **universal** across LSP-based languages — extend the script with `tsserver`, `pylsp`, `rust-analyzer` etc. when needed. Documented in [`docs/cascade-methodology.md`](docs/cascade-methodology.md) §4.6 "Pre-QA LSP Refresh — Universal Discipline".
+The concept is **universal** across LSP-based languages — extend the script with `tsserver`, `pylsp`, `rust-analyzer` etc. when needed. Documented in [`docs/cascade-methodology.md`](docs/cascade-methodology.md) §4.7 "Pre-QA LSP Refresh — Universal Discipline".
 
 **Dogfood plan**: the long-term goal is for ta itself to manage these hooks (alongside agents, instructions docs, skills, rules) via shipped schemas. Once the dogfood phase lands `claude_hooks` schema support, `ta init` will install the hook into `<project>/.claude/hooks/` automatically and every ta dev gets it without manual setup. Until then, install machine-local from this section.
 

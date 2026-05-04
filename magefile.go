@@ -160,6 +160,60 @@ func Test() error {
 	return run("go", args...)
 }
 
+// TestFunc runs ONLY the test functions matching the given regex
+// pattern (`go test -run <pattern>`) within the given package path
+// (default `./...` — pass TA_TEST_PKG=./internal/ops to scope tighter).
+// Cascade discipline: a builder or QA agent operating below strict
+// package level invokes `MAGEFILE_JSON=1 mage testFunc TestMyThing`
+// (or `mage testFunc 'TestPickerFilter|TestPickerBucket'` for multiple)
+// so their result is unmuddied by sibling agents' WIP. Higher levels
+// run `mage Test` to verify the integrated whole.
+//
+// Args: first positional = `-run` regex (one func or `|`-joined alts).
+// TA_TEST_PKG env var = package path scope (default `./...`).
+func TestFunc(pattern string) error {
+	if pattern == "" {
+		return fmt.Errorf("testFunc: pattern required (e.g. mage testFunc TestMyThing)")
+	}
+	pkg := os.Getenv("TA_TEST_PKG")
+	if pkg == "" {
+		pkg = "./..."
+	}
+	args := []string{"test", "-race", "-count=1", "-run", pattern}
+	if jsonMode() {
+		args = append(args, "-json")
+	}
+	args = append(args, pkg)
+	return run("go", args...)
+}
+
+// TestFuncs is the multi-pattern shorthand: joins the given function
+// names with `|` and delegates to `go test -run`. Equivalent to
+// `mage testFunc 'TestA|TestB|TestC'` but takes them as separate args
+// so callers don't have to quote the pipe.
+func TestFuncs(names ...string) error {
+	if len(names) == 0 {
+		return fmt.Errorf("testFuncs: at least one test name required")
+	}
+	return TestFunc(strings.Join(names, "|"))
+}
+
+// TestPkg runs every test in ONE package path (default `./...`).
+// Cascade discipline: package-level QA invokes `mage testPkg
+// ./internal/ops` so the verdict reflects exactly what their slice
+// owns. Set MAGEFILE_JSON=1 for agent-parseable output.
+func TestPkg(pkg string) error {
+	if pkg == "" {
+		return fmt.Errorf("testPkg: package path required (e.g. mage testPkg ./internal/ops)")
+	}
+	args := []string{"test", "-race", "-count=1"}
+	if jsonMode() {
+		args = append(args, "-json")
+	}
+	args = append(args, pkg)
+	return run("go", args...)
+}
+
 // Cover produces a function-level coverage report. Set MAGEFILE_JSON=1
 // to emit the test-runner step as -json (the coverage-tool step
 // remains text — it is a digest, not a parse target).
@@ -186,22 +240,45 @@ func Vet() error {
 	return run("go", "vet", "./...")
 }
 
-// Fmt formats sources in place (gofmt -s).
+// Fmt formats sources in place via gofumpt (latest). Auto-installs
+// gofumpt to GOBIN if missing so contributors don't have to manage it
+// out of band. gofumpt is a strict superset of gofmt -s: every gofmt -s
+// fix plus tighter standards (no else-if-then-else without separation,
+// no `,` before `... )`, etc.). The memory rule + CONTRIBUTING.md
+// formalize this — never invoke gofmt or raw gofumpt directly; always
+// route through `mage Fmt` / `mage FmtCheck`.
 func Fmt() error {
-	return run("gofmt", "-s", "-w", ".")
+	if err := ensureGofumpt(); err != nil {
+		return err
+	}
+	return run("gofumpt", "-w", ".")
 }
 
-// FmtCheck fails if any file is not gofmt -s clean.
+// FmtCheck fails if any file is not gofumpt-clean. Listing produced by
+// `gofumpt -l`; non-empty = drift; emits the offending paths to stderr.
 func FmtCheck() error {
-	out, err := exec.Command("gofmt", "-s", "-l", ".").Output()
+	if err := ensureGofumpt(); err != nil {
+		return err
+	}
+	out, err := exec.Command("gofumpt", "-l", ".").Output()
 	if err != nil {
 		return err
 	}
 	if len(strings.TrimSpace(string(out))) > 0 {
 		fmt.Fprint(os.Stderr, string(out))
-		return fmt.Errorf("files are not gofmt -s clean")
+		return fmt.Errorf("files are not gofumpt-clean (run `mage fmt`)")
 	}
 	return nil
+}
+
+// ensureGofumpt makes `gofumpt` resolvable on PATH by installing the
+// latest from upstream when missing. Idempotent — `go install` against
+// an already-current binary is a no-op.
+func ensureGofumpt() error {
+	if _, err := exec.LookPath("gofumpt"); err == nil {
+		return nil
+	}
+	return run("go", "install", "mvdan.cc/gofumpt@latest")
 }
 
 // Tidy runs go mod tidy and fails if go.mod or go.sum changed.
