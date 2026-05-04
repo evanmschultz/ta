@@ -19,7 +19,6 @@ import (
 	"runtime/debug"
 
 	fang "charm.land/fang/v2"
-	"charm.land/huh/v2"
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
@@ -168,33 +167,25 @@ func runRoot(cmd *cobra.Command, logStartup bool, projectFlag string) error {
 	return runServe(cmd.Context(), cmd.ErrOrStderr(), logStartup, projectFlag)
 }
 
-// runMenu presents a huh.Select over the root's subcommand names and
-// then invokes the selected command with `--help`. Help is the right
-// default on a discovery menu: most subcommands require positional
-// args + flags, so the user picks from the menu, reads what the
-// command needs, and re-runs with the right invocation.
+// runMenu presents a bubbletea list over the root's subcommand names
+// and then invokes the selected command with `--help`. Help is the
+// right default on a discovery menu: most subcommands require
+// positional args + flags, so the user picks from the menu, reads
+// what the command needs, and re-runs with the right invocation.
+// q / ctrl+c exit cleanly with nil — pressing q at the menu means
+// "I changed my mind", not failure.
 func runMenu(root *cobra.Command) error {
 	items := menuItems(root)
 	if len(items) == 0 {
 		return fmt.Errorf("no subcommands registered on root")
 	}
-	opts := make([]huh.Option[string], 0, len(items))
-	for _, it := range items {
-		label := it.name + " — " + it.short
-		opts = append(opts, huh.NewOption(label, it.name))
-	}
-	var chosen string
-	form := tafForm(huh.NewGroup(
-		huh.NewSelect[string]().
-			Title("ta — pick a subcommand").
-			Options(opts...).
-			Value(&chosen),
-	))
-	if err := form.Run(); err != nil {
+	chosen, err := runMenuProgram(items)
+	if err != nil {
 		return fmt.Errorf("menu: %w", err)
 	}
 	if chosen == "" {
-		return fmt.Errorf("menu: no subcommand selected")
+		// User aborted via q / ctrl+c — exit cleanly.
+		return nil
 	}
 	if _, _, err := root.Find([]string{chosen}); err != nil {
 		return fmt.Errorf("menu: resolve %q: %w", chosen, err)
@@ -205,7 +196,7 @@ func runMenu(root *cobra.Command) error {
 	return root.Execute()
 }
 
-// menuItem is one row in the bare-`ta` huh menu.
+// menuItem is one row in the bare-`ta` bubbletea menu.
 type menuItem struct {
 	name  string
 	short string

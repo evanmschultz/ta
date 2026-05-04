@@ -82,6 +82,19 @@ var (
 				Foreground(charmtone.Smoke)
 )
 
-//
 // === F38d-5: menuModel styles ===
-// (empty until F38d-5 lands)
+var (
+	menuTitleStyle = lipgloss.NewStyle().
+			Foreground(charmtone.Hazy).
+			Bold(true)
+
+	menuItemStyle = lipgloss.NewStyle().
+			Foreground(charmtone.Salt)
+
+	menuCursorStyle = lipgloss.NewStyle().
+			Foreground(charmtone.Cherry).
+			Bold(true)
+
+	menuHelpStyle = lipgloss.NewStyle().
+			Foreground(charmtone.Smoke)
+)
