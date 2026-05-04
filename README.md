@@ -110,6 +110,42 @@ mage install # builds and drops the binary at $HOME/.local/bin/ta
 
 Run `mage -l` for the full target list.
 
+## Cascade-agent workflow hooks
+
+If you're running ta's build / QA agents in a cascade (planner → builder → QA-proof + QA-falsification), the LSP daemon (gopls for ta) caches workspace state that lags behind the build agent's writes. A QA agent spawned next reads from a stale LSP and reports diagnostics that don't reflect disk truth. Mage check is authoritative, but the QA agent reads LSP, not mage.
+
+**Pattern**: a `PreToolUse` hook on the `Agent` tool that recycles the LSP daemon when the spawned agent is a QA variant. Machine-local example shipped with ta:
+
+```bash
+# ~/.claude/hooks/pre_agent_lsp_refresh.sh
+# Fires on Agent spawn. When subagent_type matches qa-proof or
+# qa-falsification, kills gopls so the next LSP call gets a fresh index.
+INPUT=$(cat)
+if printf '%s' "$INPUT" | grep -qE '"subagent_type"[[:space:]]*:[[:space:]]*"[^"]*qa-(proof|falsification)[^"]*"'; then
+    pkill -f 'gopls' 2>/dev/null || true
+fi
+exit 0
+```
+
+Register in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [{ "type": "command", "command": "~/.claude/hooks/pre_agent_lsp_refresh.sh" }]
+      }
+    ]
+  }
+}
+```
+
+The concept is **universal** across LSP-based languages — extend the script with `tsserver`, `pylsp`, `rust-analyzer` etc. when needed. Documented in [`docs/cascade-methodology.md`](docs/cascade-methodology.md) §4.6 "Pre-QA LSP Refresh — Universal Discipline".
+
+**Dogfood plan**: the long-term goal is for ta itself to manage these hooks (alongside agents, instructions docs, skills, rules) via shipped schemas. Once the dogfood phase lands `claude_hooks` schema support, `ta init` will install the hook into `<project>/.claude/hooks/` automatically and every ta dev gets it without manual setup. Until then, install machine-local from this section.
+
 ## License
 
 Apache-2.0 — see [`LICENSE`](LICENSE).

@@ -195,6 +195,33 @@ criteria or obviously wrong — automated build+test catches the second
 case. LLM QA at this level pays full cost for near-zero signal. QA
 moves up to where integration actually happens.
 
+### 4.6 Pre-QA LSP Refresh — Universal Discipline
+
+Build agents edit code on disk. The next QA agent spawned reads from
+disk via the language server (gopls for Go, tsserver for TypeScript,
+pylsp for Python, rust-analyzer for Rust, and so on). The LSP daemon's
+workspace cache may lag behind the build agent's writes — leading the
+QA agent to flag "undefined: X" or "import not found" for symbols the
+build runner (mage / cargo / npm / etc.) confirms exist. The QA agent
+then ships false counterexamples grounded in stale state.
+
+**Rule**: refresh the active LSP daemon BEFORE spawning a QA agent.
+The build runner stays the authoritative gate for code correctness;
+the LSP refresh ensures the QA agent's evidence-gathering layer
+matches that truth instead of trailing it.
+
+**Implementation pattern (universal)**: a host-level pre-spawn hook
+that recycles the active LSP daemon when the spawned agent is a QA
+variant (typically matched by `subagent_type` containing `qa-proof`
+or `qa-falsification`). The daemon respawns on the next LSP request
+with a fresh workspace index. The hook is language-agnostic in
+*concept* — implementation differs per LSP server.
+
+**Authoritative gate stays the build runner**, never the LSP. Never
+trust LSP diagnostics over a passing build runner. The LSP refresh
+is a UX polish on the QA agent's evidence layer, not a substitute
+for the build gate.
+
 ---
 
 ## 5. Nesting Model
