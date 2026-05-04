@@ -164,7 +164,7 @@ Cascade nodes (action items, drops, droplets, planners, qa records) are storable
 
 ### A.11 Build tooling
 
-All build / test / lint / verification routes through mage. `MAGEFILE_JSON=1 mage check` is the canonical green-bar command — `MAGEFILE_JSON=1` routes the test step through `go test -json` for agent-parseable output. Fmt, Vet, and Tidy emit plain text either way. Raw `go test`, `go build`, `go vet`, `gofmt`, `gofumpt` are out of scope for agent invocations — always go through the mage target. `mage install` builds the binary into `$HOME/.local/bin/ta` (NOT `$GOBIN`); this is dev-only and never a verification target.
+All build / test / lint / verification routes through mage. `mage check` is the canonical green-bar command. Test output routes through `laslig/gotestout` which auto-detects TTY status — humans get a styled summary, agents and CI pipes get plain text without env-var gymnastics. Raw `go test`, `go build`, `go vet`, `gofmt`, `gofumpt` are out of scope for agent invocations — always go through the mage target. `mage install` builds the binary into `$HOME/.local/bin/ta` (NOT `$GOBIN`); this is dev-only and never a verification target.
 
 `mage install` writes an empty `~/.ta/schema.toml` placeholder when none exists; never overwrites existing user content. The empty placeholder lets first-run `ta init` produce a clean empty-home guard pointing at `examples/` rather than crashing on a missing file.
 
@@ -363,6 +363,6 @@ Post-v0.1.0 tracks:
   └─ Phase 15 — additional file format support (TXT first, then JSON / YAML / .env / Justfile / Dockerfile per priority)
 ```
 
-Each F-line is its own slice — single coherent commit (or short commit chain), `MAGEFILE_JSON=1 mage check` green before every commit, opus QA-twin pair (proof + falsification) review before every commit. Memory rule `feedback_qa_before_every_commit.md` honored throughout. `mage install` is dev-only; never a verification target during any slice. Raw `gofmt` / `gofumpt` never invoked — mage targets only.
+Each F-line is its own slice — single coherent commit (or short commit chain), `mage check` green before every commit, opus QA-twin pair (proof + falsification) review before every commit. Memory rule `feedback_qa_before_every_commit.md` honored throughout. `mage install` is dev-only; never a verification target during any slice. Raw `gofmt` / `gofumpt` never invoked — mage targets only.
 
 v0.1.0 release ships F10 + F15 + F19 + F20 + F21 + F22 + F23 + F24 + F18/F16/F17 + F13 + F1/F2/F2a/F3/F4/F5 + F8/F9 + F14 + F6/F7 + agent-MD. Phase 15 (additional file format support) lands incrementally on its own cadence — TXT first per priority order, others as use cases warrant. F12 ships in a subsequent version on its own track. F11 has no separate slice; its read-path bug dissolves once the bracket form is uniform with the id (T5 in F10).

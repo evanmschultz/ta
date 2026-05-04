@@ -14,7 +14,7 @@ ta is a Go project. The active LSP is gopls. Before spawning any `go-qa-proof-ag
 
 - **Hook**: `~/.claude/hooks/pre_agent_lsp_refresh.sh` fires on PreToolUse(Agent) and recycles gopls when the spawned agent is a QA variant. Machine-local today; will be relocated into ta's project-local hook tree (`<project>/.claude/hooks/`) once the dogfood phase ships project-local hook management. At that point, every ta dev gets the hook automatically via `ta init`.
 - **Manual fallback**: invoke the `/gopls-sync` skill or restart Claude Code from `/Users/evanschultz/Documents/Code/hylla/ta/main` (the active checkout) if the hook doesn't help.
-- **Authoritative verification stays `MAGEFILE_JSON=1 mage check`** — LSP refresh ensures QA's evidence layer matches build truth, but mage check is the gate. Never trust LSP diagnostics over a passing mage check.
+- **Authoritative verification stays `mage check`** — LSP refresh ensures QA's evidence layer matches build truth, but mage check is the gate. Never trust LSP diagnostics over a passing mage check.
 
 ## TUI stack — bubbletea/bubbles/lipgloss/glamour/laslig (huh is being removed)
 
@@ -55,13 +55,13 @@ ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — 
 
 A builder or QA agent operating below strict package level MUST run only the tests their slice owns — not the whole module. Sibling agents racing on the same checkout produce a polluted working tree; running `mage Test` (full module) gives a verdict muddied by other agents' WIP.
 
-- **Below-package scope**: `MAGEFILE_JSON=1 mage testFunc TestMyThing` (single test) or `MAGEFILE_JSON=1 mage testFuncs TestA TestB TestC` (multiple) or with package narrowing via `TA_TEST_PKG=./internal/ops mage testFunc TestMyThing`. Routes through `go test -run <pattern>`.
-- **Package-level scope**: `MAGEFILE_JSON=1 mage testPkg ./internal/ops`. One package end-to-end; verdict reflects exactly what the slice owns.
-- **Module-level scope**: `MAGEFILE_JSON=1 mage Test` (or `mage Check`). Run by orchestrator-level QA + commit gate, not by sub-package agents mid-build.
+- **Below-package scope**: `mage testFunc TestMyThing` (single test) or `mage testFuncs TestA TestB TestC` (multiple) or with package narrowing via `TA_TEST_PKG=./internal/ops mage testFunc TestMyThing`. Routes through `go test -run <pattern>`.
+- **Package-level scope**: `mage testPkg ./internal/ops`. One package end-to-end; verdict reflects exactly what the slice owns.
+- **Module-level scope**: `mage Test` (or `mage Check`). Run by orchestrator-level QA + commit gate, not by sub-package agents mid-build.
 
 The agent runner reports its verdict against the scope it owns. Higher-level QA (segment, confluence, drop) escalates to wider scopes. Orchestrator runs the whole. This mirrors the cascade methodology's "QA at the level integration actually happens" rule (`docs/cascade-methodology.md` §4).
 
-Memory rule still applies: NEVER invoke raw `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`. Always route through mage. The `--project` flag, `MAGEFILE_JSON=1` env var, and the testFunc / testFuncs / testPkg targets are how an agent narrows scope without bypassing the gate.
+Memory rule still applies: NEVER invoke raw `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`. Always route through mage. The `--project` flag and the testFunc / testFuncs / testPkg targets are how an agent narrows scope without bypassing the gate. Test output auto-detects TTY status via `laslig/gotestout` — agents and CI pipes get plain text without env-var gymnastics.
 
 ## Cascade methodology — canonical reference
 
@@ -74,7 +74,7 @@ When orchestrating a cascade in this project — point at `docs/cascade-methodol
 - All `ta <read-command>` invocations from agents MUST pass `--json`. ANSI-rendered laslig output is for humans only; agents parsing ANSI escape codes is a footgun.
 - Read commands that accept `--json`: `ta get`, `ta list-sections`, `ta schema` (action=get, the default), `ta search`.
 - Mutating commands (`ta create`, `ta update`, `ta delete`, `ta schema --action=create|update|delete`) return a concise laslig success notice on both surfaces; their MCP counterparts already return JSON. Use `--verbose` on the CLI when you want the post-mutation record echoed back.
-- All `mage <target>` invocations from agents MUST set `MAGEFILE_JSON=1`. This routes `mage test` / `mage check` / `mage cover` through `go test -json` for agent-parseable output. Fmt, Vet, and Tidy emit plain text either way — only the test-runner step changes.
+- `mage test` / `mage check` / `mage cover` route through `laslig/gotestout` which auto-detects TTY status — humans get a styled summary, agents and CI pipes get plain text. No env-var prefix needed; `mage test` just works.
 - Bare `ta` without a TTY is the MCP server — no explicit subcommand needed when registering in `.mcp.json` / `.codex/config.toml`.
 
 ## MCP server — pinning the project directory

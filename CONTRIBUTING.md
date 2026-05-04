@@ -5,9 +5,9 @@ ta is a tiny MCP server that lets LLM coding agents read and write structured TO
 ## Build + test
 
 - **mage-first**. All build / test / lint / format goes through mage targets; never invoke raw `go build`, `go test`, `go vet`, `gofmt`, or `gofumpt`.
-- **For agent-parseable output**: prefix any `mage` invocation with `MAGEFILE_JSON=1` so the test-runner step emits `go test -json`. Fmt / Vet / Tidy emit plain text either way.
+- **Test output is TTY-aware**: `mage test` / `mage check` / `mage cover` route through `laslig/gotestout` which auto-renders styled summaries on terminals and plain text for agents / CI pipes. No env-var gymnastics — just call the target.
 - **Format**: `mage fmt` runs `gofumpt` (latest, auto-installed via `go install mvdan.cc/gofumpt@latest` if missing). gofumpt is a strict superset of `gofmt -s`.
-- **The authoritative gate**: `MAGEFILE_JSON=1 mage check`. FmtCheck + Vet + Test (with race) + Tidy. Must pass before any commit.
+- **The authoritative gate**: `mage check`. FmtCheck + Vet + Test (with race) + Tidy. Must pass before any commit.
 - **Coverage gate**: ≥ 70% line coverage on touched packages.
 
 ### Scope-narrowed test runs (cascade discipline)

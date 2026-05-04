@@ -148,7 +148,7 @@ mage testPkg ./internal/ops                     # full package, end-to-end
 mage check                                      # full module — orchestrator-level
 ```
 
-`MAGEFILE_JSON=1` prefixes route the test runner through `-json` for agent-parseable output. Cascade methodology § "QA Placement" (`docs/cascade-methodology.md`) covers the level-by-level discipline; the rule of thumb is **agents test only what their slice owns; QA escalates one level up**.
+Test output auto-detects TTY status via `laslig/gotestout` — agents and CI pipes get plain text, humans on a terminal get a styled summary. No env-var prefix needed; the targets above just work in either context. Cascade methodology § "QA Placement" (`docs/cascade-methodology.md`) covers the level-by-level discipline; the rule of thumb is **agents test only what their slice owns; QA escalates one level up**.
 
 ## Cascade-agent workflow hooks
 

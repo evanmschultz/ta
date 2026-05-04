@@ -5,15 +5,17 @@
 // Run "mage -l" to list targets. The top-level gate is "mage check" which
 // runs fmtcheck, vet, test, and tidy.
 //
-// Agent-facing JSON output (V2-PLAN §12.12): set MAGEFILE_JSON=1 to
-// route "go test" through -json on Test / Check / Cover. Fmt, Vet,
-// and Tidy emit plain text either way — the JSON switch only affects
-// the test-runner step, which is the surface agents parse.
+// Test output is rendered through laslig/gotestout, which auto-detects
+// the writer's TTY status: humans get a styled summary, agents (and any
+// other non-TTY consumer such as a CI pipe) get plain text. No env-var
+// gymnastics. `go test -json` runs unconditionally; gotestout handles
+// human-vs-plain selection per laslig's FormatAuto policy.
 package main
 
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -21,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/evanmschultz/laslig"
+	"github.com/evanmschultz/laslig/gotestout"
 
 	"github.com/evanmschultz/ta/internal/render"
 )
@@ -148,26 +151,21 @@ func installError(rr *render.Renderer, stage string, cause error) error {
 	return fmt.Errorf("%s: %w", stage, cause)
 }
 
-// Test runs the full test suite with the race detector. Set
-// MAGEFILE_JSON=1 to route "go test" through -json for agent-parseable
-// output (V2-PLAN §12.12).
+// Test runs the full test suite with the race detector. Output is
+// rendered through laslig/gotestout — TTY callers get a styled
+// summary, non-TTY consumers (agents, CI pipes) get plain text.
 func Test() error {
-	args := []string{"test", "-race", "-count=1"}
-	if jsonMode() {
-		args = append(args, "-json")
-	}
-	args = append(args, "./...")
-	return run("go", args...)
+	return runGoTest("./...")
 }
 
 // TestFunc runs ONLY the test functions matching the given regex
 // pattern (`go test -run <pattern>`) within the given package path
 // (default `./...` — pass TA_TEST_PKG=./internal/ops to scope tighter).
 // Cascade discipline: a builder or QA agent operating below strict
-// package level invokes `MAGEFILE_JSON=1 mage testFunc TestMyThing`
-// (or `mage testFunc 'TestPickerFilter|TestPickerBucket'` for multiple)
-// so their result is unmuddied by sibling agents' WIP. Higher levels
-// run `mage Test` to verify the integrated whole.
+// package level invokes `mage testFunc TestMyThing` (or
+// `mage testFunc 'TestA|TestB'` for multiple) so its verdict is
+// unmuddied by sibling agents' WIP. Higher levels run `mage Test` to
+// verify the integrated whole.
 //
 // Args: first positional = `-run` regex (one func or `|`-joined alts).
 // TA_TEST_PKG env var = package path scope (default `./...`).
@@ -179,18 +177,11 @@ func TestFunc(pattern string) error {
 	if pkg == "" {
 		pkg = "./..."
 	}
-	args := []string{"test", "-race", "-count=1", "-run", pattern}
-	if jsonMode() {
-		args = append(args, "-json")
-	}
-	args = append(args, pkg)
-	return run("go", args...)
+	return runGoTest(pkg, "-run", pattern)
 }
 
 // TestFuncs is the multi-pattern shorthand: joins the given function
-// names with `|` and delegates to `go test -run`. Equivalent to
-// `mage testFunc 'TestA|TestB|TestC'` but takes them as separate args
-// so callers don't have to quote the pipe.
+// names with `|` and delegates to TestFunc.
 func TestFuncs(names ...string) error {
 	if len(names) == 0 {
 		return fmt.Errorf("testFuncs: at least one test name required")
@@ -198,41 +189,61 @@ func TestFuncs(names ...string) error {
 	return TestFunc(strings.Join(names, "|"))
 }
 
-// TestPkg runs every test in ONE package path (default `./...`).
-// Cascade discipline: package-level QA invokes `mage testPkg
-// ./internal/ops` so the verdict reflects exactly what their slice
-// owns. Set MAGEFILE_JSON=1 for agent-parseable output.
+// TestPkg runs every test in ONE package path. Cascade discipline:
+// package-level QA invokes `mage testPkg ./internal/ops` so the
+// verdict reflects exactly what their slice owns.
 func TestPkg(pkg string) error {
 	if pkg == "" {
 		return fmt.Errorf("testPkg: package path required (e.g. mage testPkg ./internal/ops)")
 	}
-	args := []string{"test", "-race", "-count=1"}
-	if jsonMode() {
-		args = append(args, "-json")
-	}
-	args = append(args, pkg)
-	return run("go", args...)
+	return runGoTest(pkg)
 }
 
-// Cover produces a function-level coverage report. Set MAGEFILE_JSON=1
-// to emit the test-runner step as -json (the coverage-tool step
-// remains text — it is a digest, not a parse target).
+// Cover produces a function-level coverage report. The test-runner
+// step routes through laslig/gotestout (TTY-aware, like Test); the
+// coverage-tool step emits plain text either way (it's a digest, not
+// a parse target).
 func Cover() error {
-	testArgs := []string{"test", "-race", "-coverprofile=coverage.out"}
-	if jsonMode() {
-		testArgs = append(testArgs, "-json")
-	}
-	testArgs = append(testArgs, "./...")
-	if err := run("go", testArgs...); err != nil {
+	if err := runGoTest("./...", "-coverprofile=coverage.out"); err != nil {
 		return err
 	}
 	return run("go", "tool", "cover", "-func=coverage.out")
 }
 
-// jsonMode reports whether MAGEFILE_JSON is set to a truthy value.
-func jsonMode() bool {
-	v := os.Getenv("MAGEFILE_JSON")
-	return v != "" && v != "0" && v != "false"
+// runGoTest invokes `go test -json -race -count=1 [extraArgs] <pkg>`
+// and pipes the event stream through laslig/gotestout for TTY-aware
+// rendering. gotestout's FormatAuto policy emits a styled summary on
+// terminals and plain text otherwise; agents and CI pipes get the
+// raw plain output without env-var gymnastics. A non-zero `go test`
+// exit translates to a wrapped error including the failed-test count.
+func runGoTest(pkg string, extraArgs ...string) error {
+	args := append([]string{"test", "-json", "-race", "-count=1"}, extraArgs...)
+	args = append(args, pkg)
+	cmd := exec.Command("go", args...)
+	cmd.Stderr = os.Stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	summary, renderErr := gotestout.Render(os.Stderr, stdout, gotestout.Options{
+		Policy: laslig.Policy{Format: laslig.FormatAuto},
+		View:   gotestout.ViewCompact,
+	})
+	// Drain any remaining bytes if Render returned early so cmd.Wait
+	// doesn't deadlock on a broken pipe.
+	_, _ = io.Copy(io.Discard, stdout)
+	waitErr := cmd.Wait()
+	if waitErr != nil {
+		return fmt.Errorf("go test failed (tests-failed=%d, build-errors=%d): %w",
+			summary.TestsFailed, summary.BuildErrors, waitErr)
+	}
+	if renderErr != nil {
+		return fmt.Errorf("gotestout render: %w", renderErr)
+	}
+	return nil
 }
 
 // Vet runs go vet across the module.
