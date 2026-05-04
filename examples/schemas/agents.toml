@@ -1,35 +1,103 @@
-# Agents schema — tracks agent definition files as ta records.
+# Agent schemas — track Claude Code subagent definition files as ta records.
 #
-# Designed to be applied at either project scope (for a project's
-# `.claude/agents/<group>/*.md` files) or home scope (for the user's
-# `~/.ta/agents/<group>/*.md` library). The path glob covers both
-# `agents/<group>/*.md` (home) and `.claude/agents/<group>/*.md`
-# (project) — apply only the layout that matches the target.
+# Two databases share this file because Claude Code uses two on-disk
+# layouts for subagent definitions and the F33 install transform
+# converts between them:
 #
-# Records are markdown files; the heading-1 line is the agent name,
-# subsequent prose is the agent's system prompt. Frontmatter-style
-# metadata (group, kind) is encoded in the path rather than in the
-# body, so the schema reads each file as a free-form markdown record
-# under the `agent` type.
+#   - agents_home    — the user's home library at `~/.ta/agents/<kind>/<name>.md`.
+#                      Subagents live nested by kind; the home library is the
+#                      portable, kind-organized collection you build up across
+#                      projects.
+#   - agents_project — the per-project install at `<project>/.claude/agents/*.md`.
+#                      Claude Code's project-scoped agent loader requires a
+#                      flat directory; `ta init` flattens nested home
+#                      `<kind>/<name>.md` to `<kind>-<name>.md` at the
+#                      destination (per F33).
 #
-# This schema is shipped via embed.FS and is selectable from
-# `ta init`'s multi-category picker. See examples/README.md for the
-# full picker contract.
+# Both dbs declare a single `agent` type using the F31 file-as-record
+# shape: each markdown file is one whole record whose typed fields live
+# in YAML frontmatter and whose body becomes the `prompt` field. The
+# schema is shipped via embed.FS and is selectable from `ta init`'s
+# multi-category picker — apply only the layout that matches the target
+# (`agents_home` for `--target-system`, `agents_project` for project
+# init). See examples/README.md for the full picker contract.
+#
+# Field set tracks Claude Code's subagent frontmatter contract:
+# `name` (required, must match filename stem), `description` (required,
+# tells Claude when to delegate), `tools` (optional comma-separated
+# allowlist; omitting inherits the orchestrator's tool set), `model`
+# (optional Claude model id), `color` (optional UI hint).
 
-[agents]
+[agents_home]
 paths = ["agents/*/*.md"]
-description = "Agent definition library — markdown agents grouped by user-defined subdir."
+description = "Home library of Claude Code subagent definitions, organized by kind. Each markdown file is one agent record with YAML frontmatter as fields and the body as the system prompt."
 
-[agents.agent]
-description = "One agent definition. The h1 line is the agent name; the body is its system prompt."
-heading = 1
+[agents_home.agent]
+description = "One Claude Code subagent definition. Filename stem is the agent's `name` field; body is the agent's system prompt."
+record_per = "file"
+body_field = "prompt"
 
-[agents.agent.fields.name]
+[agents_home.agent.fields.name]
 type = "string"
 required = true
-description = "Agent name (matches the markdown h1 heading and the filename stem)."
+description = "Subagent identifier. Lowercase letters, digits, and hyphens only (Claude Code rule). Must match the filename stem so the on-disk name and the frontmatter name stay in sync."
 
-[agents.agent.fields.body]
+[agents_home.agent.fields.description]
+type = "string"
+required = true
+description = "When Claude should delegate to this subagent. Surfaced to the orchestrator as the routing hint at agent-selection time."
+
+[agents_home.agent.fields.tools]
+type = "string"
+description = "Optional comma-separated tool allowlist (e.g. 'Read, Edit, Bash, mcp__hylla__hylla_search'). Omit to inherit the orchestrator's full tool set. Stored as a single YAML scalar to match Claude Code's frontmatter convention."
+
+[agents_home.agent.fields.model]
+type = "string"
+description = "Optional Claude model identifier override (e.g. 'sonnet', 'opus'). Omit to use the orchestrator's default."
+
+[agents_home.agent.fields.color]
+type = "string"
+description = "Optional UI hint for the Claude Code agent picker. Free-form; not enforced."
+
+[agents_home.agent.fields.prompt]
 type = "string"
 format = "markdown"
-description = "System prompt for the agent. Markdown supported."
+required = true
+description = "Markdown body — the subagent's system prompt. Mounted from the file body, not from frontmatter."
+
+[agents_project]
+paths = [".claude/agents/*.md"]
+description = "Per-project Claude Code subagent install. Flat directory layout required by Claude Code's project agent loader. `ta init` flattens nested home `<kind>/<name>.md` to `<kind>-<name>.md` here (per F33)."
+
+[agents_project.agent]
+description = "One Claude Code subagent installed into a project's `.claude/agents/` directory. Filename stem (post-flatten, e.g. `ta-go-builder`) is the agent's `name` field; body is the agent's system prompt."
+record_per = "file"
+body_field = "prompt"
+
+[agents_project.agent.fields.name]
+type = "string"
+required = true
+description = "Subagent identifier. Lowercase letters, digits, and hyphens only (Claude Code rule). Must match the flattened filename stem (e.g. `ta-go-builder` for an agent installed from `agents/ta/go-builder.md`)."
+
+[agents_project.agent.fields.description]
+type = "string"
+required = true
+description = "When Claude should delegate to this subagent. Surfaced to the orchestrator as the routing hint at agent-selection time."
+
+[agents_project.agent.fields.tools]
+type = "string"
+description = "Optional comma-separated tool allowlist (e.g. 'Read, Edit, Bash, mcp__hylla__hylla_search'). Omit to inherit the orchestrator's full tool set. Stored as a single YAML scalar to match Claude Code's frontmatter convention."
+
+[agents_project.agent.fields.model]
+type = "string"
+description = "Optional Claude model identifier override (e.g. 'sonnet', 'opus'). Omit to use the orchestrator's default."
+
+[agents_project.agent.fields.color]
+type = "string"
+description = "Optional UI hint for the Claude Code agent picker. Free-form; not enforced."
+
+[agents_project.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+description = "Markdown body — the subagent's system prompt. Mounted from the file body, not from frontmatter."
