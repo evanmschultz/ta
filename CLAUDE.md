@@ -34,6 +34,23 @@ NEVER claim TUI behavior works without a captured artifact. Self-reported "the p
 - **The orchestrator (me) MUST run these tools and inspect the artifacts.** Not self-narration. If a golden test doesn't exist for a TUI claim, write one. If a VHS recording would catch what a golden can't, run vhs.
 - **Before claiming "the TUI looks right"**: golden + vhs artifact must exist and match expected. If golden diff is intentional → re-record + commit. If unintentional → fix.
 
+## Pre-MVP cleanup tracker — MVP launches clean
+
+ta is pre-v1. Phasing: **dogfood** (minor issues OK if MCP + basic CLI work) → **full CLI refinement** → **full TUI overhaul** (100% huh-free, bubbletea + bubbles + lipgloss + glamour + laslig). MVP MUST launch with **zero tech debt** — every item below is closed before v1 ships.
+
+**Open pre-MVP items** (close before MVP, may carry through dogfood):
+
+- **Huh removal** — `charm.land/huh/v2` referenced in 6 non-test files: `cmd/ta/init_cmd.go`, `cmd/ta/init_multi.go`, `cmd/ta/huh_form.go`, `cmd/ta/huh_theme.go`, `cmd/ta/commands.go`, `cmd/ta/template_cmd.go`, `cmd/ta/main.go`. F38d migrates `init_multi.go::runMultiCategoryPicker` only. Track each remaining file as an F39+ slice; goal = zero huh imports by end of dogfood.
+- **F23 runtime-fill semantics** — `cascade.droplet` auto_spawn block in `examples/schemas/cascade.toml` is COMMENTED OUT pending F23 supporting `{now}` / `{state.initial}` / `{parent.<field>}` token expansion for required-no-default fields. Without it, dogfood requires manual QA twin creation per droplet. Schedule as architectural slice post-F38.
+- **TUI verification artifacts (gifs + ascii)** committed under `cmd/ta/testdata/vhs/` AND linked from `README.md`, `examples/README.md`, `docs/cascade-methodology.md`. Each demo'able flow gets one tape that emits BOTH the test golden AND the README/docs gif. Single source of truth.
+- **Coverage gate** — `cmd/ta` package at 67.1% (target ≥70%). Pre-existing dead branches (TTY confirm, form paths). Schedule a coverage-only slice post-F38.
+- **`ta` ↔ Claude Code hook management via shipped schemas** — `claude_hooks` / `claude_skills` / `claude_settings_fragments` schemas don't exist yet. Required so `ta init` installs the LSP-refresh hook (and others) into `<project>/.claude/hooks/` automatically per the dogfood plan in `README.md`. Currently machine-local.
+- **MCP project arg gate-keeping** — every MCP tool accepts a `path` arg pointing at any project dir on disk. Real reach surface; review for security gates pre-MVP.
+- **TUI expansion** (post-dogfood, post-CLI-refinement, post-huh-removal) — `-t` / `--tui` flag for browse/search/edit, glamour-rendered preview panes, vim-style multi-select, line numbers in record blocks. Locked direction; out of pre-MVP scope.
+- **Magefile uses `gofmt`, not `gofumpt`** — memory rule says gofumpt routed through mage; magefile contradicts. Update magefile or revisit memory. Out of F38 scope.
+
+**MVP gate**: every item above is either closed or explicitly punted to post-v1 with a tracking issue. No `// TODO` / `// HACK` / `// XXX` comments left in source.
+
 ## Cascade methodology — canonical reference
 
 The agent cascade methodology that ta dogfoods (and the future article / blog post seeds from) lives at [`docs/cascade-methodology.md`](docs/cascade-methodology.md). It's the **app-agnostic** version: thesis, droplet shape, role and model bindings, QA placement, nesting model, failure handling, audit trail, reference implementations. The older Tillsyn-flavored draft (`AGENT_CASCADE_DESIGN.md`) was retired — `docs/cascade-methodology.md` is the canonical source for any cascade questions, planning conversations, and the eventual article.

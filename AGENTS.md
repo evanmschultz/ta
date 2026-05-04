@@ -29,6 +29,10 @@ NEVER claim TUI behavior works without a captured artifact.
 - **VHS** (`charm.land/vhs`) for visual artifacts (animated `.gif` / `.txt`) when structural goldens don't catch cursor / color / timing drift. Artifacts committed under `testdata/vhs/`.
 - The agent runner MUST run these tools and inspect the artifacts. Self-narration is not evidence.
 
+## Pre-MVP cleanup tracker
+
+Mirrors `CLAUDE.md` § "Pre-MVP cleanup tracker". Phasing: dogfood → full CLI → full TUI overhaul (100% huh-free). MVP launches with zero tech debt. Track open items there.
+
 ## Cascade methodology — canonical reference
 
 The agent cascade methodology that ta dogfoods (and the future article / blog post seeds from) lives at [`docs/cascade-methodology.md`](docs/cascade-methodology.md). It's the **app-agnostic** version: thesis, droplet shape, role and model bindings, QA placement, nesting model, failure handling, audit trail, reference implementations.
