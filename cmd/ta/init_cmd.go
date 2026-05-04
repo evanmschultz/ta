@@ -98,9 +98,9 @@ func newInitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Bootstrap a project directory with a schema and MCP configs",
 		Long: "Bootstrap a project directory from the `~/.ta/` home library. " +
-			"With a TTY and no flags, runs an interactive huh multi-select " +
-			"over every db declared in the home library; the chosen dbs " +
-			"are reconstructed into `<path>/.ta/schema.toml`. Selecting " +
+			"With a TTY and no flags, runs an interactive multi-select " +
+			"picker over every db declared in the home library; the chosen " +
+			"dbs are reconstructed into `<path>/.ta/schema.toml`. Selecting " +
 			"zero dbs writes a comment-only schema you can fill in later " +
 			"via `ta schema --action=create`. With `--template <db>`, " +
 			"exactly that one db is extracted from the home schema (post-F15 " +
@@ -147,14 +147,14 @@ func newInitCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	cmd.Flags().StringVar(&f.template, "template", "", "name of one db in ~/.ta/schema.toml (skips huh picker)")
+	cmd.Flags().StringVar(&f.template, "template", "", "name of one db in ~/.ta/schema.toml (skips picker)")
 	cmd.Flags().BoolVar(&f.noClaude, "no-claude", false, "skip .mcp.json generation")
 	cmd.Flags().BoolVar(&f.noCodex, "no-codex", false, "skip .codex/config.toml generation")
 	cmd.Flags().BoolVar(&f.force, "force", false, "overwrite an existing .ta/schema.toml without prompting")
 	cmd.Flags().BoolVar(&f.asJSON, "json", false, "emit JSON instead of laslig-rendered notices")
 	cmd.Flags().StringVar(&f.target, "target", "", "directory to install items into (overrides --path; generic-path escape hatch)")
 	cmd.Flags().BoolVar(&f.targetSystem, "target-system", false, "bootstrap the home library at $HOME/.ta from binary defaults (canonical home-init flow; mutually exclusive with --target)")
-	cmd.Flags().StringVar(&f.selectionsFile, "selections-file", "", "JSON file declaring multi-category selections (skips huh picker)")
+	cmd.Flags().StringVar(&f.selectionsFile, "selections-file", "", "JSON file declaring multi-category selections (skips picker)")
 	cmd.Flags().StringVar(&f.onConflict, "on-conflict", "", "conflict policy for multi-category apply: error|skip|overwrite|force (default error)")
 	addPathFlag(cmd)
 	return cmd
@@ -242,16 +242,12 @@ func runInit(out, errOut io.Writer, in io.Reader, target string, f initFlags) er
 	} else {
 		err = runInitLegacy(out, errOut, in, target, f)
 	}
-	// P2 (F18+F16 QA finding): a user-driven "Abort" at the post-pick
-	// confirm is an expected exit, not a fatal error. Catch it here so
-	// fang's red-error renderer does not paint the noun "aborted" as a
-	// failure; emit a soft laslig info notice on out and return nil so
-	// the process exits 0. Other errors continue to bubble up.
-	//
-	// Same treatment for `huh.ErrUserAborted` — fired when the user
-	// presses `q` / `ctrl+c` to exit any tafForm. Both shapes mean
-	// "user said no, walk away cleanly".
-	if errors.Is(err, errInitAborted) || errors.Is(err, huh.ErrUserAborted) {
+	// P2 (F18+F16 QA finding): a user-driven "Abort" at the picker is
+	// an expected exit, not a fatal error. Catch it here so fang's
+	// red-error renderer does not paint the noun "aborted" as a
+	// failure; emit a soft laslig info notice on out and return nil
+	// so the process exits 0. Other errors continue to bubble up.
+	if errors.Is(err, errInitAborted) {
 		_ = render.New(out).Notice(
 			laslig.NoticeInfoLevel,
 			"init aborted",
@@ -560,104 +556,47 @@ type dbPickerInfo struct {
 // caller should bail without writing anything.
 var errInitAborted = errors.New("init: aborted at confirmation")
 
-// pickDBs runs the huh multi-select over the home-library db catalogue.
-// Returns the selected db names in the order huh wrote them (huh
-// preserves option-list order in the bound slice). Selecting zero is a
-// valid outcome — the empty-schema branch handles it downstream.
+// pickDBs runs the bubbletea picker over the home-library db
+// catalogue. Returns selected db names in option-list order. Selecting
+// zero is a valid outcome — the empty-schema branch handles it
+// downstream. Submit is the explicit "S" keystroke; q / ctrl+c returns
+// errInitAborted. Post-F38d-2 the F16 echo confirm is gone — submit
+// IS the confirm.
 //
 // `legacyTitle` / `legacyDesc` carry the F18 legacy-warning content;
-// when both are non-empty the form prepends a `huh.NewNote` field in
-// the SAME group as the MultiSelect so the warning renders INLINE
-// above the picker on a single page. Note's `Skip()` reports true when
-// it is not the only field in the group, so `Form.UpdateFieldPositions`
-// makes the MultiSelect the first focused field and `Group.nextField`
-// will skip past the Note on tab/enter — the user never has to dismiss
-// it. P1 fix for the F18+F16 QA finding: the prior implementation put
-// the Note in a separate group, which huh renders as a sequential
-// page the user must dismiss with Enter/Tab before reaching the
-// picker — not the inline header the doc claimed.
-//
-// F16: selections of 0 or 1 dbs trigger a second-form confirmation
-// echoing the choice ("Bootstrapping with: <list>. Continue?").
-// 2+ selections bypass the confirm — multi-select is unambiguous user
-// intent and asking again every time is annoying. The confirm guards
-// against the queued-stdin auto-submit failure mode where huh consumes
-// a buffered newline as form submission: the confirm defaults to
-// `Abort` (`confirmed = false`), so a buffered Enter aborts safely
-// instead of silently writing an empty schema. The F18+F16 P0 fix
-// (`tafKeyMap`) additionally strips the Confirm Accept / Reject y/n
-// shortcut bindings so a queued `y` / `Y` cannot bypass the Negative
-// default either.
-//
-// F17: the title no longer carries "(space to toggle, enter to
-// confirm)" key hints — huh's default keymap binds both `space` and
-// `x` to Toggle, and the help bar at the bottom of the frame surfaces
-// the live keymap so duplicating it in the title is noise.
+// when both are non-empty the picker renders them as a styled banner
+// above the group list. Off-TTY paths still emit the laslig warning
+// to errOut; on the picker path the laslig surface stays quiet so it
+// does not compete with the bubbletea program for the render frame.
 func pickDBs(infos []dbPickerInfo, legacyTitle, legacyDesc string) ([]string, error) {
-	opts := make([]huh.Option[string], 0, len(infos))
+	leaves := make([]pickerLeaf, 0, len(infos))
 	for _, i := range infos {
-		opts = append(opts, huh.NewOption(i.displayName, i.name))
+		leaves = append(leaves, pickerLeaf{
+			Display: i.displayName,
+			Value:   i.name,
+		})
 	}
-	var selected []string
-
-	fields := make([]huh.Field, 0, 2)
+	groups := []pickerGroup{{
+		Header: "Project dbs",
+		Leaves: leaves,
+	}}
+	opts := []PickerOption{
+		WithPickerTitle("Pick dbs to include in this project"),
+		WithPickerCollapsed(false),
+	}
 	if legacyTitle != "" && legacyDesc != "" {
-		fields = append(fields, huh.NewNote().
-			Title(legacyTitle).
-			Description(legacyDesc))
+		opts = append(opts, WithPickerHeader(legacyTitle, legacyDesc))
 	}
-	fields = append(fields, huh.NewMultiSelect[string]().
-		Title("Pick dbs to include in this project").
-		Description("Selecting zero is fine — you can declare dbs later via `ta schema --action=create`.").
-		Options(opts...).
-		Value(&selected))
-
-	form := tafForm(huh.NewGroup(fields...))
-	if err := form.Run(); err != nil {
-		return nil, fmt.Errorf("db picker: %w", err)
+	model := newPickerModel(groups, opts...)
+	picked, err := runPickerProgram(model)
+	if err != nil {
+		return nil, err
 	}
-
-	// F16: post-pick confirmation when ≤ 1 dbs selected. Running this
-	// as a second `tafForm` (rather than a hidden group on the first
-	// form) keeps the confirm's "default Negative" semantics clean: a
-	// queued stdin newline lands on Abort, not on a default-true
-	// Continue. 2+ selections bypass — multi-select is unambiguous user
-	// intent and asking again every time is annoying.
-	if len(selected) >= 2 {
-		return selected, nil
+	out := make([]string, 0, len(picked))
+	for _, p := range picked {
+		out = append(out, p.Value)
 	}
-	confirmed := false
-	confirmForm := tafForm(huh.NewGroup(
-		huh.NewConfirm().
-			Title(formatBootstrapConfirmTitle(selected)).
-			Affirmative("Continue").
-			Negative("Abort").
-			Value(&confirmed),
-	))
-	if err := confirmForm.Run(); err != nil {
-		return nil, fmt.Errorf("db picker confirm: %w", err)
-	}
-	if !confirmed {
-		return nil, errInitAborted
-	}
-	return selected, nil
-}
-
-// formatBootstrapConfirmTitle renders the F16 echo line shown at
-// confirm time. Zero selection names the empty-schema outcome
-// explicitly so a queued-stdin auto-submit cannot silently succeed;
-// single selection echoes the chosen db. Two-or-more selections are
-// not shown by this function (the confirm group is hidden via
-// `WithHideFunc` in that branch).
-func formatBootstrapConfirmTitle(selected []string) string {
-	switch len(selected) {
-	case 0:
-		return "Bootstrap with no dbs (writes empty schema). Continue?"
-	case 1:
-		return fmt.Sprintf("Bootstrapping with: %s. Continue?", selected[0])
-	default:
-		return fmt.Sprintf("Bootstrapping with: %s. Continue?", strings.Join(selected, ", "))
-	}
+	return out, nil
 }
 
 // buildProjectSchemaBytes returns the bytes to write to
@@ -757,35 +696,32 @@ func confirmOverwrite(path string) (bool, error) {
 }
 
 // promptMCPToggles offers the two MCP-target toggles via a single
-// multi-select. Both default to selected per V2-PLAN §14.4 / §14.5.
+// bubbletea picker group. Both default to selected per V2-PLAN §14.4
+// / §14.5; the user submits via "S" or aborts via q / ctrl+c (which
+// surfaces upstream as errInitAborted).
 func promptMCPToggles(claude, codex bool) (bool, bool, error) {
 	const (
 		optClaude = "Claude Code (.mcp.json)"
 		optCodex  = "Codex (.codex/config.toml)"
 	)
-	selected := make([]string, 0, 2)
-	if claude {
-		selected = append(selected, optClaude)
-	}
-	if codex {
-		selected = append(selected, optCodex)
-	}
-	opts := []huh.Option[string]{
-		huh.NewOption(optClaude, optClaude).Selected(claude),
-		huh.NewOption(optCodex, optCodex).Selected(codex),
-	}
-	form := tafForm(huh.NewGroup(
-		huh.NewMultiSelect[string]().
-			Title("Generate MCP client configs?").
-			Options(opts...).
-			Value(&selected),
-	))
-	if err := form.Run(); err != nil {
-		return false, false, fmt.Errorf("mcp prompt: %w", err)
+	groups := []pickerGroup{{
+		Header: "MCP client configs",
+		Leaves: []pickerLeaf{
+			{Display: optClaude, Value: optClaude, Selected: claude},
+			{Display: optCodex, Value: optCodex, Selected: codex},
+		},
+	}}
+	model := newPickerModel(groups,
+		WithPickerTitle("Generate MCP client configs?"),
+		WithPickerCollapsed(false),
+	)
+	picked, err := runPickerProgram(model)
+	if err != nil {
+		return false, false, err
 	}
 	outClaude, outCodex := false, false
-	for _, s := range selected {
-		switch s {
+	for _, p := range picked {
+		switch p.Value {
 		case optClaude:
 			outClaude = true
 		case optCodex:

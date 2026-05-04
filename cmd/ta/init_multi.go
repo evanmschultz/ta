@@ -9,18 +9,15 @@ import (
 	"sort"
 	"strings"
 
-	"charm.land/huh/v2"
-	"golang.org/x/term"
-
 	"github.com/evanmschultz/ta/internal/initapply"
 	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/templates"
 )
 
 // runInitMultiCategory is the F24 entrypoint. Resolves selections
-// (selections-file or huh picker) into an initapply.Selections and
-// hands the actual disk writes off to internal/initapply so the CLI
-// path matches the MCP path byte-for-byte.
+// (selections-file or interactive picker) into an initapply.Selections
+// and hands the actual disk writes off to internal/initapply so the
+// CLI path matches the MCP path byte-for-byte.
 func runInitMultiCategory(out, errOut io.Writer, target string, f initFlags) error {
 	policyStr := f.onConflict
 	if policyStr == "" {
@@ -53,7 +50,7 @@ func runInitMultiCategory(out, errOut io.Writer, target string, f initFlags) err
 	return emitInitMultiReport(out, report, f.asJSON)
 }
 
-// resolveSelections reads `--selections-file` when set, runs the huh
+// resolveSelections reads `--selections-file` when set, runs the
 // multi-group picker on TTY, or errors loudly off-TTY without a
 // selections file.
 //
@@ -188,12 +185,14 @@ func buildPickerBuckets(items []templates.Item, target string) []pickerBucket {
 	return out
 }
 
-// runMultiCategoryPicker presents one huh MultiSelect group per
+// runMultiCategoryPicker presents one collapsible bubbletea group per
 // (category, group) bucket. Empty buckets are omitted. Returns the
 // composed selections payload. Items are filtered by target provenance
 // (F32 strict-provenance at LIST time): home target sees only binary
 // items (the --target-system bootstrap path), project target sees
-// only home items.
+// only home items. The picker submits via "S" (shift+s); abort via
+// "q" or ctrl+c returns errInitAborted. The pre-F38d-2 post-pick F16
+// confirm is gone — explicit submit IS the confirm.
 func runMultiCategoryPicker(target string) (initapply.Selections, error) {
 	all, err := templates.ListAll()
 	if err != nil {
@@ -208,97 +207,53 @@ func runMultiCategoryPicker(target string) (initapply.Selections, error) {
 		return initapply.Selections{}, errors.New("init: no items available in binary or home library")
 	}
 
-	groups := make([]*huh.Group, 0, len(pickerBuckets))
-	picks := make([]*[]string, 0, len(pickerBuckets))
-	pickKeys := make([]bucketKey, 0, len(pickerBuckets))
-	pickerHeight := pickerVisibleHeight()
+	groups := buildMultiCategoryGroups(pickerBuckets)
+	model := newPickerModel(groups,
+		WithPickerTitle(multiCategoryPickerTitle(target)),
+		WithPickerCollapsed(true),
+	)
+	picked, err := runPickerProgram(model)
+	if err != nil {
+		return initapply.Selections{}, err
+	}
+
+	headerToBucketKey := make(map[string]bucketKey, len(pickerBuckets))
 	for _, b := range pickerBuckets {
-		k := b.key
-		items := b.items
-		opts := make([]huh.Option[string], 0, len(items))
-		for _, it := range items {
-			opts = append(opts, huh.NewOption(itemDisplay(it), itemKey(it)))
-		}
-		var selected []string
-		slot := &selected
-		picks = append(picks, slot)
-		pickKeys = append(pickKeys, k)
-		// Title goes on the FIELD only — leaving Group title empty so
-		// huh doesn't render the same label twice. Height pins the
-		// option viewport to the visible terminal area so long lists
-		// scroll instead of overflowing.
-		groups = append(groups, huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title(bucketTitle(k.kind, k.group)).
-				Options(opts...).
-				Value(slot).
-				Height(pickerHeight),
-		))
-	}
-
-	form := tafForm(groups...)
-	if err := form.Run(); err != nil {
-		return initapply.Selections{}, fmt.Errorf("init: picker: %w", err)
-	}
-
-	// F16: post-pick confirmation when ≤ 1 total items selected across
-	// every category. 2+ selections bypass the confirm. Running the
-	// confirm as a second `tafForm` (rather than a hidden group on the
-	// first form) keeps the "default Abort" semantics clean — a queued
-	// stdin newline lands on Abort, not on a default-true Continue,
-	// which is the F16 root cause.
-	total := 0
-	for _, slot := range picks {
-		total += len(*slot)
-	}
-	if total < 2 {
-		confirmed := false
-		confirmForm := tafForm(huh.NewGroup(
-			huh.NewConfirm().
-				Title(formatMultiCategoryConfirmTitle(picks, pickKeys)).
-				Affirmative("Continue").
-				Negative("Abort").
-				Value(&confirmed),
-		))
-		if err := confirmForm.Run(); err != nil {
-			return initapply.Selections{}, fmt.Errorf("init: picker confirm: %w", err)
-		}
-		if !confirmed {
-			return initapply.Selections{}, errInitAborted
-		}
+		headerToBucketKey[bucketTitle(b.key.kind, b.key.group)] = b.key
 	}
 
 	// P1.A: thread provenance through picker selections so a binary
 	// fragment with the same Name as a home item is not silently
-	// shadowed at apply time. The picker already encodes
-	// `<provenance>::<name>` into each option key (itemKey); decode
-	// pulls both halves out and the Selections payload preserves them.
+	// shadowed at apply time. itemKey encodes `<provenance>::<name>`;
+	// decodeItemKey pulls both halves out and the Selections payload
+	// preserves them.
 	out := initapply.Selections{}
-	for i, slot := range picks {
-		k := pickKeys[i]
-		for _, key := range *slot {
-			it, ok := decodeItemKey(key, k.kind, k.group)
-			if !ok {
-				continue
-			}
-			switch k.kind {
-			case templates.KindSchema:
-				out.Schemas = append(out.Schemas, initapply.SchemaSelection{
-					Name: it.Name, Provenance: string(it.Provenance),
-				})
-			case templates.KindAgent:
-				out.Agents = append(out.Agents, initapply.AgentSelection{
-					Group: it.Group, Name: it.Name, Provenance: string(it.Provenance),
-				})
-			case templates.KindConfig:
-				out.Configs = append(out.Configs, initapply.ConfigSelection{
-					Name: it.Name, Provenance: string(it.Provenance),
-				})
-			case templates.KindDocsTemplate:
-				out.DocsTemplates = append(out.DocsTemplates, initapply.DocsSelection{
-					Name: it.Name, Provenance: string(it.Provenance),
-				})
-			}
+	for _, p := range picked {
+		k, ok := headerToBucketKey[p.Group]
+		if !ok {
+			continue
+		}
+		it, ok := decodeItemKey(p.Value, k.kind, k.group)
+		if !ok {
+			continue
+		}
+		switch k.kind {
+		case templates.KindSchema:
+			out.Schemas = append(out.Schemas, initapply.SchemaSelection{
+				Name: it.Name, Provenance: string(it.Provenance),
+			})
+		case templates.KindAgent:
+			out.Agents = append(out.Agents, initapply.AgentSelection{
+				Group: it.Group, Name: it.Name, Provenance: string(it.Provenance),
+			})
+		case templates.KindConfig:
+			out.Configs = append(out.Configs, initapply.ConfigSelection{
+				Name: it.Name, Provenance: string(it.Provenance),
+			})
+		case templates.KindDocsTemplate:
+			out.DocsTemplates = append(out.DocsTemplates, initapply.DocsSelection{
+				Name: it.Name, Provenance: string(it.Provenance),
+			})
 		}
 	}
 	sort.SliceStable(out.Schemas, func(i, j int) bool {
@@ -331,67 +286,14 @@ func runMultiCategoryPicker(target string) (initapply.Selections, error) {
 	return out, nil
 }
 
-// formatMultiCategoryConfirmTitle composes the F16 echo line for the
-// F24 multi-category picker. Walks every (category, group) slot in
-// pickKeys order so the rendered string is deterministic regardless
-// of map iteration. Zero-total names the empty-init outcome
-// explicitly so a queued-stdin auto-submit cannot silently succeed;
-// single-item-total renders the one selected item with its category
-// label. The 2+ branch is unreachable in normal flow (the confirm
-// group's WithHideFunc skips it) but kept defensive.
-func formatMultiCategoryConfirmTitle(picks []*[]string, pickKeys []bucketKey) string {
-	type entry struct {
-		category string
-		name     string
+// multiCategoryPickerTitle returns the title rendered above the F24
+// multi-category picker's group list. Names the bootstrap target so
+// the user sees which directory the selection is for.
+func multiCategoryPickerTitle(target string) string {
+	if initapply.IsHomeRoot(target) {
+		return "Bootstrap home library — pick items to install"
 	}
-	var entries []entry
-	for i, slot := range picks {
-		k := pickKeys[i]
-		for _, key := range *slot {
-			it, ok := decodeItemKey(key, k.kind, k.group)
-			if !ok {
-				continue
-			}
-			entries = append(entries, entry{
-				category: bucketTitle(k.kind, k.group),
-				name:     it.Name,
-			})
-		}
-	}
-	if len(entries) == 0 {
-		return "Bootstrap with no items selected (writes nothing). Continue?"
-	}
-	parts := make([]string, 0, len(entries))
-	for _, e := range entries {
-		parts = append(parts, e.category+": "+e.name)
-	}
-	return "Bootstrapping with: " + strings.Join(parts, ", ") + ". Continue?"
-}
-
-// pickerVisibleHeight returns the option-row count the MultiSelect
-// viewport should size to. Reads the terminal height once at form
-// build time, subtracts a small chrome budget for title + help bar +
-// status, and clamps to a sane floor. Off-TTY (term.GetSize errors)
-// or absurdly small windows fall back to a fixed default.
-func pickerVisibleHeight() int {
-	const (
-		defaultRows = 12
-		minRows     = 5
-		chrome      = 6 // title line + help bar + a couple of breathing rows
-	)
-	w, h, err := term.GetSize(int(os.Stdout.Fd()))
-	_ = w
-	if err != nil || h <= 0 {
-		return defaultRows
-	}
-	avail := h - chrome
-	if avail < minRows {
-		return minRows
-	}
-	if avail > 30 {
-		return 30
-	}
-	return avail
+	return "Bootstrap " + target + " — pick items to install"
 }
 
 func bucketTitle(kind templates.Kind, group string) string {

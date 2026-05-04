@@ -881,45 +881,6 @@ func sliceEqual(a, b []string) bool {
 	return true
 }
 
-// TestFormatBootstrapConfirmTitle locks in the F16 echo line shape
-// rendered by `huh.Confirm.TitleFunc` at confirm time. Zero-selection
-// MUST name the empty-schema outcome explicitly so a queued-stdin
-// auto-submit cannot silently succeed (the F16 root cause).
-func TestFormatBootstrapConfirmTitle(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name     string
-		selected []string
-		want     string
-	}{
-		{
-			name:     "zero",
-			selected: nil,
-			want:     "Bootstrap with no dbs (writes empty schema). Continue?",
-		},
-		{
-			name:     "one",
-			selected: []string{"plans"},
-			want:     "Bootstrapping with: plans. Continue?",
-		},
-		{
-			name:     "two",
-			selected: []string{"plans", "ledger"},
-			want:     "Bootstrapping with: plans, ledger. Continue?",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := formatBootstrapConfirmTitle(tc.selected)
-			if got != tc.want {
-				t.Errorf("formatBootstrapConfirmTitle(%v) = %q, want %q",
-					tc.selected, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestFormatLegacyWarning_NoFiles asserts the picker-side helper
 // returns empty strings when no legacy `~/.ta/<name>.toml` files
 // exist; the caller skips the Note group in that case.
