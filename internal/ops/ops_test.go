@@ -345,6 +345,135 @@ func contains(s, substr string) bool {
 	return false
 }
 
+// withAmbiguousIDSchema sets up a 3-db schema that produces the
+// F38d-2.14 ambiguous-id scenario: db `claude_agents` (file-as-record,
+// glob `agents/*/*.md`) and db `plans` (bracket-key,
+// `.ta/cascade/plans.toml`) both accept `plans.<key>` — the glob
+// interprets it as `agents/plans/<key>.md`, the single-file mount
+// interprets it as bracket `[plans.<key>]` in `.ta/cascade/plans.toml`.
+// Alphabetically `claude_agents` < `plans` so unconstrained ResolveID
+// always picks the wrong db.
+func withAmbiguousIDSchema(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeSchema(t, root, `
+[claude_agents]
+paths = ["agents/*/*.md"]
+
+[claude_agents.agent]
+description = "A claude agent"
+record_per = "file"
+body_field = "prompt"
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+
+[plans]
+paths = [".ta/cascade/plans.toml"]
+
+[plans.plan]
+description = "A plan."
+
+[plans.plan.fields.title]
+type = "string"
+required = true
+
+[plans.plan.fields.state]
+type = "string"
+required = true
+`)
+	return root
+}
+
+// TestGet_DisambiguatesViaIndexedType is the F38d-2.14 regression lock:
+// ops.Get with empty typeName must consult the index to pick the correct
+// db when two dbs have overlapping id namespaces. Pre-fix, the
+// unconstrained ResolveID picks claude_agents (alphabetically earlier)
+// and returns "file not found"; post-fix, the indexed type "plan"
+// constrains resolution to the plans db.
+func TestGet_DisambiguatesViaIndexedType(t *testing.T) {
+	root := withAmbiguousIDSchema(t)
+	// Create the record — lands in .ta/cascade/plans.toml, index entry written.
+	_, _, err := ops.Create(root, "plans.dogfood", "plans.plan", map[string]any{
+		"title": "Dogfood disambiguation smoke",
+		"state": "in_progress",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Get with empty typeName simulates the MCP get flow.
+	res, err := ops.Get(root, "plans.dogfood", "", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	wantPath := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	if res.FilePath != wantPath {
+		t.Errorf("Get FilePath = %q, want %q", res.FilePath, wantPath)
+	}
+	if !contains(string(res.Bytes), "[plans.dogfood]") {
+		t.Errorf("Get bytes missing [plans.dogfood] bracket; got:\n%s", res.Bytes)
+	}
+}
+
+// TestGet_FallsBackToResolveIDWhenIndexMisses verifies the orphan
+// recovery path: when no index entry exists for an id, Get falls back
+// to plain ResolveID and succeeds when the id is unambiguous (only one
+// db accepts it). Uses a 2-db schema (cascade + plans) without the
+// file-as-record db so ResolveID is deterministic.
+func TestGet_FallsBackToResolveIDWhenIndexMisses(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+
+[cascade.drop]
+description = "A cascade drop."
+
+[cascade.drop.fields.title]
+type = "string"
+required = true
+
+[plans]
+paths = [".ta/cascade/plans.toml"]
+
+[plans.plan]
+description = "A plan."
+
+[plans.plan.fields.title]
+type = "string"
+required = true
+
+[plans.plan.fields.state]
+type = "string"
+required = true
+`)
+	// Write a record directly to disk (bypassing ops.Create → no index entry).
+	planFile := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	if err := os.MkdirAll(filepath.Dir(planFile), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	orphanTOML := "format_version = 2\n\n[plans.orphan]\ntitle = \"Orphan record\"\nstate = \"todo\"\n"
+	if err := os.WriteFile(planFile, []byte(orphanTOML), 0o644); err != nil {
+		t.Fatalf("write plans.toml: %v", err)
+	}
+
+	// No index entry exists — fallback to ResolveID must succeed.
+	res, err := ops.Get(root, "plans.orphan", "", nil)
+	if err != nil {
+		t.Fatalf("Get (orphan, no index): %v", err)
+	}
+	if res.FilePath != planFile {
+		t.Errorf("Get FilePath = %q, want %q", res.FilePath, planFile)
+	}
+}
+
 // withFileAsRecordSchema sets up a project root with an agents db
 // declared as file-as-record per F31: each `agents/<group>/<name>.md`
 // is one whole-file record with YAML frontmatter holding the typed

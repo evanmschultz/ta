@@ -85,7 +85,22 @@ func Get(path, id, typeName string, fields []string) (GetResult, error) {
 		return GetResult{}, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	resolved, dbDecl, err := resolver.ResolveID(id)
+	// F38d-2.14: when typeName is empty (the normal Get path — callers
+	// are not required to supply --type on reads), consult the index to
+	// pick the correct db before resolution. Without this hint an
+	// alphabetically-earlier db with a looser mount shape (e.g.
+	// claude_agents glob `agents/*/*.md`) can swallow an id that
+	// actually belongs to a later db (e.g. plans single-file
+	// `.ta/cascade/plans.toml`). When typeName is non-empty the caller
+	// has already named the db; delegate to resolveIDForCallerType so
+	// the F29 constraint fires as before.
+	var resolved db.Resolved
+	var dbDecl schema.DB
+	if typeName == "" {
+		resolved, dbDecl, err = resolveIDWithIndexHint(resolver, resolution.Registry, path, id)
+	} else {
+		resolved, dbDecl, err = resolveIDForCallerType(resolver, id, typeName)
+	}
 	if err != nil {
 		return GetResult{}, err
 	}
@@ -93,9 +108,16 @@ func Get(path, id, typeName string, fields []string) (GetResult, error) {
 	if err != nil {
 		return GetResult{}, err
 	}
-	_, _, filePath, err := resolver.ResolveRead(id)
-	if err != nil {
-		return GetResult{}, err
+	// F38d-2.14 + F29: use resolved.FilePath directly. Going back
+	// through resolver.ResolveRead would re-run unconstrained ResolveID
+	// and silently switch to a different db's file when two dbs accept
+	// the same id with different mount prefixes.
+	filePath := resolved.FilePath
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			return GetResult{}, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+		}
+		return GetResult{}, fmt.Errorf("stat %s: %w", filePath, err)
 	}
 	buf, err := os.ReadFile(filePath)
 	if err != nil {
@@ -133,7 +155,14 @@ func GetAllFields(path, id, typeName string) (GetResult, schema.SectionType, err
 		return GetResult{}, schema.SectionType{}, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	resolved, dbDecl, err := resolver.ResolveID(id)
+	// F38d-2.14: same index-hint disambiguation as Get. See Get comment.
+	var resolved db.Resolved
+	var dbDecl schema.DB
+	if typeName == "" {
+		resolved, dbDecl, err = resolveIDWithIndexHint(resolver, resolution.Registry, path, id)
+	} else {
+		resolved, dbDecl, err = resolveIDForCallerType(resolver, id, typeName)
+	}
 	if err != nil {
 		return GetResult{}, schema.SectionType{}, err
 	}
@@ -145,9 +174,13 @@ func GetAllFields(path, id, typeName string) (GetResult, schema.SectionType, err
 	if !ok {
 		return GetResult{}, schema.SectionType{}, fmt.Errorf("%w: type %q not declared on db %q", ErrUnknownField, bareType, dbDecl.Name)
 	}
-	_, _, filePath, err := resolver.ResolveRead(id)
-	if err != nil {
-		return GetResult{}, typeSt, err
+	// F38d-2.14 + F29: use resolved.FilePath directly (see Get comment).
+	filePath := resolved.FilePath
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			return GetResult{}, typeSt, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+		}
+		return GetResult{}, typeSt, fmt.Errorf("stat %s: %w", filePath, err)
 	}
 	buf, err := os.ReadFile(filePath)
 	if err != nil {
@@ -572,10 +605,17 @@ func Update(path, id, typeName string, data map[string]any) (string, []string, e
 		return "", nil, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	// F29: when the caller supplied --type, constrain mount-iteration
-	// to the named db. Falls back to plain ResolveID when typeName is
-	// empty (Update treats --type as optional cross-check).
-	resolved, dbDecl, err := resolveIDForCallerType(resolver, id, typeName)
+	// F29+F38d-2.14: when the caller supplied --type, constrain
+	// mount-iteration to the named db. When typeName is empty, use the
+	// index hint to pick the correct db before resolution (same
+	// disambiguation as Get — see Get comment for the failure mode).
+	var resolved db.Resolved
+	var dbDecl schema.DB
+	if typeName == "" {
+		resolved, dbDecl, err = resolveIDWithIndexHint(resolver, resolution.Registry, path, id)
+	} else {
+		resolved, dbDecl, err = resolveIDForCallerType(resolver, id, typeName)
+	}
 	if err != nil {
 		return "", nil, err
 	}

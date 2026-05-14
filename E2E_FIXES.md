@@ -977,6 +977,68 @@ Test: `TestSearchCmd_PositionalQueryAlias` — `ta search 'todo'` should behave 
 
 Surfaced during the first agent-driven MCP round-trip after F38d-2 cascade-bootstrap landed. These are MCP-surface bugs distinct from the CLI-surface ones above.
 
+### F38d-2.14 [BLOCKER] `ops.Get` resolver picks wrong db for ambiguous ids under multi-mount schemas
+
+**Root cause located.** The bug is real and reproducible against a freshly-spawned MCP server (rules out cache staleness). Confirmed via CLI error message: `Db: file not found: db "claude_agents" file-relpath "plans.dogfood-smoke-2" (/.../agents/plans/dogfood-smoke-2.md)`.
+
+**Mechanism**:
+- `claude_agents` declares `paths = ["agents/*/*.md", ".claude/agents/*.md"]` (glob mounts).
+- `plans` declares `paths = [".ta/cascade/plans.toml"]` (static mount with bracket-key records).
+- The id `plans.dogfood-smoke-2` matches BOTH:
+  - Against `claude_agents` glob `agents/*/*.md` it parses as `agents/plans/dogfood-smoke-2.md`.
+  - Against `plans` static it parses as bracket-key `dogfood-smoke-2` under `[plans]`.
+- `ops.Get` calls `resolver.ResolveID(id)` WITHOUT a type hint. The resolver iterates dbs and `claude_agents` wins (alphabetical or first-match-on-glob), then reads disk at `agents/plans/dogfood-smoke-2.md`, which doesn't exist → `found: false`.
+
+**Why create works**: create gets `type="plans.plan"` from the caller. The resolver uses `resolveIDForCallerType(id, "plans.plan")` → `ResolveIDInDB(id, "plans")` which constrains iteration to the `plans` db only. Unambiguous, writes correctly.
+
+**Why the F38d-2.8 unit tests passed**: they declared only `plans` + `cascade` (cascade glob `.ta/cascade/drops/drop_*/drop.toml` does NOT match `plans.dogfood-smoke-2` as a path). No ambiguity → no bug. The unit tests need expansion to cover the 3+ db ambiguous-id scenario.
+
+**Fix landed (commit pending)**: new helper `resolveIDWithIndexHint` in `internal/ops/helpers.go` loads `.ta/index.toml`, reads the indexed bare type for the id, then scans the registry's dbs in stable alphabetical order — for each db that declares that bare type, tries `resolver.ResolveIDInDB(id, dbName)` and accepts the first non-error result. Falls back to plain `ResolveID` when the index is absent or the id is unindexed (preserves orphan-recovery).
+
+The literal earlier proposal `resolveIDForCallerType(resolver, id, indexedType)` would have NO-OP'd because `resolveIDForCallerType` requires a db-qualified type (`<db>.<type>` with a dot); the index Entry only stores the bare type name. The builder's per-db scan is the correct shape.
+
+`ops.Get`, `ops.GetAllFields`, and `ops.Update` now branch on `typeName == ""` — empty → `resolveIDWithIndexHint`; non-empty → `resolveIDForCallerType` (F29 unchanged). Get / GetAllFields also replaced `resolver.ResolveRead(id)` with `resolved.FilePath` + `os.Stat` (the same F29 pattern previously applied to mutations) — without this, ResolveRead would have re-run unconstrained ResolveID and re-introduced the bug.
+
+`Delete` was NOT fixed in this slice — see F38d-2.14b below.
+
+### F38d-2.14b [MAJOR-LATENT] `ops.Delete` shares the same disambiguation bug
+
+QA falsification on the F38d-2.14 fix confirmed `Delete` carries the same shape of bug, deferred for fix scope:
+
+`ops.DeleteWithOptions` → `resolver.ResolveDelete(id)` → internally calls unconstrained `r.ResolveID(id)` on path 1 (`internal/db/resolver.go:308`). Under the dogfood schema (`claude_agents` glob `agents/*/*.md` + `plans` static `.ta/cascade/plans.toml`), `ta delete plans.dogfood-smoke-2 --force` (no `--type` flag) routes through unconstrained ResolveID → picks `claude_agents` alphabetically → BracketKey="" (file-as-record) → falls through to the instance-scan.
+
+**Current state (the dogfood checkout TODAY)**: `agents/plans/dogfood-smoke-2.md` does not exist → instance scan finds zero matches → returns `ErrIDDoesNotMatchAnyDB` (loud-fail). No corruption.
+
+**Latent corruption surface**: if `agents/plans/dogfood-smoke-2.md` ever materializes (operator copy, codegen, agent error, dogfood test creating a real claude_agent named after a plan), `ta delete plans.dogfood-smoke-2 --force` will route to LevelFile and `os.Remove` the WRONG file. The actual `[plans.dogfood-smoke-2]` bracket in `.ta/cascade/plans.toml` survives. `deleteIndexEntriesByFile(path, "plans/dogfood-smoke-2")` prunes nothing (different file-relpath prefix). Result: silent unrelated-file deletion + ghost index entry.
+
+**Repro recipe** (read-only verification — DO NOT execute the file-write step on the dogfood tree):
+1. Dogfood schema as committed.
+2. Index has `[plans.dogfood-smoke-2] type='plan'` and `.ta/cascade/plans.toml` has the bracket.
+3. Plant: `mkdir -p agents/plans && touch agents/plans/dogfood-smoke-2.md`.
+4. Run: `ta delete plans.dogfood-smoke-2 --force`.
+5. Observe: `agents/plans/dogfood-smoke-2.md` deleted (wrong file). `[plans.dogfood-smoke-2]` bracket survives in `.ta/cascade/plans.toml`. Index entry survives.
+
+**Fix shape**: either (a) wire `resolveIDWithIndexHint` into `DeleteWithOptions` before `ResolveDelete` (branch to `LevelRecord` when the indexed id resolves to a bracket-keyed view in the constrained db), or (b) thread an index-hint variant `ResolveDeleteWithHint(id, hintedDB)` into `internal/db/resolver.go`. Approach (a) is simpler; (b) is more invasive but aligns with the resolver's existing API shape.
+
+**Out of scope for the F38d-2.14 slice** because the resolver-side branching is non-trivial. Schedule as F38d-2.14b in the next dogfood pass.
+
+### F38d-2.14c [MINOR-LATENT] `index.Entry` lacks `DBName` field
+
+QA falsification: `resolveIDWithIndexHint` scans every db declaring the indexed bare type and accepts the first `ResolveIDInDB` success in alphabetical order. The `Entry` struct (`internal/index/index.go:42-46`) only stores `Type` (bare type name), not the db that owned the entry at write time. Under the current dogfood schema only `plans` declares the `plan` type — so the failure mode is dormant. A future schema with two dbs both declaring `plan` (and both mounts admitting the id) would let the alphabetically-earlier db win regardless of which db wrote the entry.
+
+**Fix shape**: add `DBName string` to `index.Entry`. Populate at `writeIndexEntry` time from `resolved.DBName` (the constrained-Create path knows the db). `resolveIDWithIndexHint` then uses `entry.DBName` as the authoritative anchor, removing the alphabetical-fallback. Schema-bump for the index format (already `format_version = 2`; this would be `format_version = 3` with a migration step).
+
+**Out of scope for this slice**; file as architectural follow-up.
+
+**Live repro state on disk** (preserved):
+- `.ta/index.toml`: `[plans.dogfood-smoke-2]` under `[plans]`, `type = 'plan'`.
+- `.ta/cascade/plans.toml`: full record body.
+- `.ta/schema.toml`: `plans.paths = ['.ta/cascade/plans.toml']` (line ~199); `claude_agents.paths = ["agents/*/*.md", ".claude/agents/*.md"]` (line ~132).
+
+**Tests required** (extending F38d-2.8's locks):
+- `TestGet_DisambiguatesViaIndexedType` — schema with `plans` static-mount AND `claude_agents` glob-mount. Create `plans.X` via `ops.Create` (with type), then `ops.Get` (without type). Assert resolver picks `plans`, returns the record body, not `found:false`.
+- `TestGet_FallsBackToResolveIDWhenIndexMisses` — assert that an id NOT in the index falls through to plain `ResolveID` so the read path stays usable for index-orphan recovery scenarios.
+
 ### F38d-2.8 [COULD-NOT-REPRODUCE] MCP `create` write-path misread
 
 **Original report (mis-filed)**: `mcp__ta__create` with `id="plans.dogfood-smoke"`, `type="plans.plan"` appeared to write to `.ta/cascade/plans.toml` while schema declared `plans.paths = ["plans.toml"]` (project root); subsequent `mcp__ta__get` returned `found: false`.

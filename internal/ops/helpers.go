@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/evanmschultz/ta/internal/db"
 	"github.com/evanmschultz/ta/internal/index"
+	"github.com/evanmschultz/ta/internal/schema"
 )
 
 // spliceOut returns buf with the bytes in rng removed.
@@ -168,6 +170,43 @@ func tryLoadIndex(projectRoot string) (*index.Index, error) {
 		return nil, fmt.Errorf("ops: load index: %w", err)
 	}
 	return idx, nil
+}
+
+// resolveIDWithIndexHint is the F38d-2.14 disambiguation entry point
+// for read paths (Get, GetAllFields) and optional-type mutation paths
+// (Update). When the index carries an entry for id, it uses the indexed
+// bare type to constrain ResolveID to the correct db — preventing an
+// alphabetically-earlier db with a looser mount shape from swallowing
+// the id (the canonical failure mode when two dbs both accept the same
+// id namespace, e.g. claude_agents glob `agents/*/*.md` and plans
+// single-file `.ta/cascade/plans.toml`).
+//
+// Algorithm:
+//  1. Load the index. If absent or load fails, fall through.
+//  2. Get the entry for id. If missing, fall through.
+//  3. Scan registry dbs in stable order. For each db that declares the
+//     indexed bare type, try ResolveIDInDB. First success wins.
+//  4. Fallback: plain ResolveID (index-orphan and no-index recovery).
+func resolveIDWithIndexHint(resolver *db.Resolver, reg schema.Registry, projectRoot, id string) (db.Resolved, schema.DB, error) {
+	if idx, err := tryLoadIndex(projectRoot); err == nil && idx != nil {
+		if entry, ok := idx.Get(id); ok && entry.Type != "" {
+			dbNames := make([]string, 0, len(reg.DBs))
+			for name := range reg.DBs {
+				dbNames = append(dbNames, name)
+			}
+			sort.Strings(dbNames)
+			for _, dbName := range dbNames {
+				dbDecl := reg.DBs[dbName]
+				if _, hasType := dbDecl.Types[entry.Type]; !hasType {
+					continue
+				}
+				if res, decl, resolveErr := resolver.ResolveIDInDB(id, dbName); resolveErr == nil {
+					return res, decl, nil
+				}
+			}
+		}
+	}
+	return resolver.ResolveID(id)
 }
 
 // loadIndexOrSentinel is the strict variant: a missing index file
