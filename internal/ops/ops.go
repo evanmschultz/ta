@@ -294,7 +294,8 @@ func CreateWithOptions(path, id, typeName string, data map[string]any, opts Crea
 				ErrSpawnPartialWrite,
 				strings.Join(landed, ","),
 				strings.Join(missing, ","),
-				err)
+				err,
+			)
 		}
 		if err := executeRecordWrite(path, intent.resolved, childPlan); err != nil {
 			missing := collectIntentIDs(spawnIntents[i:])
@@ -303,7 +304,8 @@ func CreateWithOptions(path, id, typeName string, data map[string]any, opts Crea
 				ErrSpawnPartialWrite,
 				strings.Join(landed, ","),
 				strings.Join(missing, ","),
-				err)
+				err,
+			)
 		}
 		landed = append(landed, intent.id)
 	}
@@ -482,14 +484,16 @@ func preValidateAutoSpawn(
 		if dot < 0 {
 			return nil, fmt.Errorf(
 				"auto_spawn[%d]: spec.type %q malformed (load-time validation should have caught this)",
-				i, spec.Type)
+				i, spec.Type,
+			)
 		}
 		specDB := spec.Type[:dot]
 		bareTargetType := spec.Type[dot+1:]
 		if childResolved.DBName != specDB {
 			return nil, fmt.Errorf(
 				"auto_spawn[%d]: id_template %q resolves to db %q but spec.type targets db %q",
-				i, spec.IDTemplate, childResolved.DBName, specDB)
+				i, spec.IDTemplate, childResolved.DBName, specDB,
+			)
 		}
 		if err := reg.Validate(specDB+"."+bareTargetType, childData); err != nil {
 			return nil, fmt.Errorf("auto_spawn[%d]: %w", i, err)
@@ -512,7 +516,8 @@ func preValidateAutoSpawn(
 		if prev, dup := seen[in.id]; dup {
 			return nil, fmt.Errorf(
 				"auto_spawn: specs %d and %d produce the same id %q (intra-spec collision)",
-				prev, i, in.id)
+				prev, i, in.id,
+			)
 		}
 		seen[in.id] = i
 	}
@@ -808,7 +813,8 @@ func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteRes
 		// LevelGlobRoot is handled by the err branch above; any other
 		// value is a programmer error.
 		return DeleteResult{Sources: resolution.Sources}, fmt.Errorf(
-			"ops: DeleteWithOptions: unexpected level %d for id %q", level, id)
+			"ops: DeleteWithOptions: unexpected level %d for id %q", level, id,
+		)
 	}
 }
 

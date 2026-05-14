@@ -144,7 +144,8 @@ func resolveTypeForID(resolved db.Resolved, typeName string, requireType bool, p
 			if entry.Type != bareType {
 				return "", fmt.Errorf(
 					"%w: index records type %q for %q but caller supplied %q (run `ta index rebuild`)",
-					ErrTypeMismatch, entry.Type, resolved.Canonical(), bareType)
+					ErrTypeMismatch, entry.Type, resolved.Canonical(), bareType,
+				)
 			}
 		}
 	}

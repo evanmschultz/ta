@@ -503,7 +503,8 @@ func detectDuplicateIDs(ids []string, action string) string {
 		if prev, dup := seen[id]; dup {
 			return fmt.Sprintf(
 				"ta %s: items[%d] duplicates id %q from items[%d]",
-				action, i, id, prev)
+				action, i, id, prev,
+			)
 		}
 		seen[id] = i
 	}
@@ -874,7 +875,8 @@ func detectDuplicateSrcID(items []moveInputItem) string {
 		if prev, dup := seen[it.srcID]; dup {
 			return fmt.Sprintf(
 				"ta move: items[%d] duplicates src_id %q from items[%d]; ambiguous patch order on src splice",
-				i, it.srcID, prev)
+				i, it.srcID, prev,
+			)
 		}
 		seen[it.srcID] = i
 	}
@@ -1012,7 +1014,8 @@ func handleSchemaGet(path, scope string) *mcp.CallToolResult {
 			}
 		}
 		return mcp.NewToolResultError(
-			fmt.Sprintf("no schema registered for scope %q in %s", scope, path))
+			fmt.Sprintf("no schema registered for scope %q in %s", scope, path),
+		)
 	}
 
 	return mustJSON(schemaResult{

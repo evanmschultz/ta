@@ -1,9 +1,0 @@
-[plans.demo-1]
-id = "demo-1"
-status = "doing"
-title = "first task (revised)"
-
-[plans.verbose-1]
-id = "verbose-1"
-status = "doing"
-title = "verbose test"

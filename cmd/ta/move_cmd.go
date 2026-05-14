@@ -184,7 +184,8 @@ func validateMoveItems(items []moveItem) error {
 		if prev, dup := seen[it.SrcID]; dup {
 			return fmt.Errorf(
 				"ta move: items[%d] duplicates src_id %q from items[%d]; ambiguous patch order on src splice",
-				i, it.SrcID, prev)
+				i, it.SrcID, prev,
+			)
 		}
 		seen[it.SrcID] = i
 	}

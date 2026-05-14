@@ -208,7 +208,8 @@ func runMultiCategoryPicker(target string) (initapply.Selections, error) {
 	}
 
 	groups := buildMultiCategoryGroups(pickerBuckets)
-	model := newPickerModel(groups,
+	model := newPickerModel(
+		groups,
 		WithPickerTitle(multiCategoryPickerTitle(target)),
 		WithPickerCollapsed(true),
 	)

@@ -106,7 +106,8 @@ func TestCreate_FiresSpawn_TwoQAChildren(t *testing.T) {
 // the auto_spawn pass; only the parent lands.
 func TestCreate_NoSpawnFlag_SuppressesChildren(t *testing.T) {
 	root := withSpawnSchema(t)
-	if _, _, err := ops.CreateWithOptions(root, "plans.drop-001", "plans.drop",
+	if _, _, err := ops.CreateWithOptions(
+		root, "plans.drop-001", "plans.drop",
 		map[string]any{"title": "first"},
 		ops.CreateOptions{NoSpawn: true},
 	); err != nil {

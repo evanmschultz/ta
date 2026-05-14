@@ -1622,14 +1622,16 @@ required = true
 	if noteStatus.Enum[0] == "MUTATED" {
 		t.Errorf(
 			"note.status.Enum aliased task.status.Enum — cloneField did not deep-copy Enum: note=%v",
-			noteStatus.Enum)
+			noteStatus.Enum,
+		)
 	}
 	// Sanity: the registry's stored copy must also remain stable.
 	stored := reg.DBs["plans"].Types["note"].Fields["status"].Enum
 	if stored[0] == "MUTATED" {
 		t.Errorf(
 			"registry-stored note.status.Enum mutated through task — alias leak: stored=%v",
-			stored)
+			stored,
+		)
 	}
 }
 

@@ -87,7 +87,8 @@ func schemaFixtureMultiDB() map[string]schema.DB {
 // shape. Fixture mirrors the dev-visible case `ta schema` (no scope
 // argument) against a two-db project with mixed shapes.
 func TestSchemaFlowWholeProjectGolden(t *testing.T) {
-	assertSchemaFlowGolden(t,
+	assertSchemaFlowGolden(
+		t,
 		"schema_flow_whole_project.golden",
 		"/project",
 		"",
@@ -101,7 +102,8 @@ func TestSchemaFlowWholeProjectGolden(t *testing.T) {
 // calling SchemaFlow).
 func TestSchemaFlowSingleDBGolden(t *testing.T) {
 	dbs := schemaFixturePlans()
-	assertSchemaFlowGolden(t,
+	assertSchemaFlowGolden(
+		t,
 		"schema_flow_single_db.golden",
 		"/project",
 		"plans",
@@ -120,7 +122,8 @@ func TestSchemaFlowSingleTypeGolden(t *testing.T) {
 	plans := dbs["plans"]
 	plans.Types = map[string]schema.SectionType{"task": plans.Types["task"]}
 	dbs["plans"] = plans
-	assertSchemaFlowGolden(t,
+	assertSchemaFlowGolden(
+		t,
 		"schema_flow_single_type.golden",
 		"/project",
 		"plans.task",

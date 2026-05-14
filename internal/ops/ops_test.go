@@ -452,3 +452,124 @@ func TestGet_FileAsRecordAgent(t *testing.T) {
 		t.Errorf("tools = %v, want [grep edit]", tools)
 	}
 }
+
+// TestCreate_PlansDotTACascade_RoundTrip exercises the F38d-2.8
+// dogfood scenario: the deployed cascade schema declares `plans` at
+// `.ta/cascade/plans.toml` (sibling to `cascade`'s glob mount under
+// `.ta/cascade/drops/`). Create against `plans.plan` must land at
+// the declared path and Get must round-trip through the same path.
+// A pre-existing stale `<root>/plans.toml` at the project root (from
+// an earlier schema state) must NOT confuse the resolver — the
+// schema is authoritative.
+func TestCreate_PlansDotTACascade_RoundTrip(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+
+[cascade.drop]
+description = "A cascade drop."
+
+[cascade.drop.fields.title]
+type = "string"
+required = true
+
+[plans]
+paths = [".ta/cascade/plans.toml"]
+
+[plans.plan]
+description = "A plan."
+
+[plans.plan.fields.title]
+type = "string"
+required = true
+
+[plans.plan.fields.state]
+type = "string"
+required = true
+`)
+	_, _, err := ops.Create(root, "plans.dogfood-smoke", "plans.plan", map[string]any{
+		"title": "Dogfood smoke MCP round-trip",
+		"state": "in_progress",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	wantPath := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("expected write at %q; stat err: %v", wantPath, err)
+	}
+	res, err := ops.Get(root, "plans.dogfood-smoke", "", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if res.FilePath != wantPath {
+		t.Errorf("Get FilePath = %q, want %q", res.FilePath, wantPath)
+	}
+}
+
+// TestCreate_WritesToSchemaDeclaredPath is the F38d-2.8 regression
+// lock: when the project declares multiple dbs and one declares a
+// glob mount whose static prefix is the parent of another db's
+// single-file mount (the dogfood case is `cascade` at
+// `.ta/cascade/drops/drop_*/drop.toml` plus `plans` at
+// `plans.toml`), Create against the single-file db MUST write to
+// that db's declared file — NOT into the glob db's static-prefix
+// directory.
+//
+// Pre-fix, an MCP `create` for `plans.dogfood-smoke` with
+// --type=plans.plan landed at `<root>/.ta/cascade/plans.toml` —
+// an orphan under the cascade db's static prefix — because the
+// resolver picked the wrong db when iterating mounts.
+func TestCreate_WritesToSchemaDeclaredPath(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+
+[cascade.drop]
+description = "A cascade drop."
+
+[cascade.drop.fields.title]
+type = "string"
+required = true
+
+[plans]
+paths = ["plans.toml"]
+
+[plans.plan]
+description = "A plan."
+
+[plans.plan.fields.title]
+type = "string"
+required = true
+
+[plans.plan.fields.state]
+type = "string"
+required = true
+`)
+	_, _, err := ops.Create(root, "plans.dogfood-smoke", "plans.plan", map[string]any{
+		"title": "Dogfood smoke MCP round-trip",
+		"state": "in_progress",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	wantPath := filepath.Join(root, "plans.toml")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("expected write at %q; stat err: %v", wantPath, err)
+	}
+	orphanPath := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	if _, err := os.Stat(orphanPath); err == nil {
+		t.Errorf("write landed at orphan path %q — create-path resolver picked the wrong db", orphanPath)
+	}
+	// Round-trip via Get to prove the same id resolves to the same
+	// file on read.
+	res, err := ops.Get(root, "plans.dogfood-smoke", "", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if res.FilePath != wantPath {
+		t.Errorf("Get FilePath = %q, want %q", res.FilePath, wantPath)
+	}
+}

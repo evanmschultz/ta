@@ -834,3 +834,245 @@ Every interactive form in `cmd/ta/` MUST go through `tafForm`. Invariant verifie
 - `WithViewHook(v.AltScreen=true)` so on form exit the alternate screen tears down and laslig success / fang error blocks render cleanly.
 
 Adding a new huh form anywhere in `cmd/ta/` MUST go through `tafForm`. Adding a raw `huh.NewForm(` is a QA-falsification gate failure. New keymap policy lives in `tafKeyMap` so every form picks up the change uniformly.
+
+## F38d-2 — Post-dogfood findings (picker keymap + palette + duplicate-init UX)
+
+Surfaced during the first true dogfood pass after F38d closed huh removal. Four distinct gaps in the new bubbletea picker.
+
+### F38d-2.1 Keymap contract drift
+
+F38d-2 shipped:
+- `space` / `x` → select-all-in-group
+- `enter` → toggle leaf under cursor (or expand/collapse a header)
+- `S` → submit
+- `q` / `ctrl+c` → abort
+- help bar: `j/k move  enter toggle  space/x select-all-visible  / filter  S submit  q abort`
+
+Dev's intended contract (correct version):
+- `ctrl+a` → select all (across ALL groups, not just current)
+- `space` → toggle the SINGLE highlighted row only (no group-wide effect)
+- `enter` → submit, gated by a y/n confirm (esc or enter again to cancel)
+- `q` → quit, MUST be visible in the help bar alongside the other keys (currently IS in the bar; verify it doesn't get truncated at narrow widths — see F38d-2.4)
+
+Two contract changes:
+1. The "explicit submit verb is S" hardening from F18+F16 (introduced specifically to prevent queued-stdin newlines from auto-submitting) needs to be reconciled with the dev's "enter submits with a confirm" model. F18+F16 attack is "queued newline submits zero selections silently." Putting a confirm BEHIND enter restores the safety IF the confirm defaults to "no" / cancel — queued second newline lands on the safe side.
+2. The post-submit confirm itself was EXPLICITLY DELETED in F38d-2 (synthesis line: "DELETE F16 confirm at init_multi.go:244-269"). Dev now wants it back — but as part of the picker's submit gate, not as a separate `tafForm(huh.NewConfirm)` after picker exit. Different shape than the old F16 confirm — embedded in the picker model itself.
+
+Concrete fix in `cmd/ta/init_picker.go` + `cmd/ta/keymap.go`:
+- Add `pickerKeySelectAllAllGroups = []string{"ctrl+a"}` for true select-all-across-all-groups.
+- Change `pickerKeyToggle = []string{"space"}` (single-row toggle).
+- Move expand/collapse from `enter` to `right` / `l` and `left` / `h` only (already declared; drop enter from toggle).
+- Remove `pickerKeySelectAll = []string{"space", "x"}` (group-wide via space) — superseded by ctrl+a.
+- Change `pickerKeySubmit = []string{"enter"}` with an in-picker confirm overlay (`Submit N selections? y/n`) before quit fires. Esc or enter-on-no cancels back to picker; enter-on-yes quits with selections.
+- Update help bar: `j/k move  space toggle  ctrl+a select-all  / filter  enter submit  q quit`.
+
+Add table-driven test for queued-newline safety: drive `enter` + (queued)`\n` → assert picker stays open (confirm default = "no", second newline lands on cancel).
+
+### F38d-2.2 Color palette unfriendly
+
+`cmd/ta/styles.go` uses `charmtone.Cherry` (red), `charmtone.Coral` (red-orange), `charmtone.Citron` (yellow-green) as primary chrome accents. Dev finds reds and pinks hard on the eyes.
+
+Dev's preferred palette:
+- Chrome / cursors / borders → blues + purples (`charmtone.Sapphire`, `charmtone.Violet`, `charmtone.Malibu`, `charmtone.Sardine`, or similar from the charmtone catalog).
+- Selected leaves → green (current `charmtone.Julep` is fine; keep).
+- Help bar / status → keep neutral (`Smoke`).
+
+Re-color targets in `cmd/ta/styles.go`:
+- `pickerCursorStyle.Foreground(charmtone.Cherry)` → `charmtone.Sapphire` or `charmtone.Violet`.
+- `pickerGroupHeaderStyle.Foreground(charmtone.Coral)` → `charmtone.Malibu` or `charmtone.Sardine`.
+- `pickerHeaderTitleStyle.Foreground(charmtone.Citron)` → `charmtone.Violet`.
+- `pickerFilterStyle.Foreground(charmtone.Citron)` → `charmtone.Sapphire`.
+- `confirmCursorStyle.Foreground(charmtone.Cherry)` → `charmtone.Violet`.
+- `menuCursorStyle.Foreground(charmtone.Cherry)` → `charmtone.Sapphire`.
+- `formActiveLabelStyle.Foreground(charmtone.Citron)` → `charmtone.Sapphire`.
+- Re-render every VHS tape after the palette change; visual review (no color goldens today).
+
+### F38d-2.3 Duplicate `ta init` on pre-existing `.claude/agents/`
+
+User flow: `rm -rf ~/.ta .ta` (only the `.ta/` dirs, NOT `.claude/agents/`) → `ta init --target-system` → `ta init` in `ta/main` → 9 agent conflicts because `.claude/agents/*.md` was never removed (it lives outside `.ta/`).
+
+Two UX gaps:
+1. The error message is correct but doesn't tell the user that `.claude/agents/` IS the conflict source. User sees `agent:ta/closeout` and may not know that maps to `<project>/.claude/agents/closeout.md`. Error should name the on-disk path explicitly: `Init: 9 conflict(s) at <project>/.claude/agents/{closeout,fe-builder,...}.md; re-run with --on-conflict=skip|overwrite|force`.
+2. `--on-conflict=skip` is the safest default for re-running. Consider whether `ta init` should detect a partial-existing project (`.ta/` empty/missing but `.claude/agents/` populated) and default to `skip` with a one-line notice. YAGNI-risky vs. explicit flags; fix (1) is mandatory, (2) is optional.
+
+### F38d-2.4 Help bar truncation under narrow terminal width
+
+Dev's paste shows the help bar cut off mid-word (`S sub:`) — line exceeds available width at small terminal sizes. Either:
+- Two-line help bar with explicit break.
+- Conditional truncation based on `m.width` (the picker already tracks WindowSizeMsg).
+- Pin terminal-width assumption + ship with `Set Width 1200` only in VHS.
+
+Low priority. Confirm with dev whether the truncation is also visible on his real terminal or VHS-only artifact.
+
+### Sequencing
+
+Fix F38d-2.1 (keymap + confirm) first — that's a contract change and tests need to follow. F38d-2.2 (palette) is a single `styles.go` pass plus VHS re-render. F38d-2.3 (error msg) is one error string in `internal/initapply/`. F38d-2.4 (help bar) gated on whether it's a real-terminal issue or VHS-only.
+
+### F38d-2.5 `ta init` is not atomic across the multi-write tree
+
+Reproduction: clean project (`rm -rf .ta .claude/agents`), run `ta init` against a populated `~/.ta/`. If ANY category conflicts (e.g., `.claude/agents/foo.md` exists from a prior partial run), the whole init aborts AFTER earlier categories (schemas) have already been written to disk. User is left in a half-installed state with no indication that `.ta/schema.toml` already landed.
+
+Concrete failure: dev ran `rm -rf .ta` (only `.ta/`, not `.claude/agents/`) → `ta init` → 9 agent conflicts (real, agents survived the rm). Then `rm -rf .claude/agents/` → second `ta init` → 9 schema conflicts. The schema conflicts came from the FIRST run's partial-success: `.ta/schema.toml` had been written before the agent write failed.
+
+Two fixes (pick one or both):
+
+1. **Pre-scan all conflicts before any write.** `runInitApply` should iterate every destination (schemas, agents, configs, docs-templates, MCP) and collect would-be conflicts UP FRONT. If any exist under `--on-conflict=error` (default), return them all as one error WITHOUT writing anything. This makes the operation atomic in the user-visible sense.
+
+2. **Stage-then-commit.** Write all destinations to a sibling staging dir (`<project>/.ta.staging/`), validate no conflicts, then `os.Rename` each into final place. Rollback by deleting the staging dir on any failure. More complex but resilient to mid-write crashes too.
+
+Recommendation: option 1 (pre-scan) for v0.1.0 because it's localized to the install logic; option 2 (staging) is a follow-up if crash-resilience matters.
+
+Tests:
+- `TestInitApply_AtomicityOnConflict_NoPartialWrite` — pre-populate `.claude/agents/foo.md`, run `ta init` without `--on-conflict=`, assert `.ta/schema.toml` was NOT written AND the error message names all 9 conflicting destinations.
+- `TestInitApply_ErrorMessageNamesAllCategories` — pre-populate one item per category, assert the error lists all of them at once (not first-fail).
+
+### F38d-2.6 Conflict detection should be content-aware
+
+Today, `--on-conflict=error` triggers on file-EXISTS even when the would-be-written content is byte-identical to what's already on disk. This is the wrong signal — the user doesn't have a conflict; they have an idempotent re-run.
+
+Concrete failure: a binary-shipped agent file `closeout.md` is installed to `<project>/.claude/agents/ta-closeout.md`. Re-running `ta init` reports it as a conflict even though the next install would produce the same bytes (modulo YAML key order from the install transform; see below).
+
+Content-aware contract:
+- Destination doesn't exist → write.
+- Destination exists AND `sha256(would-write) == sha256(on-disk)` → silent skip (or report as `unchanged`, count in summary but don't error).
+- Destination exists AND content differs → ONLY THEN gated by `--on-conflict=...` policy.
+
+**Caveat**: the install transform rewrites YAML frontmatter (e.g., `name: closeout` → `name: ta-closeout`) and may alter key order. Two paths:
+
+1. Normalize both sides (on-disk + would-write) through the same YAML round-trip before sha256 comparison. Robust against key-order drift but slower.
+2. Compare the BODY post-frontmatter only (split on second `---`), plus check the on-disk frontmatter's `name` field matches the would-write `name`. Faster but less rigorous.
+
+Recommendation: option 1 (normalized round-trip). YAML marshal/unmarshal is fast enough not to matter at 9-file scale.
+
+Tests:
+- `TestInitApply_ContentAware_IdenticalRerunNoConflict` — write a file from `ta init`, run `ta init` again immediately, assert zero conflicts and the file unchanged.
+- `TestInitApply_ContentAware_ModifiedFileStillConflicts` — write a file, manually edit it, run `ta init`, assert the modified file produces a conflict (so the safety check still fires on real drift).
+- `TestInitApply_ContentAware_FrontmatterKeyOrderIgnored` — produce two files differing only in YAML frontmatter key order, assert content-aware comparison treats them as identical.
+
+### F38d-2.7 `ta search` empty-positional rejected as unknown subcommand
+
+`ta search '' --json` → `Unknown command "" for "ta search"`. The positional is being parsed as a subcommand name (cobra default behavior when no positionals are declared). Two issues:
+
+1. **Error message is wrong.** "Unknown command" suggests the user typo'd a subcommand. Real cause is "search takes no positional args." Cobra-level UX.
+
+2. **Discoverability gap.** Agents tend to reach for `ta search '<term>'` as the obvious shape (mirroring `grep '<pattern>'`). Today the right idiom is `ta search --query='<term>'` or `ta search --all` for "everything." Either:
+   - Add a `[query]` positional that's an alias for `--query` (cobra `Args: cobra.MaximumNArgs(1)`).
+   - Or improve the error: `cmd.SetArgs(args).PreRunE` could intercept stray positionals and emit `search takes no positional args; use --query='<regex>' or --scope='<id-prefix>' or --all`.
+
+Recommendation: option 1 (positional alias) — agents naturally pass a query string as a positional. The flag form stays for explicit cases.
+
+Test: `TestSearchCmd_PositionalQueryAlias` — `ta search 'todo'` should behave identically to `ta search --query='todo'`.
+
+### Sequencing (revised)
+
+1. F38d-2.5 (atomicity / pre-scan) — first because it fixes the half-state user experience.
+2. F38d-2.6 (content-aware) — second because it eliminates false-positive conflicts on re-runs.
+3. F38d-2.1 (keymap) — third because it's a behavioral contract change with test rewrites.
+4. F38d-2.2 (palette) — fourth because it's pure cosmetics; visual review only.
+5. F38d-2.3 (error path naming) — fifth; one-line error string fix.
+6. F38d-2.4 (help bar truncation) — last; gated on whether it's a real-terminal issue.
+7. F38d-2.7 (search positional) — UX polish; positional alias OR better error.
+
+## F38d-2 — MCP-side dogfood findings (round-trip via `mcp__ta__*` tools)
+
+Surfaced during the first agent-driven MCP round-trip after F38d-2 cascade-bootstrap landed. These are MCP-surface bugs distinct from the CLI-surface ones above.
+
+### F38d-2.8 [COULD-NOT-REPRODUCE] MCP `create` write-path misread
+
+**Original report (mis-filed)**: `mcp__ta__create` with `id="plans.dogfood-smoke"`, `type="plans.plan"` appeared to write to `.ta/cascade/plans.toml` while schema declared `plans.paths = ["plans.toml"]` (project root); subsequent `mcp__ta__get` returned `found: false`.
+
+**Investigation outcome**: not reproducible against current code. The cited schema state was a misread of the committed `.ta/schema.toml` — `plans` is declared at `.ta/cascade/plans.toml`, NOT at the project root. The MCP create wrote to the schema-declared path correctly. The `found: false` symptom on get was likely session/cache state (long-running MCP server held a stale schema snapshot across the create call) but is not reproducible from the diff in isolation.
+
+**Regression locks added** (this commit):
+- `internal/ops/ops_test.go::TestCreate_WritesToSchemaDeclaredPath` — pins the multi-db scenario (plans + cascade declared with disjoint paths) and asserts no cross-db path contamination.
+- `internal/ops/ops_test.go::TestCreate_PlansDotTACascade_RoundTrip` — pins the actual dogfood-deployed shape (plans at `.ta/cascade/plans.toml`) end-to-end.
+
+Both tests exercise the same code path the MCP `create` tool reaches. If the original symptom ever resurfaces in a live MCP session, re-file as a NEW finding with the live trace (resolver state, schema cache age, on-disk write location captured concurrent with the failing get).
+
+**Orphan cleanup landed**: stale `.ta/cascade/plans.toml` deleted; `.ta/cascade/` rmdir'd; `[plans.dogfood-smoke]` removed from `.ta/index.toml`.
+
+**Follow-up (separate)**: `<project>/plans.toml` at the repo root is a tracked orphan from a pre-cascade schema state. Not referenced by current schema, not in `.ta/index.toml`. Either delete, .gitignore, or migrate contents to `.ta/cascade/plans.toml` in a dedicated cleanup slice. Out of scope for this fix.
+
+### F38d-2.9 [BLOCKER] MCP `list_sections` crashes when scope is unset
+
+Reproduction: `mcp__ta__list_sections` with `path` set but no `scope` → returns error `build MD backend for db "claude_agents": md: heading level must be in [1, 6]: type "agent" has heading=0`.
+
+Cause: the unset-scope path iterates EVERY db; `claude_agents` is a file-record db (each `.md` file IS one record) but the MD-backend validator requires a heading level in [1,6]; file-records have `heading=0` by design. Same code path is used in `ta search --all --json` from CLI and works — so the bug is specifically in `list_sections`'s all-db walk dispatch.
+
+Fix: route file-record types through the same file-record-aware backend that search uses (`internal/search/search.go` F38b dispatch). The list-sections backend lacks the F38b file-record dispatch.
+
+Test: `TestMCPListSections_FileRecordDispatch` — assert `list_sections` with no scope walks file-record dbs cleanly.
+
+### F38d-2.10 [MAJOR] MCP `list_sections` with a db-name scope returns empty for file-record dbs
+
+Reproduction: `mcp__ta__list_sections` with `scope="claude_agents"` (or `scope="ta-"` to match the agent ids) returns `{"sections": []}` despite `.claude/agents/ta-*.md` files existing on disk and `mcp__ta__get` with id `ta-closeout` returning the file correctly.
+
+Cause: list_sections iterates the schema's record-type bracket walker, which doesn't enumerate file-record types. Closely related to F38d-2.9 (same dispatch path).
+
+Either:
+- Fix list_sections to enumerate file-record ids from on-disk filename listings when the db's record_per="file".
+- Or document: list_sections is for bracket-keyed records only; agents must use search for file-record dbs.
+
+Recommend: option 1 (enumerate from disk). Agents reach for list_sections to discover ids; making them learn db-shape is leaky abstraction.
+
+Test: `TestMCPListSections_FileRecordEnumerated` — assert `list_sections` against a file-record db returns the basename ids matching the on-disk files.
+
+### F38d-2.11 [MAJOR] `cascade.drop` id-shape validator contradicts itself
+
+Reproduction: `mcp__ta__create` with `id="drop_001.drop.dogfood_smoke"`, `type="cascade.drop"`, valid data.
+
+Error: `db "cascade" does not accept id "drop_001.drop.dogfood_smoke" (expected shape: expected shape: drop_*.drop.<bracket-key>, need 3; got 3 segments)`.
+
+Two bugs:
+1. **Error message duplicates "expected shape:"** ("expected shape: expected shape: ..."). Pure formatting bug — error wrapping adds the prefix twice.
+2. **Validator says "need 3, got 3" and STILL rejects**. The segment-count check is satisfied but rejection fires. Some other constraint is being applied silently (bracket-key shape? path glob match against an existing `drops/drop_001/` directory?), but the error doesn't surface it.
+
+Workaround for dogfood: create the `.ta/cascade/drops/drop_001/` directory first, OR figure out which constraint is actually firing. Without it, NO `cascade.drop` record can be created via MCP, so the canonical droplet workflow is blocked.
+
+Test: `TestCascadeDropIDShape_ErrorMessageIsActionable` — assert the error names the specific constraint that fails, not just segment count.
+
+### F38d-2.12 [MAJOR] MCP `schema` ignores `db` filter parameter
+
+Reproduction: `mcp__ta__schema` with `path=...`, `action="get"`, `db="plans"` → returns the FULL 73K schema (all 9 dbs), ignoring the `db` filter.
+
+The CLI form `ta schema plans --json` correctly narrows to one db (~22K). The MCP form should accept the same scope semantics. Either:
+- MCP `schema` tool doesn't declare a `db` parameter in its JSONSchema and silently ignores extra keys.
+- MCP tool accepts `db` but doesn't pass it to the underlying schema resolver.
+
+Fix: surface the same scope mechanism the CLI exposes. Agents have token-budget concerns; 73K vs 22K matters.
+
+Test: `TestMCPSchema_DBFilterHonored` — assert MCP `schema` with `db="plans"` returns only the `plans` block.
+
+### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
+
+Observation (not a bug, but worth surfacing): `mcp__ta__create` failures return the validation error as a JSON-encoded STRING inside the `error` field. Example:
+
+```json
+{"id": "plans.dogfood-smoke", "ok": false, "error": "{\"section_path\":\"...\",\"failures\":[...]}"}
+```
+
+The error content itself is well-structured agent-friendly JSON, but it's double-encoded. Agents have to JSON-decode the `error` field to read the failures array. Cleaner shape:
+
+```json
+{"id": "plans.dogfood-smoke", "ok": false, "error": "validation failed", "validation_failures": [...]}
+```
+
+Surface as an MCP-contract refinement task; not blocking dogfood since agents CAN decode the string.
+
+### Sequencing (REVISED again — MCP bugs are blocking)
+
+Round-trip MCP create→get must work before dogfood is real. New priority order:
+
+1. **F38d-2.8 (MCP create wrong path) — BLOCKER**, fix first.
+2. **F38d-2.9 (list_sections crash on file-record dbs) — BLOCKER**, fix second.
+3. **F38d-2.10 (list_sections empty for file-record dbs) — MAJOR**, fold into 2.9 fix.
+4. **F38d-2.11 (cascade.drop validator contradiction) — MAJOR**, blocks droplet workflow.
+5. **F38d-2.12 (MCP schema ignores db filter) — MAJOR**, agent token-budget concern.
+6. F38d-2.5 (atomicity / pre-scan) — CLI-side.
+7. F38d-2.6 (content-aware conflicts) — CLI-side.
+8. F38d-2.1 (keymap) — picker contract.
+9. F38d-2.2 (palette) — cosmetics.
+10. F38d-2.3 (error path naming).
+11. F38d-2.4 (help bar truncation).
+12. F38d-2.7 (search positional).
+13. F38d-2.13 (error JSON shape) — MCP-contract polish.

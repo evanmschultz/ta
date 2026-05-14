@@ -701,7 +701,8 @@ func promptMCPToggles(claude, codex bool) (bool, bool, error) {
 			{Display: optCodex, Value: optCodex, Selected: codex},
 		},
 	}}
-	model := newPickerModel(groups,
+	model := newPickerModel(
+		groups,
 		WithPickerTitle("Generate MCP client configs?"),
 		WithPickerCollapsed(false),
 	)

@@ -90,26 +90,30 @@ var (
 	// uses a trailing-slash collection root (`docs/`) or the `.`
 	// project-root mount. Use globs (`docs/*.md`) instead.
 	ErrCollectionMountUnsupported = errors.New(
-		"schema: collection mounts (trailing-slash or `.`) are not supported; use a glob like `docs/*.md`")
+		"schema: collection mounts (trailing-slash or `.`) are not supported; use a glob like `docs/*.md`",
+	)
 
 	// ErrInconsistentPathFormats is returned when a db's paths slice
 	// contains entries with different recognized extensions (mix of
 	// .toml and .md, etc.).
 	ErrInconsistentPathFormats = errors.New(
-		"schema: paths within one db must share a recognized extension")
+		"schema: paths within one db must share a recognized extension",
+	)
 
 	// ErrAmbiguousPathFormat is returned when a path entry has no
 	// recognized extension (`paths = ["plans"]`) and so the format
 	// cannot be inferred.
 	ErrAmbiguousPathFormat = errors.New(
-		"schema: path entry must have a recognized extension (.toml or .md)")
+		"schema: path entry must have a recognized extension (.toml or .md)",
+	)
 
 	// ErrIDCollisionAcrossTypes is returned at registry-build time
 	// when a single-file db declares multiple types and the schema
 	// loader cannot prove id uniqueness statically. (CRUD operations
 	// re-check at write time.)
 	ErrIDCollisionAcrossTypes = errors.New(
-		"schema: id collision across types in single-file db")
+		"schema: id collision across types in single-file db",
+	)
 
 	// ErrOverlappingPaths is returned when two distinct dbs declare any
 	// overlapping entries in their `paths` slices.
@@ -212,7 +216,8 @@ var (
 	// file-as-record types — co-declaring them is a loud failure per
 	// F31 contract.
 	ErrFileRecordWithHeading = errors.New(
-		"schema: heading is forbidden on file-as-record types (record_per = \"file\")")
+		"schema: heading is forbidden on file-as-record types (record_per = \"file\")",
+	)
 
 	// ErrFileRecordMissingBodyField is returned when a type declares
 	// `record_per = "file"` but omits `body_field`. The body field is
@@ -220,31 +225,36 @@ var (
 	// body; without it the backend has nowhere to put body bytes.
 	// Per F31.
 	ErrFileRecordMissingBodyField = errors.New(
-		"schema: file-as-record types require body_field = \"<field-name>\"")
+		"schema: file-as-record types require body_field = \"<field-name>\"",
+	)
 
 	// ErrBodyFieldUnknown is returned when `body_field = "<name>"`
 	// names a field that does not appear in the type's resolved
 	// Fields map. Per F31.
 	ErrBodyFieldUnknown = errors.New(
-		"schema: body_field references a field not declared on the type")
+		"schema: body_field references a field not declared on the type",
+	)
 
 	// ErrBodyFieldOnSectionType is returned when a section-mode type
 	// (record_per != "file") declares `body_field`. The body field is
 	// only meaningful on file-as-record types; declaring it elsewhere
 	// is a contract violation per F31's loud-error invariant.
 	ErrBodyFieldOnSectionType = errors.New(
-		"schema: body_field is only valid on file-as-record types (record_per = \"file\")")
+		"schema: body_field is only valid on file-as-record types (record_per = \"file\")",
+	)
 
 	// ErrRecordPerInvalid is returned when `record_per` carries a
 	// value other than "section" or "file". Per F31.
 	ErrRecordPerInvalid = errors.New(
-		"schema: record_per must be \"section\" or \"file\"")
+		"schema: record_per must be \"section\" or \"file\"",
+	)
 
 	// ErrRecordPerOnTOML is returned when a TOML db's type declares
 	// `record_per`. Only MD dbs support per-record granularity;
 	// declaring it on TOML is a meaningless co-declaration. Per F31.
 	ErrRecordPerOnTOML = errors.New(
-		"schema: record_per is only valid on MD-format dbs")
+		"schema: record_per is only valid on MD-format dbs",
+	)
 
 	// ErrMixedRecordModes is returned when one db declares both
 	// section-mode and file-as-record types. Per F31's locked design
@@ -252,7 +262,8 @@ var (
 	// not a mix. Mixing prevents reliable id-grammar disambiguation
 	// at the address-resolver layer.
 	ErrMixedRecordModes = errors.New(
-		"schema: db cannot mix section-mode and file-as-record types")
+		"schema: db cannot mix section-mode and file-as-record types",
+	)
 )
 
 // formatFromPath returns the format inferred from path's file
@@ -324,7 +335,8 @@ func buildRegistry(raw map[string]any) (Registry, error) {
 		body, ok := bodyAny.(map[string]any)
 		if !ok {
 			return Registry{}, fmt.Errorf(
-				"schema: %s: top-level entry must be a table, got %T", name, bodyAny)
+				"schema: %s: top-level entry must be a table, got %T", name, bodyAny,
+			)
 		}
 		if err := collectBases(name, body, baseRaw); err != nil {
 			return Registry{}, err
@@ -465,7 +477,8 @@ func checkBaseAliasCollision(
 	sort.Strings(names)
 	return fmt.Errorf(
 		"%w: %q",
-		ErrBaseAliasNameCollision, names[0])
+		ErrBaseAliasNameCollision, names[0],
+	)
 }
 
 // checkBaseNameCollisions rejects any base name that also appears as
@@ -511,7 +524,8 @@ func checkBaseNameCollisions(baseRaw map[string]*baseDecl, reg Registry) error {
 	first := hits[0]
 	return fmt.Errorf(
 		"%w: %q (also a concrete record type at [%s.%s])",
-		ErrBaseNameCollision, first.name, first.db, first.name)
+		ErrBaseNameCollision, first.name, first.db, first.name,
+	)
 }
 
 // collectAliases walks one db body for its [<db>.types.<alias>] entries,
@@ -528,7 +542,8 @@ func collectAliases(dbName string, body map[string]any, dst map[string]map[strin
 	if !ok {
 		return fmt.Errorf(
 			"schema: %s.%s: must be a table of named alias declarations, got %T",
-			dbName, metaFieldTypes, tBody)
+			dbName, metaFieldTypes, tBody,
+		)
 	}
 	aliasNames := make([]string, 0, len(typesBody))
 	for n := range typesBody {
@@ -543,7 +558,8 @@ func collectAliases(dbName string, body map[string]any, dst map[string]map[strin
 			if _, isStr := val.(string); !isStr {
 				return fmt.Errorf(
 					"schema: %s.%s.description: must be string, got %T",
-					dbName, metaFieldTypes, val)
+					dbName, metaFieldTypes, val,
+				)
 			}
 			continue
 		}
@@ -551,17 +567,20 @@ func collectAliases(dbName string, body map[string]any, dst map[string]map[strin
 		if !ok {
 			return fmt.Errorf(
 				"schema: %s.%s.%s: alias body must be a table, got %T",
-				dbName, metaFieldTypes, alias, val)
+				dbName, metaFieldTypes, alias, val,
+			)
 		}
 		if isReservedPrimitive(alias) {
 			return fmt.Errorf(
 				"%w: %q (declared at %s.%s.%s)",
-				ErrAliasShadowsPrimitive, alias, dbName, metaFieldTypes, alias)
+				ErrAliasShadowsPrimitive, alias, dbName, metaFieldTypes, alias,
+			)
 		}
 		if _, dup := dst[alias]; dup {
 			return fmt.Errorf(
 				"schema: %s.%s.%s: alias %q already declared (aliases share a Registry-wide namespace)",
-				dbName, metaFieldTypes, alias, alias)
+				dbName, metaFieldTypes, alias, alias,
+			)
 		}
 		fieldsMap, err := buildAliasFields(dbName, alias, ab)
 		if err != nil {
@@ -588,29 +607,34 @@ func buildAliasFields(dbName, alias string, body map[string]any) (map[string]Fie
 		case typeKeyDescription:
 			if _, ok := val.(string); !ok {
 				return nil, fmt.Errorf(
-					"schema: %s.description: must be string, got %T", scope, val)
+					"schema: %s.description: must be string, got %T", scope, val,
+				)
 			}
 		case typeKeyFields:
 			fb, ok := val.(map[string]any)
 			if !ok {
 				return nil, fmt.Errorf(
-					"schema: %s.fields: must be a table, got %T", scope, val)
+					"schema: %s.fields: must be a table, got %T", scope, val,
+				)
 			}
 			fieldsBody = fb
 		case typeKeyExtends:
 			return nil, fmt.Errorf(
 				"%w: alias %q (declared at %s)",
-				ErrAliasExtendsNotAllowed, alias, scope)
+				ErrAliasExtendsNotAllowed, alias, scope,
+			)
 		default:
 			return nil, fmt.Errorf(
 				"schema: %s: unknown key %q (allowed: description, fields)",
-				scope, key)
+				scope, key,
+			)
 		}
 	}
 	if len(fieldsBody) == 0 {
 		return nil, fmt.Errorf(
 			"schema: %s: alias must declare at least one field under [%s.fields]",
-			scope, scope)
+			scope, scope,
+		)
 	}
 	out := make(map[string]Field, len(fieldsBody))
 	for fname, fval := range fieldsBody {
@@ -618,7 +642,8 @@ func buildAliasFields(dbName, alias string, body map[string]any) (map[string]Fie
 		if !ok {
 			return nil, fmt.Errorf(
 				"schema: %s.fields.%s: must be a table, got %T",
-				scope, fname, fval)
+				scope, fname, fval,
+			)
 		}
 		f, err := buildField(dbName, metaFieldTypes+"."+alias, fname, fbody)
 		if err != nil {
@@ -644,7 +669,8 @@ func collectBases(dbName string, body map[string]any, dst map[string]*baseDecl) 
 	if !ok {
 		return fmt.Errorf(
 			"schema: %s.%s: must be a table of named base declarations, got %T",
-			dbName, metaFieldBases, bBody)
+			dbName, metaFieldBases, bBody,
+		)
 	}
 	baseNames := make([]string, 0, len(basesBody))
 	for n := range basesBody {
@@ -659,7 +685,8 @@ func collectBases(dbName string, body map[string]any, dst map[string]*baseDecl) 
 			if _, isStr := val.(string); !isStr {
 				return fmt.Errorf(
 					"schema: %s.%s.description: must be string, got %T",
-					dbName, metaFieldBases, val)
+					dbName, metaFieldBases, val,
+				)
 			}
 			continue
 		}
@@ -667,12 +694,14 @@ func collectBases(dbName string, body map[string]any, dst map[string]*baseDecl) 
 		if !ok {
 			return fmt.Errorf(
 				"schema: %s.%s.%s: base body must be a table, got %T",
-				dbName, metaFieldBases, base, val)
+				dbName, metaFieldBases, base, val,
+			)
 		}
 		if _, dup := dst[base]; dup {
 			return fmt.Errorf(
 				"schema: %s.%s.%s: base %q already declared (bases share a Registry-wide namespace)",
-				dbName, metaFieldBases, base, base)
+				dbName, metaFieldBases, base, base,
+			)
 		}
 		decl, err := buildBaseDecl(dbName, base, bb)
 		if err != nil {
@@ -698,20 +727,23 @@ func buildBaseDecl(dbName, base string, body map[string]any) (*baseDecl, error) 
 		case typeKeyDescription:
 			if _, ok := val.(string); !ok {
 				return nil, fmt.Errorf(
-					"schema: %s.description: must be string, got %T", scope, val)
+					"schema: %s.description: must be string, got %T", scope, val,
+				)
 			}
 		case typeKeyExtends:
 			s, ok := val.(string)
 			if !ok {
 				return nil, fmt.Errorf(
-					"schema: %s.extends: must be string, got %T", scope, val)
+					"schema: %s.extends: must be string, got %T", scope, val,
+				)
 			}
 			decl.extends = s
 		case typeKeyFields:
 			fb, ok := val.(map[string]any)
 			if !ok {
 				return nil, fmt.Errorf(
-					"schema: %s.fields: must be a table, got %T", scope, val)
+					"schema: %s.fields: must be a table, got %T", scope, val,
+				)
 			}
 			fieldsBody = fb
 		case typeKeyAutoSpawn:
@@ -723,7 +755,8 @@ func buildBaseDecl(dbName, base string, body map[string]any) (*baseDecl, error) 
 		default:
 			return nil, fmt.Errorf(
 				"schema: %s: unknown key %q (allowed: description, extends, fields, auto_spawn)",
-				scope, key)
+				scope, key,
+			)
 		}
 	}
 	if len(fieldsBody) == 0 && decl.extends == "" {
@@ -734,7 +767,8 @@ func buildBaseDecl(dbName, base string, body map[string]any) (*baseDecl, error) 
 		if !ok {
 			return nil, fmt.Errorf(
 				"schema: %s.fields.%s: must be a table, got %T",
-				scope, fname, fval)
+				scope, fname, fval,
+			)
 		}
 		f, err := buildField(dbName, metaFieldBases+"."+base, fname, fbody)
 		if err != nil {
@@ -784,11 +818,13 @@ func expandBases(reg Registry, baseRaw map[string]*baseDecl, extendsBy []extends
 			if _, isType := registryHasType(reg, rec.base); isType {
 				return fmt.Errorf(
 					"%w: %s.%s extends %q (a concrete record type, not a base)",
-					ErrExtendsTargetNotBase, rec.db, rec.typ, rec.base)
+					ErrExtendsTargetNotBase, rec.db, rec.typ, rec.base,
+				)
 			}
 			return fmt.Errorf(
 				"%w: %s.%s extends %q (not declared as a base)",
-				ErrUnknownBase, rec.db, rec.typ, rec.base)
+				ErrUnknownBase, rec.db, rec.typ, rec.base,
+			)
 		}
 
 		db := reg.DBs[rec.db]
@@ -1080,25 +1116,29 @@ func checkOneSpawnSpec(reg Registry, origin string, idx int, spec SpawnSpec) err
 	if targetDB == "" || targetType == "" || rest != "" {
 		return fmt.Errorf(
 			"%w: %s: type %q must be db-qualified `<db>.<type>`",
-			ErrSpawnUnknownType, specScope, spec.Type)
+			ErrSpawnUnknownType, specScope, spec.Type,
+		)
 	}
 	dbDecl, ok := reg.DBs[targetDB]
 	if !ok {
 		return fmt.Errorf(
 			"%w: %s: db %q not registered (target type %q)",
-			ErrSpawnUnknownType, specScope, targetDB, spec.Type)
+			ErrSpawnUnknownType, specScope, targetDB, spec.Type,
+		)
 	}
 	targetSt, ok := dbDecl.Types[targetType]
 	if !ok {
 		return fmt.Errorf(
 			"%w: %s: type %q not declared on db %q",
-			ErrSpawnUnknownType, specScope, targetType, targetDB)
+			ErrSpawnUnknownType, specScope, targetType, targetDB,
+		)
 	}
 
 	// id_template token validation.
 	if err := validateSpawnTemplateTokens(spec.IDTemplate); err != nil {
 		return fmt.Errorf(
-			"%w: %s: %v", ErrSpawnInvalidIDTemplate, specScope, err)
+			"%w: %s: %v", ErrSpawnInvalidIDTemplate, specScope, err,
+		)
 	}
 
 	// Required-field coverage. A required field on the target type
@@ -1117,7 +1157,8 @@ func checkOneSpawnSpec(reg Registry, origin string, idx int, spec SpawnSpec) err
 		}
 		return fmt.Errorf(
 			"%w: %s: target type %q requires field %q (no default) but spec.fields omits it",
-			ErrSpawnIncompletePayload, specScope, spec.Type, fname)
+			ErrSpawnIncompletePayload, specScope, spec.Type, fname,
+		)
 	}
 	return nil
 }
@@ -1179,12 +1220,14 @@ func resolveBase(
 	decl, ok := raw[name]
 	if !ok {
 		return nil, fmt.Errorf(
-			"%w: base %q referenced but not declared", ErrUnknownBase, name)
+			"%w: base %q referenced but not declared", ErrUnknownBase, name,
+		)
 	}
 	if visiting[name] {
 		return nil, fmt.Errorf(
 			"%w: %s → %s",
-			ErrExtendsCycle, strings.Join(append(chain, name), " → "), name)
+			ErrExtendsCycle, strings.Join(append(chain, name), " → "), name,
+		)
 	}
 	visiting[name] = true
 	defer delete(visiting, name)
@@ -1228,7 +1271,8 @@ func expandAliases(reg Registry, aliasRaw map[string]map[string]Field) error {
 				out, err := inlineField(f, resolved)
 				if err != nil {
 					return fmt.Errorf(
-						"schema: %s.%s.fields.%s: %w", dbName, tName, fName, err)
+						"schema: %s.%s.fields.%s: %w", dbName, tName, fName, err,
+					)
 				}
 				st.Fields[fName] = out
 			}
@@ -1257,12 +1301,14 @@ func resolveAlias(
 	body, ok := raw[name]
 	if !ok {
 		return nil, fmt.Errorf(
-			"%w: alias %q referenced but not declared", ErrUnknownElementType, name)
+			"%w: alias %q referenced but not declared", ErrUnknownElementType, name,
+		)
 	}
 	if visiting[name] {
 		return nil, fmt.Errorf(
 			"%w: %s → %s",
-			ErrAliasCycle, strings.Join(append(chain, name), " → "), name)
+			ErrAliasCycle, strings.Join(append(chain, name), " → "), name,
+		)
 	}
 	visiting[name] = true
 	defer delete(visiting, name)
@@ -1306,7 +1352,8 @@ func inlineFieldRecursive(
 		case et == string(TypeArray):
 			return Field{}, fmt.Errorf(
 				"%w: element_type = \"array\" (nested arrays are not supported in v1)",
-				ErrUnknownElementType)
+				ErrUnknownElementType,
+			)
 		case isReservedPrimitive(et):
 			// Primitive (string/integer/float/boolean/datetime/table).
 			// No alias inlining needed; ElementFields recursion below
@@ -1324,7 +1371,8 @@ func inlineFieldRecursive(
 				if !ok {
 					return Field{}, fmt.Errorf(
 						"%w: %q (not a primitive, not a registered alias)",
-						ErrUnknownElementType, et)
+						ErrUnknownElementType, et,
+					)
 				}
 				aliasBody = ab
 			}
@@ -1427,7 +1475,8 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 			if _, ok := val.(map[string]any); !ok {
 				return DB{}, nil, fmt.Errorf(
 					"schema: %s.%s: must be a table of named alias declarations, got %T",
-					name, key, val)
+					name, key, val,
+				)
 			}
 		case metaFieldBases:
 			// Reserved per F22 for the named-base table
@@ -1437,7 +1486,8 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 			if _, ok := val.(map[string]any); !ok {
 				return DB{}, nil, fmt.Errorf(
 					"schema: %s.%s: must be a table of named base declarations, got %T",
-					name, key, val)
+					name, key, val,
+				)
 			}
 		default:
 			// Must be a record-type sub-table. Any scalar / non-table
@@ -1450,7 +1500,8 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 					"schema: %s.%s: unknown meta-field or non-table value (type %T); "+
 						"record types must be tables, meta-fields must be one of "+
 						"paths/description/types/bases (PLAN §12.17.9 F10; F21; F22)",
-					name, key, val)
+					name, key, val,
+				)
 			}
 			st, ext, err := buildType(name, key, typeBody)
 			if err != nil {
@@ -1470,11 +1521,13 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 
 	if db.Paths == nil {
 		return DB{}, nil, fmt.Errorf(
-			"schema: %s: missing required %q array", name, metaFieldPaths)
+			"schema: %s: missing required %q array", name, metaFieldPaths,
+		)
 	}
 	if len(db.Paths) == 0 {
 		return DB{}, nil, fmt.Errorf(
-			"schema: %s: %q must declare at least one entry", name, metaFieldPaths)
+			"schema: %s: %q must declare at least one entry", name, metaFieldPaths,
+		)
 	}
 
 	// Format-from-extension inference + invariants per F10:
@@ -1485,17 +1538,20 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 	for i, p := range db.Paths {
 		if p == "" {
 			return DB{}, nil, fmt.Errorf(
-				"schema: %s: %q[%d] is empty", name, metaFieldPaths, i)
+				"schema: %s: %q[%d] is empty", name, metaFieldPaths, i,
+			)
 		}
 		if p == "." || strings.HasSuffix(p, "/") {
 			return DB{}, nil, fmt.Errorf(
-				"%w: db %q path %q", ErrCollectionMountUnsupported, name, p)
+				"%w: db %q path %q", ErrCollectionMountUnsupported, name, p,
+			)
 		}
 		f, ok := formatFromPath(p)
 		if !ok {
 			return DB{}, nil, fmt.Errorf(
 				"%w: db %q path %q (want .toml or .md)",
-				ErrAmbiguousPathFormat, name, p)
+				ErrAmbiguousPathFormat, name, p,
+			)
 		}
 		if i == 0 {
 			inferred = f
@@ -1504,7 +1560,8 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 		if f != inferred {
 			return DB{}, nil, fmt.Errorf(
 				"%w: db %q paths declare both %q and %q",
-				ErrInconsistentPathFormats, name, inferred, f)
+				ErrInconsistentPathFormats, name, inferred, f,
+			)
 		}
 	}
 	db.Format = inferred
@@ -1521,17 +1578,20 @@ func buildDB(name string, body map[string]any) (DB, []extendsRecord, error) {
 			if t.Heading != 0 {
 				return DB{}, nil, fmt.Errorf(
 					"schema: %s.%s: heading only allowed when db format is %q",
-					name, tname, FormatMD)
+					name, tname, FormatMD,
+				)
 			}
 			if t.RecordPer != "" {
 				return DB{}, nil, fmt.Errorf(
 					"%w: %s.%s carries record_per = %q",
-					ErrRecordPerOnTOML, name, tname, t.RecordPer)
+					ErrRecordPerOnTOML, name, tname, t.RecordPer,
+				)
 			}
 			if t.BodyField != "" {
 				return DB{}, nil, fmt.Errorf(
 					"%w: %s.%s carries body_field on TOML db",
-					ErrBodyFieldOnSectionType, name, tname)
+					ErrBodyFieldOnSectionType, name, tname,
+				)
 			}
 		}
 	}
@@ -1558,7 +1618,8 @@ func buildType(db, name string, body map[string]any) (SectionType, string, error
 			}
 			if n < 1 || n > 6 {
 				return SectionType{}, "", fmt.Errorf(
-					"schema: %s.%s: heading = %d invalid (must be 1..6)", db, name, n)
+					"schema: %s.%s: heading = %d invalid (must be 1..6)", db, name, n,
+				)
 			}
 			st.Heading = n
 		case typeKeyExtends:
@@ -1571,14 +1632,16 @@ func buildType(db, name string, body map[string]any) (SectionType, string, error
 			fieldsBody, ok := val.(map[string]any)
 			if !ok {
 				return SectionType{}, "", fmt.Errorf(
-					"schema: %s.%s.fields: must be a table, got %T", db, name, val)
+					"schema: %s.%s.fields: must be a table, got %T", db, name, val,
+				)
 			}
 			for fname, fval := range fieldsBody {
 				fbody, ok := fval.(map[string]any)
 				if !ok {
 					return SectionType{}, "", fmt.Errorf(
 						"schema: %s.%s.fields.%s: must be a table, got %T",
-						db, name, fname, fval)
+						db, name, fname, fval,
+					)
 				}
 				f, err := buildField(db, name, fname, fbody)
 				if err != nil {
@@ -1602,7 +1665,8 @@ func buildType(db, name string, body map[string]any) (SectionType, string, error
 				st.RecordPer = s
 			default:
 				return SectionType{}, "", fmt.Errorf(
-					"%w: %s.%s: got %q", ErrRecordPerInvalid, db, name, s)
+					"%w: %s.%s: got %q", ErrRecordPerInvalid, db, name, s,
+				)
 			}
 		case typeKeyBodyField:
 			s, err := stringVal(db+"."+name, key, val)
@@ -1613,13 +1677,15 @@ func buildType(db, name string, body map[string]any) (SectionType, string, error
 		default:
 			return SectionType{}, "", fmt.Errorf(
 				"schema: %s.%s: unknown key %q (allowed: description, heading, fields, extends, auto_spawn, record_per, body_field)",
-				db, name, key)
+				db, name, key,
+			)
 		}
 	}
 
 	if st.Description == "" {
 		return SectionType{}, "", fmt.Errorf(
-			"schema: %s.%s: missing required %q", db, name, typeKeyDescription)
+			"schema: %s.%s: missing required %q", db, name, typeKeyDescription,
+		)
 	}
 	// A type must declare at least one own field UNLESS it extends a
 	// base — in which case the base supplies fields. Phase B.0 verifies
@@ -1628,7 +1694,8 @@ func buildType(db, name string, body map[string]any) (SectionType, string, error
 	// errors fire before validation cares.
 	if len(st.Fields) == 0 && extendsName == "" {
 		return SectionType{}, "", fmt.Errorf(
-			"schema: %s.%s: type must declare at least one field", db, name)
+			"schema: %s.%s: type must declare at least one field", db, name,
+		)
 	}
 	return st, extendsName, nil
 }
@@ -1644,7 +1711,8 @@ func buildAutoSpawn(db, typeName string, val any) ([]SpawnSpec, error) {
 	body, ok := val.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf(
-			"schema: %s: must be a table, got %T", scope, val)
+			"schema: %s: must be a table, got %T", scope, val,
+		)
 	}
 	var specs []SpawnSpec
 	for key, raw := range body {
@@ -1654,14 +1722,16 @@ func buildAutoSpawn(db, typeName string, val any) ([]SpawnSpec, error) {
 			if !ok {
 				return nil, fmt.Errorf(
 					"schema: %s.%s: must be array of spawn specs, got %T",
-					scope, autoSpawnKeyOnCreate, raw)
+					scope, autoSpawnKeyOnCreate, raw,
+				)
 			}
 			for i, item := range arr {
 				m, ok := item.(map[string]any)
 				if !ok {
 					return nil, fmt.Errorf(
 						"schema: %s.%s[%d]: must be table, got %T",
-						scope, autoSpawnKeyOnCreate, i, item)
+						scope, autoSpawnKeyOnCreate, i, item,
+					)
 				}
 				spec, err := buildSpawnSpec(scope, autoSpawnKeyOnCreate, i, m)
 				if err != nil {
@@ -1671,7 +1741,8 @@ func buildAutoSpawn(db, typeName string, val any) ([]SpawnSpec, error) {
 			}
 		default:
 			return nil, fmt.Errorf(
-				"schema: %s: unknown key %q (allowed: on_create)", scope, key)
+				"schema: %s: unknown key %q (allowed: on_create)", scope, key,
+			)
 		}
 	}
 	return specs, nil
@@ -1690,36 +1761,42 @@ func buildSpawnSpec(scope, key string, idx int, body map[string]any) (SpawnSpec,
 			s, ok := v.(string)
 			if !ok {
 				return SpawnSpec{}, fmt.Errorf(
-					"schema: %s.type: must be string, got %T", specScope, v)
+					"schema: %s.type: must be string, got %T", specScope, v,
+				)
 			}
 			spec.Type = s
 		case spawnSpecKeyIDTemplate:
 			s, ok := v.(string)
 			if !ok {
 				return SpawnSpec{}, fmt.Errorf(
-					"schema: %s.id_template: must be string, got %T", specScope, v)
+					"schema: %s.id_template: must be string, got %T", specScope, v,
+				)
 			}
 			spec.IDTemplate = s
 		case spawnSpecKeyFields:
 			t, ok := v.(map[string]any)
 			if !ok {
 				return SpawnSpec{}, fmt.Errorf(
-					"schema: %s.fields: must be table, got %T", specScope, v)
+					"schema: %s.fields: must be table, got %T", specScope, v,
+				)
 			}
 			spec.Fields = t
 		default:
 			return SpawnSpec{}, fmt.Errorf(
 				"schema: %s: unknown key %q (allowed: type, id_template, fields)",
-				specScope, k)
+				specScope, k,
+			)
 		}
 	}
 	if spec.Type == "" {
 		return SpawnSpec{}, fmt.Errorf(
-			"schema: %s: missing required %q", specScope, spawnSpecKeyType)
+			"schema: %s: missing required %q", specScope, spawnSpecKeyType,
+		)
 	}
 	if spec.IDTemplate == "" {
 		return SpawnSpec{}, fmt.Errorf(
-			"%w: %s: id_template is empty", ErrSpawnInvalidIDTemplate, specScope)
+			"%w: %s: id_template is empty", ErrSpawnInvalidIDTemplate, specScope,
+		)
 	}
 	return spec, nil
 }
@@ -1739,7 +1816,8 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 			b, ok := val.(bool)
 			if !ok {
 				return Field{}, fmt.Errorf(
-					"schema: %s.required: must be boolean, got %T", scope, val)
+					"schema: %s.required: must be boolean, got %T", scope, val,
+				)
 			}
 			f.Required = b
 		case fieldKeyDescription:
@@ -1752,7 +1830,8 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 			arr, ok := val.([]any)
 			if !ok {
 				return Field{}, fmt.Errorf(
-					"schema: %s.enum: must be array, got %T", scope, val)
+					"schema: %s.enum: must be array, got %T", scope, val,
+				)
 			}
 			f.Enum = arr
 		case fieldKeyFormat:
@@ -1773,7 +1852,8 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 			tbl, ok := val.(map[string]any)
 			if !ok {
 				return Field{}, fmt.Errorf(
-					"schema: %s.element_fields: must be a table, got %T", scope, val)
+					"schema: %s.element_fields: must be a table, got %T", scope, val,
+				)
 			}
 			subFields := make(map[string]Field, len(tbl))
 			for sname, sval := range tbl {
@@ -1781,7 +1861,8 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 				if !ok {
 					return Field{}, fmt.Errorf(
 						"schema: %s.element_fields.%s: must be a table, got %T",
-						scope, sname, sval)
+						scope, sname, sval,
+					)
 				}
 				sub, err := buildField(db, typeName, fname+".element_fields."+sname, sbody)
 				if err != nil {
@@ -1794,7 +1875,8 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 			tbl, ok := val.(map[string]any)
 			if !ok {
 				return Field{}, fmt.Errorf(
-					"schema: %s.fields: must be a table, got %T", scope, val)
+					"schema: %s.fields: must be a table, got %T", scope, val,
+				)
 			}
 			subFields := make(map[string]Field, len(tbl))
 			for sname, sval := range tbl {
@@ -1802,7 +1884,8 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 				if !ok {
 					return Field{}, fmt.Errorf(
 						"schema: %s.fields.%s: must be a table, got %T",
-						scope, sname, sval)
+						scope, sname, sval,
+					)
 				}
 				sub, err := buildField(db, typeName, fname+".fields."+sname, sbody)
 				if err != nil {
@@ -1814,16 +1897,19 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 		default:
 			return Field{}, fmt.Errorf(
 				"schema: %s: unknown key %q (allowed: type, required, description, enum, format, default, element_type, element_fields, fields)",
-				scope, key)
+				scope, key,
+			)
 		}
 	}
 	if f.Type == "" {
 		return Field{}, fmt.Errorf(
-			"schema: %s: missing required %q", scope, fieldKeyType)
+			"schema: %s: missing required %q", scope, fieldKeyType,
+		)
 	}
 	if !isSupportedType(f.Type) {
 		return Field{}, fmt.Errorf(
-			"schema: %s: unsupported type %q", scope, f.Type)
+			"schema: %s: unsupported type %q", scope, f.Type,
+		)
 	}
 	// element_type / element_fields invariants:
 	//   - element_type forbidden on non-array fields.
@@ -1833,22 +1919,26 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 	if f.ElementType != "" && f.Type != TypeArray {
 		return Field{}, fmt.Errorf(
 			"schema: %s: element_type is only valid on type = \"array\" (got type %q)",
-			scope, f.Type)
+			scope, f.Type,
+		)
 	}
 	if f.ElementType == TypeArray {
 		return Field{}, fmt.Errorf(
 			"%w: %s: element_type = \"array\" (nested arrays are not supported in v1)",
-			ErrUnknownElementType, scope)
+			ErrUnknownElementType, scope,
+		)
 	}
 	if len(f.ElementFields) > 0 {
 		if f.Type != TypeArray {
 			return Field{}, fmt.Errorf(
-				"schema: %s: element_fields is only valid on type = \"array\"", scope)
+				"schema: %s: element_fields is only valid on type = \"array\"", scope,
+			)
 		}
 		if f.ElementType != TypeTable {
 			return Field{}, fmt.Errorf(
 				"schema: %s: element_fields requires element_type = \"table\" (got %q)",
-				scope, f.ElementType)
+				scope, f.ElementType,
+			)
 		}
 	}
 	// `fields` (direct nested-table inner shape) is valid only when
@@ -1857,7 +1947,8 @@ func buildField(db, typeName, fname string, body map[string]any) (Field, error) 
 	if len(f.Fields) > 0 && f.Type != TypeTable {
 		return Field{}, fmt.Errorf(
 			"schema: %s: fields is only valid on type = \"table\" (got type %q)",
-			scope, f.Type)
+			scope, f.Type,
+		)
 	}
 	// element_type validity: must be a primitive (excluding "array"), the
 	// literal "table", or an alias name. Alias resolution happens in
@@ -1880,12 +1971,14 @@ func checkMDHeadings(db string, types map[string]SectionType) error {
 		}
 		if t.Heading == 0 {
 			return fmt.Errorf(
-				"schema: %s.%s: MD types require %q (1..6)", db, name, typeKeyHeading)
+				"schema: %s.%s: MD types require %q (1..6)", db, name, typeKeyHeading,
+			)
 		}
 		if other, clash := seen[t.Heading]; clash {
 			return fmt.Errorf(
 				"schema: %s: heading %d shared by types %q and %q; each heading level must be unique per db",
-				db, t.Heading, other, name)
+				db, t.Heading, other, name,
+			)
 		}
 		seen[t.Heading] = name
 	}
@@ -1911,16 +2004,19 @@ func checkRecordPerInvariants(db string, types map[string]SectionType) error {
 			sawFile = true
 			if t.Heading != 0 {
 				return fmt.Errorf(
-					"%w: %s.%s declares heading=%d", ErrFileRecordWithHeading, db, name, t.Heading)
+					"%w: %s.%s declares heading=%d", ErrFileRecordWithHeading, db, name, t.Heading,
+				)
 			}
 			if t.BodyField == "" {
 				return fmt.Errorf(
-					"%w: %s.%s", ErrFileRecordMissingBodyField, db, name)
+					"%w: %s.%s", ErrFileRecordMissingBodyField, db, name,
+				)
 			}
 			if _, ok := t.Fields[t.BodyField]; !ok {
 				return fmt.Errorf(
 					"%w: %s.%s.body_field=%q",
-					ErrBodyFieldUnknown, db, name, t.BodyField)
+					ErrBodyFieldUnknown, db, name, t.BodyField,
+				)
 			}
 		default:
 			// Section-mode (default or explicit "section"). body_field
@@ -1929,7 +2025,8 @@ func checkRecordPerInvariants(db string, types map[string]SectionType) error {
 			if t.BodyField != "" {
 				return fmt.Errorf(
 					"%w: %s.%s.body_field=%q",
-					ErrBodyFieldOnSectionType, db, name, t.BodyField)
+					ErrBodyFieldOnSectionType, db, name, t.BodyField,
+				)
 			}
 		}
 	}
@@ -1967,7 +2064,8 @@ func checkPathsOverlap(reg Registry) error {
 				return fmt.Errorf(
 					"%w: dbs %q and %q both declare path %q (overlaps %q)",
 					ErrOverlappingPaths, flat[i].db, flat[j].db,
-					flat[i].path, flat[j].path)
+					flat[i].path, flat[j].path,
+				)
 			}
 		}
 	}
@@ -2022,7 +2120,8 @@ func stringVal(scope, key string, val any) (string, error) {
 	s, ok := val.(string)
 	if !ok {
 		return "", fmt.Errorf(
-			"schema: %s.%s: must be string, got %T", scope, key, val)
+			"schema: %s.%s: must be string, got %T", scope, key, val,
+		)
 	}
 	return s, nil
 }
@@ -2031,14 +2130,16 @@ func stringSliceVal(scope, key string, val any) ([]string, error) {
 	arr, ok := val.([]any)
 	if !ok {
 		return nil, fmt.Errorf(
-			"schema: %s.%s: must be array of strings, got %T", scope, key, val)
+			"schema: %s.%s: must be array of strings, got %T", scope, key, val,
+		)
 	}
 	out := make([]string, 0, len(arr))
 	for i, item := range arr {
 		s, ok := item.(string)
 		if !ok {
 			return nil, fmt.Errorf(
-				"schema: %s.%s[%d]: must be string, got %T", scope, key, i, item)
+				"schema: %s.%s[%d]: must be string, got %T", scope, key, i, item,
+			)
 		}
 		out = append(out, s)
 	}
@@ -2054,12 +2155,14 @@ func intVal(scope, key string, val any) (int, error) {
 	case float64:
 		if n != float64(int(n)) {
 			return 0, fmt.Errorf(
-				"schema: %s.%s: must be integer, got fractional %v", scope, key, val)
+				"schema: %s.%s: must be integer, got fractional %v", scope, key, val,
+			)
 		}
 		return int(n), nil
 	}
 	return 0, fmt.Errorf(
-		"schema: %s.%s: must be integer, got %T", scope, key, val)
+		"schema: %s.%s: must be integer, got %T", scope, key, val,
+	)
 }
 
 func isSupportedType(t Type) bool {

@@ -117,7 +117,8 @@ func parseBytes(buf []byte, sourcePath string) (*Index, error) {
 	if idx.FormatVersion != FormatVersion {
 		return nil, fmt.Errorf(
 			"%w: %s declares %d, this build supports %d (run `ta index rebuild`)",
-			ErrUnknownFormatVersion, sourcePath, idx.FormatVersion, FormatVersion)
+			ErrUnknownFormatVersion, sourcePath, idx.FormatVersion, FormatVersion,
+		)
 	}
 
 	// Walk the remaining tree; flatten each leaf entry into a dotted
@@ -158,7 +159,8 @@ func flattenInto(node map[string]any, prefix []string, records map[string]Entry,
 			canonical := strings.Join(append(append([]string{}, prefix...), k), ".")
 			return fmt.Errorf(
 				"index: %s: unexpected scalar at %q (expected nested table or Entry)",
-				sourcePath, canonical)
+				sourcePath, canonical,
+			)
 		}
 		if err := flattenInto(child, append(prefix, k), records, sourcePath); err != nil {
 			return err
@@ -208,7 +210,8 @@ func decodeTime(node map[string]any, key, canonical, sourcePath string) (time.Ti
 	raw, ok := node[key]
 	if !ok {
 		return time.Time{}, fmt.Errorf(
-			"index: %s: %q: missing %s timestamp", sourcePath, canonical, key)
+			"index: %s: %q: missing %s timestamp", sourcePath, canonical, key,
+		)
 	}
 	switch v := raw.(type) {
 	case time.Time:
@@ -218,13 +221,15 @@ func decodeTime(node map[string]any, key, canonical, sourcePath string) (time.Ti
 		if err != nil {
 			return time.Time{}, fmt.Errorf(
 				"index: %s: %q: parse %s timestamp %q: %w",
-				sourcePath, canonical, key, v, err)
+				sourcePath, canonical, key, v, err,
+			)
 		}
 		return t, nil
 	default:
 		return time.Time{}, fmt.Errorf(
 			"index: %s: %q: %s must be a datetime, got %T",
-			sourcePath, canonical, key, raw)
+			sourcePath, canonical, key, raw,
+		)
 	}
 }
 
@@ -244,7 +249,8 @@ func (idx *Index) Save(projectRoot string) error {
 	if idx.FormatVersion != FormatVersion {
 		return fmt.Errorf(
 			"%w: cannot Save Index with FormatVersion=%d (this build supports %d)",
-			ErrUnknownFormatVersion, idx.FormatVersion, FormatVersion)
+			ErrUnknownFormatVersion, idx.FormatVersion, FormatVersion,
+		)
 	}
 
 	dir := filepath.Join(projectRoot, config.SchemaDirName)
@@ -312,7 +318,8 @@ func nestEntry(root map[string]any, canonical string, entry Entry) error {
 			if existing, ok := cur[seg]; ok {
 				return fmt.Errorf(
 					"index: canonical address %q collides with existing node (type %T)",
-					canonical, existing)
+					canonical, existing,
+				)
 			}
 			cur[seg] = entryToMap(entry)
 			return nil
@@ -328,7 +335,8 @@ func nestEntry(root map[string]any, canonical string, entry Entry) error {
 		if !ok {
 			return fmt.Errorf(
 				"index: canonical address %q traverses non-table at segment %q",
-				canonical, seg)
+				canonical, seg,
+			)
 		}
 		cur = nextMap
 	}

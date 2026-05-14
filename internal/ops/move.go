@@ -266,7 +266,8 @@ func moveOneItem(
 						ErrMovePartialWrite,
 						dstID, dstFilePath,
 						srcID, srcResolved.FilePath,
-						srcID, srcDeleteFlagsHint(srcDB.Name, srcBareType), err)
+						srcID, srcDeleteFlagsHint(srcDB.Name, srcBareType), err,
+					)
 			}
 		} else {
 			// Section-mode: splice src bytes out of the source file.
@@ -285,7 +286,8 @@ func moveOneItem(
 							Sources:     resolution.Sources,
 						}, fmt.Errorf(
 							"%w: re-locate src in post-dst-write buffer: %v",
-							ErrMovePartialWrite, err)
+							ErrMovePartialWrite, err,
+						)
 				}
 				if !found {
 					// Dst write replaced src in place (collision under
@@ -310,7 +312,8 @@ func moveOneItem(
 						ErrMovePartialWrite,
 						dstID, dstFilePath,
 						srcID, srcResolved.FilePath,
-						srcID, srcDeleteFlagsHint(srcDB.Name, srcBareType), err)
+						srcID, srcDeleteFlagsHint(srcDB.Name, srcBareType), err,
+					)
 			}
 		}
 	}
@@ -356,7 +359,8 @@ func resolveDstType(srcDB, dstDB schema.DB, srcBareType, typeName string) (strin
 		if dbPart != dstDB.Name {
 			return "", fmt.Errorf(
 				"%w: --type %q targets db %q but dst id resolved to db %q",
-				ErrTypeMismatch, typeName, dbPart, dstDB.Name)
+				ErrTypeMismatch, typeName, dbPart, dstDB.Name,
+			)
 		}
 		if bareType == "" {
 			return "", fmt.Errorf("%w: empty type after %q.", ErrTypeNotQualified, dbPart)
@@ -374,7 +378,8 @@ func resolveDstType(srcDB, dstDB schema.DB, srcBareType, typeName string) (strin
 	}
 	return "", fmt.Errorf(
 		"%w: src db %q and dst db %q do not share a type named %q; specify --type=%s.<type>",
-		ErrTypeMismatch, srcDB.Name, dstDB.Name, srcBareType, dstDB.Name)
+		ErrTypeMismatch, srcDB.Name, dstDB.Name, srcBareType, dstDB.Name,
+	)
 }
 
 // planMoveDstWrite returns (dstFilePath, newBuf, err) for the dst-side

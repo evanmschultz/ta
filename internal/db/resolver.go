@@ -232,10 +232,12 @@ func (r *Resolver) ResolveRead(id string) (schema.DB, Instance, string, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return schema.DB{}, Instance{}, "", fmt.Errorf(
 				"%w: db %q file-relpath %q (%s)",
-				ErrInstanceNotFound, dbDecl.Name, res.FileRelPath, res.FilePath)
+				ErrInstanceNotFound, dbDecl.Name, res.FileRelPath, res.FilePath,
+			)
 		}
 		return schema.DB{}, Instance{}, "", fmt.Errorf(
-			"stat %s: %w", res.FilePath, err)
+			"stat %s: %w", res.FilePath, err,
+		)
 	}
 	inst := Instance{
 		Slug:     res.FileRelPath,
@@ -350,7 +352,8 @@ func (r *Resolver) ResolveDelete(id string) (Resolved, schema.DB, DeleteLevel, e
 		}
 		return Resolved{}, schema.DB{}, 0, fmt.Errorf(
 			"%w: %q has no bracket-key and matches no concrete file",
-			ErrBadID, id)
+			ErrBadID, id,
+		)
 	case 1:
 		m := matches[0]
 		out := Resolved{
@@ -380,7 +383,8 @@ func (r *Resolver) ResolveDelete(id string) (Resolved, schema.DB, DeleteLevel, e
 		sort.Strings(paths)
 		return Resolved{}, schema.DB{}, LevelGlobRoot, fmt.Errorf(
 			"%w: %q resolves to %d files (%s); pick one",
-			ErrUnscopedGlobDelete, id, len(paths), strings.Join(paths, ", "))
+			ErrUnscopedGlobDelete, id, len(paths), strings.Join(paths, ", "),
+		)
 	}
 }
 
@@ -398,7 +402,8 @@ func (r *Resolver) ResolveWrite(id, pathHint string) (schema.DB, Instance, strin
 	if pathHint != "" {
 		return schema.DB{}, Instance{}, "", fmt.Errorf(
 			"%w: path_hint %q rejected — id grammar derives target path from id",
-			ErrPathHintMismatch, pathHint)
+			ErrPathHintMismatch, pathHint,
+		)
 	}
 	inst := Instance{
 		Slug:     res.FileRelPath,

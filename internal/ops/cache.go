@@ -88,7 +88,8 @@ func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	if bound != "" && bound != abs {
 		return config.Resolution{}, fmt.Errorf(
 			"ops: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
-			bound, abs)
+			bound, abs,
+		)
 	}
 	if entry != nil && !c.sourceMoved(entry) {
 		return entry.resolution, nil
@@ -102,7 +103,8 @@ func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	if c.projectPath != "" && c.projectPath != abs {
 		return config.Resolution{}, fmt.Errorf(
 			"ops: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
-			c.projectPath, abs)
+			c.projectPath, abs,
+		)
 	}
 	if c.entry != nil && !c.sourceMoved(c.entry) {
 		return c.entry.resolution, nil

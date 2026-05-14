@@ -81,7 +81,8 @@ func (r *Resolver) ResolveID(id string) (Resolved, schema.DB, error) {
 	parts := strings.Split(id, ".")
 	if slices.Contains(parts, "") {
 		return Resolved{}, schema.DB{}, fmt.Errorf(
-			"%w: %q has empty segment", ErrBadID, id)
+			"%w: %q has empty segment", ErrBadID, id,
+		)
 	}
 
 	// Iterate dbs in stable order so first-match is deterministic.
@@ -106,7 +107,8 @@ func (r *Resolver) ResolveID(id string) (Resolved, schema.DB, error) {
 	}
 
 	return Resolved{}, schema.DB{}, fmt.Errorf(
-		"%w: %q", ErrIDDoesNotMatchAnyDB, id)
+		"%w: %q", ErrIDDoesNotMatchAnyDB, id,
+	)
 }
 
 // ResolveIDInDB is the type-aware companion to ResolveID. It is the
@@ -138,12 +140,14 @@ func (r *Resolver) ResolveIDInDB(id, dbName string) (Resolved, schema.DB, error)
 	dbDecl, ok := r.registry.DBs[dbName]
 	if !ok {
 		return Resolved{}, schema.DB{}, fmt.Errorf(
-			"%w: db %q not declared in registry", ErrIDDoesNotMatchAnyDB, dbName)
+			"%w: db %q not declared in registry", ErrIDDoesNotMatchAnyDB, dbName,
+		)
 	}
 	parts := strings.Split(id, ".")
 	if slices.Contains(parts, "") {
 		return Resolved{}, schema.DB{}, fmt.Errorf(
-			"%w: %q has empty segment", ErrBadID, id)
+			"%w: %q has empty segment", ErrBadID, id,
+		)
 	}
 	for _, mount := range dbDecl.Paths {
 		res, ok, err := tryParseAgainstMount(parts, dbDecl, mount, r.root)
@@ -157,7 +161,8 @@ func (r *Resolver) ResolveIDInDB(id, dbName string) (Resolved, schema.DB, error)
 	}
 	return Resolved{}, schema.DB{}, fmt.Errorf(
 		"%w: db %q does not accept id %q (%s; got %d segments)",
-		ErrIDDoesNotMatchAnyDB, dbName, id, expectedShapeForDB(dbDecl), len(parts))
+		ErrIDDoesNotMatchAnyDB, dbName, id, expectedShapeForDB(dbDecl), len(parts),
+	)
 }
 
 // expectedShapeForDB renders a human-readable expected-shape
@@ -230,7 +235,8 @@ func tryParseAgainstMount(parts []string, dbDecl schema.DB, mount, root string) 
 	base, mountAfterHome, err := resolveHome(root, mount)
 	if err != nil {
 		return Resolved{}, false, fmt.Errorf(
-			"db %q: mount %q: %w", dbDecl.Name, mount, err)
+			"db %q: mount %q: %w", dbDecl.Name, mount, err,
+		)
 	}
 	staticPrefix, residualSegs := splitMountSegments(mountAfterHome)
 

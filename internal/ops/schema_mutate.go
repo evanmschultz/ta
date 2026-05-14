@@ -433,7 +433,8 @@ func applyBaseMutation(action, name string, data map[string]any, root map[string
 		if len(referrers) > 0 {
 			return fmt.Errorf(
 				"%w: base %q on db %q referenced by [%s]",
-				ErrBaseStillReferenced, baseName, dbName, strings.Join(referrers, ", "))
+				ErrBaseStillReferenced, baseName, dbName, strings.Join(referrers, ", "),
+			)
 		}
 		delete(bases, baseName)
 		return nil

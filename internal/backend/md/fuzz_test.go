@@ -71,7 +71,8 @@ func FuzzSpliceInvariant(f *testing.F) {
 	// Nested-H2/H3 splice preservation seed — a declared H3 under a
 	// declared H2 must survive as its own range while the parent's
 	// range continues through it.
-	synth = append(synth,
+	synth = append(
+		synth,
 		"## Install\n\nintro\n\n### Prereqs\n\ntoolchain\n\n### Setup\n\nsteps\n\n## Config\n\nc\n",
 	)
 	for _, s := range synth[len(synth)-1:] {

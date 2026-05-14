@@ -58,7 +58,8 @@ func buildBackend(dbDecl schema.DB, resolved db.Resolved) (record.Backend, error
 			fileType, st, ok := singleFileRecordType(dbDecl)
 			if !ok {
 				return nil, fmt.Errorf(
-					"ops: db %q has file-as-record types but none resolved", dbDecl.Name)
+					"ops: db %q has file-as-record types but none resolved", dbDecl.Name,
+				)
 			}
 			types := []record.DeclaredType{{Name: fileType}}
 			b, err := md.NewFileRecordBackend(types, fileType, st.BodyField)
