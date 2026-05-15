@@ -595,6 +595,240 @@ required = true
 	}
 }
 
+// TestDelete_DisambiguatesWithTypeHint_MCPShape is the F38d-2.14b
+// extension lock: ops.DeleteWithOptions with a db-qualified typeName
+// (the MCP `delete` tool's per-item `type` field, and the CLI's
+// safety-first `--type` convention) must short-circuit via
+// ResolveIDInDB against the caller's named db BEFORE handing off to
+// ResolveDelete. Pre-fix, the typeName != "" branch called
+// ResolveDelete directly, whose Path 1 unconstrained ResolveID landed
+// on claude_agents (alphabetically earlier) with BracketKey="",
+// Path 2's instance scan failed, and ErrBadID surfaced. The F29
+// cross-check at the bottom of DeleteWithOptions never fired because
+// ResolveDelete returned an error first. Post-fix, ResolveIDInDB
+// constrains resolution to the plans db up front and the record
+// deletes cleanly under the same ambiguous schema.
+func TestDelete_DisambiguatesWithTypeHint_MCPShape(t *testing.T) {
+	root := withAmbiguousIDSchema(t)
+	// Create the record — lands in .ta/cascade/plans.toml, index entry written.
+	if _, _, err := ops.Create(root, "plans.mcp-shape-smoke", "plans.plan", map[string]any{
+		"title": "Type-hint delete MCP-shape smoke",
+		"state": "in_progress",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// DeleteWithOptions with db-qualified typeName simulates the MCP
+	// delete flow ({id, type}) and the CLI's --type flag.
+	res, err := ops.DeleteWithOptions(root, "plans.mcp-shape-smoke", "plans.plan", ops.DeleteOptions{})
+	if err != nil {
+		t.Fatalf("DeleteWithOptions: %v", err)
+	}
+
+	// FilePath must be the plans-db file, not an agents/plans/... path.
+	wantPath := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	if res.FilePath != wantPath {
+		t.Errorf("Delete FilePath = %q, want %q", res.FilePath, wantPath)
+	}
+
+	// File body must no longer contain the bracket header.
+	buf, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	if contains(string(buf), "[plans.mcp-shape-smoke]") {
+		t.Errorf("plans.toml still carries [plans.mcp-shape-smoke] header after delete; body:\n%s", buf)
+	}
+
+	// Index entry must be cleaned.
+	idx, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("index.Load: %v", err)
+	}
+	if _, ok := idx.Get("plans.mcp-shape-smoke"); ok {
+		t.Errorf("index still carries entry for plans.mcp-shape-smoke after delete")
+	}
+
+	// Crucially: the claude_agents glob mount must NOT have been
+	// touched — no spurious agents/plans/mcp-shape-smoke.md anywhere.
+	spurious := filepath.Join(root, "agents", "plans", "mcp-shape-smoke.md")
+	if _, statErr := os.Stat(spurious); statErr == nil {
+		t.Errorf("spurious file %s exists after delete — type hint did not protect claude_agents mount", spurious)
+	}
+}
+
+// TestDelete_TypeHintRejectsWrongType locks the F29 cross-check
+// contract under the F38d-2.14b extension: when the caller supplies a
+// --type whose db does NOT accept the id, the delete MUST refuse and
+// the record on disk MUST remain intact. With the new up-front
+// ResolveIDInDB short-circuit, this case fails at ResolveIDInDB (the
+// caller's db does not accept the id's mount shape) and the fallback
+// ResolveDelete then also fails — both before any disk write occurs.
+// The surfaced error is ErrIDDoesNotMatchAnyDB or ErrBadID; both are
+// acceptable "this id does not belong to the named db" signals.
+func TestDelete_TypeHintRejectsWrongType(t *testing.T) {
+	root := withAmbiguousIDSchema(t)
+	// Add a cascade db to the schema so cascade.drop is a real db-
+	// qualified type the caller can name. withAmbiguousIDSchema only
+	// declares claude_agents + plans; extend it with cascade for this
+	// cross-check.
+	writeSchema(t, root, `
+[claude_agents]
+paths = ["agents/*/*.md"]
+
+[claude_agents.agent]
+description = "A claude agent"
+record_per = "file"
+body_field = "prompt"
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+
+[plans]
+paths = [".ta/cascade/plans.toml"]
+
+[plans.plan]
+description = "A plan."
+
+[plans.plan.fields.title]
+type = "string"
+required = true
+
+[plans.plan.fields.state]
+type = "string"
+required = true
+
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+
+[cascade.drop]
+description = "A cascade drop."
+
+[cascade.drop.fields.title]
+type = "string"
+required = true
+`)
+
+	// Create the record as plans.plan — lands in .ta/cascade/plans.toml.
+	if _, _, err := ops.Create(root, "plans.wrong-type-smoke", "plans.plan", map[string]any{
+		"title": "Wrong-type cross-check smoke",
+		"state": "in_progress",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// DeleteWithOptions with typeName=cascade.drop — caller named the
+	// wrong db for this id.
+	_, err := ops.DeleteWithOptions(root, "plans.wrong-type-smoke", "cascade.drop", ops.DeleteOptions{})
+	if err == nil {
+		t.Fatalf("DeleteWithOptions with wrong --type: expected error, got nil")
+	}
+
+	// The error must clearly signal the id does not belong to the
+	// caller's named db. Either ErrIDDoesNotMatchAnyDB (the constrained
+	// resolver's miss sentinel) or ErrBadID (the ResolveDelete fallback's
+	// miss sentinel) is acceptable — both mean "this id is not what you
+	// said it was". The error message must mention either the id or
+	// the named db (cascade) so the user can correct the request.
+	errMsg := err.Error()
+	if !contains(errMsg, "plans.wrong-type-smoke") && !contains(errMsg, "cascade") {
+		t.Errorf("error message %q does not mention id or named db; expected a clear type-mismatch signal", errMsg)
+	}
+
+	// Record on disk must remain — the bracket header is still in the
+	// plans-db file.
+	planFile := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	buf, readErr := os.ReadFile(planFile)
+	if readErr != nil {
+		t.Fatalf("read plans.toml: %v", readErr)
+	}
+	if !contains(string(buf), "[plans.wrong-type-smoke]") {
+		t.Errorf("plans.toml lost [plans.wrong-type-smoke] header after a refused delete; body:\n%s", buf)
+	}
+
+	// Index entry must remain.
+	idx, idxErr := index.Load(root)
+	if idxErr != nil {
+		t.Fatalf("index.Load: %v", idxErr)
+	}
+	if _, ok := idx.Get("plans.wrong-type-smoke"); !ok {
+		t.Errorf("index lost entry for plans.wrong-type-smoke after a refused delete")
+	}
+}
+
+// TestDelete_TypeHintFallsBackWhenIndexMisses verifies the orphan
+// recovery path under the F38d-2.14b extension: a record written
+// directly to disk (no ops.Create, no index entry) is still deletable
+// when the caller supplies a correct db-qualified --type. The
+// ResolveIDInDB short-circuit consults the schema, not the index, so
+// the orphan path works without any index hint. Uses a 2-db schema
+// (cascade + plans) without the file-as-record claude_agents db so
+// the schema is unambiguous and the test focuses on the orphan
+// recovery, not the disambiguation.
+func TestDelete_TypeHintFallsBackWhenIndexMisses(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+
+[cascade.drop]
+description = "A cascade drop."
+
+[cascade.drop.fields.title]
+type = "string"
+required = true
+
+[plans]
+paths = [".ta/cascade/plans.toml"]
+
+[plans.plan]
+description = "A plan."
+
+[plans.plan.fields.title]
+type = "string"
+required = true
+
+[plans.plan.fields.state]
+type = "string"
+required = true
+`)
+	// Write the record body directly to disk (bypassing ops.Create →
+	// no index entry).
+	planFile := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	if err := os.MkdirAll(filepath.Dir(planFile), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	orphanTOML := "format_version = 2\n\n[plans.orphan-typed]\ntitle = \"Orphan typed record\"\nstate = \"todo\"\n"
+	if err := os.WriteFile(planFile, []byte(orphanTOML), 0o644); err != nil {
+		t.Fatalf("write plans.toml: %v", err)
+	}
+
+	// No index entry exists — ResolveIDInDB against the named db must
+	// succeed via the schema-only path.
+	res, err := ops.DeleteWithOptions(root, "plans.orphan-typed", "plans.plan", ops.DeleteOptions{})
+	if err != nil {
+		t.Fatalf("DeleteWithOptions (orphan, typed, no index): %v", err)
+	}
+	if res.FilePath != planFile {
+		t.Errorf("Delete FilePath = %q, want %q", res.FilePath, planFile)
+	}
+
+	// File body must no longer contain the bracket header.
+	buf, err := os.ReadFile(planFile)
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	if contains(string(buf), "[plans.orphan-typed]") {
+		t.Errorf("plans.toml still carries [plans.orphan-typed] header after delete; body:\n%s", buf)
+	}
+}
+
 // withFileAsRecordSchema sets up a project root with an agents db
 // declared as file-as-record per F31: each `agents/<group>/<name>.md`
 // is one whole-file record with YAML frontmatter holding the typed

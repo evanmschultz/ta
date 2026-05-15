@@ -1329,6 +1329,107 @@ func TestMCPDelete_BatchItems(t *testing.T) {
 	}
 }
 
+// TestMCPDelete_DisambiguatesWithTypeHint_Wire is the F38d-2.14b
+// extension wire-level lock: the MCP delete tool with a db-qualified
+// `type` field per item must short-circuit via ResolveIDInDB against
+// the caller's named db. Pre-fix, the typeName != "" branch landed
+// on the alphabetically-earlier claude_agents glob mount and surfaced
+// "has no bracket-key" / ErrBadID. The dev hit this end-to-end via
+// mcp__ta__delete(items=[{id, type: "plans.plan"}]) in the dogfood
+// project — the ops-layer unit test asserts the same invariant but
+// at the layer below MCP; this test covers the wire surface so a
+// future regression in handleDelete itself (decode, pass-through,
+// envelope shape) still fails loudly.
+func TestMCPDelete_DisambiguatesWithTypeHint_Wire(t *testing.T) {
+	ambiguousSchema := `
+[claude_agents]
+paths = ["agents/*/*.md"]
+
+[claude_agents.agent]
+description = "A claude agent"
+record_per = "file"
+body_field = "prompt"
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+
+[plans]
+paths = [".ta/cascade/plans.toml"]
+
+[plans.plan]
+description = "A plan."
+
+[plans.plan.fields.title]
+type = "string"
+required = true
+
+[plans.plan.fields.state]
+type = "string"
+required = true
+`
+	fx := newFixtureWith(t, ambiguousSchema)
+	c := newClient(t, fx.projectRoot)
+
+	// Create the record via MCP with type=plans.plan.
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.wire-smoke",
+				"type": "plans.plan",
+				"data": map[string]any{"title": "Wire smoke", "state": "todo"},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+
+	// Delete via MCP with {id, type} — the exact wire shape the dev
+	// reproduced the F38d-2.14b failure with.
+	res = callTool(t, c, "delete", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.wire-smoke", "type": "plans.plan"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("delete envelope errored: %s", firstText(t, res))
+	}
+	results := decodeBatchResults(t, firstText(t, res))
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	if ok, _ := results[0]["ok"].(bool); !ok {
+		t.Errorf("delete result not OK: %+v", results[0])
+	}
+	if errMsg, _ := results[0]["error"].(string); errMsg != "" {
+		t.Errorf("delete result carries error: %s", errMsg)
+	}
+
+	// Plans file must no longer carry the bracket header.
+	planFile := filepath.Join(fx.projectRoot, ".ta", "cascade", "plans.toml")
+	buf, err := os.ReadFile(planFile)
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	if strings.Contains(string(buf), "[plans.wire-smoke]") {
+		t.Errorf("plans.toml still carries [plans.wire-smoke] header; body:\n%s", buf)
+	}
+
+	// No spurious agents/plans/wire-smoke.md from the claude_agents mount.
+	spurious := filepath.Join(fx.projectRoot, "agents", "plans", "wire-smoke.md")
+	if _, statErr := os.Stat(spurious); statErr == nil {
+		t.Errorf("spurious file %s exists; type hint did not protect claude_agents mount", spurious)
+	}
+}
+
 // TestMCPDelete_DuplicateIds_Errors — duplicate ids on delete reject loud.
 func TestMCPDelete_DuplicateIds_Errors(t *testing.T) {
 	fx := newFixtureWith(t, tomlTaskSchema)

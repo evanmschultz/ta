@@ -1022,6 +1022,14 @@ QA falsification on the F38d-2.14 fix confirmed `Delete` carries the same shape 
 
 **Out of scope for the F38d-2.14 slice** because the resolver-side branching is non-trivial. Schedule as F38d-2.14b in the next dogfood pass.
 
+**Update — F38d-2.14b partial-fix landed (commit `0b7b718`)**: `DeleteWithOptions` now branches on `typeName == ""` — empty path consults `resolveIDWithIndexHint` and short-circuits to `LevelRecord` when the hint resolves to a bracket-keyed view. Tests `TestDelete_DisambiguatesViaIndexedType` + `TestDelete_FallsBackToResolveIDWhenIndexMisses` pass. Verified end-to-end: `mcp__ta__delete(items=[{id: "plans.dogfood-smoke-2"}])` (no `type` field) successfully removed the live probe via the MCP server, cleaning both the file body and the index entry.
+
+**Gap — F38d-2.14b is INCOMPLETE for the typeName != "" path**: When the MCP delete tool is called with `{id, type}` (the safety-first MCP-client convention), `DeleteWithOptions` routes to the `else` branch which goes directly to `resolver.ResolveDelete(id)` — the same buggy code path the empty-type branch now avoids. F29's re-run at `ops.go:866-875` only fires AFTER `ResolveDelete` succeeds, so the bug surfaces BEFORE F29 can constrain. Repro: `mcp__ta__delete(items=[{id: "plans.X", type: "plans.plan"}])` under the ambiguous schema still returns `db: malformed id: "plans.X" has no bracket-key and matches no concrete file`. Both QA agents on the F38d-2.14b dispatch (proof + falsification) verified the non-empty branch is byte-identical to baseline and treated that as positive evidence — but the baseline IS buggy in this scenario, so byte-identical-to-baseline preserves the bug. Lesson: future QA dispatches MUST run the actual MCP-shape end-to-end path, not just structure-mirror against the prior fix.
+
+**Fix shape (F38d-2.14b extension)**: make the typeName != "" branch ALSO consult the index hint (or pre-resolve via `resolveIDForCallerType` before `ResolveDelete`) so MCP-shape `{id, type}` calls disambiguate correctly. Add `TestDelete_DisambiguatesWithTypeHint_MCPShape` regression test asserting `DeleteWithOptions(path, id, "plans.plan", opts)` succeeds under the ambiguous schema.
+
+**Update — F38d-2.14b extension landed (CLOSED)**: `DeleteWithOptions`'s typeName != "" branch now consults `resolver.ResolveIDInDB(id, dbPart)` first and short-circuits to LevelRecord when it resolves cleanly; falls back to `ResolveDelete` on miss to preserve LevelFile / LevelGlobRoot semantics. A `constrainedByTypeHint` flag prevents redundant F29 re-resolution when the hint already constrained. Tests landed in `internal/ops/ops_test.go`: `TestDelete_DisambiguatesWithTypeHint_MCPShape`, `TestDelete_TypeHintRejectsWrongType`, `TestDelete_TypeHintFallsBackWhenIndexMisses`. QA falsification authorized + added `TestMCPDelete_DisambiguatesWithTypeHint_Wire` at `internal/mcpsrv/server_test.go` — exercises the actual MCP wire surface (in-process client, `callTool "delete" {items: [{id, type}]}`); stash-and-re-run experiment confirmed the wire test catches the pre-fix canonical error string `db: malformed id: "X" has no bracket-key and matches no concrete file`. `mage check`: 969/9/0. F38d-2.14b is now CLOSED end-to-end for both empty-type and type-supplied MCP delete shapes.
+
 ### F38d-2.14c [MINOR-LATENT] `index.Entry` lacks `DBName` field
 
 QA falsification: `resolveIDWithIndexHint` scans every db declaring the indexed bare type and accepts the first `ResolveIDInDB` success in alphabetical order. The `Entry` struct (`internal/index/index.go:42-46`) only stores `Type` (bare type name), not the db that owned the entry at write time. Under the current dogfood schema only `plans` declares the `plan` type — so the failure mode is dormant. A future schema with two dbs both declaring `plan` (and both mounts admitting the id) would let the alphabetically-earlier db win regardless of which db wrote the entry.
@@ -1055,15 +1063,15 @@ Both tests exercise the same code path the MCP `create` tool reaches. If the ori
 
 **Follow-up (separate)**: `<project>/plans.toml` at the repo root is a tracked orphan from a pre-cascade schema state. Not referenced by current schema, not in `.ta/index.toml`. Either delete, .gitignore, or migrate contents to `.ta/cascade/plans.toml` in a dedicated cleanup slice. Out of scope for this fix.
 
-### F38d-2.9 [BLOCKER] MCP `list_sections` crashes when scope is unset
+### F38d-2.9 [CLOSED — could not reproduce against fresh MCP server]
 
-Reproduction: `mcp__ta__list_sections` with `path` set but no `scope` → returns error `build MD backend for db "claude_agents": md: heading level must be in [1, 6]: type "agent" has heading=0`.
+Original symptom: `mcp__ta__list_sections` with no scope returned `build MD backend for db "claude_agents": md: heading level must be in [1, 6]: type "agent" has heading=0`.
 
-Cause: the unset-scope path iterates EVERY db; `claude_agents` is a file-record db (each `.md` file IS one record) but the MD-backend validator requires a heading level in [1,6]; file-records have `heading=0` by design. Same code path is used in `ta search --all --json` from CLI and works — so the bug is specifically in `list_sections`'s all-db walk dispatch.
+Post-Claude-restart (commit `4927f49`) re-verification: `mcp__ta__list_sections` with no scope now returns 39 sections cleanly across all 9 dbs INCLUDING the 9 `ta-*` file-record entries. The earlier crash was an artifact of the long-running MCP server's stale schema state (the bug pre-dated the cascade-bootstrap schema migration; the freshly-spawned server reads the current schema correctly).
 
-Fix: route file-record types through the same file-record-aware backend that search uses (`internal/search/search.go` F38b dispatch). The list-sections backend lacks the F38b file-record dispatch.
+No code change required. Closed.
 
-Test: `TestMCPListSections_FileRecordDispatch` — assert `list_sections` with no scope walks file-record dbs cleanly.
+**Note**: F38d-2.10 (scope filter empty for file-record dbs) is distinct and STILL reproduces — see below.
 
 ### F38d-2.10 [MAJOR] MCP `list_sections` with a db-name scope returns empty for file-record dbs
 

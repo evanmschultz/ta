@@ -828,9 +828,27 @@ func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteRes
 	// (e.g. file-as-record) or a hint miss falls back to ResolveDelete so
 	// LevelFile / LevelGlobRoot semantics still flow through the
 	// existing resolver path.
+	//
+	// F38d-2.14b extension: when typeName is db-qualified (the MCP delete
+	// tool exposes a `type` field per item, and CLI users pass --type as
+	// the safety-first convention), short-circuit via ResolveIDInDB
+	// against the caller's named db FIRST — same intent as the empty-
+	// typeName index-hint path, but using the caller's explicit type as
+	// the constraint instead of the index. Without this, ResolveDelete's
+	// Path 1 hits unconstrained ResolveID with the same canonical F38d-
+	// 2.14 failure mode for typeName-supplying callers (the original
+	// F38d-2.14b landed only the typeName=="" branch). When ResolveIDInDB
+	// returns a non-empty BracketKey we're at LevelRecord; when it misses
+	// (mount-shape mismatch — caller named the wrong db, or id is a bare
+	// file-relpath the named db's section-mode mount cannot accept), fall
+	// back to ResolveDelete so LevelFile / LevelGlobRoot semantics and
+	// the F29 cross-check below still fire. The fall-back error path also
+	// surfaces ErrIDDoesNotMatchAnyDB when the caller's --type names a db
+	// that does not accept the id — a clear type-mismatch signal.
 	var resolved db.Resolved
 	var dbDecl schema.DB
 	var level db.DeleteLevel
+	constrainedByTypeHint := false
 	if typeName == "" {
 		if hintRes, hintDB, hintErr := resolveIDWithIndexHint(resolver, resolution.Registry, path, id); hintErr == nil && hintRes.BracketKey != "" {
 			resolved = hintRes
@@ -847,13 +865,23 @@ func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteRes
 			}
 		}
 	} else {
-		resolved, dbDecl, level, err = resolver.ResolveDelete(id)
-		if err != nil {
-			if errors.Is(err, db.ErrUnscopedGlobDelete) {
-				return DeleteResult{Sources: resolution.Sources, Level: db.LevelGlobRoot},
-					fmt.Errorf("%w: %v", ErrUnscopedGlobDelete, err)
+		if dbPart, _, ok := strings.Cut(typeName, "."); ok && dbPart != "" {
+			if hintRes, hintDB, hintErr := resolver.ResolveIDInDB(id, dbPart); hintErr == nil && hintRes.BracketKey != "" {
+				resolved = hintRes
+				dbDecl = hintDB
+				level = db.LevelRecord
+				constrainedByTypeHint = true
 			}
-			return DeleteResult{Sources: resolution.Sources}, err
+		}
+		if !constrainedByTypeHint {
+			resolved, dbDecl, level, err = resolver.ResolveDelete(id)
+			if err != nil {
+				if errors.Is(err, db.ErrUnscopedGlobDelete) {
+					return DeleteResult{Sources: resolution.Sources, Level: db.LevelGlobRoot},
+						fmt.Errorf("%w: %v", ErrUnscopedGlobDelete, err)
+				}
+				return DeleteResult{Sources: resolution.Sources}, err
+			}
 		}
 	}
 
@@ -863,7 +891,14 @@ func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteRes
 	// a looser mount shape. File-level delete operates on bare
 	// file-relpaths and does not take --type, so the constraint only
 	// applies on the record branch.
-	if level == db.LevelRecord && typeName != "" {
+	//
+	// F38d-2.14b extension: skip when we already constrained via the
+	// up-front ResolveIDInDB short-circuit above. The check is otherwise
+	// idempotent (it would re-run the same call with the same result),
+	// but skipping makes the trace explicit: the type-hint either ran
+	// up front (constrainedByTypeHint=true) OR runs here after a
+	// fallback ResolveDelete that may have landed on the wrong db.
+	if level == db.LevelRecord && typeName != "" && !constrainedByTypeHint {
 		if dbPart, _, ok := strings.Cut(typeName, "."); ok && dbPart != "" {
 			constrained, constrainedDB, cerr := resolver.ResolveIDInDB(id, dbPart)
 			if cerr != nil {
