@@ -1,7 +1,1 @@
 format_version = 2
-
-[plans]
-[plans.dogfood-smoke-2]
-created = 2026-05-14T23:14:50.05761Z
-type = 'plan'
-updated = 2026-05-14T23:14:50.05761Z

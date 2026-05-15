@@ -1,6 +1,0 @@
-[plans.dogfood-smoke-2]
-created_at = "2026-05-05T19:00:00Z"
-role = "planner"
-state = "in_progress"
-title = "Dogfood smoke 2 — MCP round-trip post-F38d-2.8 lock"
-updated_at = "2026-05-05T19:00:00Z"
