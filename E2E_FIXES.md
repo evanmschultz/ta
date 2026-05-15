@@ -1229,7 +1229,38 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 
 **Fix shape**: extend the F38d-2.17 disambiguation block to also try a 3-segment shape: `<db>.<type>.<idprefix>` interpretation when parts[0] is a declared db AND parts[1] is a declared type AND `best.globOnly`. Falls through to file-relpath otherwise. Out of F38d-2.17 scope; track for a future slice.
 
-### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
+### F38d-2.19 [MAJOR] CLI error responses ignore `--json` flag
+
+**Surfaced by**: live CLI dogfood after F38d-2.17 landed.
+
+Repro:
+- `ta search --scope cascade.nonexistent --json` → returns laslig-rendered ANSI error `ERROR  Search: invalid scope: "cascade.nonexistent".` instead of `{"error": "..."}` JSON.
+- `ta get drop_001.drop.does-not-exist --json` → same shape, ANSI-rendered error ignoring `--json`.
+
+**Cause**: CLI command error paths short-circuit through laslig's error renderer regardless of the `--json` flag state. Success paths correctly honor `--json`; failure paths don't.
+
+**Impact**: violates CLAUDE.md agent contract: "ANSI-rendered laslig output is for humans only; agents parsing ANSI escape codes is a footgun". Agents using the CLI get unparseable error output. MCP path unaffected — MCP responses already use structured per-item `error` field.
+
+**Fix shape**: CLI command error returns should render to JSON when `--json` is set. Likely a single wrapper around the error-rendering path in `cmd/ta/*.go` that checks the global `--json` flag before deciding between laslig vs JSON output.
+
+**Tests required**: `TestCLI_SearchInvalidScopeJSON`, `TestCLI_GetNotFoundJSON`, symmetric for `list-sections`/`update`/`delete`.
+
+### F38d-2.20 [MAJOR] `ta get <nonexistent>` returns confusing "type unresolved" error
+
+**Surfaced by**: live CLI dogfood (same pass as F38d-2.19).
+
+Repro: `ta get drop_001.drop.does-not-exist --json` returns:
+```
+Ops: type unresolved (run `ta index rebuild`): id "drop_001.drop.does-not-exist" has no index entry and db has multiple declared types.
+```
+
+**Cause**: the error path for "record not in index" surfaces the index-resolution failure mode rather than detecting "record not found". The `ta index rebuild` suggestion is the resolver's recovery hint for genuinely corrupted index, NOT for legitimately-absent records.
+
+**Impact**: violates memory rule "ta index rebuild is recovery-only" — agents will see this and incorrectly suggest the user run a rebuild, masking the simple truth that the record doesn't exist. The MCP equivalent (`mcp__ta__get`) returns `found: false` cleanly per-item without this error.
+
+**Fix shape**: in `ops.Get` (or wherever the type-unresolved error surfaces for CLI), distinguish "index entry missing for nonexistent id" from "index entry missing for an id that should exist per disk-state" — only the latter is corruption, the former is "not found". CLI should mirror MCP's `found: false` shape: return a clean "record not found" error, not the corrupted-index hint.
+
+**Tests required**: `TestCLI_GetNotFoundCleanError`, `TestOps_GetNotFoundReturnsCleanError`.
 
 ### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
 
