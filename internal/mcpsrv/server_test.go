@@ -1995,3 +1995,161 @@ func TestMCPSearch_CascadeRecords(t *testing.T) {
 		t.Errorf("scope=cascade.drop hit = %q, want drop_001.drop.index_dbname", payload.Hits[0].ID)
 	}
 }
+
+// cascadeShadowedByGlobMDSchemaForMCP reproduces the live-dogfood
+// shape that F38d-2.17 was filed against: a glob-TOML cascade db PLUS
+// a glob-MD `claude_agents` db whose mount segments are bare `*`.
+// The bare-`*` residual segs shadow the F38d-2.16 typeFilter intent
+// because matchFixedScope eagerly accepts ANY 2-segment scope as a
+// fake file-relpath under claude_agents. This fixture exercises the
+// F38d-2.17 fix at the MCP wire boundary.
+const cascadeShadowedByGlobMDSchemaForMCP = `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+description = "Cascade trees."
+
+[cascade.drop]
+description = "L1 cascade root."
+
+[cascade.drop.fields.structural_type]
+type = "string"
+required = true
+enum = ["drop"]
+
+[cascade.drop.fields.drop_number]
+type = "integer"
+required = true
+
+[cascade.drop.fields.title]
+type = "string"
+
+[cascade.planner]
+description = "Planner action item."
+
+[cascade.planner.fields.title]
+type = "string"
+
+[claude_agents]
+paths = ["agents/*/*.md", ".claude/agents/*.md"]
+description = "Claude Code subagent definitions."
+
+[claude_agents.agent]
+record_per = "file"
+body_field = "prompt"
+description = "One subagent record."
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.description]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+`
+
+// TestMCPSearch_TypeScopeUnderRealSchema locks the F38d-2.17 wire fix
+// for the search tool: under a schema where a glob-MD db shadows the
+// cascade glob-TOML db, scope=cascade.drop returns the drop record(s)
+// and scope=cascade.nonexistent returns an error. Pre-fix both fell
+// through to a silent empty hits list, hiding the dogfood failure
+// surfaced live in F38d-2.17.
+func TestMCPSearch_TypeScopeUnderRealSchema(t *testing.T) {
+	fx := newFixtureWith(t, cascadeShadowedByGlobMDSchemaForMCP)
+	c := newClient(t, fx.projectRoot)
+
+	if _, _, err := ops.Create(fx.projectRoot, "drop_001.drop.dogfood", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+		"title":           "Dogfood smoke",
+	}); err != nil {
+		t.Fatalf("seed drop: %v", err)
+	}
+	if _, _, err := ops.Create(fx.projectRoot, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "kickoff",
+	}); err != nil {
+		t.Fatalf("seed planner: %v", err)
+	}
+
+	// scope=cascade.drop must narrow to just the drop record.
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "cascade.drop",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("search cascade.drop errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Hits []struct {
+			ID string `json:"id"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("decode cascade.drop: %v\nbody: %s", err, firstText(t, res))
+	}
+	if len(payload.Hits) != 1 {
+		t.Fatalf("scope=cascade.drop got %d hits, want 1: %v", len(payload.Hits), payload.Hits)
+	}
+	if payload.Hits[0].ID != "drop_001.drop.dogfood" {
+		t.Errorf("scope=cascade.drop hit = %q, want drop_001.drop.dogfood", payload.Hits[0].ID)
+	}
+
+	// scope=cascade.nonexistent must surface an error, not silent empty.
+	res = callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "cascade.nonexistent",
+		"all":   true,
+	})
+	if !res.IsError {
+		t.Fatalf("scope=cascade.nonexistent: expected error, got: %s", firstText(t, res))
+	}
+	if !strings.Contains(strings.ToLower(firstText(t, res)), "invalid") {
+		t.Errorf("error text = %q, want substring 'invalid'", firstText(t, res))
+	}
+}
+
+// TestMCPListSections_TypeScope locks the F38d-2.17 wire fix for the
+// list_sections tool: under the shadowing-glob schema, list_sections
+// with scope=cascade.drop returns the drop record id, NOT empty.
+func TestMCPListSections_TypeScope(t *testing.T) {
+	fx := newFixtureWith(t, cascadeShadowedByGlobMDSchemaForMCP)
+	c := newClient(t, fx.projectRoot)
+
+	if _, _, err := ops.Create(fx.projectRoot, "drop_001.drop.dogfood", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("seed drop: %v", err)
+	}
+	if _, _, err := ops.Create(fx.projectRoot, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "kickoff",
+	}); err != nil {
+		t.Fatalf("seed planner: %v", err)
+	}
+
+	res := callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "cascade.drop",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("list_sections cascade.drop errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("decode: %v\nbody: %s", err, firstText(t, res))
+	}
+	if len(payload.Sections) != 1 {
+		t.Fatalf("got %d sections, want 1: %v", len(payload.Sections), payload.Sections)
+	}
+	if payload.Sections[0] != "drop_001.drop.dogfood" {
+		t.Errorf("sections[0] = %q, want drop_001.drop.dogfood", payload.Sections[0])
+	}
+}

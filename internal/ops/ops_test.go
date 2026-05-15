@@ -1482,6 +1482,222 @@ func TestOpsListSections_CascadeDB(t *testing.T) {
 	}
 }
 
+// cascadeShadowedByGlobMDSchema reproduces the live-dogfood shape that
+// F38d-2.17 was filed against: a glob-TOML cascade db plus a glob-MD
+// claude_agents-like db whose mount segments are bare `*`. The `*`-only
+// residual segs match ANY parts[i], so before the fix the search
+// package's matchFixedScope eagerly accepted `cascade.drop` as a
+// fake-file-relpath under the agents db, shadowing the F38d-2.16
+// typeFilter fallback. The schema mirrors the production .ta/schema.toml
+// stripped to the minimum that triggers the bug.
+const cascadeShadowedByGlobMDSchema = `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+description = "Cascade trees."
+
+[cascade.drop]
+description = "L1 cascade root."
+
+[cascade.drop.fields.structural_type]
+type = "string"
+required = true
+enum = ["drop"]
+
+[cascade.drop.fields.drop_number]
+type = "integer"
+required = true
+
+[cascade.drop.fields.title]
+type = "string"
+
+[cascade.planner]
+description = "Planner action item."
+
+[cascade.planner.fields.title]
+type = "string"
+
+[claude_agents]
+paths = ["agents/*/*.md", ".claude/agents/*.md"]
+description = "Claude Code subagent definitions (mirrors prod shape that shadows cascade.drop)."
+
+[claude_agents.agent]
+record_per = "file"
+body_field = "prompt"
+description = "One subagent record."
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.description]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+`
+
+// TestSearch_TypeScopeWinsOverGlobOnlyShadow locks F38d-2.17: under a
+// schema where a glob-only MD mount (`agents/*/*.md`) coexists with a
+// glob-TOML cascade db that has declared types, a 2-segment scope
+// `<db>.<type>` must resolve as the typeFilter intent — NOT as a
+// phantom file-relpath under the shadowing glob-MD db. Pre-fix the
+// matchFixedScope helper accepted `cascade.drop` as a fake slug under
+// claude_agents because both residual segs were bare `*`; the F38d-2.16
+// fallback skipped because best was non-nil; search returned 0 hits.
+func TestSearch_TypeScopeWinsOverGlobOnlyShadow(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeShadowedByGlobMDSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.dogfood", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+		"title":           "Dogfood drop title",
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "Planner kickoff",
+	}); err != nil {
+		t.Fatalf("Create planner: %v", err)
+	}
+
+	hits, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade.drop",
+		All:   true,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("got %d hits, want 1 (the drop record): %v", len(hits), hitIDs(hits))
+	}
+	if hits[0].ID != "drop_001.drop.dogfood" {
+		t.Errorf("hit = %q, want drop_001.drop.dogfood", hits[0].ID)
+	}
+
+	// Symmetric narrow: cascade.planner returns just the planner.
+	hits, err = search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade.planner",
+		All:   true,
+	})
+	if err != nil {
+		t.Fatalf("Run planner: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "drop_001.drop.planner_kickoff" {
+		t.Errorf("planner scope: got %v, want [drop_001.drop.planner_kickoff]", hitIDs(hits))
+	}
+}
+
+// TestSearch_NonexistentTypeUnderShadowingSchema locks the second
+// F38d-2.17 failure mode: a 2-segment scope whose first part names a
+// declared db AND whose second part is NOT a declared type must
+// surface ErrInvalidScope, even when a sibling glob-only mount would
+// otherwise silently swallow the scope as a phantom file-relpath. The
+// pre-fix smoking-gun: `cascade.nonexistent` returned `{hits: []}` and
+// no error, hiding the typo from the caller.
+func TestSearch_NonexistentTypeUnderShadowingSchema(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeShadowedByGlobMDSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.dogfood", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+
+	_, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade.nonexistent",
+		All:   true,
+	})
+	if err == nil {
+		t.Fatal("Run cascade.nonexistent: expected error, got nil")
+	}
+	if !errors.Is(err, search.ErrInvalidScope) {
+		t.Errorf("err = %v, want ErrInvalidScope", err)
+	}
+}
+
+// TestSearch_BareDBScopeUnderShadowingSchema regression-locks the
+// F38d-2.10 short-circuit: a bare-db scope continues to enumerate
+// every record in that db even when a sibling glob-only mount is
+// present. The F38d-2.17 fix MUST NOT regress this path.
+func TestSearch_BareDBScopeUnderShadowingSchema(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeShadowedByGlobMDSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.dogfood", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "Planner kickoff",
+	}); err != nil {
+		t.Fatalf("Create planner: %v", err)
+	}
+
+	hits, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade",
+		All:   true,
+	})
+	if err != nil {
+		t.Fatalf("Run cascade: %v", err)
+	}
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.ID] = true
+	}
+	for _, want := range []string{
+		"drop_001.drop.dogfood",
+		"drop_001.drop.planner_kickoff",
+	} {
+		if !got[want] {
+			t.Errorf("missing %q in hits: %v", want, hitIDs(hits))
+		}
+	}
+}
+
+// TestOpsListSections_TypeScopeUnderShadowingSchema locks F38d-2.17 at
+// the ops boundary: ListSections under a `<db>.<type>` scope walks the
+// db then filters by indexed type even when a shadowing glob-only
+// mount exists. Pre-fix the call returned an empty slice.
+func TestOpsListSections_TypeScopeUnderShadowingSchema(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeShadowedByGlobMDSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.dogfood", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "Planner kickoff",
+	}); err != nil {
+		t.Fatalf("Create planner: %v", err)
+	}
+
+	sections, err := ops.ListSections(root, "cascade.drop", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections: %v", err)
+	}
+	if len(sections) != 1 {
+		t.Fatalf("got %d sections, want 1: %v", len(sections), sections)
+	}
+	if sections[0] != "drop_001.drop.dogfood" {
+		t.Errorf("sections[0] = %q, want drop_001.drop.dogfood", sections[0])
+	}
+}
+
 // hitIDs is a small helper that returns the id of every search hit
 // for friendlier error messages in the F38d-2.16 cluster.
 func hitIDs(hits []search.Result) []string {

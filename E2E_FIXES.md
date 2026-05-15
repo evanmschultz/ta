@@ -1182,6 +1182,55 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 
 **QA methodology note**: the proof dispatch this round returned a verdict with `tool_uses=0` — same fabrication pattern as the F38d-2.11 falsifier. Content also referenced fake test/fixture names (`[droplet.qa_falsification]`) not present in the actual builder diff. Orchestrator dismissed the proof verdict and relied on (a) builder's real stash-and-rerun evidence (tool_uses=107), (b) falsifier's independent verification (tool_uses=45 — produced same stash-and-rerun output), and (c) orchestrator's own `mage check` + named-test run. Three real evidence sources agreeing. **Both `tool_uses=0` incidents this session were the QA-pair-half that returned READY without evidence; the half that did real work caught the gap.** Tracking: a `tool_uses=0` floor on QA dispatches should be a baseline sanity-fail.
 
+### F38d-2.17 [CLOSED] `parseScope` `<db>.<type>` fallback shadowed by glob-only mount
+
+**Surfaced by**: live dogfood E2E run after F38d-2.16 landed. `mcp__ta__search(scope="cascade.drop")` returns `{"hits": []}` despite a `cascade.drop` record existing on disk. `mcp__ta__list_sections(scope="cascade.drop")` also empty.
+
+**Diagnosis**: `parseScope` in `internal/search/search.go:296-326`:
+1. Iterates ALL dbs and ALL their mounts, calling `matchFixedScope` for each.
+2. `matchFixedScope` line 347: `if seg == "*"` continues unconditionally — bare `*` segments match ANY parts[i].
+3. The `claude_agents` mount `agents/*/*.md` has residual segs `['*', '*']` after stripping `.md` extension.
+4. For `scope="cascade.drop"` (parts `["cascade", "drop"]`), both `*` segments succeed against any parts.
+5. Result: `best != nil` (match succeeds with file-relpath `cascade.drop` under claude_agents).
+6. The F38d-2.16 `<db>.<type>` typeFilter fallback at line 308 never fires because `best != nil`.
+7. Search walks claude_agents looking for file relpath `cascade.drop` — no such file → 0 hits.
+
+**Proof that the fallback would fire if not shadowed**: `scope="cascade.nonexistent"` (a type that doesn't exist) returns `{"hits": []}` (silent empty) instead of `ErrInvalidScope`. If the fallback were reached, it would either return type-filter (drop matches → 0 hits) or ErrInvalidScope (nonexistent → error). The silent empty proves the file-relpath path is being taken.
+
+**Pattern**: same shape as F38d-2.14 — glob-mount db with permissive `*` segments shadows the index-correct interpretation. F38d-2.10 fixed it for the bare-db case via short-circuit; F38d-2.16 added the `<db>.<type>` fallback but the fallback is ALSO shadowed.
+
+**Why in-code tests passed**: the F38d-2.16 test fixture `cascadeMultiTypeSchema` only declares the cascade db — no shadowing glob-mount db like `claude_agents`. The fix worked under test but the real dogfood schema has `claude_agents` with `agents/*/*.md`. **Test fixtures need to mirror real-schema shape gotchas, or fixture-tested fixes can ship broken.**
+
+**Impact**: type-filtered enumeration (`scope="cascade.drop"`, `scope="cascade.planner"`, etc.) is unusable in real dogfood. Bare-db scope (`scope="cascade"`) works via F38d-2.10 short-circuit. Workaround: enumerate everything then post-filter on `structural_type` / `role` fields client-side. Cascade workflow is functional but agents need extra steps to narrow.
+
+**Fix shape**: in `parseScope`, when `len(parts) == 2` AND `reg.DBs[parts[0]].Types[parts[1]]` is declared, PREFER the typeFilter interpretation over a glob-only file-relpath match. Concretely: track whether the matched mount was glob-only (no literal segments in the residual) AND the parts look more like a `<db>.<type>` shape (parts[0] is a db name AND parts[1] is a type in that db) — in that case, return the typeFilter plan instead of the file-relpath plan. Mirror the F38d-2.14 disambiguation logic at the search layer.
+
+**Tests required**:
+- `TestSearch_TypeScopeWinsOverGlobOnlyShadow` — fixture: cascade (glob-TOML) + claude_agents (glob-MD). Create one cascade.drop record. `search.Run(Query{Scope: "cascade.drop"})` returns 1 hit (the drop), NOT an empty result from claude_agents shadowing.
+- `TestMCPSearch_TypeScopeUnderRealSchema` — wire-level MCP version with the real-shape ambiguity.
+- `TestSearch_NonexistentTypeUnderShadowingSchema` — `scope="cascade.nonexistent"` returns `ErrInvalidScope`, not silent empty.
+
+**Fix landed**: `internal/search/search.go` — `match` struct gains `globOnly bool` field; `matchFixedScope` reports it (true iff every residual seg after format-strip is bare `*`, e.g. `agents/*/*.md` → `['*', '*']` → `globOnly=true`); `parseScope` reworked into a 5-case disambiguation rule:
+- (a) `len(parts)==2 && parts[0] declared db && parts[1] declared type` → typeFilter wins regardless of `best`.
+- (b) `best != nil && !best.globOnly` → literal-anchored file-relpath wins (implicit fallthrough).
+- (c) `len(parts)==2 && parts[0] declared db && (a)/(b) didn't fire && best==nil || best.globOnly` → `ErrInvalidScope` (typo case).
+- (d) `best != nil` (glob-only, no `<db>.<type>` interp because len != 2 or unrecognized type/db) → return glob-only best.
+- (e) Otherwise → `ErrInvalidScope`.
+
+5 new tests in `internal/ops/ops_test.go` (3 search + 1 ListSections + 1 regression lock on F38d-2.10 bare-db short-circuit) + 2 wire-level tests in `internal/mcpsrv/server_test.go`. Test fixture `cascadeShadowedByGlobMDSchema` exactly mirrors real `.ta/schema.toml:134` (`agents/*/*.md` paths array). Builder + falsifier independently ran stash-and-rerun, both reproduced canonical pre-fix symptoms (`got 0 hits, want 1: []` / `expected error, got nil`); regression lock passes pre/post. `mage check`: 1005 pass / 9 pre-existing skips (baseline 999; +6 tests, 0 regressions).
+
+**Lesson — test fixtures must mirror real-schema shape gotchas**: the F38d-2.16 fixture `cascadeMultiTypeSchema` declared only the cascade db, so no shadowing glob-mount could surface the bug. F38d-2.17 fixture `cascadeShadowedByGlobMDSchema` mirrors real-shape glob shadowing. Future cascade-related test fixtures should include both a glob-TOML mount AND a glob-MD mount with bare-`*` segments to catch shadow-class bugs at the fixture level.
+
+### F38d-2.18 [LATENT] 3-segment scope under glob-only shadow same hazard
+
+**Surfaced by**: F38d-2.17 QA proof falsification Attack 5. A 3-segment scope like `cascade.drop.id123` under a schema with cascade + a glob-MD db (`agents/*/*.md` shape) matches the glob-MD mount with `globOnly=true` (residual `['*', '*']`, parts[0..1] consumed, parts[2] becomes idPrefix). F38d-2.17's disambiguation block is gated on `len(parts) == 2`, so 3-seg scopes fall through to case (d) and return the glob-only file-relpath plan from the wrong db.
+
+**Impact**: 3-segment scopes are mostly used for file-relpath + idPrefix narrowing (e.g. `plans.todo-`). The dogfood symptom was 2-seg only. The latent hazard fires when a 3-seg scope LOOKS LIKE a `<db>.<type>.<idprefix>` shape under a shadowing schema — but the schema-walker has no signal to prefer that interpretation today.
+
+**Fix shape**: extend the F38d-2.17 disambiguation block to also try a 3-segment shape: `<db>.<type>.<idprefix>` interpretation when parts[0] is a declared db AND parts[1] is a declared type AND `best.globOnly`. Falls through to file-relpath otherwise. Out of F38d-2.17 scope; track for a future slice.
+
+### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
+
 ### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
 
 Observation (not a bug, but worth surfacing): `mcp__ta__create` failures return the validation error as a JSON-encoded STRING inside the `error` field. Example:

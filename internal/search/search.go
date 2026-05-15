@@ -216,9 +216,19 @@ type searchPlan struct {
 // match is the per-mount scope-match candidate. parseScope's helper
 // matchFixedScope builds these and consider() picks a winner via the
 // longer-slug-wins tiebreaker.
+//
+// globOnly is true when every residual segment of the matched mount
+// (after stripping the format extension) is the bare wildcard "*". A
+// glob-only match has the structural property that ANY parts[i] in
+// that position satisfies the segment — meaning the match success says
+// nothing about whether parts[i] genuinely belongs in that file-relpath
+// slot. F38d-2.17 uses this flag to break the shadowing tie when a
+// glob-only mount silently swallows a 2-segment scope that should
+// instead resolve as `<db>.<type>` (typeFilter) under a sibling db.
 type match struct {
 	dbName, slug, idPrefix string
 	collection             bool
+	globOnly               bool
 }
 
 // parseScope validates Scope against the registry under the Phase 9.2
@@ -305,24 +315,51 @@ func parseScope(reg schema.Registry, projectPath, scope string) (searchPlan, err
 		}
 	}
 
-	if best == nil {
-		// F38d-2.16: <dbname>.<typename> shape — walk the db then
-		// filter by indexed type. This is a structurally-different
-		// fall-through from file-relpath matching: file-relpath scope
-		// is disk-shape-aware, type scope is index-driven. The check
-		// runs ONLY when no mount accepts the parts as a file-relpath,
-		// so disk-shape mounts that happen to spell `<db>.<type>`
-		// shadow the type-filter intent (matching legacy precedence).
-		if len(parts) == 2 {
-			if dbDecl, ok := reg.DBs[parts[0]]; ok {
-				if _, declared := dbDecl.Types[parts[1]]; declared {
-					return searchPlan{
-						dbOrder:    []string{parts[0]},
-						typeFilter: parts[1],
-					}, nil
-				}
+	// F38d-2.17 disambiguation: a 2-segment scope whose first part names
+	// a declared db has two possible interpretations:
+	//
+	//   1. `<db>.<type>` — typeFilter (F38d-2.16): walk the db, then
+	//      drop hits whose canonical id's indexed type differs.
+	//   2. `<file-relpath>` — fixed-shape mount match: walk one file.
+	//
+	// Glob-only mounts (every residual segment is bare `*`, e.g.
+	// `agents/*/*.md`) accept ANY parts[i] in those positions — their
+	// `match` against `cascade.drop` proves nothing about whether
+	// `cascade.drop` is actually a legitimate file-relpath for that db,
+	// it only proves the shape accepts two arbitrary segments. When
+	// best is glob-only AND parts[0] names a different (or even the
+	// same) declared db, the structurally-stronger interpretation is
+	// the typeFilter / ErrInvalidScope dispatch driven by parts[1].
+	//
+	// Rule, applied in this order:
+	//   (a) parts[1] is a declared type on parts[0]: typeFilter wins,
+	//       regardless of best. This is the deliberate semantic — the
+	//       schema's declared types are an unambiguous signal that the
+	//       caller meant `<db>.<type>` and not a file-relpath collision.
+	//   (b) best is a non-glob-only match (at least one literal segment
+	//       constrained the match): legitimate file-relpath wins.
+	//   (c) parts[0] is a declared db: parts[1] is NOT a declared type
+	//       (else (a) would have fired) AND any best is glob-only (else
+	//       (b) would have fired). The 2-seg `<db>.<typo>` shape under
+	//       a shadowing-glob schema must surface ErrInvalidScope rather
+	//       than silently returning the phantom file-relpath match.
+	//   (d) best != nil: glob-only file-relpath, no db-shape disambig
+	//       available (e.g. `agents.go.builder` 3-seg legit glob-only).
+	//   (e) Otherwise: ErrInvalidScope.
+	if len(parts) == 2 {
+		if dbDecl, ok := reg.DBs[parts[0]]; ok {
+			if _, declared := dbDecl.Types[parts[1]]; declared {
+				return searchPlan{
+					dbOrder:    []string{parts[0]},
+					typeFilter: parts[1],
+				}, nil
+			}
+			if best == nil || best.globOnly {
+				return searchPlan{}, fmt.Errorf("%w: %q", ErrInvalidScope, scope)
 			}
 		}
+	}
+	if best == nil {
 		return searchPlan{}, fmt.Errorf("%w: %q", ErrInvalidScope, scope)
 	}
 	return searchPlan{
@@ -337,12 +374,20 @@ func parseScope(reg schema.Registry, projectPath, scope string) (searchPlan, err
 // parts must satisfy the mount's residual shape (`*` matches any
 // non-empty seg; literals require equality). Everything after is
 // treated as the bracket-key prefix.
+//
+// The returned match also reports whether every expected segment was
+// a bare `*` (globOnly): such matches accept arbitrary parts[i] in
+// those positions and are structurally weaker than any match that
+// constrained at least one segment via a literal. F38d-2.17 uses this
+// flag to keep a glob-only mount (e.g. `agents/*/*.md`) from
+// shadowing a sibling db's `<db>.<type>` shape (e.g. `cascade.drop`).
 func matchFixedScope(parts []string, dbName string, dbDecl schema.DB, mount string) (match, bool) {
 	_, residualSegs := splitMountSegmentsForSearch(mount)
 	expected := stripFormatExtForSearch(residualSegs, dbDecl.Format)
 	if len(parts) < len(expected) {
 		return match{}, false
 	}
+	globOnly := len(expected) > 0
 	for i, seg := range expected {
 		if seg == "*" {
 			continue
@@ -350,6 +395,7 @@ func matchFixedScope(parts []string, dbName string, dbDecl schema.DB, mount stri
 		if parts[i] != seg {
 			return match{}, false
 		}
+		globOnly = false
 	}
 	slug := strings.Join(parts[:len(expected)], ".")
 	rest := parts[len(expected):]
@@ -361,6 +407,7 @@ func matchFixedScope(parts []string, dbName string, dbDecl schema.DB, mount stri
 		dbName:   dbName,
 		slug:     slug,
 		idPrefix: idPrefix,
+		globOnly: globOnly,
 	}, true
 }
 
