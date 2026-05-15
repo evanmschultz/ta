@@ -1847,3 +1847,151 @@ func TestMCPGetUpdate_CascadeDrop_GlobTOMLRoundTrip(t *testing.T) {
 		t.Errorf("get after update still contains stale `drop_number = 1`; body: %s", postBody)
 	}
 }
+
+// cascadeMultiTypeSchemaForMCP mirrors ops_test.cascadeMultiTypeSchema
+// for the MCP wire-level F38d-2.16 tests. Two declared types (`drop`,
+// `planner`) under a glob-TOML mount, plus body-class fields the
+// search regex test can match against.
+const cascadeMultiTypeSchemaForMCP = `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+description = "Cascade trees."
+
+[cascade.drop]
+description = "L1 cascade root."
+
+[cascade.drop.fields.structural_type]
+type = "string"
+required = true
+enum = ["drop"]
+
+[cascade.drop.fields.drop_number]
+type = "integer"
+required = true
+
+[cascade.drop.fields.title]
+type = "string"
+
+[cascade.planner]
+description = "Planner action item."
+
+[cascade.planner.fields.title]
+type = "string"
+`
+
+// TestMCPListSections_CascadeRecords locks the F38d-2.16 wire-level
+// fix: list_sections under a bare-db scope (`cascade`) must enumerate
+// glob-TOML records. Pre-fix the response was `{"sections": []}`
+// because the search package's TOML backend filter dropped every
+// dot-free top-level bracket.
+func TestMCPListSections_CascadeRecords(t *testing.T) {
+	fx := newFixtureWith(t, cascadeMultiTypeSchemaForMCP)
+	c := newClient(t, fx.projectRoot)
+
+	if _, _, err := ops.Create(fx.projectRoot, "drop_001.drop.index_dbname", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("seed drop: %v", err)
+	}
+	if _, _, err := ops.Create(fx.projectRoot, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "kickoff",
+	}); err != nil {
+		t.Fatalf("seed planner: %v", err)
+	}
+
+	res := callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "cascade",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("list_sections errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("decode: %v\nbody: %s", err, firstText(t, res))
+	}
+	got := map[string]bool{}
+	for _, s := range payload.Sections {
+		got[s] = true
+	}
+	for _, want := range []string{
+		"drop_001.drop.index_dbname",
+		"drop_001.drop.planner_kickoff",
+	} {
+		if !got[want] {
+			t.Errorf("missing %q in sections: %v", want, payload.Sections)
+		}
+	}
+}
+
+// TestMCPSearch_CascadeRecords locks the F38d-2.16 wire-level fix for
+// the search tool: scope=cascade returns hits for every glob-TOML
+// record, scope=cascade.drop filters by indexed type.
+func TestMCPSearch_CascadeRecords(t *testing.T) {
+	fx := newFixtureWith(t, cascadeMultiTypeSchemaForMCP)
+	c := newClient(t, fx.projectRoot)
+
+	if _, _, err := ops.Create(fx.projectRoot, "drop_001.drop.index_dbname", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("seed drop: %v", err)
+	}
+	if _, _, err := ops.Create(fx.projectRoot, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "kickoff",
+	}); err != nil {
+		t.Fatalf("seed planner: %v", err)
+	}
+
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "cascade",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("search cascade errored: %s", firstText(t, res))
+	}
+	var payload struct {
+		Hits []struct {
+			ID string `json:"id"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	got := map[string]bool{}
+	for _, h := range payload.Hits {
+		got[h.ID] = true
+	}
+	for _, want := range []string{
+		"drop_001.drop.index_dbname",
+		"drop_001.drop.planner_kickoff",
+	} {
+		if !got[want] {
+			t.Errorf("missing %q in hits: %v", want, payload.Hits)
+		}
+	}
+
+	// scope=cascade.drop must narrow to just the drop record.
+	res = callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "cascade.drop",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("search cascade.drop errored: %s", firstText(t, res))
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("decode cascade.drop: %v", err)
+	}
+	if len(payload.Hits) != 1 {
+		t.Fatalf("scope=cascade.drop got %d hits, want 1: %v", len(payload.Hits), payload.Hits)
+	}
+	if payload.Hits[0].ID != "drop_001.drop.index_dbname" {
+		t.Errorf("scope=cascade.drop hit = %q, want drop_001.drop.index_dbname", payload.Hits[0].ID)
+	}
+}

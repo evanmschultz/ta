@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/config"
 	"github.com/evanmschultz/ta/internal/db"
+	"github.com/evanmschultz/ta/internal/index"
 	"github.com/evanmschultz/ta/internal/record"
 	"github.com/evanmschultz/ta/internal/schema"
 )
@@ -92,6 +94,21 @@ func Run(q Query) ([]Result, error) {
 
 	resolver := db.NewResolver(q.Path, resolution.Registry)
 
+	// F38d-2.16 post-walk type filter: when the scope was
+	// `<db>.<type>`, load the project index once so searchFile can
+	// drop hits whose canonical id's indexed type differs from the
+	// requested type. A missing or unreadable index collapses the
+	// result set to empty rather than silently passing every record —
+	// mirrors ops.Search's type-filter precedent (no index → no
+	// typed-narrowing possible).
+	var idx *index.Index
+	if plan.typeFilter != "" {
+		idx, err = loadIndexForTypeFilter(q.Path)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var out []Result
 	for _, dbName := range plan.dbOrder {
 		dbDecl := resolution.Registry.DBs[dbName]
@@ -113,6 +130,9 @@ func Run(q Query) ([]Result, error) {
 			if err != nil {
 				return nil, err
 			}
+			if plan.typeFilter != "" {
+				results = filterByIndexedType(results, idx, plan.typeFilter)
+			}
 			out = append(out, results...)
 			// Endpoint-enforced cap with file-boundary early-exit per
 			// docs/PLAN.md §3.2 / §3.7 amendment. All=true bypasses the
@@ -124,6 +144,44 @@ func Run(q Query) ([]Result, error) {
 		}
 	}
 	return out, nil
+}
+
+// loadIndexForTypeFilter mirrors ops.tryLoadIndex semantics for the
+// search package: a missing index file is NOT an error — return nil so
+// filterByIndexedType collapses the result set to empty. Other I/O or
+// parse errors propagate.
+func loadIndexForTypeFilter(projectPath string) (*index.Index, error) {
+	idx, err := index.Load(projectPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("search: load index for type filter: %w", err)
+	}
+	return idx, nil
+}
+
+// filterByIndexedType drops every Result whose canonical id maps to
+// an index entry with a different Type. When the index is nil (absent
+// or unreadable) the filter returns an empty slice — callers that
+// requested a type-scoped search MUST have an index, mirroring
+// ops.Search's type-filter precedent.
+func filterByIndexedType(in []Result, idx *index.Index, typeName string) []Result {
+	if idx == nil {
+		return nil
+	}
+	out := in[:0]
+	for _, r := range in {
+		entry, ok := idx.Get(r.ID)
+		if !ok {
+			continue
+		}
+		if entry.Type != typeName {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // resolve is a local mirror of ops.ResolveProject so this package
@@ -139,10 +197,20 @@ func resolve(projectPath string) (config.Resolution, error) {
 // facing id, so searchPlan no longer carries a typeName field; the
 // caller (ops.Search) supplies type filtering via the typeName arg
 // and consults the index for authoritative type info.
+//
+// F38d-2.16 special-case: when Scope is `<dbname>.<typename>` AND no
+// mount accepts that file-relpath shape, parseScope sets typeFilter
+// to the bare type name. Run applies a post-walk index-driven filter:
+// any hit whose canonical id maps to a different type in the on-disk
+// index is dropped. This brings the cascade-style "list every record
+// of type X" query (used by `mcp__ta__list_sections` and `search` at
+// the dogfood layer) into the search grammar without reintroducing a
+// type segment into the id.
 type searchPlan struct {
 	dbOrder     []string
 	fileRelPath string // "" means "any file"
 	idPrefix    string // "" means "any bracket-key prefix"
+	typeFilter  string // F38d-2.16: bare type name; "" means "no filter"
 }
 
 // match is the per-mount scope-match candidate. parseScope's helper
@@ -238,6 +306,23 @@ func parseScope(reg schema.Registry, projectPath, scope string) (searchPlan, err
 	}
 
 	if best == nil {
+		// F38d-2.16: <dbname>.<typename> shape — walk the db then
+		// filter by indexed type. This is a structurally-different
+		// fall-through from file-relpath matching: file-relpath scope
+		// is disk-shape-aware, type scope is index-driven. The check
+		// runs ONLY when no mount accepts the parts as a file-relpath,
+		// so disk-shape mounts that happen to spell `<db>.<type>`
+		// shadow the type-filter intent (matching legacy precedence).
+		if len(parts) == 2 {
+			if dbDecl, ok := reg.DBs[parts[0]]; ok {
+				if _, declared := dbDecl.Types[parts[1]]; declared {
+					return searchPlan{
+						dbOrder:    []string{parts[0]},
+						typeFilter: parts[1],
+					}, nil
+				}
+			}
+		}
 		return searchPlan{}, fmt.Errorf("%w: %q", ErrInvalidScope, scope)
 	}
 	return searchPlan{
@@ -477,10 +562,16 @@ func bracketKeyForFilter(addr string, dbDecl schema.DB, inst db.Instance, single
 // Per F10:
 //   - TOML single-file dbs: scanner anchors on the file-relpath
 //     (every record's bracket starts with `<file-relpath>.`).
-//   - TOML multi-file globs: scanner anchors on bare type names (the
-//     legacy bracket form `[<type>.<id-tail>]` is retained for glob
-//     mounts because brackets in those files cannot share a uniform
-//     prefix without re-introducing a type segment).
+//   - TOML multi-file globs: dual-rule top-level + named-type backend
+//     (F38d-2.16). The on-disk bracket form for these mounts is the
+//     bracket-key alone (dot-free top-level bracket per F38d-2.15);
+//     the named-type-prefix rule survives for legacy fixtures that
+//     still encode the type in the bracket path. Mirrors production
+//     ops.buildBackend's NewTopLevelBracketBackend() switch, with the
+//     declared-type list folded in so legacy multi-instance fixtures
+//     keep round-tripping. Without this fix, glob-TOML records (every
+//     cascade record on disk) returned an empty List → list_sections /
+//     search saw zero hits.
 //   - MD section-mode: every declared type with its heading.
 //   - MD file-as-record (F31): one type per db (mixed-mode prohibition);
 //     dispatch to FileRecordBackend so heading=0 does not trip
@@ -488,16 +579,15 @@ func bracketKeyForFilter(addr string, dbDecl schema.DB, inst db.Instance, single
 func buildBackendForSearch(dbDecl schema.DB, fileRelPath string, singleFile bool) (record.Backend, error) {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
-		var types []record.DeclaredType
 		if singleFile {
-			types = []record.DeclaredType{{Name: fileRelPath}}
-		} else {
-			types = make([]record.DeclaredType, 0, len(dbDecl.Types))
-			for typeName := range dbDecl.Types {
-				types = append(types, record.DeclaredType{Name: typeName})
-			}
+			types := []record.DeclaredType{{Name: fileRelPath}}
+			return toml.NewBackend(types), nil
 		}
-		return toml.NewBackend(types), nil
+		types := make([]record.DeclaredType, 0, len(dbDecl.Types))
+		for typeName := range dbDecl.Types {
+			types = append(types, record.DeclaredType{Name: typeName})
+		}
+		return toml.NewBackendWithTopLevel(types), nil
 	case schema.FormatMD:
 		if schema.DBHasFileAsRecord(dbDecl) {
 			fileType, st, ok := singleFileRecordType(dbDecl)

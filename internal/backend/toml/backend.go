@@ -76,6 +76,22 @@ func NewTopLevelBracketBackend() Backend {
 	return Backend{topLevel: true}
 }
 
+// NewBackendWithTopLevel combines both `isDeclared` rules: the dot-free
+// top-level bracket rule from NewTopLevelBracketBackend AND the
+// declared-type-prefix rule from NewBackend. Used by the search code
+// path against glob-TOML mounts so it accepts BOTH the modern
+// F10/F38d-2.15 bracket form (`[index_dbname]`, dot-free, no type
+// prefix) AND any legacy fixture that still encodes the type in the
+// bracket path (`[build_task.task_001]`, dotted, type-prefixed).
+// Production write/get use NewTopLevelBracketBackend; search uses this
+// dual-rule constructor so legacy test fixtures stay green while the
+// modern dogfood shape resolves correctly.
+func NewBackendWithTopLevel(types []record.DeclaredType) Backend {
+	clone := make([]record.DeclaredType, len(types))
+	copy(clone, types)
+	return Backend{types: clone, topLevel: true}
+}
+
 // Compile-time assertion that Backend satisfies record.Backend.
 var _ record.Backend = Backend{}
 

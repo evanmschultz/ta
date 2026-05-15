@@ -1147,6 +1147,41 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 
 **Fix landed**: typed `Backend.topLevel bool` mode in `internal/backend/toml/backend.go` (new `NewTopLevelBracketBackend()` constructor); `internal/ops/backend.go::buildBackend` dispatches the new constructor when `!resolved.SingleFileMount` (glob and multi-file mounts). `isDeclared` prepends a `topLevel && !strings.Contains(p, ".")` early-return so dot-free brackets count as declared records and dotted sub-tables fall through to absorption-as-body via `declaredRange`. Single-file TOML and MD branches untouched. 7 new tests: 3 backend-layer (`TestTopLevelBracketBackend*`), 3 ops-layer (`TestOps_*RoundTripGlobTOMLMount`), 1 MCP wire (`TestMCPGetUpdate_CascadeDrop_GlobTOMLRoundTrip`). Builder stash-and-rerun reproduced canonical pre-fix `ops: record not found: "drop_001.drop.dogfood_smoke"`; post-fix all 7 new tests + regression locks (`TestRoundTripCreateGetUpdateDelete`, `TestGet_FileAsRecordAgent`, `TestGet_DisambiguatesViaIndexedType`) pass. Both QA passes independently re-ran `mage check`: 984/0/9. Bonus: falsifier surfaced that the pre-fix Splice fall-through duplicate-bracket bug is also incidentally fixed (when `isDeclared` returned false, Splice fell through to append rather than replace; with the new mode, Splice correctly enters the replace branch). Cascade-managed dogfood unblocked.
 
+### F38d-2.16 [CLOSED] Glob-TOML mount records invisible to `list_sections` + `search`
+
+**Surfaced by**: live dogfood attempt on 2026-05-14. Created `drop_001.drop.index_dbname` (cascade.drop) and `drop_001.drop.planner_kickoff` (cascade.planner) via MCP create. Both records exist on disk in `.ta/cascade/drops/drop_001/drop.toml` with distinct brackets and index entries. `mcp__ta__get` returns each correctly. BUT `list_sections` and `search` cannot see them.
+
+**Reproduced via MCP**:
+- `mcp__ta__list_sections(scope="cascade")` → `{"sections": []}` ✗
+- `mcp__ta__list_sections(scope="cascade.drop")` → `{"sections": []}` ✗
+- `mcp__ta__list_sections()` (no scope) → returns only MD file-record sections; cascade brackets absent ✗
+- `mcp__ta__search(scope="cascade", all=true)` → `{"hits": []}` ✗
+- `mcp__ta__search(scope="drop_001")` → `{"hits": []}` ✗
+- `mcp__ta__search(query="F38d-2.14c")` (text match against the on-disk title) → `{"hits": []}` ✗
+
+**Working** (control):
+- `mcp__ta__get(items=[{id: "drop_001.drop.index_dbname"}])` → returns full body ✓
+- `mcp__ta__get(items=[{id: "drop_001.drop.planner_kickoff"}])` → returns full body ✓
+- On-disk file `.ta/cascade/drops/drop_001/drop.toml` carries both brackets correctly.
+- Index `.ta/index.toml` has both entries with correct types (`drop`, `planner`).
+
+**Cause**: F38d-2.10's `parseScope` short-circuit returns `{dbOrder: [dbName], fileRelPath: ""}` for bare-db scope so the file walker iterates every instance — but the per-file bracket enumeration in `internal/search/search.go::searchFile` (or equivalent) is specific to the single-file TOML mount shape AND/OR the file-record MD shape. Glob-TOML files where each file holds bracketed records under top-level keys (per F38d-2.15's `topLevel` mode) are NOT being enumerated.
+
+**Impact**: cascade-managed dogfood is unusable. Agents can create records + read by known id, but cannot list, browse, search, or discover. Without enumeration, the cascade workflow cannot scale past hand-tracking 2-3 ids.
+
+**Fix shape**: extend the per-file enumeration in `internal/search/search.go::searchFile` to handle glob-TOML mounts. For each file in the mount, use the TOML backend's `List` method (which DOES work — `TestTopLevelBracketBackendFindsBracketKey` from F38d-2.15 verified it) to produce bracket-keys, then construct the full id as `<path-template-segments>.<bracket-key>` and emit a hit. The MD file-record case (F38d-2.10) handled this by deriving the id from the file's basename; for glob-TOML the id includes both path-segments AND the bracket-key.
+
+**Tests required**:
+- `TestSearch_CascadeDropEnumeratedByDBScope` — under `cascadeDropSchema` (F38d-2.11 fixture), `ops.Create` 2 records, then `search.Run(Query{Scope: "cascade"})` returns BOTH hits with correct ids.
+- `TestSearch_CascadeDropEnumeratedByTypeScope` — same, but scope `cascade.drop` returns only the drop-typed record, filtering planner/qa/etc.
+- `TestListSections_CascadeDB` — `ops.ListSections("cascade")` returns the list of bracket ids.
+- `TestMCPSearch_CascadeRecords_DogfoodShape` — wire-level MCP search against cascade.
+- `TestMCPListSections_CascadeRecords` — wire-level MCP list_sections.
+
+**Fix landed**: new `toml.NewBackendWithTopLevel(types)` dual-mode constructor in `internal/backend/toml/backend.go` (combines topLevel + named-type-prefix rules so legacy dotted brackets like `[build_task.task_001]` and new dot-free brackets like `[index_dbname]` both resolve). `internal/search/search.go` gained `searchPlan.typeFilter`, a two-segment `<db>.<type>` scope fallback in `parseScope` (gated behind `matchFixedScope` returning `ErrInvalidScope`), an index-load + per-file `filterByIndexedType` in `Run` (post-filter, pre-cap), and `buildBackendForSearch` now uses `NewBackendWithTopLevel` for non-single-file TOML. Index-missing semantics mirror `ops.Search` (no index → no hits; orphan → silent skip). 6 new tests: 4 in `internal/ops/ops_test.go` (DB scope, type scope, regex query, ops.ListSections), 2 in `internal/mcpsrv/server_test.go` (MCP wire `list_sections` + `search`). Builder + falsifier independently ran stash-and-rerun, both reproduced canonical pre-fix symptoms (`got 0 hits, want 2: []` / `search: invalid scope: "cascade.drop"` / `missing "drop_001.drop.index_dbname" in sections: []`) and confirmed all 6 pass post-fix. `mage check`: 999 pass / 9 pre-existing skips (baseline was 993; +6 tests, 0 regressions). Cascade-managed dogfood now fully enumerable end-to-end.
+
+**QA methodology note**: the proof dispatch this round returned a verdict with `tool_uses=0` — same fabrication pattern as the F38d-2.11 falsifier. Content also referenced fake test/fixture names (`[droplet.qa_falsification]`) not present in the actual builder diff. Orchestrator dismissed the proof verdict and relied on (a) builder's real stash-and-rerun evidence (tool_uses=107), (b) falsifier's independent verification (tool_uses=45 — produced same stash-and-rerun output), and (c) orchestrator's own `mage check` + named-test run. Three real evidence sources agreeing. **Both `tool_uses=0` incidents this session were the QA-pair-half that returned READY without evidence; the half that did real work caught the gap.** Tracking: a `tool_uses=0` floor on QA dispatches should be a baseline sanity-fail.
+
 ### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
 
 Observation (not a bug, but worth surfacing): `mcp__ta__create` failures return the validation error as a JSON-encoded STRING inside the `error` field. Example:

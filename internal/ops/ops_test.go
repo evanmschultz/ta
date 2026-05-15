@@ -10,6 +10,7 @@ import (
 	"github.com/evanmschultz/ta/internal/config"
 	"github.com/evanmschultz/ta/internal/index"
 	"github.com/evanmschultz/ta/internal/ops"
+	"github.com/evanmschultz/ta/internal/search"
 )
 
 // schemaPath returns the project-local schema path.
@@ -1270,4 +1271,232 @@ func TestOps_DeleteRoundTripGlobTOMLMount(t *testing.T) {
 	if _, ok := idx.Get("drop_001.drop.dogfood_smoke"); ok {
 		t.Error("index still has entry for drop_001.drop.dogfood_smoke after Delete")
 	}
+}
+
+// cascadeMultiTypeSchema extends cascadeDropSchema with a second type
+// (`planner`) so the F38d-2.16 tests can exercise the post-walk
+// type filter (`scope=cascade.drop` vs `scope=cascade.planner`).
+// Mirrors the dogfood checkout's cascade db which declares drop,
+// droplet, planner, qa_proof, etc. all under one glob-TOML mount.
+const cascadeMultiTypeSchema = `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+description = "Cascade trees."
+
+[cascade.drop]
+description = "L1 cascade root."
+
+[cascade.drop.fields.structural_type]
+type = "string"
+required = true
+enum = ["drop"]
+
+[cascade.drop.fields.drop_number]
+type = "integer"
+required = true
+
+[cascade.drop.fields.title]
+type = "string"
+
+[cascade.drop.fields.objective]
+type = "string"
+format = "markdown"
+
+[cascade.planner]
+description = "Planner action item."
+
+[cascade.planner.fields.title]
+type = "string"
+
+[cascade.planner.fields.objective]
+type = "string"
+format = "markdown"
+`
+
+// TestSearch_CascadeDropEnumeratedByDBScope locks F38d-2.16: bare-db
+// scope enumeration must see every glob-TOML record. Pre-fix the
+// search-package backend filter dropped every top-level bracket
+// because it anchored on declared type names (e.g. `drop`) while the
+// on-disk bracket equals the bracket-key alone (e.g. `index_dbname`).
+// Post-fix List enumerates dot-free top-level brackets the same way
+// production buildBackend already does (NewTopLevelBracketBackend).
+func TestSearch_CascadeDropEnumeratedByDBScope(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeMultiTypeSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.index_dbname", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+		"title":           "Add index.Entry.DBName field",
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "Planner kickoff",
+	}); err != nil {
+		t.Fatalf("Create planner: %v", err)
+	}
+
+	hits, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade",
+		All:   true,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := make([]string, 0, len(hits))
+	for _, h := range hits {
+		got = append(got, h.ID)
+	}
+	want := []string{
+		"drop_001.drop.index_dbname",
+		"drop_001.drop.planner_kickoff",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d hits, want %d: %v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("hit[%d] = %q, want %q (full: %v)", i, got[i], w, got)
+		}
+	}
+}
+
+// TestSearch_CascadeDropEnumeratedByTypeScope locks F38d-2.16:
+// scope=<db>.<type> walks every record under the db then filters by
+// the indexed type. Scope `cascade.drop` must surface the drop record
+// only, hiding the planner-typed record that lives in the same file.
+func TestSearch_CascadeDropEnumeratedByTypeScope(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeMultiTypeSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.index_dbname", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+		"title":           "Drop title",
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "Planner title",
+	}); err != nil {
+		t.Fatalf("Create planner: %v", err)
+	}
+
+	hits, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade.drop",
+		All:   true,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("got %d hits, want 1: %v", len(hits), hitIDs(hits))
+	}
+	if hits[0].ID != "drop_001.drop.index_dbname" {
+		t.Errorf("hit = %q, want drop_001.drop.index_dbname", hits[0].ID)
+	}
+
+	// Symmetric: scope=cascade.planner returns only the planner record.
+	hits, err = search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade.planner",
+		All:   true,
+	})
+	if err != nil {
+		t.Fatalf("Run planner: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "drop_001.drop.planner_kickoff" {
+		t.Errorf("planner scope: got %v, want [drop_001.drop.planner_kickoff]", hitIDs(hits))
+	}
+}
+
+// TestSearch_CascadeRecordsMatchQuery locks F38d-2.16: regex queries
+// against an empty scope walk every db including glob-TOML mounts and
+// can match arbitrary string-fields of cascade records. Pre-fix the
+// regex never fired against cascade records because List returned
+// nothing for the cascade file.
+func TestSearch_CascadeRecordsMatchQuery(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeMultiTypeSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.index_dbname", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+		"title":           "F38d-2.14c — index Entry.DBName",
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "Unrelated planner",
+	}); err != nil {
+		t.Fatalf("Create planner: %v", err)
+	}
+
+	hits, err := ops.Search(root, "", "", nil, "F38d-2.14c", "", 0, true)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("got %d hits, want 1: %v", len(hits), opsSearchIDs(hits))
+	}
+	if hits[0].ID != "drop_001.drop.index_dbname" {
+		t.Errorf("hit = %q, want drop_001.drop.index_dbname", hits[0].ID)
+	}
+}
+
+// TestOpsListSections_CascadeDB locks F38d-2.16 at the ops boundary:
+// ListSections under bare-db scope enumerates every glob-TOML record
+// id. Same root-cause as TestSearch_CascadeDropEnumeratedByDBScope —
+// ListSections delegates to search.Run.
+func TestOpsListSections_CascadeDB(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeMultiTypeSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.index_dbname", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_001.drop.planner_kickoff", "cascade.planner", map[string]any{
+		"title": "Planner kickoff",
+	}); err != nil {
+		t.Fatalf("Create planner: %v", err)
+	}
+
+	sections, err := ops.ListSections(root, "cascade", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections: %v", err)
+	}
+	want := []string{"drop_001.drop.index_dbname", "drop_001.drop.planner_kickoff"}
+	if len(sections) != len(want) {
+		t.Fatalf("got %d sections, want %d: %v", len(sections), len(want), sections)
+	}
+	for i, w := range want {
+		if sections[i] != w {
+			t.Errorf("section[%d] = %q, want %q (full: %v)", i, sections[i], w, sections)
+		}
+	}
+}
+
+// hitIDs is a small helper that returns the id of every search hit
+// for friendlier error messages in the F38d-2.16 cluster.
+func hitIDs(hits []search.Result) []string {
+	out := make([]string, len(hits))
+	for i, h := range hits {
+		out[i] = h.ID
+	}
+	return out
+}
+
+// opsSearchIDs is the ops.SearchHit equivalent of hitIDs.
+func opsSearchIDs(hits []ops.SearchHit) []string {
+	out := make([]string, len(hits))
+	for i, h := range hits {
+		out[i] = h.ID
+	}
+	return out
 }
