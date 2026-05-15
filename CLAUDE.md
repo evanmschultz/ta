@@ -77,6 +77,38 @@ When orchestrating a cascade in this project — point at `docs/cascade-methodol
 - `mage test` / `mage check` / `mage cover` route through `laslig/gotestout` which auto-detects TTY status — humans get a styled summary, agents and CI pipes get plain text. No env-var prefix needed; `mage test` just works.
 - Bare `ta` without a TTY is the MCP server — no explicit subcommand needed when registering in `.mcp.json` / `.codex/config.toml`.
 
+## Cascade-managed development — use ta to manage ta
+
+For any non-trivial work in this repo (multi-droplet slice, anything involving planner/builder/QA roles, anything with QA twins), the orchestrator MUST use ta cascade records to track the work, not in-session task lists or markdown plans.
+
+**Workflow per `docs/cascade-methodology.md` § 3 (Roles) + § 4 (QA Placement)**:
+
+1. **Drop record** — `mcp__ta__create` a `cascade.drop` first. id = `drop_NNN.drop.<slug>` (single-segment bracket-key per F38d-2.15; no dots in the slug). Required: `drop_number`, `structural_type='drop'`, `role`, `state`, `title`, `created_at`, `updated_at`.
+
+2. **Planner record** — `mcp__ta__create` a `cascade.planner` child. Holds the decomposition (in `objective` / `description` / `decision_log` fields). Dispatch a `ta-go-planning` (or `ta-fe-planning`) agent to author it; the agent updates the planner record via `mcp__ta__update`.
+
+3. **Plan-QA twins** — when the planner record is created, the orchestrator immediately creates two QA children targeting the planner's output: `cascade.qa_proof` + `cascade.qa_falsification` (set `target_id = <planner-record-id>`, `state = 'todo'`). These BLOCK descent — no builder droplets are spawned until plan-QA twins both return `state=complete + outcome=success`. Dispatch as parallel background agents (one message, two Agent tool calls).
+
+4. **Builder droplets** — after plan-QA passes, `mcp__ta__create` one `cascade.droplet` per atomic build slice. Each droplet touches **≤4 distinct code-block edits** (this project's user-facing contract; methodology says "few blocks"). Builders touching the same file are dispatched sequentially; builders touching disjoint files can run parallel. **No LLM QA at droplet level** — build+test is the only droplet-level gate.
+
+5. **Package-level build+test (automated)** — after all droplets for a package report `complete`, the orchestrator runs `mage testPkg <path>` for that package. Failures cycle back: planner ingests failure → writes fix directive → droplet re-runs.
+
+6. **Build-QA twins** — once all builders complete AND every touched package is green, `mcp__ta__create` two QA children targeting the completed sub-tree: `cascade.qa_proof` + `cascade.qa_falsification`. Dispatch as parallel background. Both must `state=complete + outcome=success` before the planner reports `complete` to its parent (or, at L1, before commit).
+
+7. **Closeout + commit** — after build-QA passes, the orchestrator runs `mage check` (full module integration gate), then commits per segment-close, **not per-droplet** (the MCP server bounces after every commit + `mage install` + Claude Code restart; batching reduces friction proportionally).
+
+**State machine**: `todo` → `in_progress` (orchestrator sets on dispatch) → `complete | failed` (set on agent return). `outcome = success | failure | blocked`. Always `mcp__ta__update` to record transitions — these are the audit trail.
+
+**Inspection** during a cascade run:
+- MCP: `mcp__ta__list_sections(scope="cascade")`, `mcp__ta__search(scope="cascade.drop", all=true)`, `mcp__ta__get(items=[{id: "..."}])`.
+- CLI (read-only inspection only): `ta search --scope cascade --all --json`, `ta list-sections cascade.drop --json`, `ta get <id> --json`.
+
+**Dogfood discipline (MCP-first)**: cascade record CRUD goes through MCP. If `mcp__ta__*` fails for cascade ops, REPORT and PAUSE — don't silently fall back to `./bin/ta` CLI. CLI is for inspection and for build operations (`mage`-routed Go commands).
+
+**Known limitation (F23 OFF)**: auto_spawn (`{now}` / `{state.initial}` / `{parent.<field>}` token expansion) is not yet implemented; QA twins must be created manually per `mcp__ta__create`. F23 lands as a separate slice.
+
+See `docs/cascade-methodology.md` for the methodology contract and `E2E_FIXES.md` for the open tracker of cascade-related findings.
+
 ## MCP server — pinning the project directory
 
 `ta`'s MCP-server invariant is one project per process: the server resolves its schema from the spawn cwd by default. Two ways to make sure the cwd is right:
