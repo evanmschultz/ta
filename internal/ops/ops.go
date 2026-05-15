@@ -104,7 +104,7 @@ func Get(path, id, typeName string, fields []string) (GetResult, error) {
 	if err != nil {
 		return GetResult{}, err
 	}
-	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl), dbDecl)
 	if err != nil {
 		return GetResult{}, err
 	}
@@ -166,7 +166,7 @@ func GetAllFields(path, id, typeName string) (GetResult, schema.SectionType, err
 	if err != nil {
 		return GetResult{}, schema.SectionType{}, err
 	}
-	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl), dbDecl)
 	if err != nil {
 		return GetResult{}, schema.SectionType{}, err
 	}
@@ -266,7 +266,7 @@ func CreateWithOptions(path, id, typeName string, data map[string]any, opts Crea
 	if err != nil {
 		return "", nil, err
 	}
-	bareType, err := resolveTypeForID(resolved, typeName, true, path, declaredTypeNames(dbDecl))
+	bareType, err := resolveTypeForID(resolved, typeName, true, path, declaredTypeNames(dbDecl), dbDecl)
 	if err != nil {
 		return "", nil, err
 	}
@@ -633,7 +633,7 @@ func Update(path, id, typeName string, data map[string]any) (string, []string, e
 		}
 		return "", nil, fmt.Errorf("stat %s: %w", filePath, err)
 	}
-	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl), dbDecl)
 	if err != nil {
 		return "", nil, err
 	}
@@ -934,7 +934,7 @@ func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteRes
 // then return the post-delete count of records remaining in the same
 // file (file-scoped, per F20 lock).
 func deleteRecord(path string, sources []string, dbDecl schema.DB, resolved db.Resolved, id, typeName string) (DeleteResult, error) {
-	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl))
+	bareType, err := resolveTypeForID(resolved, typeName, false, path, declaredTypeNames(dbDecl), dbDecl)
 	if err != nil {
 		return DeleteResult{Sources: sources, Level: db.LevelRecord}, err
 	}

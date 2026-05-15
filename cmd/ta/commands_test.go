@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2089,4 +2090,320 @@ func assertGolden(t *testing.T, goldenPath string, got []byte) {
 		t.Fatalf("output drift from golden %s.\n-- got --\n%q\n-- want --\n%q",
 			goldenPath, got, want)
 	}
+}
+
+// ---- B4: CLI parity for cascade drop_002 (record-not-found cleanup) -
+
+// cliMultiTypeTaskSchema declares TWO types under the `plans` db so the
+// resolveTypeForID multi-type+no-index branch fires when --type is
+// omitted. Without ≥2 types the function takes the single-type
+// shortcut and never hits the disk-probe code path B1 fixed.
+const cliMultiTypeTaskSchema = `
+[plans]
+paths = ["plans.toml"]
+description = "Multi-type planning db."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+required = true
+
+[plans.note]
+description = "A free-form note."
+
+[plans.note.fields.id]
+type = "string"
+required = true
+
+[plans.note.fields.body]
+type = "string"
+required = true
+`
+
+// assertCleanRecordNotFoundErr is the shared assertion for the four B4
+// tests. The locked human-surface contract: error text contains the
+// canonical `ops: record not found` prefix and does NOT carry the
+// pre-B1 `ta index rebuild` recovery hint (the misleading remediation
+// for a genuinely-missing id that B1 removed from this branch).
+func assertCleanRecordNotFoundErr(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "ops: record not found") {
+		t.Errorf("error missing canonical prefix %q:\n%s", "ops: record not found", msg)
+	}
+	if strings.Contains(msg, "ta index rebuild") {
+		t.Errorf("error still carries pre-B1 rebuild hint:\n%s", msg)
+	}
+}
+
+// TestCLI_GetNotFoundCleanError — `ta get <missing-id>` (no --json, no
+// --type) against a multi-type db must surface ErrRecordNotFound, NOT
+// the pre-B1 ErrTypeUnresolved+`ta index rebuild` confluence. Seeds a
+// sibling record so the backing file exists; the missing id forces
+// resolveTypeForID into its multi-type disk-probe branch where the
+// disk-probe miss falls through to the clean record-not-found error.
+func TestCLI_GetNotFoundCleanError(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, cliMultiTypeTaskSchema)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := "[plans.real]\nid = \"real\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	cmd := newGetCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "plans.ghost"})
+
+	err := cmd.Execute()
+	assertCleanRecordNotFoundErr(t, err)
+}
+
+// TestCLI_UpdateNotFoundCleanError — `ta update <missing-id>` against
+// a multi-type db. Per L2-B Attack 7, Update calls os.Stat on the
+// backing file BEFORE resolveTypeForID, so the file MUST exist (seeded
+// here with a sibling record) for the resolveTypeForID branch to
+// fire. With an empty file or missing file the bug short-circuits on
+// ErrFileNotFound and never reaches the B1 fix.
+func TestCLI_UpdateNotFoundCleanError(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, cliMultiTypeTaskSchema)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := "[plans.real]\nid = \"real\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	cmd := newUpdateCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
+		"--path", root, "plans.ghost",
+		"--data", `{"status": "doing"}`,
+	})
+
+	err := cmd.Execute()
+	assertCleanRecordNotFoundErr(t, err)
+}
+
+// TestCLI_DeleteNotFoundCleanError — `ta delete <missing-id>` against
+// a multi-type db. Per L2-B planner, DeleteWithOptions routes through
+// resolveTypeForID BEFORE the file read, so the disk-probe branch
+// fires on the missing id directly. Seeding a sibling record keeps the
+// file present (and keeps the test self-consistent with the other
+// three) though it is not strictly required for Delete's ordering.
+func TestCLI_DeleteNotFoundCleanError(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, cliMultiTypeTaskSchema)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := "[plans.real]\nid = \"real\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	cmd := newDeleteCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "plans.ghost"})
+
+	err := cmd.Execute()
+	assertCleanRecordNotFoundErr(t, err)
+}
+
+// TestCLI_MoveNotFoundCleanError — `ta move <missing-src> <dst>`
+// where the src id matches the `plans` mount prefix grammatically (so
+// upstream ResolveID does NOT short-circuit with
+// ErrIDDoesNotMatchAnyDB per L2-B Attack 6) but no on-disk record
+// exists under that id. The src-side find returns !found and ops.Move
+// emits the clean record-not-found error.
+//
+// Move's CLI envelope differs from get/update/delete: the per-item
+// error text is rendered to stdout (laslig path) while cmd.Execute()
+// returns only a concise `1/1 items failed` batch summary. The
+// human-visible surface is the union of both streams — assert the
+// canonical prefix lands on stdout and the pre-B1 `ta index rebuild`
+// hint is absent from BOTH streams + the returned error.
+func TestCLI_MoveNotFoundCleanError(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, cliMultiTypeTaskSchema)
+	dataPath := filepath.Join(root, "plans.toml")
+	// Seed a sibling so the backing file exists and the src id is
+	// grammatically valid against the same db.
+	body := "[plans.real]\nid = \"real\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	cmd := newMoveCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "plans.ghost", "plans.dst"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error from move with missing src; stdout=%q", out.String())
+	}
+	stdout := out.String()
+	if !strings.Contains(stdout, "ops: record not found") {
+		t.Errorf("stdout missing canonical prefix %q:\nstdout=%s\nerr=%v",
+			"ops: record not found", stdout, err)
+	}
+	combined := stdout + "\n" + errOut.String() + "\n" + err.Error()
+	if strings.Contains(combined, "ta index rebuild") {
+		t.Errorf("move surface still carries pre-B1 rebuild hint:\n%s", combined)
+	}
+}
+
+// ---- A2: --json error envelope contract for wrapped RunE bodies -----
+//
+// A1 wrapped the four read-side commands (get, list-sections, schema
+// action=get, search) with runWithJSONErrEnvelope. When --json is set
+// the wrapper formats `err.Error()` as `{"error": "<message>"}` on
+// stdout and the cobra Execute() returns nil (so fang's stderr renderer
+// does not also fire). These four tests pin the envelope shape from the
+// CLI seam.
+
+// decodeJSONErrEnvelope decodes stdout into a flat `{"error": "..."}`
+// envelope and returns the error field. Fails the test on malformed
+// JSON or a missing/empty `error` key. Single decode path keeps the
+// four A2 tests structurally consistent.
+func decodeJSONErrEnvelope(t *testing.T, stdout []byte) string {
+	t.Helper()
+	if len(bytes.TrimSpace(stdout)) == 0 {
+		t.Fatalf("stdout empty; expected JSON error envelope")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout, &payload); err != nil {
+		t.Fatalf("unmarshal stdout as JSON: %v\nstdout=%q", err, stdout)
+	}
+	raw, ok := payload["error"]
+	if !ok {
+		t.Fatalf("envelope missing `error` key:\nstdout=%q", stdout)
+	}
+	msg, ok := raw.(string)
+	if !ok {
+		t.Fatalf("envelope `error` is not a string: %T (value=%v)", raw, raw)
+	}
+	if msg == "" {
+		t.Fatalf("envelope `error` is empty string:\nstdout=%q", stdout)
+	}
+	return msg
+}
+
+// TestCLI_GetJSONErrorEnvelope — `ta get --json plans.absent-id` against
+// a multi-type db with no matching record on disk must:
+//  1. Return nil from cmd.Execute() — the A1 wrapper swallows the err.
+//  2. Emit `{"error": "<message>"}` on stdout.
+//  3. The message MUST equal the exact ops.ErrRecordNotFoundFormat
+//     rendering with ops.ErrRecordNotFound as the sentinel and the
+//     absolute plans.toml path — referenced by IDENTIFIER, not by
+//     hand-typed format string. This couples the CLI envelope to the
+//     ops-side L2-B B1 contract: any drift in either the format
+//     constant or the sentinel string breaks loudly here.
+//
+// Seeds a sibling record so the backing file exists; the missing id
+// forces resolveTypeForID into its multi-type disk-probe branch where
+// the disk-probe miss falls through to the canonical record-not-found
+// error wrapped via ErrRecordNotFoundFormat (helpers.go:138).
+func TestCLI_GetJSONErrorEnvelope(t *testing.T) {
+	root := newSchemaFixtureWithBody(t, cliMultiTypeTaskSchema)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := "[plans.real]\nid = \"real\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	cmd := newGetCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "--json", "plans.absent-id"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned non-nil under --json (wrapper should swallow): %v\nstdout=%q stderr=%q",
+			err, out.String(), errOut.String())
+	}
+	got := decodeJSONErrEnvelope(t, out.Bytes())
+
+	// Reference ErrRecordNotFoundFormat + ErrRecordNotFound by name so
+	// any drift in the wrap shape or sentinel string fails loudly here.
+	// Mirrors internal/ops/notfound_test.go's contract-pin discipline.
+	want := fmt.Errorf(ops.ErrRecordNotFoundFormat,
+		ops.ErrRecordNotFound, "plans.absent-id", dataPath).Error()
+	if got != want {
+		t.Errorf("envelope error mismatch\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+// TestCLI_ListSectionsJSONErrorEnvelope — `ta list-sections --json
+// --scope=cascade --path /nonexistent` triggers a deterministic error
+// inside ops.ListSections (search.Run -> ResolveProject fails when
+// .ta/schema.toml is absent). The A1 wrapper must format the resulting
+// err.Error() as a flat JSON envelope on stdout and return nil from
+// cmd.Execute(). Asserts structural shape only (non-empty error field).
+func TestCLI_ListSectionsJSONErrorEnvelope(t *testing.T) {
+	cmd := newListSectionsCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--json", "--scope=cascade", "--path", "/nonexistent"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned non-nil under --json (wrapper should swallow): %v\nstdout=%q stderr=%q",
+			err, out.String(), errOut.String())
+	}
+	_ = decodeJSONErrEnvelope(t, out.Bytes())
+}
+
+// TestCLI_SchemaJSONErrorEnvelope — `ta schema --json plans.ghost`
+// against the cliTaskSchema fixture (which declares plans.task only)
+// surfaces a deterministic error from runSchemaGetJSON: the scope
+// contains "." and Registry.Lookup fails on the unknown type, so the
+// `no schema registered for scope %q in %s` branch fires
+// (commands.go:1619/1622). The A1 wrapper only covers action=get
+// (which is the default), so this exercises the wrapped path. Asserts
+// structural envelope only.
+func TestCLI_SchemaJSONErrorEnvelope(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSchemaCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "--json", "plans.ghost"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned non-nil under --json (wrapper should swallow): %v\nstdout=%q stderr=%q",
+			err, out.String(), errOut.String())
+	}
+	_ = decodeJSONErrEnvelope(t, out.Bytes())
+}
+
+// TestCLI_SearchJSONErrorEnvelope — `ta search --json --match
+// '{not-valid-json'` triggers the json.Unmarshal failure inside the
+// search RunE (commands.go:1388); the A1 wrapper formats the resulting
+// `parse --match JSON: ...` err as a JSON envelope on stdout. Asserts
+// structural envelope only.
+func TestCLI_SearchJSONErrorEnvelope(t *testing.T) {
+	root := newSchemaFixture(t)
+	cmd := newSearchCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--path", root, "--json", "--match", "{not-valid-json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute returned non-nil under --json (wrapper should swallow): %v\nstdout=%q stderr=%q",
+			err, out.String(), errOut.String())
+	}
+	_ = decodeJSONErrEnvelope(t, out.Bytes())
 }

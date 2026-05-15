@@ -2,6 +2,10 @@ package ops
 
 import "errors"
 
+// ErrRecordNotFoundFormat is the wrap shape for ErrRecordNotFound errors.
+// Contractually locked for cascade drop_002 — L2-A tests reference this name directly.
+const ErrRecordNotFoundFormat = "%w: %q in %s"
+
 // Sentinel errors returned by the data and schema tool handlers.
 var (
 	// ErrRecordExists is returned by create when the target record

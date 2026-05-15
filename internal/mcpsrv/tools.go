@@ -403,14 +403,18 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 // mcpsrv free of a cross-package dependency on the CLI helpers.
 // Treats record-not-found and file-not-found as misses; everything
 // else is a per-item error.
+//
+// Cascade drop_002 B6: retired the `strings.Contains(err.Error(), "not found")`
+// fallback in lockstep with cmd/ta's isNotFound. See that function's comment
+// for the full rationale — post-B1 every ops.Get miss path wraps a sentinel
+// via fmt.Errorf and the L2-A regression test pins the wrap shape, so the
+// substring branch was dead code AND a silent net that would have masked
+// future contract regressions.
 func isMCPNotFound(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, ops.ErrRecordNotFound) || errors.Is(err, ops.ErrFileNotFound) {
-		return true
-	}
-	return strings.Contains(err.Error(), "not found")
+	return errors.Is(err, ops.ErrRecordNotFound) || errors.Is(err, ops.ErrFileNotFound)
 }
 
 func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

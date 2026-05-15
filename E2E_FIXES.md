@@ -1229,6 +1229,62 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 
 **Fix shape**: extend the F38d-2.17 disambiguation block to also try a 3-segment shape: `<db>.<type>.<idprefix>` interpretation when parts[0] is a declared db AND parts[1] is a declared type AND `best.globOnly`. Falls through to file-relpath otherwise. Out of F38d-2.17 scope; track for a future slice.
 
+### F38d-2.23 [MINOR — follow-up to F38d-2.20] `ErrRecordNotFound` format-uniformity drift across emitters
+
+**Surfaced by**: drop_002 L2-B build-QA falsification (Attack 2.7). The B1 fix introduced the exported `ErrRecordNotFoundFormat = "%w: %q in %s"` constant. Multiple production sites already emit `ErrRecordNotFound`-wrapped errors but with divergent format strings:
+
+- **Honors the constant** (or matches verbatim):
+  - `internal/ops/helpers.go:138` (new B1 emit, uses constant directly) ✓
+  - `internal/ops/ops.go:136` (Get) — hand-typed `"%w: %q in %s"` ✓ (matches but not via constant)
+  - `internal/ops/ops.go:199` (GetAllFields) — hand-typed `"%w: %q in %s"` ✓
+
+- **Diverges from the constant**:
+  - `internal/ops/ops.go:968` (deleteRecord) — `"%w: %q"` (no `in <filePath>` suffix)
+  - `internal/ops/move.go:192` (Move src miss) — `"%w: %q"` (same shape as deleteRecord)
+  - `internal/ops/fields.go:71` — `"%w: no record at %q"` (entirely different shape)
+  - `internal/ops/fields.go:75` — `"%w: %q is not a table"` (entirely different shape)
+
+**Impact**: drop_002's L2-A `TestCLI_GetJSONErrorEnvelope` pins the get-flow text via `fmt.Errorf(ops.ErrRecordNotFoundFormat, ops.ErrRecordNotFound, ...).Error()`. Delete and Move flows produce a SHORTER text. If future tests at the CLI/MCP layer try to pin those flows against `ErrRecordNotFoundFormat`, they'll mismatch silently or require per-callsite branching.
+
+**Fix shape**: add a small `wrapRecordNotFound(id, filePath string) error` helper in `internal/ops/errors.go` that consumes the constant exactly once. Migrate the 4 divergent callsites (ops.go:968, move.go:192, fields.go:71/75) to use the helper. Closes the format-uniformity drift surface so future regression tests can pin a single shape.
+
+**Tests required**: `TestOps_ErrRecordNotFoundFormat_AllEmittersUniform` — table-driven over Get/GetAllFields/Update/Delete/Move/fields paths, asserting the emitted error text matches the locked format for each.
+
+**Out of scope for drop_002**: L2-B's stated contract did not include cross-emitter format uniformity; the partial-honoring is non-regressing (the perimeter test sub-c scans rebuild-hint sites, not format-equivalence). Filed as post-drop_002 hardening.
+
+### F38d-2.22 [MINOR — follow-up to F38d-2.20] `ops.Update` lacks Find-before-merge guard (single-type DB asymmetry)
+
+**Surfaced by**: drop_002 L2-B B5 builder during fixup of `TestMCP_UpdateMissingIDReturnsCleanError`. Diagnosis:
+
+`ops.Get`, `ops.DeleteWithOptions::deleteRecord`, and `ops.Move` all call `backend.Find` on the resolved record BEFORE attempting any mutation. When the record is absent, they return `ErrRecordNotFound` directly. `ops.Update` is asymmetric — it doesn't Find first. Instead it:
+1. Calls `resolveTypeForID` (which B1 fixed to disk-probe in multi-type+no-index branch).
+2. For single-type DBs, `resolveTypeForID` short-circuits at `helpers.go:129-132` WITHOUT disk-probing (`len(declaredTypes) == 1` early-return).
+3. Update then calls `loadExistingFields` → returns empty for missing id (silent, no error).
+4. `overlayPatch({}, userData, schemaType)` produces an incomplete record.
+5. `Validate` rejects on missing required field (e.g., `id`) BEFORE any not-found shape surfaces.
+
+**Impact**: under a single-type DB with a missing id, `ta update <missing>` returns a `missing_required` validation error, NOT the clean `ErrRecordNotFound`. Inconsistent with Get/Delete/Move semantics. The MCP wire shape is similarly affected.
+
+**Why not in drop_002**: drop_002 covered the multi-type case via B1's central fix at `resolveTypeForID`. Single-type Update is the residual asymmetry. Filed as a follow-up.
+
+**Fix shape**: add a Find-before-merge guard in `ops.Update` that returns `ErrRecordNotFound` symmetrically with Get/Delete/Move when the record is absent on disk. Likely at `ops.go:~620-630` (after Stat, before resolveTypeForID).
+
+**Test required**: `TestOps_UpdateNotFoundSingleTypeDB` — single-type schema + missing id → assert `errors.Is(err, ErrRecordNotFound)`, NOT `missing_required` validation error.
+
+### F38d-2.21 [MINOR — follow-up to F38d-2.19] Operator-side `--json` commands still ignore --json on error
+
+**Surfaced by**: L2-A plan-QA proof of cascade `drop_002.drop.cli_error_ux` (round 1). The L2-A planner's internal falsification Attack 1 claimed "4 callsites exhaustive" — empirically incomplete. `rg 'BoolVar.*json' cmd/ta/` shows 13 total `--json` flag declarations across 5 files. F38d-2.19's scope (drop_002) covers the 4 AGENT-facing read commands (get/list-sections/schema/search). Three additional operator-facing read-side commands also have `--json` flags and would still fail to honor it on error:
+
+- `cmd/ta/index_cmd.go:73` — `ta index rebuild --json` (recovery op with JSON output).
+- `cmd/ta/template_cmd.go:82` — `ta template list --json`.
+- `cmd/ta/template_cmd.go:249` — `ta template show <name> --json`.
+
+**Why split from F38d-2.19**: dogfood priority. F38d-2.19 covers the four commands agents use for the cascade workflow (get/list-sections/schema/search via MCP-equivalent paths). The three operator-facing commands above are human-only recovery / template management operations — useful for `--json` but not blocking the cascade-managed dogfood. Splitting keeps the F38d-2.19 cascade drop focused on dogfood-critical surface.
+
+**Fix shape**: extend `runWithJSONErrEnvelope` (B1 of drop_002) usage to the 3 additional RunE bodies. Add corresponding tests: `TestCLI_TemplateListJSONErrorEnvelope`, `TestCLI_TemplateShowJSONErrorEnvelope`, `TestCLI_IndexRebuildJSONErrorEnvelope`. Single droplet, ~3-4 code edits.
+
+**Dependency**: blocked on drop_002 closure (the helper must exist first).
+
 ### F38d-2.19 [MAJOR] CLI error responses ignore `--json` flag
 
 **Surfaced by**: live CLI dogfood after F38d-2.17 landed.

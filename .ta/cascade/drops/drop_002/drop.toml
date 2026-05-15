@@ -1,0 +1,488 @@
+[cli_error_ux]
+completed_at = "2026-05-15T05:15:00Z"
+created_at = "2026-05-14T23:00:00Z"
+definition_of_complete = "Both F38d-2.19 and F38d-2.20 closed: CLI error paths render JSON when --json is set; ta get for a nonexistent id returns a clean 'record not found' error (no 'type unresolved (run index rebuild)' suggestion). mage check green. Tests required per E2E_FIXES.md entries."
+drop_number = 2.0
+labels = ["pre-mvp", "f38d", "cli", "ux", "dogfood-first-cascade"]
+objective = "Bundle two CLI surface bugs surfaced by live dogfood: (1) F38d-2.19 CLI error responses ignore --json flag (violates CLAUDE.md agent contract); (2) F38d-2.20 ta get <nonexistent> returns confusing 'type unresolved (run ta index rebuild)' instead of clean 'record not found' (violates memory rule that rebuild is recovery-only). Both filed in E2E_FIXES.md with full repro + fix shape + tests required. First real cascade-managed dogfood per docs/cascade-methodology.md."
+outcome = "success"
+role = "planner"
+state = "complete"
+structural_type = "drop"
+title = "CLI error UX — honor --json + clean not-found (F38d-2.19+2.20)"
+transition_notes = "FIRST REAL CASCADE-MANAGED DOGFOOD: drop_002 closes. L2-B + L2-A segments both READY. 8 builders + 2 planners + 4 plan-QA + 4 build-QA = 18 cascade records. mage check 1019/1019 green. Follow-ups: F38d-2.21 (operator-facing --json commands), F38d-2.22 (Update single-type Find-guard), F38d-2.23 (ErrRecordNotFound format-uniformity)."
+updated_at = "2026-05-15T05:15:00Z"
+[planner_decompose]
+completed_at = "2026-05-14T23:30:00Z"
+created_at = "2026-05-14T23:00:00Z"
+description = """
+L1 decomposition into 2 L2 sub-planners, sequenced B-then-A.
+
+## L2-B — ops/resolver error semantics (UPSTREAM, no blockers)
+
+**id**: drop_002.drop.planner_l2_ops_record_not_found
+
+**Concern**: distinguish `legitimately-absent record` from `corrupted index`; return ErrRecordNotFound for the former. Apply CENTRALLY at `resolveTypeForID` so ALL callsites with `requireType=false` inherit cleanly.
+
+**Scope** (round-6 exhaustive enumeration of `resolveTypeForID(requireType=false)` callsites):
+- internal/ops/ops.go::Get (~107)
+- internal/ops/ops.go::GetAllFields (~169)
+- internal/ops/ops.go::Update (~636)
+- internal/ops/ops.go::deleteRecord (~937)
+- internal/ops/move.go::Move (~155)
+
+These are the 5 callsites verified at HEAD `4a05a87` per round-5 falsifier rg. `Create` (line 269) also calls resolveTypeForID but with `requireType=true`, which short-circuits the buggy branch — NOT in scope.
+
+**Central fix site**:
+- internal/ops/helpers.go::resolveTypeForID (96-120) — the bug. Empty-typeName + index miss + len(declaredTypes) > 1 must do a disk stat-and-find probe to distinguish absent-record (return ErrRecordNotFound) from on-disk-orphan (return ErrTypeUnresolved with rebuild hint). All 5 callsites above inherit cleanly.
+
+**Error sentinel scope**:
+- internal/ops/errors.go (74-77) — ErrTypeUnresolved message scoped to genuine corruption.
+
+**Consumer-side substring-fallback safety nets**:
+- cmd/ta/commands.go::isNotFound (250-263)
+- internal/mcpsrv/tools.go::isMCPNotFound (406-414)
+
+## Contract additions (rounds 1-6 cumulative)
+
+1. **Error-string format lock — MANDATE exported constant**: L2-B MUST export a format-string constant/helper from `internal/ops/errors.go`. L2-A's tests MUST reference it directly. NO substring matching, NO hand-typed format string.
+
+2. **Genuine-orphan regression test**: `TestOps_GetTypeUnresolvedForOnDiskOrphan` — record on disk + no index entry + multi-type db → ErrTypeUnresolved with rebuild hint.
+
+3. **Rebuild-hint perimeter — predicate-based**: `TestRebuildHintPerimeterPredicate` with sub-assertions: (a) ErrRecordNotFound .Error() does NOT contain hint; (b) ErrTypeUnresolved DOES contain hint; (c) optional source-scan with allowlisted-function-name regex; (d) `ta get` AND `ta update` AND `ta delete` AND `ta move` of missing-id in multi-type db NOT carrying the rebuild hint (CLI-surface symmetry test — round 6 widens to 4 commands).
+
+4. **Substring-safety-net retirement test gate**: if L2-B removes the `strings.Contains` fallback, MUST add regression tests for non-ErrRecordNotFound "not found"-substring surfaces.
+
+5. **CLI parity for all resolveTypeForID(requireType=false) callsites** (round-6 generalization): the central fix at resolveTypeForID inherits cleanly to all 5 callsites. Required CLI regression tests:
+   - `TestCLI_GetNotFoundCleanError` (no --json)
+   - `TestCLI_UpdateNotFoundCleanError` (no --json)
+   - `TestCLI_DeleteNotFoundCleanError` (no --json)
+   - `TestCLI_MoveNotFoundCleanError` (no --json, round 6 addition)
+   MCP-layer parity:
+   - `mcp__ta__get` missing id → `found:false` per item.
+   - `mcp__ta__update` missing id → per-item error with clean ErrRecordNotFound text (no hint).
+   - `mcp__ta__delete` missing id → same.
+   - `mcp__ta__move` missing src → same.
+
+## Tests required (round-6 consolidated)
+
+- `TestOps_GetNotFoundReturnsCleanError` — ops layer.
+- `TestOps_GetTypeUnresolvedForOnDiskOrphan` — ops layer (orphan-preservation).
+- `TestRebuildHintPerimeterPredicate` — with sub-assertion (d) covering get/update/delete/move CLI symmetry.
+- `TestCLI_GetNotFoundCleanError`
+- `TestCLI_UpdateNotFoundCleanError`
+- `TestCLI_DeleteNotFoundCleanError`
+- `TestCLI_MoveNotFoundCleanError`
+- MCP regression: get/update/delete/move of absent id.
+
+## Acceptance
+
+`ta get`, `ta update`, `ta delete`, `ta move` (no --json, no --type) of a missing id in a multi-type db all return error text matching the locked ErrRecordNotFound format AND NOT containing 'ta index rebuild'. MCP equivalents: get returns `found:false`; update/delete/move return per-item error with clean text. ErrTypeUnresolved continues to fire (with rebuild hint) for on-disk orphans (locked).
+
+## L2-A — CLI rendering surface (DOWNSTREAM, blocked on L2-B)
+
+**id**: drop_002.drop.planner_l2_cli_error_json_render
+
+**Concern**: every CLI error path honors `--json` matching success-path semantics.
+
+**Scope**: cmd/ta/main.go (fang.Execute wiring) + cmd/ta/commands.go (every RunE with --json: get 114, list-sections 547, schema 1296, search 1362) + cmd/ta/commands_test.go (new tests).
+
+**Contract addition**: L2-A's tests MUST reference L2-B's exported format constant directly. NO substring matching. NO hand-typed format string.
+
+**Out of scope for L2-A**: mutating commands' `--json` flag extension per CLAUDE.md. The round-5/6 `TestCLI_{Update,Delete,Move}NotFoundCleanError` are L2-B tests (assert clean text, no --json), NOT L2-A tests.
+
+**Acceptance**: every --json-flagged command emits JSON for both success AND error paths; no regression to human surface.
+
+## Sequencing
+
+L2-B blocks L2-A (same-package siblings + exported-constant coordination).
+
+## Open unknowns routed to L2 planners
+
+- L2-A: render-fork design choice.
+- L2-A: JSON envelope shape.
+- L2-B: keep or remove substring safety-net (contract 4).
+
+## Plan-QA verdict trail
+
+- Round 1 proof: READY (8/8).
+- Round 1 falsification: AMEND — #3 text coord + #8 missing on-disk-orphan test.
+- Round 2 falsification: AMEND — #5 OR-fork tightening + #6 perimeter open-ended.
+- Round 3 falsification: AMEND — #6 enumeration empirically wrong (~10 hint sites not 3).
+- Round 4 falsification: AMEND — Update + Delete CLI parity missing from scope.
+- Round 5 falsification: AMEND — Move CLI parity missing (third callsite).
+- Round 6 amendment: scope exhaustively enumerates all 5 resolveTypeForID(requireType=false) callsites. Methodology learning: when first naming a category, ENUMERATE ALL CALLSITES THEN list scope — else each callsite becomes its own round.
+
+## Cascade dogfood learnings (mid-flight)
+
+- 5 rounds of plan-QA falsification on a 2-bug slice is heavy but each round caught a SUBSTANTIVE issue — not editorial.
+- The methodology IS working: every round surfaced a real gap the orchestrator would have shipped broken otherwise.
+- Convergence pattern: round N+1 finds one specific issue addressing the scope/contract gap from round N. Finite enumeration (5 callsites) bounds the iteration.
+- Methodology proposal: when an L1 planner identifies a class of bugs (e.g., "missing not-found error text in CLI"), the planner should enumerate ALL callsites of the root-cause function upfront, not name a representative subset. Saves rounds.
+"""
+objective = "PENDING — awaiting ta-go-planning subagent dispatch. The agent will decompose F38d-2.19 + F38d-2.20 into ≤2 builder droplets (one per fix), each ≤4 distinct code-block edits per the project's droplet contract. Output written here as a structured plan (file:line touchpoints, test names, blocker graph) before plan-QA twins fire."
+outcome = "success"
+parent_id = "drop_002.drop.cli_error_ux"
+role = "planner"
+started_at = "2026-05-14T23:01:00Z"
+state = "complete"
+title = "Planner — decompose CLI error UX bundle into atomic build droplets"
+transition_notes = "PLAN-QA CONVERGED at round 6. Both twins READY (proof round 1 + falsification round 6). Descent to L2-B unblocked. Total: 1 proof round + 6 falsification rounds for a 2-bug slice. Each falsification round caught a real substantive gap (not editorial). Real dogfood data: cascade methodology works but plan-QA iteration cost is significant; warrants a methodology proposal for plan-QA convergence policy post-dogfood."
+updated_at = "2026-05-15T01:25:00Z"
+[plan_qa_proof_l1]
+created_at = "2026-05-14T23:30:00Z"
+objective = "Verify the L1 planner's decomposition is evidence-backed per cascade-methodology §4.3. Confirm: (1) F38d-2.19 root cause cited at cmd/ta/main.go + fang's DefaultErrorHandler; (2) F38d-2.20 root cause cited at internal/ops/ops.go::Get + helpers.go::resolveTypeForID; (3) L2-A vs L2-B file-scope claim (disjoint vs sequence-required); (4) B-blocks-A justification (test-text dependency + same-package siblings); (5) all open unknowns explicitly routed to the right L2 layer."
+parent_id = "drop_002.drop.planner_decompose"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_002.drop.planner_decompose"
+title = "Plan-QA proof — L1 decomposition evidence completeness"
+updated_at = "2026-05-14T23:30:00Z"
+
+[plan_qa_falsif_l1]
+completed_at = "2026-05-15T01:25:00Z"
+created_at = "2026-05-14T23:30:00Z"
+objective = "Attack the L1 decomposition for missing cases / bad blockers / hidden dependencies. Attack vectors: (1) shared-root-cause that would collapse to 1 L2; (2) parallelism actually achievable (refute the B-blocks-A claim if file-scope is more disjoint than claimed); (3) test-surface overlap that would let A and B sequence differently; (4) scope creep — mutating commands, MCP-parity, etc; (5) F23 auto_spawn assumption — since it's OFF, are there any droplet-spawning gotchas the L1 missed; (6) whether L1 should have spawned a 3rd L2 for a distinct concern (e.g., MCP-parity testing)."
+outcome = "success"
+parent_id = "drop_002.drop.planner_decompose"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_002.drop.planner_decompose"
+title = "Plan-QA falsification — L1 decomposition counterexample search"
+transition_notes = "Convergence reached at round 6. Falsifier ran rg verification, confirmed 5-callsite enumeration exhaustive, no new substantive gaps. Total rounds: 6. Methodology learning: when L1 names a class of bugs, enumerate ALL callsites of the root-cause function upfront."
+updated_at = "2026-05-15T01:25:00Z"
+
+[planner_l2_ops_record_not_found]
+completed_at = "2026-05-15T05:15:00Z"
+created_at = "2026-05-15T01:30:00Z"
+description = """
+L2-B decomposition into 6 atomic builder droplets. Dispatch graph: B1 (first) → {B2 || B3 || B4 || B5 in parallel} → B6 (cleanup).
+
+## B1 — central fix + exported format constant + shared helper (round-3 amended)
+- Scope: internal/ops/helpers.go:96-120 (buggy branch) + internal/ops/errors.go:6-13 (add constant) + NEW internal/ops/notfound_testhelpers_test.go (shared fixture).
+- Changes ≤4:
+  (1) Export the format constant under the EXACT name `ErrRecordNotFoundFormat = "%w: %q in %s"` matching ops.go:136. This name is CONTRACTUALLY LOCKED — builders MUST use this exact identifier, no synonyms. L2-A references it directly.
+  (2) Refactor resolveTypeForID multi-type+no-index branch with disk probe distinguishing absent-record from on-disk-orphan.
+  (3) B1 INVESTIGATION: probe shape — extend signature with dbDecl OR return ErrNeedsProbe sentinel and probe at callsites. Builder picks; if signature changes, update all 6 callsites including Create at ops.go:269.
+  (4) Create NEW file `internal/ops/notfound_testhelpers_test.go` with shared `withMultiTypeSchema` fixture. The fixture MUST include cache isolation — either `ops.SwapDefaultCacheLoaderForTest(...)` (matches ops_test.go:31 convention) or `t.Cleanup(ops.ResetDefaultCacheForTest); ops.ResetDefaultCacheForTest()` (matches cache_test.go:230 / schema_mutate_test.go:39 / commands_test.go:46 / server_test.go:48 convention). Without cache reset, B2/B3 tests will collide with the process-singleton `defaultCache` at `internal/ops/cache.go:209` and surface 'single-project-per-process' errors masquerading as not-found-fix bugs. B2 and B3 reference this helper rather than duplicating.
+- Acceptance: errors.Is(ErrRecordNotFound) for absent-in-multitype; errors.Is(ErrTypeUnresolved) preserved for on-disk orphans; mage check green; shared helper file exists with cache-reset convention.
+- Dispatch: FIRST, blocks all others.
+
+## B2 — ops-layer regression tests
+- Scope: NEW internal/ops/notfound_test.go.
+- Changes: TestOps_GetNotFoundReturnsCleanError + TestOps_GetTypeUnresolvedForOnDiskOrphan. REFERENCES B1's shared `withMultiTypeSchema` helper (do NOT duplicate). References `ErrRecordNotFoundFormat` constant directly.
+- Dispatch: sequential-after-B1, parallel-with B3/B4/B5.
+
+## B3 — rebuild-hint perimeter predicate
+- Scope: NEW internal/ops/rebuildhint_perimeter_test.go.
+- Changes: TestRebuildHintPerimeterPredicate with sub-a/b/c/d. Sub-d uses table-driven subtest over get/update/delete/move at ops layer, REFERENCING B1's shared `withMultiTypeSchema` helper.
+- Dispatch: sequential-after-B1, parallel-with B2/B4/B5.
+
+## B4 — CLI parity tests
+- Scope: cmd/ta/commands_test.go extend (4 new functions).
+- Changes: TestCLI_{Get,Update,Delete,Move}NotFoundCleanError. Scenarios per L2-B falsifier attacks 6/7: Update needs existing-file-missing-record; Move needs grammatically-valid-but-no-record; deleteRecord ordering covered.
+- Dispatch: sequential-after-B1, parallel-with B2/B3/B5.
+
+## B5 — MCP layer parity tests
+- Scope: internal/mcpsrv/server_test.go extend.
+- Changes: TestMCP_GetMissingIDReturnsFoundFalse + TestMCP_{Update,Delete,Move}MissingIDReturnsCleanError.
+- Dispatch: sequential-after-B1, parallel-with B2/B3/B4.
+
+## B6 — substring safety-net decision (final cleanup)
+- Scope: cmd/ta/commands.go::isNotFound + internal/mcpsrv/tools.go::isMCPNotFound.
+- Changes ≤4: (1) rg `not found` across internal/ops/ to enumerate non-sentinel surfaces; (2) if dead-code post-B1: retire substring fallback; (3) if needed: add regression tests; (4) document decision in commit msg.
+- Dispatch: sequential-AFTER-ALL (B2+B3+B4+B5).
+
+## Plan-QA verdict trail
+- Round 1: AMEND — 3 LANDS (constant-name pin, helper ownership, build-QA explicit).
+- Round 2: AMEND — 1 truly-new LANDS (cache-reset in helper spec).
+- Round 3: ORCHESTRATOR OVERRIDE on falsifier's self-attested convergence + surgical amendment.
+
+## Acceptance roll-up
+L2-B closes when:
+1. All 5 resolveTypeForID(requireType=false) callsites surface ErrRecordNotFound for missing-id-in-multitype.
+2. ErrTypeUnresolved preserved for on-disk orphans.
+3. ErrRecordNotFoundFormat exported under that exact name.
+4. Shared withMultiTypeSchema helper exists with cache-reset.
+5. 7 ops tests + 4 MCP tests pass.
+6. Perimeter sub-d covers all 4 CLI commands.
+7. ta {get,update,delete,move} stderr NO 'ta index rebuild'.
+8. B6 decision documented.
+9. mage check green.
+10. L2-B BUILD-QA twins fire after B6; both complete=success.
+"""
+objective = "Decompose L2-B scope into atomic builder droplets. Per L1's exhaustive enumeration: central fix at internal/ops/helpers.go::resolveTypeForID (96-120) — disk stat-and-find probe to distinguish absent-record from on-disk-orphan. All 5 callsites with requireType=false inherit cleanly. Export ErrRecordNotFound format constant from internal/ops/errors.go for L2-A coordination. Tests: TestOps_GetNotFoundReturnsCleanError, TestOps_GetTypeUnresolvedForOnDiskOrphan, TestRebuildHintPerimeterPredicate (with sub-d covering all 4 CLI commands), TestCLI_{Get,Update,Delete,Move}NotFoundCleanError, MCP-layer parity tests. PENDING ta-go-planning subagent decomposition."
+outcome = "success"
+parent_id = "drop_002.drop.planner_decompose"
+role = "planner"
+started_at = "2026-05-15T01:30:00Z"
+state = "complete"
+title = "L2-B planner — ops/resolver error semantics (UPSTREAM)"
+transition_notes = "L2-B segment fully closed: 6 builders complete + 2 build-QA twins READY. Follow-ups filed: F38d-2.22 (single-type Update Find-guard parity), F38d-2.23 (format-uniformity drift)."
+updated_at = "2026-05-15T05:15:00Z"
+[plan_qa_proof_l2_b]
+created_at = "2026-05-15T01:30:00Z"
+objective = "Verify L2-B's droplet decomposition is evidence-backed. Confirm (1) central fix at resolveTypeForID matches the locked design contract; (2) each droplet's file-line citations resolve; (3) test names match L1's required-tests list; (4) droplet parallelism analysis correctly identifies disjoint-paths droplets that can fire concurrently."
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+role = "qa-proof"
+started_at = "2026-05-15T02:00:00Z"
+state = "in_progress"
+target_id = "drop_002.drop.planner_l2_ops_record_not_found"
+title = "Plan-QA proof — L2-B decomposition evidence completeness"
+updated_at = "2026-05-15T02:00:00Z"
+[plan_qa_falsif_l2_b]
+completed_at = "2026-05-15T02:50:00Z"
+created_at = "2026-05-15T01:30:00Z"
+objective = "Attack L2-B's droplet decomposition. Per L1 methodology learning: enumerate ALL touchpoints (resolveTypeForID + all 5 callsite files + errors.go + isNotFound/isMCPNotFound consumers); confirm exhaustive coverage. Look for missing edge cases (file-as-record vs bracketed-record probe shapes), hidden builder dependencies between droplets, test fixture gaps. Single-round expected with explicit substantive-only criterion."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+role = "qa-falsification"
+started_at = "2026-05-15T02:00:00Z"
+state = "complete"
+target_id = "drop_002.drop.planner_l2_ops_record_not_found"
+title = "Plan-QA falsification — L2-B decomposition counterexample search"
+transition_notes = "Round 2 returned 1 truly-new LANDS (cache-reset convention in helper). Surgical amendment applied to B1 (changes 4 now includes cache-reset requirement). Orchestrator override: skipping round 3 dispatch on (a) falsifier's self-attested 'gap above is genuinely the last one', (b) amendment is content-tightening not structural change, (c) user-authorized pragma. Descent to B1 unblocked."
+updated_at = "2026-05-15T02:50:00Z"
+[builder_b1_central_fix]
+completed_at = "2026-05-15T03:25:00Z"
+created_at = "2026-05-15T01:55:00Z"
+implementation_notes_agent = "Chose Option A (signature extension): resolveTypeForID now takes dbDecl schema.DB. 6 callsites updated. New recordExistsOnDisk helper in helpers.go (defensive-false on any probe error). ErrRecordNotFoundFormat exported from errors.go as const. NEW notfound_testhelpers_test.go in package ops_test with withMultiTypeSchema fixture using t.Cleanup(ResetDefaultCacheForTest) convention. mage check: 1005/996/0/9 green."
+objective = "B1: (1) export EXACT `ErrRecordNotFoundFormat = \"%w: %q in %s\"` from internal/ops/errors.go; (2) refactor internal/ops/helpers.go::resolveTypeForID (96-120) with disk probe distinguishing absent-record (ErrRecordNotFound) from on-disk-orphan (ErrTypeUnresolved); (3) INVESTIGATION: pick probe shape (extend signature with dbDecl OR new ErrNeedsProbe sentinel + callsite probes); if signature changes, update all 6 callsites; (4) create NEW file internal/ops/notfound_testhelpers_test.go with shared `withMultiTypeSchema` fixture that includes cache isolation (`ops.SwapDefaultCacheLoaderForTest` per ops_test.go:31 convention OR `t.Cleanup(ops.ResetDefaultCacheForTest); ops.ResetDefaultCacheForTest()` per cache_test.go:230 / schema_mutate_test.go:39 / commands_test.go:46 / server_test.go:48 convention) — WITHOUT cache reset, B2/B3 tests collide with defaultCache singleton at cache.go:209. Blocks all other L2-B droplets."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+paths = ["internal/ops/helpers.go", "internal/ops/errors.go", "internal/ops/notfound_testhelpers_test.go"]
+role = "builder"
+started_at = "2026-05-15T02:55:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "B1 — central fix + exported format constant + shared helper file"
+updated_at = "2026-05-15T03:25:00Z"
+[builder_b2_ops_tests]
+blockers = ["drop_002.drop.builder_b1_central_fix"]
+completed_at = "2026-05-15T04:05:00Z"
+created_at = "2026-05-15T01:55:00Z"
+implementation_notes_agent = "Created internal/ops/notfound_test.go (package ops_test) with TestOps_GetNotFoundReturnsCleanError + TestOps_GetTypeUnresolvedForOnDiskOrphan. Both pass via mage testFunc. mage check showed 2 cross-builder failures (B4's TestCLI_MoveNotFoundCleanError, B5's TestMCP_UpdateMissingIDReturnsCleanError) both outside B2's scope. Builder correctly halted on its own deliverable + noted sibling failures."
+objective = "New file internal/ops/notfound_test.go with TestOps_GetNotFoundReturnsCleanError + TestOps_GetTypeUnresolvedForOnDiskOrphan. References B1's exported constant."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+paths = ["internal/ops/notfound_test.go"]
+role = "builder"
+started_at = "2026-05-15T03:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "B2 — ops-layer regression tests (TestOps_GetNotFound + Orphan)"
+updated_at = "2026-05-15T04:05:00Z"
+[builder_b3_perimeter]
+blockers = ["drop_002.drop.builder_b1_central_fix"]
+completed_at = "2026-05-15T04:10:00Z"
+created_at = "2026-05-15T01:55:00Z"
+implementation_notes_agent = "Created internal/ops/rebuildhint_perimeter_test.go with TestRebuildHintPerimeterPredicate (sub-a/b/c/d, 9 leaf assertions). Sub-c scans 16 production hit sites via allowlist regex; ±5-line window match. mage testPkg ./internal/ops green at 122 tests. Confirmed same 2 cross-builder failures B2 saw: TestCLI_MoveNotFoundCleanError, TestMCP_UpdateMissingIDReturnsCleanError — outside B3 scope, routed for orchestrator synthesis after B4/A1 return."
+objective = "New file internal/ops/rebuildhint_perimeter_test.go with TestRebuildHintPerimeterPredicate (sub-a/b/c/d covering get/update/delete/move at ops layer)."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+paths = ["internal/ops/rebuildhint_perimeter_test.go"]
+role = "builder"
+started_at = "2026-05-15T03:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "B3 — rebuild-hint perimeter predicate test"
+updated_at = "2026-05-15T04:10:00Z"
+[builder_b4_cli_parity]
+blockers = ["drop_002.drop.builder_b1_central_fix"]
+completed_at = "2026-05-15T04:15:00Z"
+created_at = "2026-05-15T01:55:00Z"
+implementation_notes_agent = "All 4 CLI tests pass. cmd/ta package 273/273 green. Move test handles batch-error stdout envelope correctly (assertion checks stdout for canonical 'ops: record not found' + combined-stream absence of 'ta index rebuild'). Confirmed B5's TestMCP_UpdateMissingIDReturnsCleanError still failing — diagnosed as B5 test scenario issue (missing_required validation kicks before not-found path; seed record needs `id` field matching `plans.absent`). Routed to orchestrator for B5 SendMessage fix or self-fix."
+objective = "Extend cmd/ta/commands_test.go with TestCLI_{Get,Update,Delete,Move}NotFoundCleanError. Each test uses grammatically-valid-but-no-record id in multi-type DB. Update scenario needs existing-file-missing-record; Move needs upstream-resolution-success."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+paths = ["cmd/ta/commands_test.go"]
+role = "builder"
+started_at = "2026-05-15T03:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "B4 — CLI parity tests (get/update/delete/move)"
+updated_at = "2026-05-15T04:15:00Z"
+[builder_b5_mcp_parity]
+blockers = ["drop_002.drop.builder_b1_central_fix"]
+completed_at = "2026-05-15T04:35:00Z"
+created_at = "2026-05-15T01:55:00Z"
+implementation_notes_agent = "Fixup landed. Diagnosis: ops.Update lacks Find-before-merge guard (asymmetric with Get/Delete/Move). For single-type DBs with missing id, Update's overlay-merge produces incomplete record → Validate rejects on missing required field BEFORE the B1 not-found fix can fire. Multi-type DBs are saved by B1's central resolveTypeForID fix; single-type are not. Fix in B5 scope: switched TestMCP_UpdateMissingIDReturnsCleanError to use tomlMultiTypePlansSchema (routes through B1-locked path). Production gap (ops.Update Find-guard parity) flagged for orchestrator follow-up drop. mage check: 1015/1015 green."
+last_failure_context = "TestMCP_UpdateMissingIDReturnsCleanError fails in shared tree per B2/B3/B4 reports. Builder halted on permission denial before verification. B4 diagnosed: Update is rejected by missing_required field validation BEFORE reaching not-found path. Seed record's `id` field likely needs to be 'plans.absent' not 'absent'. Test setup bug, not B1 fix gap. Pending orchestrator fix."
+objective = "Extend internal/mcpsrv/server_test.go with TestMCP_{Get,Update,Delete,Move} per-item-error tests. Get returns found:false; others return per-item error with clean text (no rebuild hint)."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+paths = ["internal/mcpsrv/server_test.go"]
+role = "builder"
+started_at = "2026-05-15T04:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "B5 — MCP layer parity tests"
+transition_notes = "Re-dispatching B5 with diagnosis from B4: TestMCP_UpdateMissingIDReturnsCleanError fails because validation rejects Update payload (missing_required field) BEFORE the not-found resolution fires. Fix the test scenario to either use a schema without required-no-default fields OR send a data overlay that satisfies validation. Use `mage check` (no env prefix, no regex) for verification to avoid the earlier permission denial."
+updated_at = "2026-05-15T04:35:00Z"
+[builder_b6_substring_decision]
+blockers = ["drop_002.drop.builder_b2_ops_tests", "drop_002.drop.builder_b3_perimeter", "drop_002.drop.builder_b4_cli_parity", "drop_002.drop.builder_b5_mcp_parity"]
+completed_at = "2026-05-15T04:55:00Z"
+created_at = "2026-05-15T01:55:00Z"
+implementation_notes_agent = "Decision: RETIRE substring safety-net. All 4 production 'not found' strings are sentinel errors.New; all reachable surfaces from ops.Get are sentinel-wrapped; db.ErrInstanceNotFound NOT reachable from ops.Get (bypasses ResolveRead by design). Substring branch was dead code AND silent regression-mask. Edited cmd/ta/commands.go::isNotFound + internal/mcpsrv/tools.go::isMCPNotFound. mage check: 1019/1019 GREEN. Suggested segment-close commit msg provided."
+objective = "B6 INVESTIGATION via rg 'not found' across internal/ops/. If dead-code post-B1: retire substring fallback in cmd/ta/commands.go::isNotFound + internal/mcpsrv/tools.go::isMCPNotFound. Otherwise: add regression tests. Document decision in commit msg."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+paths = ["cmd/ta/commands.go", "internal/mcpsrv/tools.go"]
+role = "builder"
+started_at = "2026-05-15T04:42:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "B6 — substring safety-net keep-or-retire decision"
+updated_at = "2026-05-15T04:55:00Z"
+[planner_l2_cli_error_json_render]
+blockers = ["drop_002.drop.builder_b1_central_fix"]
+completed_at = "2026-05-15T05:15:00Z"
+created_at = "2026-05-15T02:35:00Z"
+description = """
+L2-A decomposition into 2 atomic builder droplets. Design B (per-command RunE wrapper) chosen over Design A (fang.WithErrorHandler) — fang.ErrorHandler signature lacks --json visibility AND existing tests bypass fang.Execute via cmd.Execute() directly.
+
+## A1 — RunE wrapper helper + apply to 4 commands
+- id: drop_002.drop.builder_a1_runwrap_json_err
+- Scope: cmd/ta/commands.go.
+- Changes ≤4: (1) add runWithJSONErrEnvelope(c, asJSON, fn) helper near isNotFound (~263); (2) wrap 4 RunE bodies (get :76-110, list-sections :516-545, schema :1225-1286, search :1336-1355); (3) guard batch-get synthetic err at :106-108 with `&& !asJSON` so --json mode doesn't double-envelope (per planner self-falsification Attack 6 mitigation); (4) brief comment near helper documenting why fang-level fork rejected.
+- JSON envelope shape: `{"error": "<message>"}` flat (matches existing success-envelope flatness).
+- Acceptance: mage check green + existing tests pass + helper exists + 4 RunE closures wrapped + synthetic-err guarded. Out-of-scope (explicit non-goal): cobra arg-parse / panic-class errors NOT translated to JSON — those precede RunE.
+- Dispatch: blocked on B1 commit. FIRES FIRST within L2-A.
+
+## A2 — 4 CLI JSON envelope error tests
+- id: drop_002.drop.builder_a2_cli_json_error_tests
+- Scope: cmd/ta/commands_test.go (extend).
+- Changes ≤4: (1) TestCLI_GetJSONErrorEnvelope (must reference ops.ErrRecordNotFoundFormat by identifier per L1 contract); (2) TestCLI_ListSectionsJSONErrorEnvelope; (3) TestCLI_SchemaJSONErrorEnvelope; (4) TestCLI_SearchJSONErrorEnvelope.
+- Assertions: structural (payload.error != ''), NOT golden-locked. Get test additionally renders the locked-constant text via fmt.Errorf(ops.ErrRecordNotFoundFormat, ...) so no hand-typed format string.
+- Dispatch: blocked on A1 commit AND B1 commit.
+
+## Cross-segment file conflicts (orchestrator must serialize)
+- A1 vs B6 (both edit cmd/ta/commands.go). Recommend A1 first (B6 is post-cleanup and can absorb A1's wrapper into its substring-decision investigation).
+- A2 vs B4 (both edit cmd/ta/commands_test.go). Recommend B4 first since it's in L2-B's owning segment.
+
+## Internal falsification (L2-A planner self-attack, 9 attacks)
+- Attacks 1/3/4/5/7/8/9 mitigated (callsite enumeration exhaustive; fang panic out-of-scope; runGetScope errors flow up; success-path doesn't intercept; emitGetBatch already encodes per-item errs; --json on non-flagged command is cobra-stage; B1 constant available at A2 dispatch).
+- Attack 2 (cobra arg-parse before RunE): explicit non-goal in A1 acceptance.
+- Attack 6 (batch-get double-envelope): FOLDED into A1 changes (3).
+
+## Plan-QA verdict trail (pending)
+- L2-A plan-QA twins dispatched in parallel with B1 builder for cascade efficiency.
+
+## Acceptance roll-up
+L2-A closes when: A1 commit (helper + wrap + batch-get guard); A2 commit (4 tests pass with ErrRecordNotFoundFormat-identifier reference); L2-A BUILD-QA twins (qa-proof + qa-falsification, target_id=planner_l2_cli_error_json_render) both complete=success.
+"""
+objective = "Decompose L2-A scope into atomic builder droplets. Per L1 contract: every --json-flagged CLI command (get/list-sections/schema/search) honors --json on error paths. References B1's contractually-locked ErrRecordNotFoundFormat (no substring/hand-typed). Design choice: centralized fang WithErrorHandler vs per-command RunE wrappers — builder decides. JSON envelope shape — builder decides. Out-of-scope: mutating commands' --json (per CLAUDE.md). PARALLEL with L2-B plan-QA round 2 — L2-A planner only needs the locked constant name (already in L1 contract); L2-A BUILDERS are blocked on B1 commit."
+outcome = "success"
+parent_id = "drop_002.drop.planner_decompose"
+role = "planner"
+started_at = "2026-05-15T02:35:00Z"
+state = "complete"
+title = "L2-A planner — CLI rendering surface JSON-honor (DOWNSTREAM)"
+transition_notes = "L2-A segment fully closed: 2 builders complete + 2 build-QA twins READY."
+updated_at = "2026-05-15T05:15:00Z"
+[plan_qa_proof_l2_a]
+completed_at = "2026-05-15T03:35:00Z"
+created_at = "2026-05-15T02:35:00Z"
+objective = "Verify L2-A's CLI rendering decomposition is evidence-backed: each --json-flagged command's error path is identified, the chosen render-fork design (fang handler vs per-command wrapper) has clear rationale, JSON envelope shape is consistent across commands, test names match L1's required-tests list, references B1's locked constant directly."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_cli_error_json_render"
+role = "qa-proof"
+started_at = "2026-05-15T03:05:00Z"
+state = "complete"
+target_id = "drop_002.drop.planner_l2_cli_error_json_render"
+title = "Plan-QA proof — L2-A decomposition evidence completeness"
+transition_notes = "Round 1: AMEND with 1 substantive scope-narrowness finding (template list/show + index rebuild are also --json read-side commands not in L2-A scope). Orchestrator response: scope L2-A explicitly to 4 agent-facing commands with dogfood-priority rationale; file the 3 operator-facing commands as F38d-2.21 follow-up drop. Documented in E2E_FIXES.md. Plan-QA proof verdict ACCEPTED with explicit-scope-clarification."
+updated_at = "2026-05-15T03:35:00Z"
+[plan_qa_falsif_l2_a]
+completed_at = "2026-05-15T03:40:00Z"
+created_at = "2026-05-15T02:35:00Z"
+objective = "Attack L2-A's CLI rendering decomposition. Look for: (a) commands with --json flag the planner missed; (b) fang interaction edge cases (startup errors, panic handlers); (c) cross-droplet coupling between B1 (already L2-B's domain) and L2-A's tests; (d) success-path regression risk if the error renderer accidentally intercepts a non-error return."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_cli_error_json_render"
+role = "qa-falsification"
+started_at = "2026-05-15T03:05:00Z"
+state = "complete"
+target_id = "drop_002.drop.planner_l2_cli_error_json_render"
+title = "Plan-QA falsification — L2-A decomposition counterexample search"
+transition_notes = "Round 1 AMEND with 2 LANDS: (1) callsite-enumeration sharper than proof's (8 missing not 3 — 5 mutating excluded per CLAUDE.md, 3 read-side filed as F38d-2.21); (2) NEW: schema RunE action-divergence — wrapper must scope to action=get branch only, not full RunE. Both folded into A1 spec via orchestrator amendment. Override: skip round 2; amendments are surgical."
+updated_at = "2026-05-15T03:40:00Z"
+[builder_a1_runwrap_json_err]
+blockers = ["drop_002.drop.builder_b1_central_fix"]
+created_at = "2026-05-15T03:05:00Z"
+objective = "A1 (round-2 amended): add runWithJSONErrEnvelope(c, asJSON, fn) helper to cmd/ta/commands.go + wrap 4 RunE bodies. CRITICAL SCOPE PER L2-A FALSIFIER ROUND 1: (a) For schema RunE at commands.go:1225-1286 — wrap ONLY the action=get branch (inside `if action == \"\" || action == \"get\" { ... }` at ~:1234), NOT the whole RunE. Schema doc explicitly limits --json semantics to action=get; mutations always emit laslig notices; full-RunE wrap would create asymmetric output (mutation success=laslig, mutation error=JSON envelope). (b) For other 3 commands (get/list-sections/search), wrap full RunE. (c) Guard batch-get synthetic err at :106-108 with `&& !asJSON` (Attack 6 mitigation). Out-of-scope per CLAUDE.md (mutating commands) + dogfood priority (operator-facing read commands punted): init, move, template save+apply+delete (mutating) per CLAUDE.md; template list, template show, index rebuild (operator-facing reads) filed as F38d-2.21 follow-up. JSON envelope shape flat: {error: msg}."
+parent_id = "drop_002.drop.planner_l2_cli_error_json_render"
+paths = ["cmd/ta/commands.go"]
+role = "builder"
+started_at = "2026-05-15T03:42:00Z"
+state = "in_progress"
+structural_type = "droplet"
+title = "A1 — RunE wrapper helper + wrap 4 --json commands + guard batch-get"
+updated_at = "2026-05-15T03:42:00Z"
+[builder_a2_cli_json_error_tests]
+blockers = ["drop_002.drop.builder_a1_runwrap_json_err", "drop_002.drop.builder_b4_cli_parity"]
+completed_at = "2026-05-15T04:40:00Z"
+created_at = "2026-05-15T03:05:00Z"
+implementation_notes_agent = "4 tests + decodeJSONErrEnvelope helper appended to cmd/ta/commands_test.go. Get test pins the envelope error to fmt.Errorf(ops.ErrRecordNotFoundFormat, ops.ErrRecordNotFound, ...).Error() by IDENTIFIER per L1+L2-B B1 contract. mage check: 1019/1019 GREEN across all packages."
+objective = "Add TestCLI_{Get,ListSections,Schema,Search}JSONErrorEnvelope to cmd/ta/commands_test.go. Get test renders ops.ErrRecordNotFoundFormat via fmt.Errorf (no hand-typed format). Other tests assert structural shape only. Cross-segment conflict: A2 vs B4 (both commands_test.go) — B4 first per orchestrator serialization."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_cli_error_json_render"
+paths = ["cmd/ta/commands_test.go"]
+role = "builder"
+started_at = "2026-05-15T04:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "A2 — 4 CLI JSON envelope error tests"
+updated_at = "2026-05-15T04:40:00Z"
+
+[build_qa_proof_l2_b]
+completed_at = "2026-05-15T05:15:00Z"
+created_at = "2026-05-15T04:55:00Z"
+objective = "Verify L2-B segment's 10 acceptance criteria met: (1) 5 callsites surface ErrRecordNotFound for missing-id-in-multitype; (2) ErrTypeUnresolved preserved for on-disk orphans; (3) ErrRecordNotFoundFormat exported; (4) shared helper exists with cache reset; (5) 7 ops + 4 MCP tests pass; (6) perimeter sub-d covers 4 CLI commands; (7) ta {get,update,delete,move} no rebuild-hint; (8) B6 decision documented; (9) mage check green; (10) build-QA twins fire (you)."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+role = "qa-proof"
+started_at = "2026-05-15T04:55:00Z"
+state = "complete"
+target_id = "drop_002.drop.planner_l2_ops_record_not_found"
+title = "Build-QA proof — L2-B segment (B1-B6) acceptance verification"
+transition_notes = "All 10 acceptance criteria verified at file:line + mage runs. tool_uses=27."
+updated_at = "2026-05-15T05:15:00Z"
+[build_qa_falsif_l2_b]
+completed_at = "2026-05-15T05:15:00Z"
+created_at = "2026-05-15T04:55:00Z"
+objective = "Attack L2-B's completed sub-tree for regressions, edge cases, contract drift. Specifically: probe shape correctness (B1's Option A signature extension), test fixture isolation, B6 retirement-side regression surface, B5's Update Find-guard gap (filed as F38d-2.22), MCP-CLI parity."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_ops_record_not_found"
+role = "qa-falsification"
+started_at = "2026-05-15T04:55:00Z"
+state = "complete"
+target_id = "drop_002.drop.planner_l2_ops_record_not_found"
+title = "Build-QA falsification — L2-B segment counterexample search"
+transition_notes = "All 9 attacks MITIGATED with file:line + mage runs. 2 follow-ups flagged: F38d-2.22 (already filed) + format-uniformity drift across ErrRecordNotFound emitters (ops.go:968, move.go:192, fields.go:71/75) — file as F38d-2.23. tool_uses=56."
+updated_at = "2026-05-15T05:15:00Z"
+[build_qa_proof_l2_a]
+completed_at = "2026-05-15T05:15:00Z"
+created_at = "2026-05-15T04:55:00Z"
+objective = "Verify L2-A segment's acceptance: A1 helper exists + 4 RunE wrapped (schema scoped to action=get) + batch-get guard; A2 4 tests reference ErrRecordNotFoundFormat by identifier; success path unchanged; mage check green."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_cli_error_json_render"
+role = "qa-proof"
+started_at = "2026-05-15T04:55:00Z"
+state = "complete"
+target_id = "drop_002.drop.planner_l2_cli_error_json_render"
+title = "Build-QA proof — L2-A segment (A1-A2) acceptance verification"
+transition_notes = "All 7 acceptance criteria + 7 attacks verified. tool_uses=20."
+updated_at = "2026-05-15T05:15:00Z"
+[build_qa_falsif_l2_a]
+completed_at = "2026-05-15T05:15:00Z"
+created_at = "2026-05-15T04:55:00Z"
+objective = "Attack L2-A's completed sub-tree. Specifically: schema mutation branches untouched (action=get scoping); JSON envelope shape consistency; --json success regression; batch-get double-envelope guarded correctly; out-of-scope items (template/index/init) still emit bare text on error per dogfood-priority carve-out."
+outcome = "success"
+parent_id = "drop_002.drop.planner_l2_cli_error_json_render"
+role = "qa-falsification"
+started_at = "2026-05-15T04:55:00Z"
+state = "complete"
+target_id = "drop_002.drop.planner_l2_cli_error_json_render"
+title = "Build-QA falsification — L2-A segment counterexample search"
+transition_notes = "All 8 attacks MITIGATED. tool_uses=23."
+updated_at = "2026-05-15T05:15:00Z"

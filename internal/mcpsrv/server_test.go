@@ -39,6 +39,43 @@ type = "string"
 required = true
 `
 
+// tomlMultiTypePlansSchema declares one `plans` db with TWO record types
+// (`plans.task` + `plans.note`). Mirrors the canonical `multiTypeSchema`
+// fixture from internal/ops/notfound_testhelpers_test.go, which lives in
+// the ops_test package and is not importable from here. Used by the
+// drop_002 L2-B MCP parity update-missing-id test: the multi-type +
+// no-index branch of resolveTypeForID is the path that emits
+// ErrRecordNotFound for a missing id BEFORE Update's overlay-merge +
+// validate step fires. Single-type fixtures hit validate-first and
+// return the wrong shape for that contract.
+const tomlMultiTypePlansSchema = `
+[plans]
+paths = ["plans.toml"]
+description = "Test planning db, two types."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+required = true
+
+[plans.note]
+description = "A note."
+
+[plans.note.fields.id]
+type = "string"
+required = true
+
+[plans.note.fields.body]
+type = "string"
+required = true
+`
+
 type fixture struct {
 	projectRoot string
 }
@@ -2151,5 +2188,177 @@ func TestMCPListSections_TypeScope(t *testing.T) {
 	}
 	if payload.Sections[0] != "drop_001.drop.dogfood" {
 		t.Errorf("sections[0] = %q, want drop_001.drop.dogfood", payload.Sections[0])
+	}
+}
+
+// ---- drop_002 L2-B MCP parity (B5) -----------------------------------
+//
+// Locks the wire surface of ops.ErrRecordNotFound under the new
+// `%w: %q in %s` / `%w: %q` wrap formats from B1. Each test plants one
+// record so the backing file exists on disk (Attack 7 from the L2-B
+// planner) and then targets an absent id. The four assertions are the
+// shape contract:
+//
+//   - get → per-item Found=false, no Error field, no rebuild hint
+//   - update / delete / move → per-item ok=false, Error contains
+//     "ops: record not found", no rebuild hint
+//
+// "ta index rebuild" is the legacy hint that pre-B1 callers conflated
+// with vanilla record-misses; B1 stripped it from the missing-id path so
+// callers see a clean error. These tests are the wire-level lock for
+// that contract.
+
+// TestMCP_GetMissingIDReturnsFoundFalse locks the get tool's per-item
+// shape for a record-absent id whose backing file exists on disk.
+func TestMCP_GetMissingIDReturnsFoundFalse(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	// Plant a sibling record so plans.toml exists on disk; the absent
+	// id we target below resolves to "look in plans.toml for `absent`".
+	if _, _, err := ops.Create(fx.projectRoot, "plans.present", "plans.task", map[string]any{
+		"id": "present", "status": "todo",
+	}); err != nil {
+		t.Fatalf("seed plans.present: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.absent"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored at envelope level: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"found":false`) {
+		t.Errorf("results[0].found must be false: %s", body)
+	}
+	if strings.Contains(body, `"error":`) {
+		t.Errorf("results[0] must NOT carry an error field on record-not-found: %s", body)
+	}
+	if strings.Contains(body, "ta index rebuild") {
+		t.Errorf("response must NOT include the `ta index rebuild` hint: %s", body)
+	}
+}
+
+// TestMCP_UpdateMissingIDReturnsCleanError locks the update tool's
+// per-item shape when the backing file exists but the targeted record is
+// absent. Update has no found:false semantics — the per-item error must
+// carry the B1-locked "ops: record not found" prefix.
+//
+// Fixture choice: multi-type plans db (task + note). ops.Update's
+// missing-record code path differs from Get/Delete/Move — it does NOT
+// `backend.Find` ahead of the merge, so a single-type DB's
+// `loadExistingFields` silently returns an empty map and the overlay is
+// then rejected by required-field validation BEFORE the not-found shape
+// can surface. The multi-type fixture routes the missing id through
+// resolveTypeForID's multi-type-no-index branch which emits
+// ErrRecordNotFound directly (the B1-locked path under regression by
+// internal/ops/rebuildhint_perimeter_test.go::Update). The "B1-locked
+// `ops: record not found` prefix" contract for the update tool is
+// precisely that branch's wire shape.
+func TestMCP_UpdateMissingIDReturnsCleanError(t *testing.T) {
+	fx := newFixtureWith(t, tomlMultiTypePlansSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "plans.present", "plans.task", map[string]any{
+		"id": "present", "status": "todo",
+	}); err != nil {
+		t.Fatalf("seed plans.present: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+
+	res := callTool(t, c, "update", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.absent",
+				"data": map[string]any{"status": "doing"},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("update errored at envelope level: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"ok":false`) {
+		t.Errorf("results[0].ok must be false: %s", body)
+	}
+	if !strings.Contains(body, "ops: record not found") {
+		t.Errorf("results[0].error must contain B1-locked `ops: record not found` prefix: %s", body)
+	}
+	if strings.Contains(body, "ta index rebuild") {
+		t.Errorf("response must NOT include the `ta index rebuild` hint: %s", body)
+	}
+}
+
+// TestMCP_DeleteMissingIDReturnsCleanError mirrors the update parity
+// test for the delete tool's per-item shape.
+func TestMCP_DeleteMissingIDReturnsCleanError(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "plans.present", "plans.task", map[string]any{
+		"id": "present", "status": "todo",
+	}); err != nil {
+		t.Fatalf("seed plans.present: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+
+	res := callTool(t, c, "delete", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.absent"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("delete errored at envelope level: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"ok":false`) {
+		t.Errorf("results[0].ok must be false: %s", body)
+	}
+	if !strings.Contains(body, "ops: record not found") {
+		t.Errorf("results[0].error must contain B1-locked `ops: record not found` prefix: %s", body)
+	}
+	if strings.Contains(body, "ta index rebuild") {
+		t.Errorf("response must NOT include the `ta index rebuild` hint: %s", body)
+	}
+}
+
+// TestMCP_MoveMissingSrcReturnsCleanError locks the move tool's per-item
+// shape when src_id grammatically resolves but no record exists at that
+// id. Per the L2-B planner Attack 6, src must be a grammatically valid
+// id so the failure path is "src lookup miss" rather than "src never
+// parsed" — `plans.absent` resolves through `plans` db, no record under
+// that bracket.
+func TestMCP_MoveMissingSrcReturnsCleanError(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "plans.present", "plans.task", map[string]any{
+		"id": "present", "status": "todo",
+	}); err != nil {
+		t.Fatalf("seed plans.present: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+
+	res := callTool(t, c, "move", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"src_id": "plans.absent", "dst_id": "plans.new"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("move errored at envelope level: %s", firstText(t, res))
+	}
+	_, results := decodeMoveResult(t, firstText(t, res))
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	if ok, _ := results[0]["ok"].(bool); ok {
+		t.Errorf("results[0].ok = true, want false (src missing): %+v", results[0])
+	}
+	msg, _ := results[0]["error"].(string)
+	if !strings.Contains(msg, "ops: record not found") {
+		t.Errorf("results[0].error must contain B1-locked `ops: record not found` prefix: %q", msg)
+	}
+	if strings.Contains(msg, "ta index rebuild") {
+		t.Errorf("results[0].error must NOT include `ta index rebuild` hint: %q", msg)
 	}
 }

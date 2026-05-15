@@ -1,1 +1,113 @@
 format_version = 2
+
+[drop_002]
+[drop_002.drop]
+[drop_002.drop.build_qa_falsif_l2_a]
+created = 2026-05-15T06:44:39.835255Z
+type = 'qa_falsification'
+updated = 2026-05-15T06:53:03.825629Z
+
+[drop_002.drop.build_qa_falsif_l2_b]
+created = 2026-05-15T06:44:39.814389Z
+type = 'qa_falsification'
+updated = 2026-05-15T06:53:03.803461Z
+
+[drop_002.drop.build_qa_proof_l2_a]
+created = 2026-05-15T06:44:39.824339Z
+type = 'qa_proof'
+updated = 2026-05-15T06:53:03.815666Z
+
+[drop_002.drop.build_qa_proof_l2_b]
+created = 2026-05-15T06:44:39.804609Z
+type = 'qa_proof'
+updated = 2026-05-15T06:53:03.789412Z
+
+[drop_002.drop.builder_a1_runwrap_json_err]
+created = 2026-05-15T06:24:01.745225Z
+type = 'droplet'
+updated = 2026-05-15T06:29:37.616268Z
+
+[drop_002.drop.builder_a2_cli_json_error_tests]
+created = 2026-05-15T06:24:01.759881Z
+type = 'droplet'
+updated = 2026-05-15T06:40:26.159677Z
+
+[drop_002.drop.builder_b1_central_fix]
+created = 2026-05-15T06:07:29.097701Z
+type = 'droplet'
+updated = 2026-05-15T06:26:04.999105Z
+
+[drop_002.drop.builder_b2_ops_tests]
+created = 2026-05-15T06:07:29.109146Z
+type = 'droplet'
+updated = 2026-05-15T06:31:47.116033Z
+
+[drop_002.drop.builder_b3_perimeter]
+created = 2026-05-15T06:07:29.119966Z
+type = 'droplet'
+updated = 2026-05-15T06:32:08.889233Z
+
+[drop_002.drop.builder_b4_cli_parity]
+created = 2026-05-15T06:07:29.129968Z
+type = 'droplet'
+updated = 2026-05-15T06:32:40.746236Z
+
+[drop_002.drop.builder_b5_mcp_parity]
+created = 2026-05-15T06:07:29.139908Z
+type = 'droplet'
+updated = 2026-05-15T06:38:56.418326Z
+
+[drop_002.drop.builder_b6_substring_decision]
+created = 2026-05-15T06:07:29.149958Z
+type = 'droplet'
+updated = 2026-05-15T06:44:23.718989Z
+
+[drop_002.drop.cli_error_ux]
+created = 2026-05-15T05:09:26.22828Z
+type = 'drop'
+updated = 2026-05-15T06:53:03.857267Z
+
+[drop_002.drop.plan_qa_falsif_l1]
+created = 2026-05-15T05:23:58.961037Z
+type = 'qa_falsification'
+updated = 2026-05-15T06:01:46.486437Z
+
+[drop_002.drop.plan_qa_falsif_l2_a]
+created = 2026-05-15T06:17:22.772404Z
+type = 'qa_falsification'
+updated = 2026-05-15T06:29:26.697721Z
+
+[drop_002.drop.plan_qa_falsif_l2_b]
+created = 2026-05-15T06:02:32.433904Z
+type = 'qa_falsification'
+updated = 2026-05-15T06:19:33.023323Z
+
+[drop_002.drop.plan_qa_proof_l1]
+created = 2026-05-15T05:23:58.949547Z
+type = 'qa_proof'
+updated = 2026-05-15T05:23:58.949547Z
+
+[drop_002.drop.plan_qa_proof_l2_a]
+created = 2026-05-15T06:17:22.76053Z
+type = 'qa_proof'
+updated = 2026-05-15T06:28:36.916546Z
+
+[drop_002.drop.plan_qa_proof_l2_b]
+created = 2026-05-15T06:02:32.420751Z
+type = 'qa_proof'
+updated = 2026-05-15T06:07:53.487057Z
+
+[drop_002.drop.planner_decompose]
+created = 2026-05-15T05:09:26.248951Z
+type = 'planner'
+updated = 2026-05-15T06:01:46.496442Z
+
+[drop_002.drop.planner_l2_cli_error_json_render]
+created = 2026-05-15T06:17:22.749008Z
+type = 'planner'
+updated = 2026-05-15T06:53:03.845287Z
+
+[drop_002.drop.planner_l2_ops_record_not_found]
+created = 2026-05-15T06:02:32.410939Z
+type = 'planner'
+updated = 2026-05-15T06:53:03.835285Z

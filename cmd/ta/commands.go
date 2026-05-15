@@ -74,39 +74,48 @@ func newGetCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path, err := resolveCLIPath(c)
-			if err != nil {
-				return err
-			}
-			if batch != "" && len(args) > 0 {
-				return errors.New("ta get: use either positional ids or --batch, not both")
-			}
-			// Length-1 single-positional path preserves the pre-F37
-			// scope-vs-single dispatch so id-prefix expansion still works
-			// for `ta get plans` and friends. F37 batch semantics only
-			// kick in when the user opts into multi-id or --batch.
-			if batch == "" && len(args) == 1 {
-				return runGetSingle(c, path, args[0], typeName, fields, limit, all, asJSON)
-			}
-			items, err := collectGetItems(c.InOrStdin(), batch, args, fields)
-			if err != nil {
-				return err
-			}
-			if err := validateGetItems(items); err != nil {
-				return err
-			}
-			results := runGetItems(path, items)
-			if err := emitGetBatch(c.OutOrStdout(), path, results, asJSON); err != nil {
-				return err
-			}
-			// Misses (found=false) are NOT a CLI failure for reads —
-			// they're a normal observable state. Genuine per-item
-			// errors (malformed id, schema resolve failure, IO issue)
-			// DO escalate to a non-zero exit so operators see them.
-			if anyGetErrored(results) {
-				return errors.New("ta get: one or more items errored")
-			}
-			return nil
+			return runWithJSONErrEnvelope(c, asJSON, func() error {
+				path, err := resolveCLIPath(c)
+				if err != nil {
+					return err
+				}
+				if batch != "" && len(args) > 0 {
+					return errors.New("ta get: use either positional ids or --batch, not both")
+				}
+				// Length-1 single-positional path preserves the pre-F37
+				// scope-vs-single dispatch so id-prefix expansion still works
+				// for `ta get plans` and friends. F37 batch semantics only
+				// kick in when the user opts into multi-id or --batch.
+				if batch == "" && len(args) == 1 {
+					return runGetSingle(c, path, args[0], typeName, fields, limit, all, asJSON)
+				}
+				items, err := collectGetItems(c.InOrStdin(), batch, args, fields)
+				if err != nil {
+					return err
+				}
+				if err := validateGetItems(items); err != nil {
+					return err
+				}
+				results := runGetItems(path, items)
+				if err := emitGetBatch(c.OutOrStdout(), path, results, asJSON); err != nil {
+					return err
+				}
+				// Misses (found=false) are NOT a CLI failure for reads —
+				// they're a normal observable state. Genuine per-item
+				// errors (malformed id, schema resolve failure, IO issue)
+				// DO escalate to a non-zero exit so operators see them.
+				//
+				// In --json mode the per-item errors are already encoded
+				// inside the {results} envelope written by emitGetBatch
+				// above; surfacing a synthetic err here would feed
+				// runWithJSONErrEnvelope a SECOND `{"error": ...}` envelope
+				// on stdout, breaking the JSON stream. Plain-text mode
+				// still escalates so operators see the non-zero exit.
+				if anyGetErrored(results) && !asJSON {
+					return errors.New("ta get: one or more items errored")
+				}
+				return nil
+			})
 		},
 	}
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated declared field names to extract")
@@ -243,23 +252,51 @@ func runGetItems(path string, items []getItem) []getItemResult {
 	return results
 }
 
+// runWithJSONErrEnvelope wraps a RunE body so that errors from `fn` are
+// rendered as a flat `{"error": "<message>"}` JSON envelope on stdout
+// when --json is set, and the wrapper returns nil (preventing fang's
+// styled stderr renderer from firing). When --json is unset, errors
+// pass through verbatim to fang's DefaultErrorHandler.
+//
+// Design note: the wrap lives at the RunE seam (not at fang.Execute)
+// because the existing CLI tests drive commands via cmd.Execute()
+// directly — wrapping fang would leave those tests blind to the
+// envelope. Keeping the wrap per-RunE also lets `ta schema` apply it
+// only to action=get, where --json is the documented contract.
+func runWithJSONErrEnvelope(c *cobra.Command, asJSON bool, fn func() error) error {
+	err := fn()
+	if err == nil {
+		return nil
+	}
+	if !asJSON {
+		return err
+	}
+	payload := map[string]string{"error": err.Error()}
+	enc := json.NewEncoder(c.OutOrStdout())
+	enc.SetIndent("", "  ")
+	return enc.Encode(payload)
+}
+
 // isNotFound checks whether an ops.Get error represents a missing
 // record (record absent or backing file absent). Used by the batch
 // reader to translate misses into found=false instead of per-item
 // errors so read batches stay observation-friendly.
+//
+// Cascade drop_002 B6: the substring fallback `strings.Contains(err.Error(),
+// "not found")` was retired here. Post-B1 every miss path in ops.Get wraps
+// either ErrRecordNotFound or ErrFileNotFound via fmt.Errorf("%w: ...");
+// the L2-A regression test (TestOps_GetNotFoundReturnsCleanError) contractually
+// pins the wrap shape via ErrRecordNotFoundFormat. The substring branch was
+// dead code AND a silent safety net that would mask any future error whose
+// text happened to contain "not found" (e.g. resolver errors that should
+// propagate as per-item errors, not be coerced to found=false). Loud-fail on
+// the L2-A test is the preferred regression signal; the substring net would
+// have hidden the same regression.
 func isNotFound(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, ops.ErrRecordNotFound) || errors.Is(err, ops.ErrFileNotFound) {
-		return true
-	}
-	// ops.Get on a fully-qualified id that doesn't resolve in the
-	// backing buffer surfaces a wrapped fmt.Errorf carrying the
-	// substring "not found in" — see ops.Get's record-decode branch.
-	// We accept the substring fallback here so the reader stays
-	// resilient when ops widens or narrows the sentinel surface.
-	return strings.Contains(err.Error(), "not found")
+	return errors.Is(err, ops.ErrRecordNotFound) || errors.Is(err, ops.ErrFileNotFound)
 }
 
 // emitGetBatch writes the get results envelope. JSON mode emits the
@@ -514,34 +551,36 @@ func newListSectionsCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path, err := resolveCLIPath(c)
-			if err != nil {
-				return err
-			}
-			resolvedScope, err := resolveListScope(scope, args)
-			if err != nil {
-				return err
-			}
-			sections, err := ops.ListSections(path, resolvedScope, limit, all)
-			if err != nil {
-				return err
-			}
-			// Post-fetch slice removed — endpoint owns the cap per
-			// docs/PLAN.md §12.17.5 [A2.1] and the §6a.1 decoupling
-			// principle. CLI flags pass through verbatim.
-			if asJSON {
-				if sections == nil {
-					sections = []string{}
+			return runWithJSONErrEnvelope(c, asJSON, func() error {
+				path, err := resolveCLIPath(c)
+				if err != nil {
+					return err
 				}
-				enc := json.NewEncoder(c.OutOrStdout())
-				enc.SetIndent("", "  ")
-				return enc.Encode(map[string]any{"sections": sections})
-			}
-			title := path
-			if resolvedScope != "" {
-				title = path + " [scope: " + resolvedScope + "]"
-			}
-			return render.New(c.OutOrStdout()).List(title, sections, "(no sections)")
+				resolvedScope, err := resolveListScope(scope, args)
+				if err != nil {
+					return err
+				}
+				sections, err := ops.ListSections(path, resolvedScope, limit, all)
+				if err != nil {
+					return err
+				}
+				// Post-fetch slice removed — endpoint owns the cap per
+				// docs/PLAN.md §12.17.5 [A2.1] and the §6a.1 decoupling
+				// principle. CLI flags pass through verbatim.
+				if asJSON {
+					if sections == nil {
+						sections = []string{}
+					}
+					enc := json.NewEncoder(c.OutOrStdout())
+					enc.SetIndent("", "  ")
+					return enc.Encode(map[string]any{"sections": sections})
+				}
+				title := path
+				if resolvedScope != "" {
+					title = path + " [scope: " + resolvedScope + "]"
+				}
+				return render.New(c.OutOrStdout()).List(title, sections, "(no sections)")
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
@@ -1232,10 +1271,18 @@ func newSchemaCmd() *cobra.Command {
 				scope = args[0]
 			}
 			if action == "" || action == "get" {
-				if asJSON {
-					return runSchemaGetJSON(c.OutOrStdout(), path, scope)
-				}
-				return runSchemaGet(c.OutOrStdout(), path, scope)
+				// Scoped wrap: --json is the documented contract for
+				// action=get ONLY (schema doc §). Mutations (create /
+				// update / delete) always emit laslig notices, so a
+				// full-RunE wrap would create asymmetric output where
+				// mutation success is laslig but mutation error is a
+				// JSON envelope. Wrap inside this branch instead.
+				return runWithJSONErrEnvelope(c, asJSON, func() error {
+					if asJSON {
+						return runSchemaGetJSON(c.OutOrStdout(), path, scope)
+					}
+					return runSchemaGet(c.OutOrStdout(), path, scope)
+				})
 			}
 			// PLAN §12.17.9 Phase 9.6: --paths-append / --paths-remove
 			// sugar lives strictly on action=update + kind=db. Cobra's
@@ -1334,24 +1381,26 @@ func newSearchCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path, err := resolveCLIPath(c)
-			if err != nil {
-				return err
-			}
-			var match map[string]any
-			if matchJSON != "" {
-				if err := json.Unmarshal([]byte(matchJSON), &match); err != nil {
-					return fmt.Errorf("parse --match JSON: %w", err)
+			return runWithJSONErrEnvelope(c, asJSON, func() error {
+				path, err := resolveCLIPath(c)
+				if err != nil {
+					return err
 				}
-			}
-			hits, err := ops.Search(path, scope, typeName, match, query, field, limit, all)
-			if err != nil {
-				return err
-			}
-			if asJSON {
-				return emitSearchJSON(c.OutOrStdout(), hits)
-			}
-			return renderSearchHits(c.OutOrStdout(), path, hits)
+				var match map[string]any
+				if matchJSON != "" {
+					if err := json.Unmarshal([]byte(matchJSON), &match); err != nil {
+						return fmt.Errorf("parse --match JSON: %w", err)
+					}
+				}
+				hits, err := ops.Search(path, scope, typeName, match, query, field, limit, all)
+				if err != nil {
+					return err
+				}
+				if asJSON {
+					return emitSearchJSON(c.OutOrStdout(), hits)
+				}
+				return renderSearchHits(c.OutOrStdout(), path, hits)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&scope, "scope", "", "id prefix to narrow traversal (e.g. `plans` or `plans.todo-`)")

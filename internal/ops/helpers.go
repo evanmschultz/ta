@@ -84,16 +84,27 @@ func joinDot(parts []string) string {
 //	typeName     | requireType | Index hit? | Behavior
 //	"" (empty)   | true        | n/a        | ErrTypeMismatch (Create needs --type)
 //	"" (empty)   | false       | yes        | Return index entry's type
-//	"" (empty)   | false       | no         | ErrTypeUnresolved
+//	"" (empty)   | false       | no         | Probe disk; not-found OR ErrTypeUnresolved
 //	<db>.<type>  | true        | n/a        | Validate against schema; return type
 //	<db>.<type>  | false       | yes (match)| Return matching type
 //	<db>.<type>  | false       | yes (mis)  | ErrTypeMismatch
 //	<db>.<type>  | false       | no         | Return typeName as authoritative
 //	<bare>       | any         | n/a        | ErrTypeNotQualified
 //
+// Cascade drop_002 (B1): when typeName == "" AND the db declares
+// multiple types AND no index entry exists, the function previously
+// surfaced ErrTypeUnresolved with the rebuild hint baked in — even when
+// the record genuinely did NOT exist on disk. That conflated "orphan on
+// disk needs rebuild" with "user typo / never-created id", so a plain
+// `ta get` for a non-existent id told the user to run `ta index
+// rebuild`, which is wrong. The fix: probe disk first. If the record is
+// absent from disk → return ErrRecordNotFound (the friendly, accurate
+// signal). If the record IS on disk but unindexed → preserve the
+// ErrTypeUnresolved+rebuild semantics (the genuine orphan case).
+//
 // On success returns the BARE type name (for downstream schema
 // lookup); ErrIndexMissing wraps a missing-file index load failure.
-func resolveTypeForID(resolved db.Resolved, typeName string, requireType bool, projectRoot string, declaredTypes map[string]struct{}) (string, error) {
+func resolveTypeForID(resolved db.Resolved, typeName string, requireType bool, projectRoot string, declaredTypes map[string]struct{}, dbDecl schema.DB) (string, error) {
 	if typeName == "" {
 		if requireType {
 			return "", fmt.Errorf("%w: create requires --type (db-qualified, e.g. `plans.task`)", ErrTypeMismatch)
@@ -109,14 +120,22 @@ func resolveTypeForID(resolved db.Resolved, typeName string, requireType bool, p
 			}
 		}
 		// No index entry. Pick the first declared type if there is
-		// only one; otherwise fail loudly per F10.
+		// only one; otherwise: disk-probe before declaring the id an
+		// orphan. The probe asks each declared type "do you have a
+		// matching section/record on disk?". If no type finds the
+		// record, it does not exist — return ErrRecordNotFound.
+		// If the probe surfaces a match, the record exists but lacks
+		// an index entry → preserve the ErrTypeUnresolved+rebuild hint.
 		if len(declaredTypes) == 1 {
 			for n := range declaredTypes {
 				return n, nil
 			}
 		}
-		return "", fmt.Errorf("%w: id %q has no index entry and db has multiple declared types",
-			ErrTypeUnresolved, resolved.Canonical())
+		if recordExistsOnDisk(dbDecl, resolved, declaredTypes) {
+			return "", fmt.Errorf("%w: id %q has no index entry and db has multiple declared types",
+				ErrTypeUnresolved, resolved.Canonical())
+		}
+		return "", fmt.Errorf(ErrRecordNotFoundFormat, ErrRecordNotFound, resolved.Canonical(), resolved.FilePath)
 	}
 	// typeName must be db-qualified (`<db>.<type>`).
 	dot := strings.Index(typeName, ".")
@@ -152,6 +171,44 @@ func resolveTypeForID(resolved db.Resolved, typeName string, requireType bool, p
 		}
 	}
 	return bareType, nil
+}
+
+// recordExistsOnDisk reports whether resolved.FilePath contains a
+// section/record matching `resolved` under any of the declared types of
+// dbDecl. It is the disk-probe arm of resolveTypeForID's multi-type +
+// no-index branch (cascade drop_002 B1): the function answers
+// "does this id actually exist on disk?" so the caller can distinguish
+// "orphan record, needs index rebuild" from "user typo, never created".
+//
+// Returns true on first match; returns false when the file is missing,
+// when no declared type yields a match, or when any probe step errors
+// (treated as "cannot prove presence" — the caller should surface the
+// friendlier ErrRecordNotFound in that case rather than the orphan
+// ErrTypeUnresolved hint).
+func recordExistsOnDisk(dbDecl schema.DB, resolved db.Resolved, declaredTypes map[string]struct{}) bool {
+	buf, err := os.ReadFile(resolved.FilePath)
+	if err != nil {
+		// Missing file → record clearly does not exist on disk.
+		return false
+	}
+	backend, err := buildBackend(dbDecl, resolved)
+	if err != nil {
+		return false
+	}
+	// TOML's backendSectionPath ignores bareType; MD's uses it to anchor
+	// the address. Probing each declared type covers both formats: TOML
+	// short-circuits on the first iteration with the same section path,
+	// MD checks each type-anchored address.
+	for typeName := range declaredTypes {
+		section := backendSectionPath(dbDecl, resolved, typeName)
+		if section == "" {
+			continue
+		}
+		if _, ok, findErr := backend.Find(buf, section); findErr == nil && ok {
+			return true
+		}
+	}
+	return false
 }
 
 // tryLoadIndex loads the project's index, returning nil (no error)

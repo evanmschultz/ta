@@ -152,7 +152,7 @@ func moveOneItem(
 	// Resolve the src bare type via the index (authoritative per F10);
 	// fall back to the resolveTypeForID rules when the index entry is
 	// absent.
-	srcBareType, err := resolveTypeForID(srcResolved, "", false, projectPath, declaredTypeNames(srcDB))
+	srcBareType, err := resolveTypeForID(srcResolved, "", false, projectPath, declaredTypeNames(srcDB), srcDB)
 	if err != nil {
 		return MoveResult{SrcID: srcID, DstID: dstID, Sources: resolution.Sources},
 			fmt.Errorf("ops: move: resolve src type for %q: %w", srcID, err)
