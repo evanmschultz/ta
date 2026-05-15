@@ -47,6 +47,18 @@ import (
 func buildBackend(dbDecl schema.DB, resolved db.Resolved) (record.Backend, error) {
 	switch dbDecl.Format {
 	case schema.FormatTOML:
+		// F38d-2.15: glob-TOML mounts (multi-file dbs) carry bracket =
+		// bracket-key alone — there is no type prefix to anchor the
+		// scanner's declared-type filter against because the type lives
+		// in the index, not in the on-disk bracket. The
+		// top-level-bracket backend accepts every dot-free bracket as a
+		// declared record so Find/List/Splice round-trip correctly for
+		// this mount class. Single-file mounts (where the bracket
+		// always starts with `<file-relpath>.`) keep the existing
+		// prefix-anchor backend.
+		if !resolved.SingleFileMount {
+			return toml.NewTopLevelBracketBackend(), nil
+		}
 		types := tomlScannerTypes(dbDecl, resolved)
 		return toml.NewBackend(types), nil
 	case schema.FormatMD:
@@ -100,9 +112,17 @@ func singleFileRecordType(dbDecl schema.DB) (string, schema.SectionType, bool) {
 }
 
 // tomlScannerTypes returns the declared-prefix list for the TOML
-// scanner. For single-file dbs the scanner anchors at the file-relpath
-// (every record's bracket starts with `<file-relpath>.`). For
-// multi-file dbs the scanner anchors on declared type names.
+// scanner under the prefix-anchor backend (single-file mounts only,
+// post-F38d-2.15). For single-file dbs every record's bracket starts
+// with `<file-relpath>.`, so we hand the scanner the file-relpath as
+// its only prefix.
+//
+// Multi-file (glob) mounts no longer route through this function — see
+// buildBackend, which constructs a NewTopLevelBracketBackend() for that
+// branch. The fallback that returns declared type names is retained
+// only for the degenerate non-single-file caller (no current
+// production caller after F38d-2.15), guarding against accidental
+// reuse before this helper's signature is collapsed.
 func tomlScannerTypes(dbDecl schema.DB, resolved db.Resolved) []record.DeclaredType {
 	if resolved.SingleFileMount {
 		return []record.DeclaredType{{Name: resolved.FileRelPath}}

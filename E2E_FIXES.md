@@ -1125,7 +1125,7 @@ Test: `TestMCPSchema_DBFilterHonored` — assert MCP `schema` with `db="plans"` 
 
 **Fix landed**: `internal/mcpsrv/tools.go::schemaTool` JSONSchema now declares a `db` property; `handleSchema` reads it as an alias for `scope` when `scope` is empty (precedence: `scope > db > id`). Wire-level test `TestMCPSchema_DBFilterHonored` in `internal/mcpsrv/server_test.go` asserts the narrowed response populates `db.name="plans"` not `dbs` map, plus the precedence guard for `scope="claude_agents" + db="plans"` (scope wins). Falsification stash-and-re-run confirmed pre-fix returned the full schema, post-fix narrows. Bundled with F38d-2.10.
 
-### F38d-2.15 [MAJOR] `ops.Get` round-trip broken on glob-TOML mounts (`isDeclared` mismatch)
+### F38d-2.15 [CLOSED] `ops.Get` round-trip broken on glob-TOML mounts (`isDeclared` mismatch)
 
 **Surfaced by**: F38d-2.11 builder while writing tests for `cascade.drop` create. The on-disk bracket bodies write correctly, but `ops.Get` against the same id returns "record not found".
 
@@ -1144,6 +1144,8 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 **Tests required**:
 - `TestOps_GetRoundTrip_GlobTOMLMount` — `ops.Create` a cascade.drop record, immediately `ops.Get`, assert the same data round-trips.
 - `TestMCPCreate_CascadeDrop_GetRoundTrip` — wire-level MCP equivalent.
+
+**Fix landed**: typed `Backend.topLevel bool` mode in `internal/backend/toml/backend.go` (new `NewTopLevelBracketBackend()` constructor); `internal/ops/backend.go::buildBackend` dispatches the new constructor when `!resolved.SingleFileMount` (glob and multi-file mounts). `isDeclared` prepends a `topLevel && !strings.Contains(p, ".")` early-return so dot-free brackets count as declared records and dotted sub-tables fall through to absorption-as-body via `declaredRange`. Single-file TOML and MD branches untouched. 7 new tests: 3 backend-layer (`TestTopLevelBracketBackend*`), 3 ops-layer (`TestOps_*RoundTripGlobTOMLMount`), 1 MCP wire (`TestMCPGetUpdate_CascadeDrop_GlobTOMLRoundTrip`). Builder stash-and-rerun reproduced canonical pre-fix `ops: record not found: "drop_001.drop.dogfood_smoke"`; post-fix all 7 new tests + regression locks (`TestRoundTripCreateGetUpdateDelete`, `TestGet_FileAsRecordAgent`, `TestGet_DisambiguatesViaIndexedType`) pass. Both QA passes independently re-ran `mage check`: 984/0/9. Bonus: falsifier surfaced that the pre-fix Splice fall-through duplicate-bracket bug is also incidentally fixed (when `isDeclared` returned false, Splice fell through to append rather than replace; with the new mode, Splice correctly enters the replace branch). Cascade-managed dogfood unblocked.
 
 ### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
 

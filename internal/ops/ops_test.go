@@ -1150,3 +1150,124 @@ func TestCreate_CascadeDropErrorHasNoDuplicateExpectedShape(t *testing.T) {
 		t.Errorf(`error contains %d copies of "expected shape:", want 1; full message: %q`, got, msg)
 	}
 }
+
+// TestOps_GetRoundTripGlobTOMLMount locks in F38d-2.15: a record
+// created against a glob-TOML mount must be findable via Get with the
+// same canonical id. Pre-fix Get returned ErrRecordNotFound because
+// the TOML backend's isDeclared filter anchored on declared type
+// names (e.g. "drop") while the on-disk bracket for glob mounts is
+// just the bracket-key ("dogfood_smoke") — no prefix match, scanner
+// dropped the bracket from declaredSections, Find missed.
+func TestOps_GetRoundTripGlobTOMLMount(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeDropSchema)
+
+	_, _, err := ops.Create(root, "drop_001.drop.dogfood_smoke", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	res, err := ops.Get(root, "drop_001.drop.dogfood_smoke", "", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	wantPath := filepath.Join(root, ".ta", "cascade", "drops", "drop_001", "drop.toml")
+	if res.FilePath != wantPath {
+		t.Errorf("Get FilePath = %q, want %q", res.FilePath, wantPath)
+	}
+	body := string(res.Bytes)
+	if !strings.Contains(body, "[dogfood_smoke]") {
+		t.Errorf("Get bytes missing `[dogfood_smoke]` bracket; body:\n%s", body)
+	}
+	if !strings.Contains(body, `structural_type = "drop"`) {
+		t.Errorf("Get bytes missing structural_type field; body:\n%s", body)
+	}
+	if !strings.Contains(body, `drop_number = 1`) {
+		t.Errorf("Get bytes missing drop_number field; body:\n%s", body)
+	}
+}
+
+// TestOps_UpdateRoundTripGlobTOMLMount confirms Update against a
+// glob-TOML mount works post-F38d-2.15: Create → Update → Get returns
+// the updated field. Update routes through the same backend.Find as
+// Get, so its pre-fix failure mode was the same ErrRecordNotFound.
+func TestOps_UpdateRoundTripGlobTOMLMount(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeDropSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.dogfood_smoke", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, _, err := ops.Update(root, "drop_001.drop.dogfood_smoke", "", map[string]any{
+		"drop_number": 2,
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	res, err := ops.Get(root, "drop_001.drop.dogfood_smoke", "", nil)
+	if err != nil {
+		t.Fatalf("Get after Update: %v", err)
+	}
+	body := string(res.Bytes)
+	if !strings.Contains(body, "drop_number = 2") {
+		t.Errorf("Get bytes missing updated `drop_number = 2`; body:\n%s", body)
+	}
+	if strings.Contains(body, "drop_number = 1") {
+		t.Errorf("Get bytes still contains stale `drop_number = 1`; body:\n%s", body)
+	}
+}
+
+// TestOps_DeleteRoundTripGlobTOMLMount confirms Delete against a
+// glob-TOML mount works post-F38d-2.15: Create → Delete → Get returns
+// ErrRecordNotFound. Delete also routes through backend.Find for the
+// pre-delete locate step, so the pre-fix failure mode here was a
+// no-op delete that silently left the bracket on disk.
+//
+// Asserts both the bracket and the index entry are cleaned.
+func TestOps_DeleteRoundTripGlobTOMLMount(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeDropSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.dogfood_smoke", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, _, err := ops.Delete(root, "drop_001.drop.dogfood_smoke", ""); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	_, err := ops.Get(root, "drop_001.drop.dogfood_smoke", "", nil)
+	if err == nil {
+		t.Fatal("Get after Delete: expected error, got nil")
+	}
+	if !errors.Is(err, ops.ErrRecordNotFound) {
+		t.Errorf("Get after Delete: error = %v, want ErrRecordNotFound", err)
+	}
+
+	// Bracket gone from the file.
+	wantPath := filepath.Join(root, ".ta", "cascade", "drops", "drop_001", "drop.toml")
+	if body, readErr := os.ReadFile(wantPath); readErr == nil {
+		if strings.Contains(string(body), "[dogfood_smoke]") {
+			t.Errorf("drop.toml still contains `[dogfood_smoke]` after Delete; body:\n%s", body)
+		}
+	}
+
+	// Index entry gone.
+	idx, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("index.Load: %v", err)
+	}
+	if _, ok := idx.Get("drop_001.drop.dogfood_smoke"); ok {
+		t.Error("index still has entry for drop_001.drop.dogfood_smoke after Delete")
+	}
+}

@@ -24,13 +24,24 @@ import (
 // carry a non-declared bracket like "[plans.task.t1.notes]" without
 // that bracket becoming a sibling record.
 //
-// Zero value is NOT usable — always construct via NewBackend. A Backend
-// with an empty types slice treats no bracket as a declared record, so
-// List returns an empty slice and Find returns not-found for every
-// input. That matches the spec: a backend without declared types has
-// no records to enumerate.
+// Zero value is NOT usable — always construct via NewBackend or
+// NewTopLevelBracketBackend. A Backend with an empty types slice and
+// topLevel=false treats no bracket as a declared record, so List
+// returns an empty slice and Find returns not-found for every input.
+// That matches the spec: a backend without declared types has no
+// records to enumerate.
+//
+// topLevel selects the F38d-2.15 alternate matching rule for glob-TOML
+// mounts (multi-file dbs whose mount carries a `*` segment). Under F10
+// the on-disk bracket equals the bracket-key alone — there is no type
+// prefix to anchor `isDeclared` against because the type lives in the
+// index. When topLevel is true the Backend treats every dot-free
+// bracket path as a declared record (sub-tables like `[X.notes]` keep
+// the existing body-absorption semantics via declaredRange). Named
+// declared types still match in addition to top-level brackets.
 type Backend struct {
-	types []record.DeclaredType
+	types    []record.DeclaredType
+	topLevel bool
 }
 
 // NewBackend constructs a TOML Backend aware of the declared types on
@@ -47,6 +58,22 @@ func NewBackend(types []record.DeclaredType) Backend {
 	clone := make([]record.DeclaredType, len(types))
 	copy(clone, types)
 	return Backend{types: clone}
+}
+
+// NewTopLevelBracketBackend constructs a TOML Backend whose
+// `isDeclared` rule accepts every dot-free bracket path as a declared
+// record. Used for glob-TOML mounts where the on-disk bracket equals
+// the bracket-key alone (per F10: bracket = id, type lives in the
+// index). The named-declared-type prefix rule is unaffected — a caller
+// may pass both a `topLevel` mode and explicit types — but typical
+// glob-TOML usage passes no named types because the type-name prefix
+// is never on disk for those mounts.
+//
+// Sub-tables under a top-level bracket (e.g. `[X.notes]` under `[X]`)
+// stay non-declared body content of the enclosing bracket, matching
+// the V2-PLAN §2.11 nesting rule.
+func NewTopLevelBracketBackend() Backend {
+	return Backend{topLevel: true}
 }
 
 // Compile-time assertion that Backend satisfies record.Backend.
@@ -68,7 +95,18 @@ var _ record.Backend = Backend{}
 // does NOT start with any declared Name (e.g. "bookkeeping.thing" when
 // only "plans.task" is declared) is NOT a declared record; it is body
 // content of the enclosing declared ancestor.
+//
+// Top-level-bracket mode (F38d-2.15, glob-TOML mounts): when
+// b.topLevel is true, a bracket whose path contains no `.` is also a
+// declared record. This covers the multi-file glob case where the
+// on-disk bracket equals the bracket-key alone (per F10: bracket = id,
+// type lives in the index). Sub-tables like `[X.notes]` still fall
+// through to non-declared body content of their enclosing top-level
+// bracket via declaredRange's descendant-absorption rule.
 func (b Backend) isDeclared(p string) bool {
+	if b.topLevel && !strings.Contains(p, ".") {
+		return true
+	}
 	for _, t := range b.types {
 		if t.Name == "" {
 			continue

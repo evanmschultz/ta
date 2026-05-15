@@ -1764,3 +1764,86 @@ func TestMCPCreate_CascadeDrop_DogfoodShape(t *testing.T) {
 		t.Errorf("drop.toml missing `[dogfood_smoke]` bracket; body:\n%s", body)
 	}
 }
+
+// TestMCPGetUpdate_CascadeDrop_GlobTOMLRoundTrip locks in F38d-2.15 at
+// the MCP wire layer: after Create against a glob-TOML mount, Get
+// returns the record body (with `[dogfood_smoke]` and the original
+// fields), Update mutates a field, and the follow-up Get reflects the
+// mutation. Pre-fix every Get/Update returned record-not-found because
+// the TOML scanner's declared-type filter dropped the bracket-key-only
+// on-disk bracket. The wire-level assertion covers the full
+// Create → Get → Update → Get pipeline.
+func TestMCPGetUpdate_CascadeDrop_GlobTOMLRoundTrip(t *testing.T) {
+	fx := newFixtureWith(t, cascadeDropMCPSchema)
+	c := newClient(t, fx.projectRoot)
+
+	// Create the drop record on the glob-TOML mount.
+	createRes := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "drop_001.drop.dogfood_smoke",
+				"type": "cascade.drop",
+				"data": map[string]any{
+					"structural_type": "drop",
+					"drop_number":     1,
+				},
+			},
+		},
+	})
+	if createRes.IsError {
+		t.Fatalf("create errored: %s", firstText(t, createRes))
+	}
+
+	// Get returns the bracket plus the original fields.
+	getRes := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "drop_001.drop.dogfood_smoke"},
+		},
+	})
+	if getRes.IsError {
+		t.Fatalf("get errored: %s", firstText(t, getRes))
+	}
+	getBody := firstText(t, getRes)
+	if !strings.Contains(getBody, `"found":true`) {
+		t.Errorf("get response missing found:true; body: %s", getBody)
+	}
+	if !strings.Contains(getBody, "[dogfood_smoke]") {
+		t.Errorf("get response missing bracket header; body: %s", getBody)
+	}
+	if !strings.Contains(getBody, `drop_number = 1`) {
+		t.Errorf("get response missing original drop_number; body: %s", getBody)
+	}
+
+	// Update mutates drop_number; the follow-up Get reflects it.
+	updateRes := callTool(t, c, "update", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "drop_001.drop.dogfood_smoke",
+				"data": map[string]any{"drop_number": 2},
+			},
+		},
+	})
+	if updateRes.IsError {
+		t.Fatalf("update errored: %s", firstText(t, updateRes))
+	}
+
+	postUpdateRes := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "drop_001.drop.dogfood_smoke"},
+		},
+	})
+	if postUpdateRes.IsError {
+		t.Fatalf("get after update errored: %s", firstText(t, postUpdateRes))
+	}
+	postBody := firstText(t, postUpdateRes)
+	if !strings.Contains(postBody, "drop_number = 2") {
+		t.Errorf("get after update missing `drop_number = 2`; body: %s", postBody)
+	}
+	if strings.Contains(postBody, "drop_number = 1") {
+		t.Errorf("get after update still contains stale `drop_number = 1`; body: %s", postBody)
+	}
+}

@@ -432,3 +432,117 @@ id = "t2"
 		t.Errorf("t1 body should absorb bookkeeping content, got %q", span)
 	}
 }
+
+// TestTopLevelBracketBackendFindsBracketKey locks in F38d-2.15: a
+// Backend constructed via NewTopLevelBracketBackend treats every
+// dot-free top-level bracket as a declared record, regardless of any
+// named-type prefix. Glob-TOML mounts use this mode because the
+// on-disk bracket equals the bracket-key alone (per F10: bracket = id,
+// type lives in the index).
+func TestTopLevelBracketBackendFindsBracketKey(t *testing.T) {
+	src := []byte(`[dogfood_smoke]
+structural_type = "drop"
+drop_number = 1
+`)
+	b := NewTopLevelBracketBackend()
+
+	paths, err := b.List(src, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	want := []string{"dogfood_smoke"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Errorf("List got %v, want %v", paths, want)
+	}
+
+	sec, ok, err := b.Find(src, "dogfood_smoke")
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if !ok {
+		t.Fatal("dogfood_smoke not found in top-level mode")
+	}
+	span := string(src[sec.Range[0]:sec.Range[1]])
+	if !strings.HasPrefix(span, "[dogfood_smoke]") {
+		t.Errorf("span should start at top-level header, got %q", span)
+	}
+	if !strings.Contains(span, `structural_type = "drop"`) {
+		t.Errorf("span should include body, got %q", span)
+	}
+}
+
+// TestTopLevelBracketBackendAbsorbsNestedSubTable verifies that
+// sub-tables under a top-level bracket stay non-declared body content
+// of the enclosing top-level record, matching the §2.11 nesting rule.
+// `[dogfood_smoke.notes]` is body of `[dogfood_smoke]`, NOT a sibling
+// record.
+func TestTopLevelBracketBackendAbsorbsNestedSubTable(t *testing.T) {
+	src := []byte(`[dogfood_smoke]
+structural_type = "drop"
+
+[dogfood_smoke.notes]
+note1 = "absorbed"
+
+[next_drop]
+structural_type = "drop"
+`)
+	b := NewTopLevelBracketBackend()
+
+	paths, err := b.List(src, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	want := []string{"dogfood_smoke", "next_drop"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Errorf("List got %v, want %v — sub-table should not appear", paths, want)
+	}
+
+	sec, ok, err := b.Find(src, "dogfood_smoke")
+	if err != nil || !ok {
+		t.Fatalf("Find dogfood_smoke: ok=%v err=%v", ok, err)
+	}
+	span := string(src[sec.Range[0]:sec.Range[1]])
+	if !strings.Contains(span, "[dogfood_smoke.notes]") {
+		t.Errorf("span should absorb nested sub-table, got %q", span)
+	}
+	if strings.Contains(span, "[next_drop]") {
+		t.Errorf("span must stop before the next top-level bracket, got %q", span)
+	}
+
+	// The sub-table is NOT findable as a sibling record.
+	_, ok, err = b.Find(src, "dogfood_smoke.notes")
+	if err != nil {
+		t.Fatalf("Find sub-table: %v", err)
+	}
+	if ok {
+		t.Error("nested sub-table must not resolve as a sibling record under top-level mode")
+	}
+}
+
+// TestTopLevelBracketBackendSpliceReplacesExisting confirms Splice
+// against an existing top-level bracket replaces in-place (not
+// appends) under top-level mode. The pre-fix bug let a re-create
+// silently append a duplicate bracket because isDeclared dropped the
+// existing bracket from declaredSections.
+func TestTopLevelBracketBackendSpliceReplacesExisting(t *testing.T) {
+	src := []byte(`[dogfood_smoke]
+drop_number = 1
+`)
+	b := NewTopLevelBracketBackend()
+
+	emitted := []byte("[dogfood_smoke]\ndrop_number = 2\n")
+	out, err := b.Splice(src, "dogfood_smoke", emitted)
+	if err != nil {
+		t.Fatalf("Splice: %v", err)
+	}
+	if bytes.Count(out, []byte("[dogfood_smoke]")) != 1 {
+		t.Errorf("Splice should replace in place, got %d brackets: %q",
+			bytes.Count(out, []byte("[dogfood_smoke]")), out)
+	}
+	if !bytes.Contains(out, []byte("drop_number = 2")) {
+		t.Errorf("Splice should carry new value, got %q", out)
+	}
+	if bytes.Contains(out, []byte("drop_number = 1")) {
+		t.Errorf("Splice should drop stale value, got %q", out)
+	}
+}
