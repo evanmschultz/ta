@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -169,7 +170,10 @@ func (r *Resolver) ResolveIDInDB(id, dbName string) (Resolved, schema.DB, error)
 // description for dbDecl, derived from the db's mount wildcards. A
 // single-mount db produces a single shape; multi-mount dbs produce a
 // "one of: ..." list. Used by ResolveIDInDB's miss-error to tell the
-// caller exactly what id grammar the named db accepts.
+// caller exactly what id grammar the named db accepts. The returned
+// string ALWAYS begins with the "expected shape:" / "expected one
+// of:" prefix exactly once — callers MUST NOT add their own copy
+// when composing the surrounding error.
 func expectedShapeForDB(dbDecl schema.DB) string {
 	if len(dbDecl.Paths) == 0 {
 		return "expected shape: <unknown> (db has no mounts)"
@@ -190,28 +194,72 @@ func expectedShapeForDB(dbDecl schema.DB) string {
 // `<group>.<name>.<bracket-key>`, segs=3). The caller composes the
 // template with a "got N segments, need M" suffix.
 //
+// Returns the template WITHOUT the "expected shape:" prefix — the
+// sole caller (expectedShapeForDB) prepends the prefix once so the
+// final error string contains it exactly once.
+//
 // Wildcard-segment names are synthesized in declaration order:
 // `<seg-1>`, `<seg-2>`, etc. (kept generic — without inspecting the
 // concrete filesystem we cannot infer semantic names like `group`).
-// Each wildcard contributes one segment; the leaf static segment
-// (with format extension stripped) contributes one segment when
-// non-empty; the bracket-key contributes one segment.
+// Pattern segments that mix literal + glob (e.g. `drop_*`) are
+// rendered verbatim so the reader sees the prefix constraint plus
+// the wildcard role at the same time. Each non-empty residual
+// segment contributes one id segment; the bracket-key contributes
+// one more.
 func mountExpectedShape(mount string, format schema.Format) (string, int) {
 	_, residualSegs := splitMountSegments(mount)
 	expected := stripFormatExt(residualSegs, format)
 	parts := make([]string, 0, len(expected)+1)
 	wildIdx := 0
 	for _, seg := range expected {
-		if seg == "*" {
+		switch {
+		case seg == "*":
 			wildIdx++
 			parts = append(parts, fmt.Sprintf("<seg-%d>", wildIdx))
-			continue
+		case strings.Contains(seg, "*"):
+			// Prefix/suffix-glob segment (e.g. `drop_*`). Render
+			// verbatim so the reader sees the literal prefix plus
+			// the wildcard.
+			wildIdx++
+			parts = append(parts, seg)
+		default:
+			// Literal residual segment (e.g. `db` in `workflow/*/db.toml`).
+			parts = append(parts, seg)
 		}
-		// Literal residual segment (e.g. `db` in `workflow/*/db.toml`).
-		parts = append(parts, seg)
 	}
 	parts = append(parts, "<bracket-key>")
-	return "expected shape: " + strings.Join(parts, "."), len(parts)
+	return strings.Join(parts, "."), len(parts)
+}
+
+// mountSegmentMatches reports whether idSeg satisfies a mount
+// segment. Bare `*` matches anything non-empty. Pattern segments
+// containing `*` are matched via path.Match (one-segment glob —
+// `*` matches any non-separator run). Literal segments require an
+// exact match.
+//
+// Mount segments are pre-split on `/` by splitMountSegments, so a
+// segment never contains a separator; path.Match's no-cross-slash
+// semantics line up with single-segment matching. id segments are
+// dot-split, also single-segment, so no separator collision occurs.
+func mountSegmentMatches(mountSeg, idSeg string) bool {
+	if mountSeg == idSeg {
+		return true
+	}
+	if !strings.Contains(mountSeg, "*") {
+		return false
+	}
+	if idSeg == "" {
+		return false
+	}
+	ok, err := path.Match(mountSeg, idSeg)
+	if err != nil {
+		// Malformed pattern — fail closed. Schema-load does not
+		// validate glob patterns today; surfacing the error here
+		// would require plumbing it through every caller of
+		// tryParseAgainstMount. Treat as no-match instead.
+		return false
+	}
+	return ok
 }
 
 // tryParseAgainstMount attempts to parse parts against one mount entry
@@ -263,10 +311,7 @@ func tryParseAgainstMount(parts []string, dbDecl schema.DB, mount, root string) 
 		return Resolved{}, false, nil
 	}
 	for i, seg := range expected {
-		if seg == "*" {
-			continue
-		}
-		if parts[i] != seg {
+		if !mountSegmentMatches(seg, parts[i]) {
 			return Resolved{}, false, nil
 		}
 	}

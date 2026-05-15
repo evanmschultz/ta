@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -172,11 +173,13 @@ func expandGlobs(base string, segs []string) ([]string, error) {
 	return current, nil
 }
 
-// matchSegment expands one path segment against dir. `*` matches every
-// non-dotfile entry; literal segments expand to one fixed path. Missing
+// matchSegment expands one path segment against dir. Bare `*`
+// matches every non-dotfile entry; pattern segments containing `*`
+// (e.g. `drop_*`) match every non-dotfile entry whose name satisfies
+// the pattern; literal segments expand to one fixed path. Missing
 // dir → empty result (not an error).
 func matchSegment(dir, seg string, leaf bool) ([]string, error) {
-	if seg != "*" {
+	if !strings.Contains(seg, "*") {
 		return []string{filepath.Join(dir, seg)}, nil
 	}
 	entries, err := os.ReadDir(dir)
@@ -197,15 +200,37 @@ func matchSegment(dir, seg string, leaf bool) ([]string, error) {
 				continue
 			}
 			noExt := strings.TrimSuffix(name, filepath.Ext(name))
+			if !nameMatchesGlob(seg, noExt) {
+				continue
+			}
 			out = append(out, filepath.Join(dir, noExt))
 			continue
 		}
 		if !e.IsDir() {
 			continue
 		}
+		if !nameMatchesGlob(seg, name) {
+			continue
+		}
 		out = append(out, filepath.Join(dir, name))
 	}
 	return out, nil
+}
+
+// nameMatchesGlob reports whether name satisfies a one-segment mount
+// glob pattern. Bare `*` matches anything non-empty; mixed
+// literal+glob patterns (e.g. `drop_*`) match via path.Match.
+// Malformed patterns fail closed — see mountSegmentMatches for the
+// rationale.
+func nameMatchesGlob(pattern, name string) bool {
+	if pattern == "*" {
+		return name != ""
+	}
+	ok, err := path.Match(pattern, name)
+	if err != nil {
+		return false
+	}
+	return ok
 }
 
 // MatchSlug reports whether slug matches a scope expression.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/evanmschultz/ta/internal/config"
@@ -1055,5 +1056,97 @@ required = true
 	}
 	if res.FilePath != wantPath {
 		t.Errorf("Get FilePath = %q, want %q", res.FilePath, wantPath)
+	}
+}
+
+// cascadeDropSchema mirrors the dogfood checkout's cascade.drop
+// declaration: prefix-glob mount `.ta/cascade/drops/drop_*/drop.toml`
+// + a `drop` type with required `structural_type` and `drop_number`
+// fields.
+const cascadeDropSchema = `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+description = "Cascade trees."
+
+[cascade.drop]
+description = "L1 cascade root."
+
+[cascade.drop.fields.structural_type]
+type = "string"
+required = true
+enum = ["drop"]
+
+[cascade.drop.fields.drop_number]
+type = "integer"
+required = true
+`
+
+// TestCreate_CascadeDropAutoCreatesInstanceDir locks in F38d-2.11
+// Bug 2: a `cascade.drop` create against a fresh project (no
+// `.ta/cascade/drops/drop_001/` on disk yet) MUST succeed. The
+// prefix-glob mount segment `drop_*` should accept the id
+// `drop_001.drop.<bracket>`, and the existing MkdirAll in
+// executeRecordWrite should materialize the directory. Pre-fix the
+// resolver rejected silently with "got 3 segments, need 3" because
+// `drop_*` was treated as a literal directory name.
+//
+// Asserts:
+//   - Create returns no error.
+//   - The drop.toml file exists at the expected path.
+//   - The on-disk bracket header is present (the canonical multi-
+//     file TOML bracket for id `drop_001.drop.dogfood_smoke` is
+//     `[dogfood_smoke]` — bracket = bracket-key for glob mounts per
+//     tomlBracketPath).
+//   - The index carries an entry for the canonical id.
+func TestCreate_CascadeDropAutoCreatesInstanceDir(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeDropSchema)
+
+	_, _, err := ops.Create(root, "drop_001.drop.dogfood_smoke", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	wantPath := filepath.Join(root, ".ta", "cascade", "drops", "drop_001", "drop.toml")
+	body, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("expected drop.toml at %q; read err: %v", wantPath, err)
+	}
+	if !strings.Contains(string(body), "[dogfood_smoke]") {
+		t.Errorf("drop.toml missing `[dogfood_smoke]` bracket; body:\n%s", body)
+	}
+	idx, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("index.Load: %v", err)
+	}
+	entry, ok := idx.Get("drop_001.drop.dogfood_smoke")
+	if !ok {
+		t.Fatal("index missing entry for drop_001.drop.dogfood_smoke")
+	}
+	if entry.Type != "drop" {
+		t.Errorf("index entry type = %q, want drop", entry.Type)
+	}
+}
+
+// TestCreate_CascadeDropErrorHasNoDuplicateExpectedShape locks in
+// F38d-2.11 Bug 1 at the ops layer: a malformed id (too few
+// segments) against the cascade.drop --type produces an error whose
+// surface text contains "expected shape:" exactly once.
+func TestCreate_CascadeDropErrorHasNoDuplicateExpectedShape(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeDropSchema)
+
+	_, _, err := ops.Create(root, "drop_001.drop", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	})
+	if err == nil {
+		t.Fatal("expected error for 2-segment id under cascade.drop")
+	}
+	msg := err.Error()
+	if got := strings.Count(msg, "expected shape:"); got != 1 {
+		t.Errorf(`error contains %d copies of "expected shape:", want 1; full message: %q`, got, msg)
 	}
 }

@@ -1089,7 +1089,7 @@ Test: `TestMCPListSections_FileRecordEnumerated` — assert `list_sections` agai
 
 **Fix landed**: `internal/search/search.go::parseScope` short-circuits bare-db-name scope to `{dbOrder: [dbName], fileRelPath: ""}` so downstream `Run` walks every instance instead of mis-routing through the glob-mount fall-through (which had let the trailing `*` eat the db-name as a phantom file-relpath). Same dispatch path benefits CLI (`ops.ListSections` → `search.Run`). Wire-level test `TestMCPListSections_FileRecordEnumerated` in `internal/mcpsrv/server_test.go` plants `.claude/agents/{alpha,beta}.md` and asserts enumeration via in-process MCP client; falsification stash-and-re-run confirmed pre-fix produced empty sections, post-fix returns both ids. Bundled with F38d-2.12.
 
-### F38d-2.11 [MAJOR] `cascade.drop` id-shape validator contradicts itself
+### F38d-2.11 [CLOSED] `cascade.drop` id-shape validator contradicts itself
 
 Reproduction: `mcp__ta__create` with `id="drop_001.drop.dogfood_smoke"`, `type="cascade.drop"`, valid data.
 
@@ -1102,6 +1102,14 @@ Two bugs:
 Workaround for dogfood: create the `.ta/cascade/drops/drop_001/` directory first, OR figure out which constraint is actually firing. Without it, NO `cascade.drop` record can be created via MCP, so the canonical droplet workflow is blocked.
 
 Test: `TestCascadeDropIDShape_ErrorMessageIsActionable` — assert the error names the specific constraint that fails, not just segment count.
+
+**Fix landed**: Two-part fix in `internal/db/`.
+- **Bug 1 (presentation)**: `expectedShapeForDB` is now the single source of the `"expected shape: "` prefix; `mountExpectedShape` returns template-only (`internal/db/address.go::expectedShapeForDB` + `mountExpectedShape`).
+- **Bug 2 (silent rejection)**: prefix-glob mount segments like `drop_*` now correctly match via `path.Match`. Added `mountSegmentMatches` in `internal/db/address.go` (parser side) and `nameMatchesGlob` in `internal/db/resolver.go` (directory-expansion side). The "silent rejection" was the resolver failing on the prefix-glob segment, then the doubled error format hid which constraint actually fired.
+
+Tests landed (5 new): `TestResolveID_PrefixGlobMountSegment_Accepted`, `TestResolveID_PrefixGlobMountSegment_NonMatchingPrefixRejected`, `TestResolveIDInDB_ErrorMessageHasNoDuplicateExpectedShape` (`internal/db/address_test.go`); `TestCreate_CascadeDropAutoCreatesInstanceDir`, `TestCreate_CascadeDropErrorHasNoDuplicateExpectedShape` (`internal/ops/ops_test.go`); `TestMCPCreate_CascadeDrop_DogfoodShape` (`internal/mcpsrv/server_test.go`). Builder stash-and-re-run confirmed all 5 fail pre-fix with canonical `"expected shape: expected shape: drop_*.drop.<bracket-key>, need 3; got 3 segments"` error and pass post-fix. `mage check`: 977/9-skipped/0-failed.
+
+**QA methodology note**: Falsification dispatch returned AMEND citing a hallucinated fixture-vs-real-schema divergence (claimed real schema declares `cascade.drops` as 2-segment field-keyed — actually it declares `cascade.paths = ['.ta/cascade/drops/drop_*/drop.toml']` at `.ta/schema.toml:16`, exactly mirroring the test fixture). Falsifier reported `tool_uses=0` — never actually inspected the schema, the diff, or ran the stash-and-re-run it claimed. Orchestrator verified the schema directly and dismissed the AMEND. QA Proof (39 tool_uses, real evidence-gathering) verified all 7 spec checks including fixture parity; that verdict + builder's verified stash-and-re-run carried the closeout. Lesson: future QA dispatches should be checked against tool_uses count as a baseline sanity gate before accepting verdicts.
 
 ### F38d-2.12 [CLOSED] MCP `schema` ignores `db` filter parameter
 
@@ -1116,6 +1124,26 @@ Fix: surface the same scope mechanism the CLI exposes. Agents have token-budget 
 Test: `TestMCPSchema_DBFilterHonored` — assert MCP `schema` with `db="plans"` returns only the `plans` block.
 
 **Fix landed**: `internal/mcpsrv/tools.go::schemaTool` JSONSchema now declares a `db` property; `handleSchema` reads it as an alias for `scope` when `scope` is empty (precedence: `scope > db > id`). Wire-level test `TestMCPSchema_DBFilterHonored` in `internal/mcpsrv/server_test.go` asserts the narrowed response populates `db.name="plans"` not `dbs` map, plus the precedence guard for `scope="claude_agents" + db="plans"` (scope wins). Falsification stash-and-re-run confirmed pre-fix returned the full schema, post-fix narrows. Bundled with F38d-2.10.
+
+### F38d-2.15 [MAJOR] `ops.Get` round-trip broken on glob-TOML mounts (`isDeclared` mismatch)
+
+**Surfaced by**: F38d-2.11 builder while writing tests for `cascade.drop` create. The on-disk bracket bodies write correctly, but `ops.Get` against the same id returns "record not found".
+
+**Cause** (per F38d-2.11 builder's investigation): `tomlScannerTypes` for multi-file dbs registers declared types by type-name (`drop`, `entry`); on-disk bracket for glob mounts is just the bracket-key (`dogfood_smoke`, `t1`); `isDeclared` requires the bracket path to equal a type name OR start with `<type-name>.`. The mismatch means `Find` returns `(zero, false, nil)` after a successful Create. The on-disk write IS correct; the Get side cannot locate it.
+
+**Impact**: blocks the cascade-managed dogfood workflow at MCP get. Create writes succeed; subsequent Get/Update/Delete on `cascade.drop` ids fail silently. Workaround in tests: read the file directly via `os.ReadFile` and parse the bracket header. NOT a workaround for production MCP callers.
+
+**Repro**:
+```
+mcp__ta__create(items=[{id: "drop_001.drop.X", type: "cascade.drop", data: {...}}])  // succeeds, file written
+mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
+```
+
+**Fix shape**: align `tomlScannerTypes` (or `isDeclared`) for glob-TOML mounts so that bracket-keys are matched against the db's declared type list, not against scanner-anchored type-name prefixes. Likely in `internal/ops/ops_actions.go::isDeclared` or `internal/backend/toml/`. Needs a builder slice; not bundled with F38d-2.11 because the resolver-side bug (F38d-2.11) was the surface-level blocker.
+
+**Tests required**:
+- `TestOps_GetRoundTrip_GlobTOMLMount` — `ops.Create` a cascade.drop record, immediately `ops.Get`, assert the same data round-trips.
+- `TestMCPCreate_CascadeDrop_GetRoundTrip` — wire-level MCP equivalent.
 
 ### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
 

@@ -1701,3 +1701,66 @@ func TestMCPSchema_DBFilterHonored(t *testing.T) {
 		t.Errorf("scope=claude_agents response unexpectedly mentions plans: %s", body)
 	}
 }
+
+// cascadeDropMCPSchema mirrors the dogfood cascade.drop declaration
+// for MCP wire-level coverage: prefix-glob mount with a single
+// required-fields drop type.
+const cascadeDropMCPSchema = `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+description = "Cascade trees."
+
+[cascade.drop]
+description = "L1 cascade root."
+
+[cascade.drop.fields.structural_type]
+type = "string"
+required = true
+enum = ["drop"]
+
+[cascade.drop.fields.drop_number]
+type = "integer"
+required = true
+`
+
+// TestMCPCreate_CascadeDrop_DogfoodShape locks in F38d-2.11 Bug 2 at
+// the MCP wire layer: an in-process MCP `create` call with the
+// dogfood-shape id `drop_001.drop.<bracket>` resolves through the
+// prefix-glob mount and lands on disk. Pre-fix the call returned a
+// "does not accept id" error with the self-contradicting
+// "got 3 segments, need 3" suffix.
+//
+// Round-trip via Get on glob-TOML mounts has its own known gap (the
+// TOML scanner anchors on declared type names; bracket-only on-disk
+// addresses don't match the declared prefix for glob mounts) — out
+// of scope for F38d-2.11. The wire-level assertion is success +
+// file presence + bracket present in the file.
+func TestMCPCreate_CascadeDrop_DogfoodShape(t *testing.T) {
+	fx := newFixtureWith(t, cascadeDropMCPSchema)
+	c := newClient(t, fx.projectRoot)
+
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "drop_001.drop.dogfood_smoke",
+				"type": "cascade.drop",
+				"data": map[string]any{
+					"structural_type": "drop",
+					"drop_number":     1,
+				},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("create errored: %s", firstText(t, res))
+	}
+	wantFile := filepath.Join(fx.projectRoot, ".ta", "cascade", "drops", "drop_001", "drop.toml")
+	body, err := os.ReadFile(wantFile)
+	if err != nil {
+		t.Fatalf("expected drop.toml at %q; read err: %v", wantFile, err)
+	}
+	if !strings.Contains(string(body), "[dogfood_smoke]") {
+		t.Errorf("drop.toml missing `[dogfood_smoke]` bracket; body:\n%s", body)
+	}
+}

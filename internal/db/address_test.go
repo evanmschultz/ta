@@ -494,6 +494,100 @@ func TestResolveID_ClaudeAgents_MultiMount_OvershootSkipsToNextMount(t *testing.
 	}
 }
 
+// TestResolveID_PrefixGlobMountSegment_Accepted locks in F38d-2.11
+// Bug 2: a mount segment like `drop_*` is a prefix-glob, not a
+// literal directory name. An id whose corresponding segment matches
+// the prefix pattern (e.g. `drop_001` against `drop_*`) MUST resolve
+// cleanly. Pre-fix the parser only handled bare `*` segments and
+// rejected the id silently with "need 3 got 3 segments".
+func TestResolveID_PrefixGlobMountSegment_Accepted(t *testing.T) {
+	reg := schema.Registry{DBs: map[string]schema.DB{
+		"cascade": {
+			Name:   "cascade",
+			Paths:  []string{".ta/cascade/drops/drop_*/drop.toml"},
+			Format: schema.FormatTOML,
+			Types: map[string]schema.SectionType{
+				"drop": {Name: "drop"},
+			},
+		},
+	}}
+	r := NewResolver("/proj", reg)
+
+	res, dbDecl, err := r.ResolveID("drop_001.drop.dogfood_smoke")
+	if err != nil {
+		t.Fatalf("ResolveID(drop_001.drop.dogfood_smoke): %v", err)
+	}
+	if dbDecl.Name != "cascade" {
+		t.Errorf("dbDecl.Name = %q, want cascade", dbDecl.Name)
+	}
+	if res.FileRelPath != "drop_001.drop" {
+		t.Errorf("res.FileRelPath = %q, want drop_001.drop", res.FileRelPath)
+	}
+	if res.BracketKey != "dogfood_smoke" {
+		t.Errorf("res.BracketKey = %q, want dogfood_smoke", res.BracketKey)
+	}
+	want := filepath.Join("/proj", ".ta", "cascade", "drops", "drop_001", "drop.toml")
+	if res.FilePath != want {
+		t.Errorf("res.FilePath = %q, want %q", res.FilePath, want)
+	}
+}
+
+// TestResolveID_PrefixGlobMountSegment_NonMatchingPrefixRejected
+// confirms the prefix-glob matcher is not a free pass: a leading
+// segment that doesn't match the literal prefix part of `drop_*`
+// (e.g. `wrongprefix_001`) still fails to resolve.
+func TestResolveID_PrefixGlobMountSegment_NonMatchingPrefixRejected(t *testing.T) {
+	reg := schema.Registry{DBs: map[string]schema.DB{
+		"cascade": {
+			Name:   "cascade",
+			Paths:  []string{".ta/cascade/drops/drop_*/drop.toml"},
+			Format: schema.FormatTOML,
+			Types: map[string]schema.SectionType{
+				"drop": {Name: "drop"},
+			},
+		},
+	}}
+	r := NewResolver("/proj", reg)
+
+	_, _, err := r.ResolveID("wrongprefix_001.drop.x")
+	if err == nil {
+		t.Fatal("expected error for id whose first segment does not match prefix-glob")
+	}
+	if !errors.Is(err, ErrIDDoesNotMatchAnyDB) {
+		t.Errorf("expected ErrIDDoesNotMatchAnyDB, got %v", err)
+	}
+}
+
+// TestResolveIDInDB_ErrorMessageHasNoDuplicateExpectedShape locks in
+// F38d-2.11 Bug 1: the resolver-miss error MUST contain "expected
+// shape:" EXACTLY ONCE. Pre-fix, mountExpectedShape and
+// expectedShapeForDB each prepended the prefix, producing
+// "expected shape: expected shape: ...".
+func TestResolveIDInDB_ErrorMessageHasNoDuplicateExpectedShape(t *testing.T) {
+	reg := schema.Registry{DBs: map[string]schema.DB{
+		"cascade": {
+			Name:   "cascade",
+			Paths:  []string{".ta/cascade/drops/drop_*/drop.toml"},
+			Format: schema.FormatTOML,
+			Types: map[string]schema.SectionType{
+				"drop": {Name: "drop"},
+			},
+		},
+	}}
+	r := NewResolver("/proj", reg)
+
+	// 2-segment id fails the segment-count check; "got 2" branch
+	// surfaces the expected-shape rendering through expectedShapeForDB.
+	_, _, err := r.ResolveIDInDB("drop_001.drop", "cascade")
+	if err == nil {
+		t.Fatal("expected error for 2-segment id against cascade")
+	}
+	msg := err.Error()
+	if got := strings.Count(msg, "expected shape:"); got != 1 {
+		t.Errorf(`error contains %d copies of "expected shape:", want 1; full message: %q`, got, msg)
+	}
+}
+
 func TestResolvedCanonical(t *testing.T) {
 	cases := []struct {
 		res  Resolved
