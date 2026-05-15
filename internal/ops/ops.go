@@ -813,13 +813,48 @@ func DeleteWithOptions(path, id, typeName string, opts DeleteOptions) (DeleteRes
 		return DeleteResult{}, fmt.Errorf("resolve schema for %s: %w", path, err)
 	}
 	resolver := db.NewResolver(path, resolution.Registry)
-	resolved, dbDecl, level, err := resolver.ResolveDelete(id)
-	if err != nil {
-		if errors.Is(err, db.ErrUnscopedGlobDelete) {
-			return DeleteResult{Sources: resolution.Sources, Level: db.LevelGlobRoot},
-				fmt.Errorf("%w: %v", ErrUnscopedGlobDelete, err)
+
+	// F38d-2.14b: when typeName is empty (the normal MCP / CLI delete
+	// path — callers are not required to supply --type), consult the
+	// index to pick the correct db BEFORE handing off to ResolveDelete.
+	// Without this hint, ResolveDelete's Path 1 calls unconstrained
+	// ResolveID which an alphabetically-earlier db with a looser mount
+	// shape (e.g. claude_agents glob `agents/*/*.md`) can swallow,
+	// returning BracketKey=="" and falling through to Path 2's instance
+	// scan, which then surfaces ErrBadID "has no bracket-key and matches
+	// no concrete file" — the canonical F38d-2.14 failure mode. The hint
+	// must return a non-empty BracketKey (i.e. a record-level resolution
+	// against the correct db) to short-circuit; an empty-BracketKey hit
+	// (e.g. file-as-record) or a hint miss falls back to ResolveDelete so
+	// LevelFile / LevelGlobRoot semantics still flow through the
+	// existing resolver path.
+	var resolved db.Resolved
+	var dbDecl schema.DB
+	var level db.DeleteLevel
+	if typeName == "" {
+		if hintRes, hintDB, hintErr := resolveIDWithIndexHint(resolver, resolution.Registry, path, id); hintErr == nil && hintRes.BracketKey != "" {
+			resolved = hintRes
+			dbDecl = hintDB
+			level = db.LevelRecord
+		} else {
+			resolved, dbDecl, level, err = resolver.ResolveDelete(id)
+			if err != nil {
+				if errors.Is(err, db.ErrUnscopedGlobDelete) {
+					return DeleteResult{Sources: resolution.Sources, Level: db.LevelGlobRoot},
+						fmt.Errorf("%w: %v", ErrUnscopedGlobDelete, err)
+				}
+				return DeleteResult{Sources: resolution.Sources}, err
+			}
 		}
-		return DeleteResult{Sources: resolution.Sources}, err
+	} else {
+		resolved, dbDecl, level, err = resolver.ResolveDelete(id)
+		if err != nil {
+			if errors.Is(err, db.ErrUnscopedGlobDelete) {
+				return DeleteResult{Sources: resolution.Sources, Level: db.LevelGlobRoot},
+					fmt.Errorf("%w: %v", ErrUnscopedGlobDelete, err)
+			}
+			return DeleteResult{Sources: resolution.Sources}, err
+		}
 	}
 
 	// F29: when --type is supplied for a record-level delete, re-run

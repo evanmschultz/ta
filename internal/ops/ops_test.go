@@ -474,6 +474,127 @@ required = true
 	}
 }
 
+// TestDelete_DisambiguatesViaIndexedType is the F38d-2.14b regression
+// lock: ops.DeleteWithOptions with empty typeName must consult the
+// index to pick the correct db when two dbs have overlapping id
+// namespaces. Pre-fix, ResolveDelete's Path 1 calls unconstrained
+// ResolveID which picks claude_agents (alphabetically earlier, file-as-
+// record) and returns BracketKey="", falling through to Path 2's
+// instance scan, which then surfaces ErrBadID "has no bracket-key and
+// matches no concrete file". Post-fix, the indexed type "plan"
+// constrains resolution to the plans db and the bracket-keyed record
+// is deleted cleanly.
+func TestDelete_DisambiguatesViaIndexedType(t *testing.T) {
+	root := withAmbiguousIDSchema(t)
+	// Create the record — lands in .ta/cascade/plans.toml, index entry written.
+	if _, _, err := ops.Create(root, "plans.dogfood-smoke-2", "plans.plan", map[string]any{
+		"title": "Delete disambiguation smoke",
+		"state": "in_progress",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// DeleteWithOptions with empty typeName simulates the MCP delete flow.
+	res, err := ops.DeleteWithOptions(root, "plans.dogfood-smoke-2", "", ops.DeleteOptions{})
+	if err != nil {
+		t.Fatalf("DeleteWithOptions: %v", err)
+	}
+
+	// FilePath must be the plans-db file, not an agents/plans/... path.
+	wantPath := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	if res.FilePath != wantPath {
+		t.Errorf("Delete FilePath = %q, want %q", res.FilePath, wantPath)
+	}
+
+	// File body must no longer contain the record's bracket header.
+	buf, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	if contains(string(buf), "[plans.dogfood-smoke-2]") {
+		t.Errorf("plans.toml still carries [plans.dogfood-smoke-2] header after delete; body:\n%s", buf)
+	}
+
+	// Index entry must be cleaned.
+	idx, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("index.Load: %v", err)
+	}
+	if _, ok := idx.Get("plans.dogfood-smoke-2"); ok {
+		t.Errorf("index still carries entry for plans.dogfood-smoke-2 after delete")
+	}
+
+	// Crucially: the claude_agents glob mount must NOT have been
+	// touched — no spurious agents/plans/dogfood-smoke-2.md anywhere.
+	spurious := filepath.Join(root, "agents", "plans", "dogfood-smoke-2.md")
+	if _, statErr := os.Stat(spurious); statErr == nil {
+		t.Errorf("spurious file %s exists after delete — index hint did not protect claude_agents mount", spurious)
+	}
+}
+
+// TestDelete_FallsBackToResolveIDWhenIndexMisses verifies the orphan
+// recovery path: when no index entry exists for an id, DeleteWithOptions
+// falls back to plain ResolveDelete and succeeds when the id is
+// unambiguous (only one db accepts it). Uses a 2-db schema (cascade +
+// plans) without the file-as-record db so ResolveDelete's Path 1
+// (ResolveID) returns a non-empty BracketKey deterministically.
+func TestDelete_FallsBackToResolveIDWhenIndexMisses(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+
+[cascade.drop]
+description = "A cascade drop."
+
+[cascade.drop.fields.title]
+type = "string"
+required = true
+
+[plans]
+paths = [".ta/cascade/plans.toml"]
+
+[plans.plan]
+description = "A plan."
+
+[plans.plan.fields.title]
+type = "string"
+required = true
+
+[plans.plan.fields.state]
+type = "string"
+required = true
+`)
+	// Write the record body directly to disk (bypassing ops.Create →
+	// no index entry).
+	planFile := filepath.Join(root, ".ta", "cascade", "plans.toml")
+	if err := os.MkdirAll(filepath.Dir(planFile), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	orphanTOML := "format_version = 2\n\n[plans.orphan]\ntitle = \"Orphan record\"\nstate = \"todo\"\n"
+	if err := os.WriteFile(planFile, []byte(orphanTOML), 0o644); err != nil {
+		t.Fatalf("write plans.toml: %v", err)
+	}
+
+	// No index entry exists — fallback to ResolveDelete must succeed.
+	res, err := ops.DeleteWithOptions(root, "plans.orphan", "", ops.DeleteOptions{})
+	if err != nil {
+		t.Fatalf("DeleteWithOptions (orphan, no index): %v", err)
+	}
+	if res.FilePath != planFile {
+		t.Errorf("Delete FilePath = %q, want %q", res.FilePath, planFile)
+	}
+
+	// File body must no longer contain the bracket header.
+	buf, err := os.ReadFile(planFile)
+	if err != nil {
+		t.Fatalf("read plans.toml: %v", err)
+	}
+	if contains(string(buf), "[plans.orphan]") {
+		t.Errorf("plans.toml still carries [plans.orphan] header after delete; body:\n%s", buf)
+	}
+}
+
 // withFileAsRecordSchema sets up a project root with an agents db
 // declared as file-as-record per F31: each `agents/<group>/<name>.md`
 // is one whole-file record with YAML frontmatter holding the typed
