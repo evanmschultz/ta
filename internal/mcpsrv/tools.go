@@ -202,7 +202,7 @@ func schemaTool() mcp.Tool {
 	return mcp.NewTool(
 		"schema",
 		mcp.WithDescription(
-			"Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema). action=create|update|delete uses 'kind' (db / type / field / base) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload). kind=base addresses a reusable field bundle at [<db>.bases.<name>]; data accepts 'description', 'extends' (another base name), and a nested 'fields' table. kind=type data also accepts an 'auto_spawn' table (F23) — `auto_spawn = { on_create = [{type = \"<db>.<type>\", id_template = \"{parent_id}-...\", fields = {...}}] }` — declaring child records that fire automatically on create. Templates support `{parent_id}` and `{index}` interpolation tokens; bases may declare auto_spawn for inheritors. Pass `no_spawn=true` on `create` to suppress. Sugar (PLAN §12.17.9 Phase 9.6): on action=update + kind=db, 'paths_append' / 'paths_remove' mutate the db's paths slice incrementally — single-entry strings, mutually exclusive with each other and with a 'data' payload carrying a 'paths' key.",
+			"Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema), or the convenience alias 'db' for a bare db name. action=create|update|delete uses 'kind' (db / type / field / base) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload). kind=base addresses a reusable field bundle at [<db>.bases.<name>]; data accepts 'description', 'extends' (another base name), and a nested 'fields' table. kind=type data also accepts an 'auto_spawn' table (F23) — `auto_spawn = { on_create = [{type = \"<db>.<type>\", id_template = \"{parent_id}-...\", fields = {...}}] }` — declaring child records that fire automatically on create. Templates support `{parent_id}` and `{index}` interpolation tokens; bases may declare auto_spawn for inheritors. Pass `no_spawn=true` on `create` to suppress. Sugar (PLAN §12.17.9 Phase 9.6): on action=update + kind=db, 'paths_append' / 'paths_remove' mutate the db's paths slice incrementally — single-entry strings, mutually exclusive with each other and with a 'data' payload carrying a 'paths' key.",
 		),
 		mcp.WithString("path", mcp.Required(), mcp.Description("Project directory (absolute).")),
 		mcp.WithString(
@@ -210,6 +210,7 @@ func schemaTool() mcp.Tool {
 			mcp.Description("One of get | create | update | delete. Defaults to get."),
 		),
 		mcp.WithString("scope", mcp.Description("action=get: optional '<db>' | '<db>.<type>' | 'ta_schema'.")),
+		mcp.WithString("db", mcp.Description("action=get: optional alias for `scope` accepting a bare db name (e.g. `plans`). Token-budget sugar so callers that think in db-name terms do not have to learn the `scope` field. When both are set, `scope` wins.")),
 		mcp.WithString("kind", mcp.Description("action=create|update|delete: one of db | type | field | base.")),
 		mcp.WithString("name", mcp.Description("action=create|update|delete: dotted address — '<db>', '<db>.<type>', '<db>.<type>.<field>', or '<db>.<base>' (kind=base).")),
 		mcp.WithObject(
@@ -954,8 +955,13 @@ func handleSchema(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	switch action {
 	case "get":
 		// scope replaces the legacy section arg for schema-get. Accept
-		// either for back-compat with existing tests.
+		// either for back-compat with existing tests. The 'db' alias
+		// (F38d-2.12) is also accepted so callers that think in db-name
+		// terms can narrow the response without learning the scope grammar.
 		scope := req.GetString("scope", "")
+		if scope == "" {
+			scope = req.GetString("db", "")
+		}
 		if scope == "" {
 			scope = req.GetString("id", "")
 		}

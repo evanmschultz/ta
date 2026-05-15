@@ -1073,7 +1073,7 @@ No code change required. Closed.
 
 **Note**: F38d-2.10 (scope filter empty for file-record dbs) is distinct and STILL reproduces — see below.
 
-### F38d-2.10 [MAJOR] MCP `list_sections` with a db-name scope returns empty for file-record dbs
+### F38d-2.10 [CLOSED] MCP `list_sections` with a db-name scope returns empty for file-record dbs
 
 Reproduction: `mcp__ta__list_sections` with `scope="claude_agents"` (or `scope="ta-"` to match the agent ids) returns `{"sections": []}` despite `.claude/agents/ta-*.md` files existing on disk and `mcp__ta__get` with id `ta-closeout` returning the file correctly.
 
@@ -1086,6 +1086,8 @@ Either:
 Recommend: option 1 (enumerate from disk). Agents reach for list_sections to discover ids; making them learn db-shape is leaky abstraction.
 
 Test: `TestMCPListSections_FileRecordEnumerated` — assert `list_sections` against a file-record db returns the basename ids matching the on-disk files.
+
+**Fix landed**: `internal/search/search.go::parseScope` short-circuits bare-db-name scope to `{dbOrder: [dbName], fileRelPath: ""}` so downstream `Run` walks every instance instead of mis-routing through the glob-mount fall-through (which had let the trailing `*` eat the db-name as a phantom file-relpath). Same dispatch path benefits CLI (`ops.ListSections` → `search.Run`). Wire-level test `TestMCPListSections_FileRecordEnumerated` in `internal/mcpsrv/server_test.go` plants `.claude/agents/{alpha,beta}.md` and asserts enumeration via in-process MCP client; falsification stash-and-re-run confirmed pre-fix produced empty sections, post-fix returns both ids. Bundled with F38d-2.12.
 
 ### F38d-2.11 [MAJOR] `cascade.drop` id-shape validator contradicts itself
 
@@ -1101,7 +1103,7 @@ Workaround for dogfood: create the `.ta/cascade/drops/drop_001/` directory first
 
 Test: `TestCascadeDropIDShape_ErrorMessageIsActionable` — assert the error names the specific constraint that fails, not just segment count.
 
-### F38d-2.12 [MAJOR] MCP `schema` ignores `db` filter parameter
+### F38d-2.12 [CLOSED] MCP `schema` ignores `db` filter parameter
 
 Reproduction: `mcp__ta__schema` with `path=...`, `action="get"`, `db="plans"` → returns the FULL 73K schema (all 9 dbs), ignoring the `db` filter.
 
@@ -1112,6 +1114,8 @@ The CLI form `ta schema plans --json` correctly narrows to one db (~22K). The MC
 Fix: surface the same scope mechanism the CLI exposes. Agents have token-budget concerns; 73K vs 22K matters.
 
 Test: `TestMCPSchema_DBFilterHonored` — assert MCP `schema` with `db="plans"` returns only the `plans` block.
+
+**Fix landed**: `internal/mcpsrv/tools.go::schemaTool` JSONSchema now declares a `db` property; `handleSchema` reads it as an alias for `scope` when `scope` is empty (precedence: `scope > db > id`). Wire-level test `TestMCPSchema_DBFilterHonored` in `internal/mcpsrv/server_test.go` asserts the narrowed response populates `db.name="plans"` not `dbs` map, plus the precedence guard for `scope="claude_agents" + db="plans"` (scope wins). Falsification stash-and-re-run confirmed pre-fix returned the full schema, post-fix narrows. Bundled with F38d-2.10.
 
 ### F38d-2.13 [NOTE] Validation error returned as escaped JSON string, not structured field
 

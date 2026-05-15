@@ -1474,3 +1474,230 @@ func TestMCPDelete_EmptyItems_Errors(t *testing.T) {
 		t.Errorf("error should mention 'no items provided': %s", firstText(t, res))
 	}
 }
+
+// fileRecordPlusBracketSchema combines a bracket-keyed TOML db (plans) with a
+// file-as-record MD db (claude_agents) so the F38d-2.10 list_sections test
+// can verify the file-record dispatch enumerates on-disk file basenames.
+const fileRecordPlusBracketSchema = `
+[plans]
+paths = ["plans.toml"]
+description = "Bracket-keyed TOML db."
+
+[plans.task]
+description = "A task."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+required = true
+
+[claude_agents]
+paths = [".claude/agents/*.md"]
+description = "File-as-record MD db (one file = one record)."
+
+[claude_agents.agent]
+description = "One subagent."
+record_per = "file"
+body_field = "prompt"
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.description]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+required = true
+format = "markdown"
+`
+
+// TestMCPListSections_FileRecordEnumerated locks the F38d-2.10 fix: calling
+// list_sections with scope=<file-record-db> must enumerate the on-disk file
+// basenames rather than returning an empty list. Pre-fix, parseScope's
+// glob-mount fall-through synthesised a phantom file-relpath equal to the
+// db-name, which then matched no real instance and silently returned [].
+func TestMCPListSections_FileRecordEnumerated(t *testing.T) {
+	fx := newFixtureWith(t, fileRecordPlusBracketSchema)
+	agentsDir := filepath.Join(fx.projectRoot, ".claude", "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatalf("mkdir agents dir: %v", err)
+	}
+	planted := []struct{ stem, body string }{
+		{"alpha", "---\nname: alpha\ndescription: alpha agent\n---\nbody alpha\n"},
+		{"beta", "---\nname: beta\ndescription: beta agent\n---\nbody beta\n"},
+	}
+	for _, p := range planted {
+		path := filepath.Join(agentsDir, p.stem+".md")
+		if err := os.WriteFile(path, []byte(p.body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	c := newClient(t, fx.projectRoot)
+
+	// Bare file-record db scope must enumerate the planted basenames.
+	res := callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "claude_agents",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("list_sections errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	var payload struct {
+		Sections []string `json:"sections"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("decode list_sections response: %v\nbody: %s", err, body)
+	}
+	got := map[string]bool{}
+	for _, s := range payload.Sections {
+		got[s] = true
+	}
+	if !got["alpha"] {
+		t.Errorf("missing `alpha` in sections: %v", payload.Sections)
+	}
+	if !got["beta"] {
+		t.Errorf("missing `beta` in sections: %v", payload.Sections)
+	}
+
+	// Regression guard: bracket-keyed db scope still works (no
+	// double-counting, no enumeration regression).
+	if _, _, err := ops.Create(fx.projectRoot, "plans.t1", "plans.task", map[string]any{
+		"id":     "plans.t1",
+		"status": "todo",
+	}); err != nil {
+		t.Fatalf("seed plans.t1: %v", err)
+	}
+	res = callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plans",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("list_sections plans errored: %s", firstText(t, res))
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("decode plans response: %v", err)
+	}
+	if len(payload.Sections) != 1 || payload.Sections[0] != "plans.t1" {
+		t.Errorf("bracket-keyed scope regressed: got %v, want [plans.t1]", payload.Sections)
+	}
+
+	// Regression guard: empty scope (whole project) enumerates both dbs.
+	res = callTool(t, c, "list_sections", map[string]any{
+		"path": fx.projectRoot,
+		"all":  true,
+	})
+	if res.IsError {
+		t.Fatalf("list_sections whole project errored: %s", firstText(t, res))
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &payload); err != nil {
+		t.Fatalf("decode whole-project response: %v", err)
+	}
+	whole := map[string]bool{}
+	for _, s := range payload.Sections {
+		whole[s] = true
+	}
+	if !whole["alpha"] || !whole["beta"] || !whole["plans.t1"] {
+		t.Errorf("whole-project enumeration regressed: %v", payload.Sections)
+	}
+}
+
+// TestMCPSchema_DBFilterHonored locks the F38d-2.12 fix: the MCP `schema`
+// tool accepts a `db` parameter as alias for `scope` and narrows the
+// response to just that db. Pre-fix, callers that thought in db-name terms
+// passed `db=plans` which the tool silently dropped — the response was the
+// full multi-db schema (token-heavy).
+func TestMCPSchema_DBFilterHonored(t *testing.T) {
+	fx := newFixtureWith(t, fileRecordPlusBracketSchema)
+	c := newClient(t, fx.projectRoot)
+
+	// First: full schema (no db filter) returns BOTH dbs.
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "get",
+	})
+	if res.IsError {
+		t.Fatalf("schema get (no filter) errored: %s", firstText(t, res))
+	}
+	var full struct {
+		DBs map[string]any `json:"dbs"`
+		DB  map[string]any `json:"db"`
+	}
+	if err := json.Unmarshal([]byte(firstText(t, res)), &full); err != nil {
+		t.Fatalf("decode full schema: %v", err)
+	}
+	if len(full.DBs) != 2 {
+		t.Errorf("full schema should carry 2 dbs, got %d: %v", len(full.DBs), full.DBs)
+	}
+	if _, ok := full.DBs["plans"]; !ok {
+		t.Errorf("full schema missing `plans`: %v", full.DBs)
+	}
+	if _, ok := full.DBs["claude_agents"]; !ok {
+		t.Errorf("full schema missing `claude_agents`: %v", full.DBs)
+	}
+
+	// db=plans must narrow to just one db, populated as the singular
+	// `db` field (per schemaResult shape).
+	res = callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "get",
+		"db":     "plans",
+	})
+	if res.IsError {
+		t.Fatalf("schema get db=plans errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	var narrowed struct {
+		DBs map[string]any `json:"dbs"`
+		DB  map[string]any `json:"db"`
+	}
+	if err := json.Unmarshal([]byte(body), &narrowed); err != nil {
+		t.Fatalf("decode narrowed schema: %v\nbody: %s", err, body)
+	}
+	if narrowed.DB == nil {
+		t.Errorf("expected `db` field populated for db=plans, got nil; body=%s", body)
+	}
+	if name, _ := narrowed.DB["name"].(string); name != "plans" {
+		t.Errorf("expected db.name=plans, got %q", name)
+	}
+	if len(narrowed.DBs) != 0 {
+		t.Errorf("narrowed schema should not populate `dbs` map; got %d entries", len(narrowed.DBs))
+	}
+	// Negative assertion: the narrowed response must NOT mention the
+	// other db. This is the token-budget claim — agents pay for what
+	// they ask for, not the whole tree.
+	if strings.Contains(body, "claude_agents") {
+		t.Errorf("db=plans response leaks claude_agents: %s", body)
+	}
+
+	// scope wins when both are set (precedence per description).
+	res = callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "get",
+		"scope":  "claude_agents",
+		"db":     "plans",
+	})
+	if res.IsError {
+		t.Fatalf("schema get scope+db errored: %s", firstText(t, res))
+	}
+	body = firstText(t, res)
+	if !strings.Contains(body, "claude_agents") {
+		t.Errorf("scope precedence broken — body should contain claude_agents: %s", body)
+	}
+	if strings.Contains(body, `"plans"`) {
+		// Accept the dbs/types/fields tree referencing `plans` is
+		// absent — narrowed.db.name=claude_agents, dbs map empty.
+		// The literal "plans" only appears if the legacy fallthrough
+		// fires.
+		t.Errorf("scope=claude_agents response unexpectedly mentions plans: %s", body)
+	}
+}

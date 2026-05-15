@@ -188,6 +188,20 @@ func parseScope(reg schema.Registry, projectPath, scope string) (searchPlan, err
 		}
 	}
 
+	// Bare db-name short-circuit (F38d-2.10): a single-segment scope that
+	// names a declared db means "walk every record in that db" regardless
+	// of mount shape. The fall-through fixed-mount matcher mis-routes
+	// glob-only mounts like `.claude/agents/*.md` because the trailing
+	// `*` happily eats the db-name as a fake file-relpath (slug becomes
+	// the db-name, which matches no real instance). Special-casing here
+	// preserves single-file mount behavior (slug==db-name in those cases
+	// anyway) and fixes file-record dbs whose slugs are file basenames.
+	if len(parts) == 1 {
+		if _, ok := reg.DBs[parts[0]]; ok {
+			return searchPlan{dbOrder: []string{parts[0]}}, nil
+		}
+	}
+
 	dbNames := make([]string, 0, len(reg.DBs))
 	for n := range reg.DBs {
 		dbNames = append(dbNames, n)
