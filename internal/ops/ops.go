@@ -133,7 +133,7 @@ func Get(path, id, typeName string, fields []string) (GetResult, error) {
 		return GetResult{}, fmt.Errorf("locate %q in %s: %w", id, filePath, err)
 	}
 	if !ok {
-		return GetResult{}, fmt.Errorf("%w: %q in %s", ErrRecordNotFound, id, filePath)
+		return GetResult{}, wrapRecordNotFound(id, filePath)
 	}
 	res := GetResult{FilePath: filePath, Bytes: buf[sec.Range[0]:sec.Range[1]]}
 	if len(fields) == 0 {
@@ -196,7 +196,7 @@ func GetAllFields(path, id, typeName string) (GetResult, schema.SectionType, err
 		return GetResult{}, typeSt, fmt.Errorf("locate %q in %s: %w", id, filePath, err)
 	}
 	if !found {
-		return GetResult{}, typeSt, fmt.Errorf("%w: %q in %s", ErrRecordNotFound, id, filePath)
+		return GetResult{}, typeSt, wrapRecordNotFound(id, filePath)
 	}
 	res := GetResult{FilePath: filePath, Bytes: buf[sec.Range[0]:sec.Range[1]]}
 	relPath := tomlRelPathForFields(resolved)
@@ -659,6 +659,22 @@ func Update(path, id, typeName string, data map[string]any) (string, []string, e
 	}
 	backendSection := backendSectionPath(dbDecl, resolved, bareType)
 
+	// F38d-2.22: Find-before-merge guard. Mirrors Get (ops.go:131-137):
+	// without this probe, a missing id + non-empty data overlay falls
+	// through to loadExistingFields → overlayPatch → Validate, and the
+	// caller sees a confusing "missing_required" validation error instead
+	// of a clean ErrRecordNotFound. The probe runs AFTER the
+	// `len(data) == 0` no-op short-circuit above so the preserved no-op-
+	// on-missing-record semantic still holds for empty overlays.
+	sec, ok, findErr := backend.Find(buf, backendSection)
+	_ = sec // present-record path falls through to loadExistingFields below; Find result not reused
+	if findErr != nil {
+		return "", nil, fmt.Errorf("locate %q in %s: %w", id, filePath, findErr)
+	}
+	if !ok {
+		return "", nil, wrapRecordNotFound(id, filePath)
+	}
+
 	st, ok := dbDecl.Types[bareType]
 	if !ok {
 		return "", nil, fmt.Errorf("%w: type %q on db %q",
@@ -965,7 +981,7 @@ func deleteRecord(path string, sources []string, dbDecl schema.DB, resolved db.R
 	}
 	if !ok {
 		return DeleteResult{Sources: sources, Level: db.LevelRecord},
-			fmt.Errorf("%w: %q", ErrRecordNotFound, id)
+			wrapRecordNotFound(id, filePath)
 	}
 	newBuf := spliceOut(buf, sec.Range)
 	if err := toml.WriteAtomic(filePath, newBuf); err != nil {

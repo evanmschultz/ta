@@ -70,11 +70,17 @@ func newTemplateListCmd() *cobra.Command {
 		Example: "  ta template list\n  ta template list --kind=agent\n  ta template list --kind=all --json",
 		Args:    cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
+			// Legacy warning is a stderr notice — kept OUTSIDE the
+			// JSON envelope wrap because the envelope is a stdout
+			// contract for the agent-facing payload only. Stderr
+			// notices pass through verbatim in both modes.
 			emitLegacyWarning(c.ErrOrStderr())
-			if kind == "" || kind == "schema" {
-				return runTemplateListSchema(c.OutOrStdout(), asJSON)
-			}
-			return runTemplateListMulti(c.OutOrStdout(), kind, asJSON)
+			return runWithJSONErrEnvelope(c, asJSON, func() error {
+				if kind == "" || kind == "schema" {
+					return runTemplateListSchema(c.OutOrStdout(), asJSON)
+				}
+				return runTemplateListMulti(c.OutOrStdout(), kind, asJSON)
+			})
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -237,11 +243,13 @@ func newTemplateShowCmd() *cobra.Command {
 		Example: "  ta template show plans\n  ta template show plans --kind=schema --provenance=ta\n  ta template show go-builder --kind=agent --group=go\n  ta template show CLAUDE --kind=docs-template --provenance=ta",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			name := args[0]
-			if kind == "" || kind == "schema" {
-				return runTemplateShowSchema(c.OutOrStdout(), name, provenance, asJSON)
-			}
-			return runTemplateShowItem(c.OutOrStdout(), name, kind, group, provenance, asJSON)
+			return runWithJSONErrEnvelope(c, asJSON, func() error {
+				name := args[0]
+				if kind == "" || kind == "schema" {
+					return runTemplateShowSchema(c.OutOrStdout(), name, provenance, asJSON)
+				}
+				return runTemplateShowItem(c.OutOrStdout(), name, kind, group, provenance, asJSON)
+			})
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,

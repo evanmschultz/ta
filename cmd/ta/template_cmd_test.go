@@ -940,13 +940,56 @@ required = true
 
 // TestTemplateShowKindSchemaProvenanceTaMissingErrors locks the loud
 // failure when --provenance=ta is set but the binary library has no
-// such name.
+// such name. Drop_003.A wrapped `template show` with
+// runWithJSONErrEnvelope, so the failure under --json now surfaces as a
+// stdout `{"error": ...}` envelope and Execute() returns nil — the
+// envelope contract takes over from the raw err return.
 func TestTemplateShowKindSchemaProvenanceTaMissingErrors(t *testing.T) {
 	newTemplateLibraryFixture(t)
 	installBinarySchemaSource(t, map[string]string{}) // empty
-	_, _, err := runTemplateCmd(t, "show", "plans", "--kind=schema",
+	out, _, err := runTemplateCmd(t, "show", "plans", "--kind=schema",
 		"--provenance=ta", "--json")
-	if err == nil {
-		t.Fatal("expected error: binary library has no plans fragment")
+	if err != nil {
+		t.Fatalf("Execute returned non-nil under --json (wrapper should swallow): %v", err)
 	}
+	_ = decodeJSONErrEnvelope(t, []byte(out))
+}
+
+// ---- drop_003 A: --json error envelope contract for template list/show ----
+//
+// Drop_003.A extended runWithJSONErrEnvelope to three operator-facing
+// read commands (`ta index rebuild`, `ta template list`, `ta template
+// show`). These tests pin the envelope shape from the CLI seam for
+// list/show; the rebuild test lives in cmd/ta/index_cmd_test.go.
+
+// TestCLI_TemplateListJSONErrorEnvelope — `ta template list --json
+// --kind=banana` triggers the deterministic `unknown --kind` error path
+// in runTemplateListMulti (template_cmd.go branch). The drop_003.A
+// wrapper must format the err as a flat `{"error": ...}` envelope on
+// stdout and return nil from Execute(). Asserts structural shape only
+// (non-empty error field).
+func TestCLI_TemplateListJSONErrorEnvelope(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	out, errOut, err := runTemplateCmd(t, "list", "--kind=banana", "--json")
+	if err != nil {
+		t.Fatalf("Execute returned non-nil under --json (wrapper should swallow): %v\nstdout=%q stderr=%q",
+			err, out, errOut)
+	}
+	_ = decodeJSONErrEnvelope(t, []byte(out))
+}
+
+// TestCLI_TemplateShowJSONErrorEnvelope — `ta template show ghost
+// --json` against a home library with no `ghost` db triggers
+// ErrDBNotFound from templates.ShowDB (template_cmd.go
+// resolveSchemaForShow default branch). The drop_003.A wrapper formats
+// the resulting err as a stdout envelope and returns nil. Asserts
+// structural shape only.
+func TestCLI_TemplateShowJSONErrorEnvelope(t *testing.T) {
+	newTemplateLibraryFixture(t)
+	out, errOut, err := runTemplateCmd(t, "show", "ghost", "--json")
+	if err != nil {
+		t.Fatalf("Execute returned non-nil under --json (wrapper should swallow): %v\nstdout=%q stderr=%q",
+			err, out, errOut)
+	}
+	_ = decodeJSONErrEnvelope(t, []byte(out))
 }

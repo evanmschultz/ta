@@ -68,7 +68,7 @@ func extractTOMLFields(fileBuf []byte, relPath string, fields []string) (map[str
 	for _, seg := range segs {
 		next, ok := cursor[seg]
 		if !ok {
-			return nil, fmt.Errorf("%w: no record at %q", ErrRecordNotFound, relPath)
+			return nil, wrapRecordNotFound(relPath, "")
 		}
 		nextMap, ok := next.(map[string]any)
 		if !ok {

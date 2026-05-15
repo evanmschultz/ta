@@ -1,10 +1,21 @@
 package ops
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrRecordNotFoundFormat is the wrap shape for ErrRecordNotFound errors.
 // Contractually locked for cascade drop_002 — L2-A tests reference this name directly.
 const ErrRecordNotFoundFormat = "%w: %q in %s"
+
+// wrapRecordNotFound consumes ErrRecordNotFoundFormat exactly once.
+// Callers without a meaningful filePath may pass "" — the format will
+// render "in " with empty suffix, which is acceptable for backend-internal
+// callsites that lack absolute-path context.
+func wrapRecordNotFound(id, filePath string) error {
+	return fmt.Errorf(ErrRecordNotFoundFormat, ErrRecordNotFound, id, filePath)
+}
 
 // Sentinel errors returned by the data and schema tool handlers.
 var (

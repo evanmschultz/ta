@@ -56,18 +56,20 @@ func newIndexRebuildCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, _ []string) error {
-			path, err := resolveCLIPath(c)
-			if err != nil {
-				return err
-			}
-			res, err := index.Rebuild(path)
-			if err != nil {
-				return fmt.Errorf("rebuild: %w", err)
-			}
-			if asJSON {
-				return emitIndexRebuildJSON(c, res)
-			}
-			return emitIndexRebuildNotice(c, res)
+			return runWithJSONErrEnvelope(c, asJSON, func() error {
+				path, err := resolveCLIPath(c)
+				if err != nil {
+					return err
+				}
+				res, err := index.Rebuild(path)
+				if err != nil {
+					return fmt.Errorf("rebuild: %w", err)
+				}
+				if asJSON {
+					return emitIndexRebuildJSON(c, res)
+				}
+				return emitIndexRebuildNotice(c, res)
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")

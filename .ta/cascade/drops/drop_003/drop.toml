@@ -1,0 +1,166 @@
+[cli_followups]
+completed_at = "2026-05-15T07:30:00Z"
+created_at = "2026-05-15T06:00:00Z"
+definition_of_complete = "Three follow-ups closed: operator-facing --json commands honor --json on error; ops.Update single-type missing-id returns ErrRecordNotFound; all 7 ErrRecordNotFound emitters use the locked format via wrapRecordNotFound helper. mage check green. All tests required per E2E_FIXES.md entries plus a TestOps_ErrRecordNotFoundFormat_AllEmittersUniform table test for F38d-2.23."
+drop_number = 3.0
+implementation_notes_user = "Methodology learnings from drop_002 to bake in: (a) enumerate ALL touchpoints upfront (L1 6 rounds wasted on incremental discovery); (b) identify cross-segment file conflicts at L1 (saved rounds at L2-A when planner enumerated A1↔B6 + A2↔B4); (c) parallelism design across sibling planners possible when constants are contractually pinned; (d) tool_uses=0 dismissed as fabrication; (e) build-QA fires per segment, not just at L1."
+labels = ["pre-mvp", "f38d", "cli", "ops", "drop_002-followups"]
+objective = "Close three follow-ups surfaced during drop_002. (1) F38d-2.21: extend A1's runWithJSONErrEnvelope to operator-facing --json commands (template list, template show, index rebuild). (2) F38d-2.22: add Find-before-merge guard to ops.Update so single-type DB missing-id surfaces ErrRecordNotFound (parity with Get/Delete/Move). (3) F38d-2.23: introduce wrapRecordNotFound(id, filePath) helper using ErrRecordNotFoundFormat, migrate 4 divergent callsites (ops.go:968 deleteRecord, move.go:192, fields.go:71/75) for format uniformity."
+outcome = "success"
+role = "planner"
+state = "complete"
+structural_type = "drop"
+title = "CLI follow-ups bundle — F38d-2.21 + 2.22 + 2.23"
+transition_notes = "DROP_003 CLOSED. 3 follow-ups closed: F38d-2.21 (operator --json envelope), F38d-2.22 (Update Find-guard parity), F38d-2.23 (wrapRecordNotFound helper + 6 migrations, fields.go:75 corruption-signal carve-out preserved). mage check 1031/0/9 (was 1019 at drop_002 close, +12 tests). 10 cascade records (drop + planner + 2 plan-QA + 3 builders + 2 build-QA) vs drop_002's 18 — 50% fewer ceremony for similar scope; methodology learnings paid dividends."
+updated_at = "2026-05-15T07:30:00Z"
+[planner_decompose]
+completed_at = "2026-05-15T07:30:00Z"
+created_at = "2026-05-15T06:00:00Z"
+description = """
+drop_003 single-level decomposition into 3 builder droplets. Dispatch graph: A || B in parallel; C blocked by B.
+
+## A — operator --json envelope (F38d-2.21)
+id: drop_003.droplet.cli_json_envelope_operator
+Scope: cmd/ta/index_cmd.go:58-71 + cmd/ta/template_cmd.go:72-78 + :239-245. Reuse runWithJSONErrEnvelope at commands.go:266.
+Changes ≤4: (1) wrap newIndexRebuildCmd RunE; (2) wrap newTemplateListCmd RunE (emitLegacyWarning OUTSIDE wrap — notice on stderr, distinct from JSON stream on stdout); (3) wrap newTemplateShowCmd RunE; (4) 3 envelope tests using decodeJSONErrEnvelope helper (existing).
+Test placement: TestCLI_IndexRebuildJSONErrorEnvelope in NEW file cmd/ta/index_cmd_test.go; TestCLI_TemplateList/ShowJSONErrorEnvelope appended to existing cmd/ta/template_cmd_test.go.
+Dispatch: parallel with B.
+
+## B — ops.Update Find-before-merge (F38d-2.22)
+id: drop_003.droplet.update_find_before_merge
+Scope: internal/ops/ops.go::Update.
+Changes ≤4:
+  (1) Insert backend.Find probe AFTER no-op short-circuit (L640-648), AFTER buildBackend+backendSectionPath (L656-660), BEFORE loadExistingFields (L667). On Find error: wrap as 'locate %q in %s: %w' mirroring Get pattern. On !ok: return fmt.Errorf(ErrRecordNotFoundFormat, ErrRecordNotFound, id, filePath). Use ErrRecordNotFoundFormat directly — do NOT depend on droplet C's helper.
+  (2) Leave loadExistingFields' internal Find untouched (minimal surface; redundant Find is O(file-size) on Update which is not hot path).
+  (3) TestOps_UpdateNotFoundSingleTypeDB in NEW file internal/ops/update_notfound_test.go — single-type schema + missing id + non-empty data → errors.Is(err, ops.ErrRecordNotFound), NOT validation error.
+  (4) **MANDATED per plan-QA decision-point #4**: TestOps_UpdateNoOpOnMissingID — same fixture, EMPTY data → cmd.Execute returns nil (no error) AND no file mutation. Pins the chosen-preserved semantic: no-op-on-missing-record stays no-op.
+Placement decision: Find AFTER no-op short-circuit preserves no-op behavior (TestOps_UpdateNoOpOnMissingID pins this explicitly). Find ALSO after backend+section build (prerequisites).
+Dispatch: parallel with A; BLOCKS C.
+
+## C — wrapRecordNotFound helper + migration (F38d-2.23, AMENDED)
+id: drop_003.droplet.record_not_found_helper
+Scope: internal/ops/errors.go (new helper) + 4 emit-site migrations.
+Changes ≤4:
+  (1) Add package-private wrapRecordNotFound(id, filePath string) error in errors.go that uses ErrRecordNotFoundFormat exactly once. Helper accepts empty filePath; renders 'in ' suffix — harmless for backend-internal callsites.
+  (2) Migrate ops.go emit sites: L136 (Get), L199 (GetAllFields), L968 (deleteRecord), and B's NEW Update emit (from droplet B step 1).
+  (3) Migrate move.go:192 (Move src miss).
+  (4) Migrate fields.go:71 (genuine 'record absent at address'). **AMENDED per plan-QA proof Attack 2 BLOCKING**: DO NOT migrate fields.go:75 (`is not a table`) — it fires AFTER backend.Find succeeded, signaling a CORRUPTION condition (declared field's dotted address resolves to non-table value mid-walk), not a 'record not found'. Collapsing it loses the diagnostic distinction. fields.go:75 stays as-is.
+Test: TestOps_ErrRecordNotFoundFormat_AllEmittersUniform — table-driven over Get/GetAllFields/Update (post-B)/DeleteWithOptions/Move/fields.go:71. Asserts each emitter produces the locked format shape. fields.go:75 explicitly excluded (preserves corruption-signal semantic).
+Dispatch: BLOCKED by B.
+
+## Cross-droplet conflicts (orchestrator must serialize)
+- B ↔ C: both touch internal/ops/ops.go but disjoint functions (Update vs Get/GetAllFields/deleteRecord). C.blockers=[B]; after B lands, C migrates B's new emit alongside the others.
+- A ↔ {B,C}: zero overlap.
+
+## Methodology §5.3 carve-out (orchestrator decision-point #6)
+Plan spans 2 packages (cmd/ta, internal/ops) which technically trips §5.3 'MUST decompose into child planners if >1 package'. Single-level chosen as pragmatic given (a) A is fully package-disjoint from B+C; (b) B+C serialize via single blockers edge inside one package. Documented carve-out per cascade dogfood pragma. If future similar drops surface unexpected complexity, escalate to L2 split.
+
+## Plan-QA verdict trail
+- Proof round 1: AMEND with 1 blocking (fields.go:75) + 2 non-blocking decision points (B Find ordering, single-level §5.3 carve-out). All addressed in round-2 amendments above.
+- Falsif round 1: READY (9/9 attacks mitigated, no new substantive gaps).
+- Orchestrator override on round 2 verification: amendments surgical and well-bounded (single substantive change to C scope + 1 mandated B test + 1 documented carve-out).
+"""
+objective = "Decompose 3 follow-ups into atomic builder droplets. PENDING ta-go-planning subagent dispatch. Methodology learnings from drop_002 baked into dispatch directive."
+outcome = "success"
+parent_id = "drop_003.drop.cli_followups"
+role = "planner"
+started_at = "2026-05-15T06:00:00Z"
+state = "complete"
+title = "Planner — decompose CLI follow-ups bundle"
+transition_notes = "Planner sub-tree closed: 3 builders + 2 plan-QA twins + 2 build-QA twins all complete=success. mage check 1031/0/9."
+updated_at = "2026-05-15T07:30:00Z"
+[plan_qa_proof_l1]
+completed_at = "2026-05-15T06:30:00Z"
+created_at = "2026-05-15T06:00:00Z"
+outcome = "success"
+parent_id = "drop_003.drop.planner_decompose"
+role = "qa-proof"
+started_at = "2026-05-15T06:16:00Z"
+state = "complete"
+target_id = "drop_003.drop.planner_decompose"
+title = "Plan-QA proof — drop_003 L1 decomposition"
+transition_notes = "Round 1 AMEND with 1 blocking (fields.go:75 corruption-signal collapse) + 2 non-blocking decision points. All folded into round-2 amendments by orchestrator. Override: skipped round 2 re-verification given surgical scope of changes + falsif's READY verdict. tool_uses=24."
+updated_at = "2026-05-15T06:30:00Z"
+[plan_qa_falsif_l1]
+completed_at = "2026-05-15T06:30:00Z"
+created_at = "2026-05-15T06:00:00Z"
+outcome = "success"
+parent_id = "drop_003.drop.planner_decompose"
+role = "qa-falsification"
+started_at = "2026-05-15T06:16:00Z"
+state = "complete"
+target_id = "drop_003.drop.planner_decompose"
+title = "Plan-QA falsification — drop_003 L1 decomposition"
+transition_notes = "Round 1 READY. 9/9 attacks mitigated with file:line evidence. Touchpoint enumeration verified exhaustive against rg ground truth. tool_uses=37."
+updated_at = "2026-05-15T06:30:00Z"
+
+[builder_a_json_operator]
+completed_at = "2026-05-15T06:55:00Z"
+created_at = "2026-05-15T06:32:00Z"
+implementation_notes_agent = "3 RunE bodies wrapped (index rebuild, template list, template show). emitLegacyWarning stays OUTSIDE wrap on stderr. 3 envelope tests via decodeJSONErrEnvelope: 1 new in cmd/ta/index_cmd_test.go (new file), 2 appended to cmd/ta/template_cmd_test.go. 1 existing test (TestTemplateShowKindSchemaProvenanceTaMissingErrors) updated to assert the new envelope contract. mage check 1024/0/9 green."
+objective = "Wrap 3 operator-facing RunE bodies (index rebuild, template list, template show) with existing runWithJSONErrEnvelope helper. emitLegacyWarning stays OUTSIDE wrap. 3 envelope tests using decodeJSONErrEnvelope helper."
+outcome = "success"
+parent_id = "drop_003.drop.planner_decompose"
+paths = ["cmd/ta/index_cmd.go", "cmd/ta/template_cmd.go", "cmd/ta/index_cmd_test.go", "cmd/ta/template_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-15T06:32:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "A — operator --json envelope extension (F38d-2.21)"
+updated_at = "2026-05-15T06:55:00Z"
+[builder_b_update_find_guard]
+completed_at = "2026-05-15T06:50:00Z"
+created_at = "2026-05-15T06:32:00Z"
+implementation_notes_agent = "Inserted Find-before-merge probe in ops.Update. Placement: AFTER no-op short-circuit + buildBackend + section, BEFORE loadExistingFields. On !ok returns ErrRecordNotFound via ErrRecordNotFoundFormat directly (C migrates to wrapRecordNotFound later). loadExistingFields untouched (accepted redundant Find on success path; Update not hot path). 2 tests in new file: TestOps_UpdateNotFoundSingleTypeDB + TestOps_UpdateNoOpOnMissingID (pins preserved no-op semantic per orchestrator mandate). mage check 1024/0/9 green."
+objective = "Insert backend.Find in Update AFTER no-op short-circuit + buildBackend + section, BEFORE loadExistingFields. On !ok return ErrRecordNotFound via ErrRecordNotFoundFormat. TestOps_UpdateNotFoundSingleTypeDB + TestOps_UpdateNoOpOnMissingID (mandated pin for preserved no-op semantic)."
+outcome = "success"
+parent_id = "drop_003.drop.planner_decompose"
+paths = ["internal/ops/ops.go", "internal/ops/update_notfound_test.go"]
+role = "builder"
+started_at = "2026-05-15T06:32:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "B — ops.Update Find-before-merge guard (F38d-2.22)"
+updated_at = "2026-05-15T06:50:00Z"
+[builder_c_wrap_helper]
+blockers = ["drop_003.drop.builder_b_update_find_guard"]
+completed_at = "2026-05-15T07:15:00Z"
+created_at = "2026-05-15T06:32:00Z"
+implementation_notes_agent = "Helper + fmt import in errors.go. 4 ops.go migrations (Get/GetAllFields/Update post-B/deleteRecord). move.go:192 migrated. fields.go:71 migrated; fields.go:75 UNTOUCHED per plan-QA proof Attack 2 carve-out. New errors_uniform_test.go with 5 behavioral subtests. mage check 1031/0/9 green. rg '%w: %q[^ ]' returns only different-sentinel hits (no ErrRecordNotFound divergence)."
+objective = "Add wrapRecordNotFound helper. Migrate ops.go:136/199/968 + B's new Update emit + move.go:192 + fields.go:71. DO NOT migrate fields.go:75 (corruption-signal preserved per plan-QA proof). TestOps_ErrRecordNotFoundFormat_AllEmittersUniform."
+outcome = "success"
+parent_id = "drop_003.drop.planner_decompose"
+paths = ["internal/ops/errors.go", "internal/ops/ops.go", "internal/ops/move.go", "internal/ops/fields.go"]
+role = "builder"
+started_at = "2026-05-15T06:52:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "C — wrapRecordNotFound helper + migrate 4 emit sites (F38d-2.23 AMENDED)"
+updated_at = "2026-05-15T07:15:00Z"
+
+[build_qa_proof]
+completed_at = "2026-05-15T07:30:00Z"
+created_at = "2026-05-15T07:15:00Z"
+objective = "Verify drop_003's acceptance criteria across A+B+C: 3 operator commands now envelope --json errors; ops.Update Find-before-merge guard returns ErrRecordNotFound for missing id; wrapRecordNotFound helper + 6 migrated callsites; fields.go:75 untouched (corruption-signal preserved); mage check green; no regressions."
+outcome = "success"
+parent_id = "drop_003.drop.planner_decompose"
+role = "qa-proof"
+started_at = "2026-05-15T07:15:00Z"
+state = "complete"
+target_id = "drop_003.drop.planner_decompose"
+title = "Build-QA proof — drop_003 segment acceptance"
+transition_notes = "All 4 acceptance criteria verified at file:line + mage runs. mage check 1031/0/9 independently confirmed. tool_uses=26."
+updated_at = "2026-05-15T07:30:00Z"
+[build_qa_falsif]
+completed_at = "2026-05-15T07:30:00Z"
+created_at = "2026-05-15T07:15:00Z"
+objective = "Attack the completed sub-tree for regressions, edge cases, contract drift. Specifically: (1) operator JSON wrap stderr-vs-stdout stream contracts; (2) Update Find-guard placement vs F29 interaction; (3) wrapRecordNotFound text-equivalence with the canonical helpers.go:138 emit; (4) fields.go:75 carve-out correctness; (5) mage check baseline preservation; (6) cross-droplet ops.go ordering (B's emit migrated by C correctly)."
+outcome = "success"
+parent_id = "drop_003.drop.planner_decompose"
+role = "qa-falsification"
+started_at = "2026-05-15T07:15:00Z"
+state = "complete"
+target_id = "drop_003.drop.planner_decompose"
+title = "Build-QA falsification — drop_003 segment"
+transition_notes = "All 8 attacks MITIGATED. helpers.go:138 un-migration noted as bounded stylistic non-uniformity (constant-binding + uniform table test). fields.go:71 coverage gap documented and accepted. tool_uses=29."
+updated_at = "2026-05-15T07:30:00Z"

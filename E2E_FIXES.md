@@ -1229,7 +1229,7 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 
 **Fix shape**: extend the F38d-2.17 disambiguation block to also try a 3-segment shape: `<db>.<type>.<idprefix>` interpretation when parts[0] is a declared db AND parts[1] is a declared type AND `best.globOnly`. Falls through to file-relpath otherwise. Out of F38d-2.17 scope; track for a future slice.
 
-### F38d-2.23 [MINOR — follow-up to F38d-2.20] `ErrRecordNotFound` format-uniformity drift across emitters
+### F38d-2.23 [CLOSED — drop_003] `ErrRecordNotFound` format-uniformity drift across emitters
 
 **Surfaced by**: drop_002 L2-B build-QA falsification (Attack 2.7). The B1 fix introduced the exported `ErrRecordNotFoundFormat = "%w: %q in %s"` constant. Multiple production sites already emit `ErrRecordNotFound`-wrapped errors but with divergent format strings:
 
@@ -1252,7 +1252,7 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 
 **Out of scope for drop_002**: L2-B's stated contract did not include cross-emitter format uniformity; the partial-honoring is non-regressing (the perimeter test sub-c scans rebuild-hint sites, not format-equivalence). Filed as post-drop_002 hardening.
 
-### F38d-2.22 [MINOR — follow-up to F38d-2.20] `ops.Update` lacks Find-before-merge guard (single-type DB asymmetry)
+### F38d-2.22 [CLOSED — drop_003] `ops.Update` lacks Find-before-merge guard (single-type DB asymmetry)
 
 **Surfaced by**: drop_002 L2-B B5 builder during fixup of `TestMCP_UpdateMissingIDReturnsCleanError`. Diagnosis:
 
@@ -1271,7 +1271,7 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 
 **Test required**: `TestOps_UpdateNotFoundSingleTypeDB` — single-type schema + missing id → assert `errors.Is(err, ErrRecordNotFound)`, NOT `missing_required` validation error.
 
-### F38d-2.21 [MINOR — follow-up to F38d-2.19] Operator-side `--json` commands still ignore --json on error
+### F38d-2.21 [CLOSED — drop_003] Operator-side `--json` commands still ignore --json on error
 
 **Surfaced by**: L2-A plan-QA proof of cascade `drop_002.drop.cli_error_ux` (round 1). The L2-A planner's internal falsification Attack 1 claimed "4 callsites exhaustive" — empirically incomplete. `rg 'BoolVar.*json' cmd/ta/` shows 13 total `--json` flag declarations across 5 files. F38d-2.19's scope (drop_002) covers the 4 AGENT-facing read commands (get/list-sections/schema/search). Three additional operator-facing read-side commands also have `--json` flags and would still fail to honor it on error:
 

@@ -189,7 +189,7 @@ func moveOneItem(
 	}
 	if !found {
 		return MoveResult{SrcID: srcID, DstID: dstID, Sources: resolution.Sources},
-			fmt.Errorf("%w: %q", ErrRecordNotFound, srcID)
+			wrapRecordNotFound(srcID, srcResolved.FilePath)
 	}
 
 	// Pull every declared field on src so the dst emit has the same
