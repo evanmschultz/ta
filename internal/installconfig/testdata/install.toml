@@ -1,0 +1,90 @@
+# Canonical install-config fixture for the installconfig package.
+#
+# Covers the six substrate types declared by the L3-I1 spec plus the three
+# structured merger paths (line / JSON / TOML) implemented in
+# internal/configmerge:
+#
+#   1. claude_agents              — flatten no-merge (plain copy, by_basename)
+#   2. claude_hooks               — file copy + register triple
+#   3. claude_skills              — file copy
+#   4. claude_md_fragments        — line merge (configmerge.NewLineMerger)
+#   5. claude_settings_fragments  — JSON merge (configmerge.NewJSONMerger)
+#   6. codex_config_fragments     — TOML merge (configmerge.NewTOMLMerger)
+#
+# Every substrate populates its required fields (source, destination) plus
+# whichever optional fields the substrate type meaningfully exercises. The
+# fixture is intended to round-trip cleanly through installconfig.LoadFile
+# and installconfig.Validate.
+
+# --- 1. claude_agents -------------------------------------------------------
+# Flatten no-merge: agent .md files live in nested template subdirs but land
+# directly under .claude/agents/ on the target project. No merge_strategy —
+# plain file copy with basename flattening.
+[substrate.claude_agents]
+source = "templates/.claude/agents"
+destination = ".claude/agents"
+flatten_strategy = "by_basename"
+
+# --- 2. claude_hooks --------------------------------------------------------
+# File copy + register triple: hook scripts get materialized executable, and
+# each hook declares the Claude Code event(s) it wires up via the register
+# array (event + matcher + settings_file).
+[substrate.claude_hooks]
+source = "templates/.claude/hooks"
+destination = ".claude/hooks"
+chmod = "0755"
+
+  [[substrate.claude_hooks.register]]
+  event = "PreToolUse"
+  matcher = "Bash"
+  settings_file = ".claude/settings.local.json"
+
+  [[substrate.claude_hooks.register]]
+  event = "PreToolUse"
+  matcher = "Agent"
+  settings_file = ".claude/settings.local.json"
+
+  [[substrate.claude_hooks.register]]
+  event = "SessionStart"
+  matcher = ""
+  settings_file = ".claude/settings.json"
+
+# --- 3. claude_skills -------------------------------------------------------
+# File copy: skill .md files land verbatim under .claude/skills/. No flatten
+# (the skill's subdir is part of its identity), no merge.
+[substrate.claude_skills]
+source = "templates/.claude/skills"
+destination = ".claude/skills"
+
+# --- 4. claude_md_fragments ------------------------------------------------
+# Line merge via configmerge.NewLineMerger: fragment files append project-
+# specific CLAUDE.md guidance to whatever the target already has, deduping by
+# exact line match. merge_strategy="append" maps to the line merger.
+[substrate.claude_md_fragments]
+source = "templates/.claude/fragments/CLAUDE.md"
+destination = "CLAUDE.md"
+destination_merge = "CLAUDE.md"
+merge_strategy = "append"
+
+# --- 5. claude_settings_fragments ------------------------------------------
+# JSON merge via configmerge.NewJSONMerger: fragments contribute keys under
+# the "hooks" sub-path inside .claude/settings.local.json. merge_strategy=
+# "merge" + merge_path="hooks" route through the JSON deep-merge path, where
+# configmerge dedupes the array entries by matcher.
+[substrate.claude_settings_fragments]
+source = "templates/.claude/settings.fragments.json"
+destination = ".claude/settings.local.json"
+destination_merge = ".claude/settings.local.json"
+merge_strategy = "merge"
+merge_path = "hooks"
+
+# --- 6. codex_config_fragments ---------------------------------------------
+# TOML merge via configmerge.NewTOMLMerger: fragments contribute table
+# blocks (e.g. [mcp_servers.ta]) into ~/.codex/config.toml. merge_strategy=
+# "merge" + merge_path="mcp_servers" route through the TOML deep-merge path.
+[substrate.codex_config_fragments]
+source = "templates/.codex/config.fragments.toml"
+destination = ".codex/config.toml"
+destination_merge = ".codex/config.toml"
+merge_strategy = "merge"
+merge_path = "mcp_servers"
