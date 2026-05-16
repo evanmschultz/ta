@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/evanmschultz/ta/internal/index"
 	"github.com/evanmschultz/ta/internal/ops"
@@ -292,6 +294,228 @@ func TestCreate_SpawnSchemaRoundTripsThroughMutate(t *testing.T) {
 	} {
 		if !contains(string(body), want) {
 			t.Errorf("plans.toml missing %q; body:\n%s", want, body)
+		}
+	}
+}
+
+// TestAutoSpawn_NowToken — `{now}` in a field value expands to an
+// RFC3339 UTC timestamp at create time.
+func TestAutoSpawn_NowToken(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[plans]
+paths = ["plans.toml"]
+
+[plans.drop]
+description = "x"
+
+[plans.drop.fields.title]
+type = "string"
+required = true
+
+[plans.qa]
+description = "x"
+
+[plans.qa.fields.created_at]
+type = "string"
+required = true
+
+[plans.drop.auto_spawn]
+on_create = [
+    { type = "plans.qa", id_template = "{parent_id}-qa", fields = { created_at = "{now}" } },
+]
+`)
+	before := time.Now().UTC().Add(-2 * time.Second)
+	if _, _, err := ops.Create(root, "plans.drop-001", "plans.drop", map[string]any{
+		"title": "x",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	after := time.Now().UTC().Add(2 * time.Second)
+	res, _, err := ops.GetAllFields(root, "plans.drop-001-qa", "")
+	if err != nil {
+		t.Fatalf("GetAllFields: %v", err)
+	}
+	got, ok := res.Fields["created_at"].(string)
+	if !ok {
+		t.Fatalf("created_at = %v (%T), want string", res.Fields["created_at"], res.Fields["created_at"])
+	}
+	parsed, err := time.Parse(time.RFC3339, got)
+	if err != nil {
+		t.Fatalf("parse %q as RFC3339: %v", got, err)
+	}
+	if parsed.Before(before) || parsed.After(after) {
+		t.Errorf("created_at %v outside window [%v, %v]", parsed, before, after)
+	}
+}
+
+// TestAutoSpawn_StateInitialToken — `{state.initial}` in a field value
+// expands to the first enum entry of the target type's `state` field.
+func TestAutoSpawn_StateInitialToken(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[plans]
+paths = ["plans.toml"]
+
+[plans.drop]
+description = "x"
+
+[plans.drop.fields.title]
+type = "string"
+required = true
+
+[plans.qa]
+description = "x"
+
+[plans.qa.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[plans.drop.auto_spawn]
+on_create = [
+    { type = "plans.qa", id_template = "{parent_id}-qa", fields = { state = "{state.initial}" } },
+]
+`)
+	if _, _, err := ops.Create(root, "plans.drop-001", "plans.drop", map[string]any{
+		"title": "x",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	res, _, err := ops.GetAllFields(root, "plans.drop-001-qa", "")
+	if err != nil {
+		t.Fatalf("GetAllFields: %v", err)
+	}
+	if got := res.Fields["state"]; got != "todo" {
+		t.Errorf("state = %v, want \"todo\"", got)
+	}
+}
+
+// TestAutoSpawn_StateInitial_NoEnum_Errors — when the target type's
+// `state` field has no enum, `{state.initial}` is a loud error and the
+// parent record does NOT land.
+func TestAutoSpawn_StateInitial_NoEnum_Errors(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[plans]
+paths = ["plans.toml"]
+
+[plans.drop]
+description = "x"
+
+[plans.drop.fields.title]
+type = "string"
+required = true
+
+[plans.qa]
+description = "x"
+
+[plans.qa.fields.state]
+type = "string"
+required = true
+
+[plans.drop.auto_spawn]
+on_create = [
+    { type = "plans.qa", id_template = "{parent_id}-qa", fields = { state = "{state.initial}" } },
+]
+`)
+	_, _, err := ops.Create(root, "plans.drop-001", "plans.drop", map[string]any{
+		"title": "x",
+	})
+	if err == nil {
+		t.Fatal("expected loud error on {state.initial} against no-enum target")
+	}
+	if !strings.Contains(err.Error(), "state.initial") {
+		t.Errorf("err %v does not mention state.initial", err)
+	}
+	if buf, readErr := os.ReadFile(filepath.Join(root, "plans.toml")); readErr == nil {
+		if contains(string(buf), "[plans.drop-001]") {
+			t.Errorf("parent landed despite {state.initial} failure; body:\n%s", buf)
+		}
+	}
+}
+
+// TestAutoSpawn_ParentFieldToken — `{parent.<field>}` in a field value
+// expands to the parent's same-named field verbatim.
+func TestAutoSpawn_ParentFieldToken(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[plans]
+paths = ["plans.toml"]
+
+[plans.drop]
+description = "x"
+
+[plans.drop.fields.title]
+type = "string"
+required = true
+
+[plans.qa]
+description = "x"
+
+[plans.qa.fields.summary]
+type = "string"
+required = true
+
+[plans.drop.auto_spawn]
+on_create = [
+    { type = "plans.qa", id_template = "{parent_id}-qa", fields = { summary = "QA of {parent.title}" } },
+]
+`)
+	if _, _, err := ops.Create(root, "plans.drop-001", "plans.drop", map[string]any{
+		"title": "the first drop",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	res, _, err := ops.GetAllFields(root, "plans.drop-001-qa", "")
+	if err != nil {
+		t.Fatalf("GetAllFields: %v", err)
+	}
+	if got := res.Fields["summary"]; got != "QA of the first drop" {
+		t.Errorf("summary = %v, want %q", got, "QA of the first drop")
+	}
+}
+
+// TestAutoSpawn_UnknownParentField_Errors — `{parent.bogus}` references
+// a non-existent parent field; this surfaces a loud error and the
+// parent record does NOT land.
+func TestAutoSpawn_UnknownParentField_Errors(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[plans]
+paths = ["plans.toml"]
+
+[plans.drop]
+description = "x"
+
+[plans.drop.fields.title]
+type = "string"
+required = true
+
+[plans.qa]
+description = "x"
+
+[plans.qa.fields.summary]
+type = "string"
+required = true
+
+[plans.drop.auto_spawn]
+on_create = [
+    { type = "plans.qa", id_template = "{parent_id}-qa", fields = { summary = "{parent.bogus}" } },
+]
+`)
+	_, _, err := ops.Create(root, "plans.drop-001", "plans.drop", map[string]any{
+		"title": "x",
+	})
+	if err == nil {
+		t.Fatal("expected loud error on {parent.bogus}")
+	}
+	if !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("err %v does not mention bogus", err)
+	}
+	if buf, readErr := os.ReadFile(filepath.Join(root, "plans.toml")); readErr == nil {
+		if contains(string(buf), "[plans.drop-001]") {
+			t.Errorf("parent landed despite {parent.bogus} failure; body:\n%s", buf)
 		}
 	}
 }

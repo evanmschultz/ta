@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/config"
@@ -283,7 +284,7 @@ func CreateWithOptions(path, id, typeName string, data map[string]any, opts Crea
 	parentType := dbDecl.Types[bareType]
 	var spawnIntents []spawnIntent
 	if !opts.NoSpawn && len(parentType.AutoSpawn) > 0 {
-		spawnIntents, err = preValidateAutoSpawn(resolver, resolution.Registry, id, parentType.AutoSpawn)
+		spawnIntents, err = preValidateAutoSpawn(resolver, resolution.Registry, id, data, parentType.AutoSpawn)
 		if err != nil {
 			return "", nil, err
 		}
@@ -493,19 +494,29 @@ func executeRecordWrite(projectPath string, resolved db.Resolved, plan recordWri
 // spec — the actual planRecordWrite + executeRecordWrite happens
 // later, sequentially, with fresh file state per record. Per F23's
 // pre-validate-all + sequential-write atomicity rule.
+//
+// parentFields is the data being written for the parent record; the
+// FIELD-path token `{parent.<field>}` resolves against this map.
+// {parent.<field>} is FIELD-only — the id_template path uses the
+// v1-only token vocabulary checked at schema load time.
 func preValidateAutoSpawn(
 	resolver *db.Resolver,
 	reg schema.Registry,
 	parentID string,
+	parentFields map[string]any,
 	specs []schema.SpawnSpec,
 ) ([]spawnIntent, error) {
 	intents := make([]spawnIntent, 0, len(specs))
+	// {now} is captured once per spawn-pass so every reference in any
+	// spec/field expands to the same instant. This keeps a record's
+	// created_at and updated_at identical when both come from {now}.
+	now := time.Now().UTC().Format(time.RFC3339)
 	for i, spec := range specs {
 		childID, err := interpolateSpawnString(spec.IDTemplate, parentID, i+1)
 		if err != nil {
 			return nil, fmt.Errorf("auto_spawn[%d]: id_template: %w", i, err)
 		}
-		childData, err := interpolateSpawnFields(spec.Fields, parentID, i+1)
+		childData, err := interpolateSpawnFields(reg, spec, parentID, parentFields, i+1, now)
 		if err != nil {
 			return nil, fmt.Errorf("auto_spawn[%d]: fields: %w", i, err)
 		}
@@ -557,12 +568,13 @@ func preValidateAutoSpawn(
 	return intents, nil
 }
 
-// interpolateSpawnString applies the F23 v1 token rule: `{parent_id}` →
-// parentID; `{index}` → 1-based index as decimal. Other tokens are
-// rejected (they should already be caught at schema-load by
-// validateSpawnTemplateTokens; this is a defense-in-depth check).
-// Empty input returns empty output — useful for static field values
-// like `notes = ""`.
+// interpolateSpawnString applies the F23 v1 token rule for the
+// id_template path: `{parent_id}` → parentID; `{index}` → 1-based
+// index as decimal. Other tokens are rejected (load-time
+// validateSpawnTemplateTokens enforces the vocabulary; this is
+// defense-in-depth at create-time). Field-value interpolation has its
+// own v1+v2 path in interpolateSpawnFieldValue. Empty input returns
+// empty output — useful for static field values like `notes = ""`.
 func interpolateSpawnString(s, parentID string, idx int) (string, error) {
 	if s == "" {
 		return "", nil
@@ -577,25 +589,163 @@ func interpolateSpawnString(s, parentID string, idx int) (string, error) {
 	return out, nil
 }
 
-// interpolateSpawnFields walks the static fields map and applies token
-// interpolation to every string-typed value. Non-string values pass
+// parentFieldTokenRE matches a single `{parent.<field>}` reference.
+// `<field>` is one or more chars from [A-Za-z0-9_]. Anchored loosely so
+// ReplaceAllStringFunc can scan and replace every occurrence in a
+// field-value string.
+var parentFieldTokenRE = regexp.MustCompile(`\{parent\.([A-Za-z0-9_]+)\}`)
+
+// interpolateSpawnFields walks the static fields map and applies the
+// v1+v2 token rule to every string-typed value. Non-string values pass
 // through unchanged. Returns a fresh map so subsequent mutations on
 // the returned data cannot leak into the schema-cached spec.
-func interpolateSpawnFields(in map[string]any, parentID string, idx int) (map[string]any, error) {
-	out := make(map[string]any, len(in))
-	for k, v := range in {
+//
+// FIELD-ONLY v2 tokens (per F23 runtime-fill semantics):
+//   - `{now}`            → caller-provided RFC3339 UTC timestamp (one
+//     instant per spawn-pass, supplied as `now`).
+//   - `{state.initial}`  → first enum entry on the target type's
+//     `state` field. Missing field, non-string enum, or empty enum is
+//     a loud error.
+//   - `{parent.<field>}` → parentFields[<field>] coerced to a string.
+//     Missing key is a loud error.
+//
+// v1 tokens (`{parent_id}`, `{index}`) continue to expand via
+// interpolateSpawnString.
+func interpolateSpawnFields(
+	reg schema.Registry,
+	spec schema.SpawnSpec,
+	parentID string,
+	parentFields map[string]any,
+	idx int,
+	now string,
+) (map[string]any, error) {
+	out := make(map[string]any, len(spec.Fields))
+	for k, v := range spec.Fields {
 		s, isStr := v.(string)
 		if !isStr {
 			out[k] = v
 			continue
 		}
-		interp, err := interpolateSpawnString(s, parentID, idx)
+		interp, err := interpolateSpawnFieldValue(reg, spec.Type, s, parentID, parentFields, idx, now)
 		if err != nil {
 			return nil, fmt.Errorf("field %q: %w", k, err)
 		}
 		out[k] = interp
 	}
 	return out, nil
+}
+
+// interpolateSpawnFieldValue applies the full v1+v2 token chain to one
+// field-value string. v2 tokens (loud-error on miss) fire first so the
+// residual v1 pass through interpolateSpawnString sees only
+// `{parent_id}` / `{index}` (and the defense-in-depth `{`-check
+// catches any unknown token slipping through).
+func interpolateSpawnFieldValue(
+	reg schema.Registry,
+	specType, s, parentID string,
+	parentFields map[string]any,
+	idx int,
+	now string,
+) (string, error) {
+	if s == "" {
+		return "", nil
+	}
+	// v2: {now} — caller-supplied RFC3339 timestamp.
+	out := strings.ReplaceAll(s, "{now}", now)
+	// v2: {state.initial} — first enum on target type's `state` field.
+	if strings.Contains(out, "{state.initial}") {
+		initial, err := lookupStateInitial(reg, specType)
+		if err != nil {
+			return "", err
+		}
+		out = strings.ReplaceAll(out, "{state.initial}", initial)
+	}
+	// v2: {parent.<field>} — parentFields lookup, loud on miss.
+	var parentErr error
+	out = parentFieldTokenRE.ReplaceAllStringFunc(out, func(match string) string {
+		if parentErr != nil {
+			return match
+		}
+		field := match[len("{parent.") : len(match)-1]
+		raw, ok := parentFields[field]
+		if !ok {
+			parentErr = fmt.Errorf(
+				"{parent.%s}: parent has no field %q",
+				field, field,
+			)
+			return match
+		}
+		switch v := raw.(type) {
+		case string:
+			return v
+		case fmt.Stringer:
+			return v.String()
+		default:
+			return fmt.Sprintf("%v", raw)
+		}
+	})
+	if parentErr != nil {
+		return "", parentErr
+	}
+	// v1 residual pass: {parent_id} / {index} + defense-in-depth.
+	return interpolateSpawnString(out, parentID, idx)
+}
+
+// lookupStateInitial returns the first enum entry on the target type's
+// `state` field. Surfaces a loud error when the target type isn't
+// found, the `state` field is absent, the enum is empty, or the enum
+// entry is non-string. Per F23 v2 FIELD-ONLY runtime-fill rule.
+func lookupStateInitial(reg schema.Registry, specType string) (string, error) {
+	dbName, typeName, rest := splitDBType(specType)
+	if dbName == "" || typeName == "" || rest != "" {
+		return "", fmt.Errorf(
+			"{state.initial}: spec.type %q is not db-qualified `<db>.<type>`",
+			specType,
+		)
+	}
+	dbDecl, ok := reg.DBs[dbName]
+	if !ok {
+		return "", fmt.Errorf("{state.initial}: db %q not registered", dbName)
+	}
+	st, ok := dbDecl.Types[typeName]
+	if !ok {
+		return "", fmt.Errorf(
+			"{state.initial}: type %q not declared on db %q",
+			typeName, dbName,
+		)
+	}
+	stateField, ok := st.Fields["state"]
+	if !ok {
+		return "", fmt.Errorf(
+			"{state.initial}: target type %q has no `state` field",
+			specType,
+		)
+	}
+	if len(stateField.Enum) == 0 {
+		return "", fmt.Errorf(
+			"{state.initial}: target type %q `state` field has no enum",
+			specType,
+		)
+	}
+	s, ok := stateField.Enum[0].(string)
+	if !ok {
+		return "", fmt.Errorf(
+			"{state.initial}: target type %q `state` enum[0] is %T, not string",
+			specType, stateField.Enum[0],
+		)
+	}
+	return s, nil
+}
+
+// splitDBType splits a db-qualified type like `cascade.qa_proof` into
+// `cascade`, `qa_proof`, "". A 3-segment input leaves `rest` non-empty.
+func splitDBType(specType string) (dbName, typeName, rest string) {
+	dbName, after, ok := strings.Cut(specType, ".")
+	if !ok {
+		return dbName, "", ""
+	}
+	typeName, rest, _ = strings.Cut(after, ".")
+	return dbName, typeName, rest
 }
 
 // Update applies a PATCH-style partial overlay to an existing record.
