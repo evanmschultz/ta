@@ -21,13 +21,6 @@
 // for that subtree. Desynced nodes receive Range{Start: -1, End: -1} in the
 // Offsets map. The L3-D2-D2 splice layer consults Offsets and falls back to
 // a signature-based re-tokenization scan for desynced nodes.
-//
-// # Forward dependency
-//
-// The blank import of "github.com/andybalholm/cascadia" below stages the
-// direct-dependency declaration needed by the L3-D2-D3 backend layer (CSS
-// selector querying). It is intentionally unused here; the blank import
-// prevents go mod tidy from stripping it before D3 lands.
 package html
 
 import (
@@ -36,10 +29,6 @@ import (
 	"io"
 	"strings"
 
-	// cascadia is used in L3-D2-D3 (CSS selector queries on the parsed tree).
-	// Blank-imported here so the direct-dep declaration survives go mod tidy
-	// until that slice lands.
-	_ "github.com/andybalholm/cascadia"
 	ghtml "golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
