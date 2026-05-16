@@ -206,7 +206,19 @@ Each lands at project root with its canonical name.
 ## TUI demos
 
 Interactive bubbletea surfaces driven by `ta init` (and friends)
-have animated VHS recordings under [`../cmd/ta/testdata/vhs/`](../cmd/ta/testdata/vhs/):
-multi-category picker, filter mode, select-all, target-system
-bootstrap, confirm overwrite, form-create, root menu. See the main
-README "TUI demos" section for the full per-tape index.
+have animated VHS recordings under [`../cmd/ta/testdata/vhs/`](../cmd/ta/testdata/vhs/).
+Two demos most relevant to the `ta init` walkthrough above:
+
+- [`picker_target_system.gif`](../cmd/ta/testdata/vhs/picker_target_system.gif) /
+  [`.txt`](../cmd/ta/testdata/vhs/picker_target_system.txt) — the
+  `ta init --target-system` bootstrap picker drives the multi-category
+  selection of which `examples/` defaults to copy into the target project.
+- [`picker_filter.gif`](../cmd/ta/testdata/vhs/picker_filter.gif) /
+  [`.txt`](../cmd/ta/testdata/vhs/picker_filter.txt) — `/` enters
+  filter mode and narrows the leaf list as you type, useful when the
+  category tree gets large (the bundled defaults already show how it
+  scales with deep nesting).
+
+See the main README "TUI demos" section for the full per-tape index
+(picker initial render, select-all, confirm overwrite, form-create,
+root menu, smoke baseline).

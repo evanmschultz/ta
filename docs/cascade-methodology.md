@@ -498,8 +498,26 @@ Suited to single-user / small-team workflows where the working tree is
 the source of truth and dispatch is human/LLM-driven.
 
 ta's interactive TUI (bubbletea-based picker / form / confirm / menu)
-ships with VHS recordings under `cmd/ta/testdata/vhs/` — see the
-ta repo README "TUI demos" section for the full per-tape index.
+ships with VHS recordings under `cmd/ta/testdata/vhs/`. Two flows
+most relevant to a cascade-managed dev loop:
+
+![`ta create` interactive form walking through required fields when creating a cascade record](../cmd/ta/testdata/vhs/form_create.gif)
+
+`ta create` (without all required fields) drops into the interactive
+form — the surface a human operator uses to materialize cascade.drop /
+cascade.planner / cascade.droplet / cascade.qa\_\* records when the LLM
+client is not driving record creation through MCP.
+
+![`ta init` multi-category picker with `space` toggling every visible leaf in a category group](../cmd/ta/testdata/vhs/picker_select_all.gif)
+
+The multi-category picker (`ta init` and friends) is how a project
+bootstraps the cascade defaults — agents, instructions, skills, and
+schema fragments — into a target checkout in one pass. `space` on a
+group header toggles every visible leaf, which keeps the bootstrap
+flow fast even when the category tree gets large.
+
+See the ta repo README "TUI demos" section for the full per-tape
+index.
 
 ### 10.2 Tillsyn — Runtime Substrate With Headless Dispatch
 

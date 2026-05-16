@@ -188,15 +188,36 @@ The concept is **universal** across LSP-based languages — extend the script wi
 
 ## TUI demos
 
-Animated VHS recordings of every interactive bubbletea surface live under [`cmd/ta/testdata/vhs/`](cmd/ta/testdata/vhs/):
+Animated VHS recordings of every interactive bubbletea surface live under [`cmd/ta/testdata/vhs/`](cmd/ta/testdata/vhs/). Three high-traffic flows inline below; the full per-tape index follows.
 
+### Root subcommand menu
+
+![bare `ta` root menu showing the top-level subcommand picker rendered in bubbletea](cmd/ta/testdata/vhs/menu.gif)
+
+Bare `ta` (no args) drops into the root subcommand menu — the entry point most devs hit first.
+
+### Multi-category picker `space` select-all
+
+![`ta init` multi-category picker with `space` toggling every visible leaf in a group on and off](cmd/ta/testdata/vhs/picker_select_all.gif)
+
+`space` on a group header toggles every visible leaf at once — the UX the previous huh-based form could not express.
+
+### Interactive `ta create` form
+
+![`ta create` interactive bubbletea form walking through required fields with inline validation](cmd/ta/testdata/vhs/form_create.gif)
+
+`ta create` without all required fields drops into an interactive form covering required + optional fields with inline validation.
+
+### Full per-tape index
+
+- [`smoke.gif`](cmd/ta/testdata/vhs/smoke.gif) / [`.txt`](cmd/ta/testdata/vhs/smoke.txt) — minimum-viable smoke recording proving the VHS pipeline + golden contract are wired.
+- [`menu.gif`](cmd/ta/testdata/vhs/menu.gif) / [`.txt`](cmd/ta/testdata/vhs/menu.txt) — bare `ta` root subcommand menu.
 - [`picker_project.gif`](cmd/ta/testdata/vhs/picker_project.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_project.txt) — multi-category picker initial render.
 - [`picker_filter.gif`](cmd/ta/testdata/vhs/picker_filter.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_filter.txt) — filter mode narrowing leaves.
 - [`picker_select_all.gif`](cmd/ta/testdata/vhs/picker_select_all.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_select_all.txt) — `space` toggling all visible leaves in a group.
 - [`picker_target_system.gif`](cmd/ta/testdata/vhs/picker_target_system.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_target_system.txt) — `ta init --target-system` bootstrap picker.
 - [`confirm_overwrite.gif`](cmd/ta/testdata/vhs/confirm_overwrite.gif) / [`.txt`](cmd/ta/testdata/vhs/confirm_overwrite.txt) — confirm prompt for overwrite.
 - [`form_create.gif`](cmd/ta/testdata/vhs/form_create.gif) / [`.txt`](cmd/ta/testdata/vhs/form_create.txt) — `ta create` interactive form.
-- [`menu.gif`](cmd/ta/testdata/vhs/menu.gif) / [`.txt`](cmd/ta/testdata/vhs/menu.txt) — bare `ta` root subcommand menu.
 
 Re-record with `mage Vhs` (requires the `vhs` binary on `$PATH`).
 
