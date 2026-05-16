@@ -8,9 +8,30 @@ Inherits from the global rule in `~/.claude/CLAUDE.md` § "Subagent Spawn Defaul
 
 Use foreground only when the agent's result is required to decide your immediate next step AND the task is short enough that the safety trade-off doesn't pay back. For ta's build / QA / planning agents this is rare.
 
+## Agent Selection — Use Project-Local `ta-*` Agents, NEVER the Globals
+
+This project ships its own Claude Code subagents under `<project>/.claude/agents/ta-*.md`. Always dispatch with the `ta-` prefixed names:
+
+- `ta-go-builder` (NOT `go-builder-agent`)
+- `ta-go-qa-proof` (NOT `go-qa-proof-agent`)
+- `ta-go-qa-falsification` (NOT `go-qa-falsification-agent`)
+- `ta-go-planning` (NOT `go-planning-agent`)
+- `ta-fe-builder` / `ta-fe-qa-proof` / `ta-fe-qa-falsification` / `ta-fe-planning`
+- `ta-closeout` (closeout role)
+
+The project's `.claude/agents/` shadows the global `~/.claude/agents/` definitions. Using the global agent name routes to the wrong file — global agents lack project-specific tool allowlists (mage, mcp__ta__*) and project conventions.
+
+**Editing agent definitions**: agent .md files are ta records under the `claude_agents.agent` schema type. NEVER edit them directly with Edit/Write. The dogfood workflow is:
+
+1. **mcp__ta__update** on the agent record id (e.g. `ta-go-builder`) with the desired field overlay (e.g. `{tools: "..."}`). YAML frontmatter fields = record fields.
+2. **`ta template save --kind=agent --path=./.claude/agents/<file>.md --group=ta --overwrite`** — pushes the updated agent into `~/.ta/agents/ta/<file>.md` so future `ta init` runs in other projects install the latest version.
+3. **Verify both files** match (project + HOME) before commit.
+
+Direct edits of `~/.claude/agents/*-agent.md` or `~/.ta/agents/*/*.md` bypass ta's substrate tracking and create drift. The tool is built for this — use it.
+
 ## Pre-QA LSP Refresh Discipline
 
-ta is a Go project. The active LSP is gopls. Before spawning any `go-qa-proof-agent` or `go-qa-falsification-agent`, the gopls daemon's workspace index must reflect the build agent's edits — otherwise QA reads stale diagnostics that don't match disk truth (recurring failure mode: agent reports "undefined: X" for symbols that mage check confirms exist).
+ta is a Go project. The active LSP is gopls. Before spawning any `ta-go-qa-proof` or `ta-go-qa-falsification`, the gopls daemon's workspace index must reflect the build agent's edits — otherwise QA reads stale diagnostics that don't match disk truth (recurring failure mode: agent reports "undefined: X" for symbols that mage check confirms exist).
 
 - **Hook**: `~/.claude/hooks/pre_agent_lsp_refresh.sh` fires on PreToolUse(Agent) and recycles gopls when the spawned agent is a QA variant. Machine-local today; will be relocated into ta's project-local hook tree (`<project>/.claude/hooks/`) once the dogfood phase ships project-local hook management. At that point, every ta dev gets the hook automatically via `ta init`.
 - **Manual fallback**: invoke the `/gopls-sync` skill or restart Claude Code from `/Users/evanschultz/Documents/Code/hylla/ta/main` (the active checkout) if the hook doesn't help.
