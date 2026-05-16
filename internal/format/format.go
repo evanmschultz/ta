@@ -29,7 +29,13 @@ type Manifest interface {
 	// or ("", false) on no-match.
 	BlockName(node any) (string, bool)
 	// Selectors returns the ordered list of selector strings the manifest
-	// declares, for enumeration / validation.
+	// declares, for enumeration / validation. Concrete impls (HtmlManifest,
+	// MdManifest, TxtManifest) sort selectors by block-name alphabetic order
+	// for reproducible iteration. Note: this iteration order does NOT
+	// dictate output ordering — backends that emit ordered Blocks (e.g.
+	// HtmlBackend.Parse) re-sort by source byte position, so the alphabetic
+	// Selectors() ordering only governs the order selectors are COMPILED
+	// against the input, not the order matched blocks appear in output.
 	Selectors() []string
 }
 
