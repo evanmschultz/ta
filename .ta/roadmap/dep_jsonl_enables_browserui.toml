@@ -1,0 +1,9 @@
+[edge]
+created_at = "2026-05-15T11:50:00Z"
+from_id = "jsonl_log_types.tracker"
+kind = "enables"
+rationale = "Browser UI's live-update channel (SSE/WebSocket) consumes a JSONL event stream; the jsonl backend gives ta a first-class way to emit and consume that stream end-to-end."
+state = "todo"
+title = "JSONL/log types enable browser UI live updates"
+to_id = "browser_served_ui_option.tracker"
+updated_at = "2026-05-15T11:50:00Z"

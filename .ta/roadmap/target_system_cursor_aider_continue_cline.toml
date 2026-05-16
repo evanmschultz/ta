@@ -1,0 +1,8 @@
+[tracker]
+created_at = "2026-05-15T11:50:00Z"
+description = "Expand the L2-A target_system schema's claude+codex pair to include: cursor (.cursor/rules/, .cursor/mcp.json, agent definitions); aider (.aider.conf.yml, .aider/instructions.md); continue (.continue/config.json, .continue/prompts/); cline (.cline/instructions.md plus role-specific subdirs). Each target adds one target_system.<name> record. The dotta walker renders them as selectable at ta init."
+role = "planner"
+state = "todo"
+target_version = "v0_2_0.tracker"
+title = "Target system expansion — Cursor / Aider / Continue / Cline"
+updated_at = "2026-05-15T11:50:00Z"

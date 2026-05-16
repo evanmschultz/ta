@@ -1,0 +1,8 @@
+[tracker]
+created_at = "2026-05-15T11:50:00Z"
+description = "Wire ta records into the Hylla cross-project knowledge graph. Each record becomes a Hylla node with typed edges derived from roadmap.dependency, cascade parent_id, and related_items. Query surface: `hylla query --scope ta --kind cascade.drop` returns ta records; reverse `ta search --hylla-context <node-id>` filters by Hylla graph proximity. Sync model: append-only event stream from ta into Hylla; ta is source of truth."
+role = "planner"
+state = "todo"
+target_version = "v0_2_0.tracker"
+title = "Hylla graph integration"
+updated_at = "2026-05-15T11:50:00Z"

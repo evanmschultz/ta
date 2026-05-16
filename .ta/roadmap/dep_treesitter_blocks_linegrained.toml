@@ -1,0 +1,9 @@
+[edge]
+created_at = "2026-05-15T11:50:00Z"
+from_id = "tree_sitter_integration.tracker"
+kind = "blocks"
+rationale = "Line-grained editing's conflict detection layer relies on AST identity provided by tree-sitter; without the parser, line spans cannot be disambiguated from comments or whitespace boundaries safely."
+state = "todo"
+title = "Tree-sitter integration blocks line-grained editing"
+to_id = "line_grained_editing.tracker"
+updated_at = "2026-05-15T11:50:00Z"

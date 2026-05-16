@@ -1,0 +1,8 @@
+[tracker]
+created_at = "2026-05-15T11:50:00Z"
+description = "Integrate tree-sitter as ta's language-aware parser for code-bearing record files. Replaces regex-based block selectors with AST-grained selectors (function bodies, class members, identifier references). Scope: pick tree-sitter Go binding (smacker/go-tree-sitter or modern fork); per-language grammar bundle (Go/TS/Python/Rust to start); selector grammar AST node-path like `function:Foo > body`; manifest schema extension `template_manifest.<lang>` with AST-selector field."
+role = "planner"
+state = "todo"
+target_version = "v0_2_0.tracker"
+title = "Tree-sitter integration"
+updated_at = "2026-05-15T11:50:00Z"

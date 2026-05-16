@@ -1,5 +1,71 @@
 format_version = 2
 
+[browser_served_ui_option]
+[browser_served_ui_option.tracker]
+created = 2026-05-16T00:32:08.8532Z
+type = 'item'
+updated = 2026-05-16T00:32:08.8532Z
+
+[code_file_blockers]
+[code_file_blockers.tracker]
+created = 2026-05-16T00:32:08.782206Z
+type = 'item'
+updated = 2026-05-16T00:32:08.782206Z
+
+[dep_browserui_enables_targetsystems]
+[dep_browserui_enables_targetsystems.edge]
+created = 2026-05-16T00:32:08.935247Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.935247Z
+
+[dep_hylla_enables_targetsystems]
+[dep_hylla_enables_targetsystems.edge]
+created = 2026-05-16T00:32:08.92528Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.92528Z
+
+[dep_jsonl_enables_browserui]
+[dep_jsonl_enables_browserui.edge]
+created = 2026-05-16T00:32:08.945192Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.945192Z
+
+[dep_linegrained_blocks_codeblockers]
+[dep_linegrained_blocks_codeblockers.edge]
+created = 2026-05-16T00:32:08.87322Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.87322Z
+
+[dep_polyglot_enables_codeblockers]
+[dep_polyglot_enables_codeblockers.edge]
+created = 2026-05-16T00:32:08.883238Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.883238Z
+
+[dep_roundtrip_blocks_iniconfigs]
+[dep_roundtrip_blocks_iniconfigs.edge]
+created = 2026-05-16T00:32:08.903243Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.903243Z
+
+[dep_roundtrip_blocks_jsonllog]
+[dep_roundtrip_blocks_jsonllog.edge]
+created = 2026-05-16T00:32:08.915248Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.915248Z
+
+[dep_roundtrip_blocks_yamlcsvjson]
+[dep_roundtrip_blocks_yamlcsvjson.edge]
+created = 2026-05-16T00:32:08.893116Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.893116Z
+
+[dep_treesitter_blocks_linegrained]
+[dep_treesitter_blocks_linegrained.edge]
+created = 2026-05-16T00:32:08.863103Z
+type = 'dependency'
+updated = 2026-05-16T00:32:08.863103Z
+
 [drop_002]
 [drop_002.drop]
 [drop_002.drop.build_qa_falsif_l2_a]
@@ -191,6 +257,46 @@ created = 2026-05-15T23:42:05.400078Z
 type = 'droplet'
 updated = 2026-05-15T23:45:03.670988Z
 
+[drop_004.drop.builder_h1_f23_runtime_fill]
+created = 2026-05-16T00:35:10.360458Z
+type = 'droplet'
+updated = 2026-05-16T00:41:56.480614Z
+
+[drop_004.drop.builder_h2_cmd_ta_coverage_70]
+created = 2026-05-16T00:35:10.372561Z
+type = 'droplet'
+updated = 2026-05-16T00:53:59.11358Z
+
+[drop_004.drop.builder_h4_mcp_path_arg_security]
+created = 2026-05-16T00:35:10.384163Z
+type = 'droplet'
+updated = 2026-05-16T00:43:18.001411Z
+
+[drop_004.drop.builder_h5_vhs_artifact_doc_links]
+created = 2026-05-16T00:35:10.396263Z
+type = 'droplet'
+updated = 2026-05-16T00:39:30.279499Z
+
+[drop_004.drop.builder_l3f1_d1_types_and_paths]
+created = 2026-05-16T00:42:26.906756Z
+type = 'droplet'
+updated = 2026-05-16T00:45:40.790102Z
+
+[drop_004.drop.builder_l3f1_d2_mapping_loader]
+created = 2026-05-16T00:45:46.285038Z
+type = 'droplet'
+updated = 2026-05-16T00:50:29.653053Z
+
+[drop_004.drop.builder_l3f1_d3_walker_core]
+created = 2026-05-16T00:50:35.698779Z
+type = 'droplet'
+updated = 2026-05-16T00:54:31.602327Z
+
+[drop_004.drop.builder_l3f1_d4_golden_integration]
+created = 2026-05-16T00:54:38.116336Z
+type = 'droplet'
+updated = 2026-05-16T00:59:06.939887Z
+
 [drop_004.drop.l2_a_default_schema_kinds]
 created = 2026-05-15T23:24:38.980926Z
 type = 'planner'
@@ -205,6 +311,136 @@ updated = 2026-05-15T23:39:53.18217Z
 created = 2026-05-15T23:24:38.991685Z
 type = 'qa_proof'
 updated = 2026-05-15T23:39:53.172479Z
+
+[drop_004.drop.l2_b_plan_qa_falsif]
+created = 2026-05-16T00:22:57.085889Z
+type = 'qa_falsification'
+updated = 2026-05-16T00:31:18.650836Z
+
+[drop_004.drop.l2_b_plan_qa_proof]
+created = 2026-05-16T00:22:57.072436Z
+type = 'qa_proof'
+updated = 2026-05-16T00:27:34.897147Z
+
+[drop_004.drop.l2_b_record_vision]
+created = 2026-05-16T00:18:04.313333Z
+type = 'planner'
+updated = 2026-05-16T00:31:18.663539Z
+
+[drop_004.drop.l2_c_plan_qa_falsif]
+created = 2026-05-16T00:26:12.080801Z
+type = 'qa_falsification'
+updated = 2026-05-16T00:26:12.080801Z
+
+[drop_004.drop.l2_c_plan_qa_proof]
+created = 2026-05-16T00:26:12.068226Z
+type = 'qa_proof'
+updated = 2026-05-16T00:26:12.068226Z
+
+[drop_004.drop.l2_c_resolver_group_prefix]
+created = 2026-05-16T00:18:04.325852Z
+type = 'planner'
+updated = 2026-05-16T00:25:56.381101Z
+
+[drop_004.drop.l2_d_multi_file_type]
+created = 2026-05-16T00:18:04.3369Z
+type = 'planner'
+updated = 2026-05-16T00:25:56.394567Z
+
+[drop_004.drop.l2_d_plan_qa_falsif]
+created = 2026-05-16T00:26:12.103882Z
+type = 'qa_falsification'
+updated = 2026-05-16T00:26:12.103882Z
+
+[drop_004.drop.l2_d_plan_qa_proof]
+created = 2026-05-16T00:26:12.092874Z
+type = 'qa_proof'
+updated = 2026-05-16T00:26:12.092874Z
+
+[drop_004.drop.l2_e_html_template_system]
+created = 2026-05-16T00:18:04.346878Z
+type = 'planner'
+updated = 2026-05-16T00:25:56.406519Z
+
+[drop_004.drop.l2_e_plan_qa_falsif]
+created = 2026-05-16T00:26:12.124879Z
+type = 'qa_falsification'
+updated = 2026-05-16T00:26:12.124879Z
+
+[drop_004.drop.l2_e_plan_qa_proof]
+created = 2026-05-16T00:26:12.114867Z
+type = 'qa_proof'
+updated = 2026-05-16T00:26:12.114867Z
+
+[drop_004.drop.l2_f_dotta_target_system]
+created = 2026-05-16T00:18:04.358758Z
+type = 'planner'
+updated = 2026-05-16T00:27:34.870493Z
+
+[drop_004.drop.l2_f_plan_qa_falsif]
+created = 2026-05-16T00:27:43.410639Z
+type = 'qa_falsification'
+updated = 2026-05-16T00:32:55.753458Z
+
+[drop_004.drop.l2_f_plan_qa_proof]
+created = 2026-05-16T00:27:43.399863Z
+type = 'qa_proof'
+updated = 2026-05-16T00:29:45.867808Z
+
+[drop_004.drop.l2_g_e2e_closure]
+created = 2026-05-16T00:18:04.369877Z
+type = 'planner'
+updated = 2026-05-16T00:25:56.419062Z
+
+[drop_004.drop.l2_g_plan_qa_falsif]
+created = 2026-05-16T00:26:12.144728Z
+type = 'qa_falsification'
+updated = 2026-05-16T00:26:12.144728Z
+
+[drop_004.drop.l2_g_plan_qa_proof]
+created = 2026-05-16T00:26:12.134781Z
+type = 'qa_proof'
+updated = 2026-05-16T00:26:12.134781Z
+
+[drop_004.drop.l2_h_mvp_carryovers]
+created = 2026-05-16T00:18:04.380955Z
+type = 'planner'
+updated = 2026-05-16T00:34:46.310261Z
+
+[drop_004.drop.l2_h_plan_qa_falsif]
+created = 2026-05-16T00:27:43.435797Z
+type = 'qa_falsification'
+updated = 2026-05-16T00:34:46.29757Z
+
+[drop_004.drop.l2_h_plan_qa_proof]
+created = 2026-05-16T00:27:43.423606Z
+type = 'qa_proof'
+updated = 2026-05-16T00:32:55.766863Z
+
+[drop_004.drop.l3_f1_build_qa_falsif]
+created = 2026-05-16T00:59:13.420221Z
+type = 'qa_falsification'
+updated = 2026-05-16T01:02:40.92072Z
+
+[drop_004.drop.l3_f1_build_qa_proof]
+created = 2026-05-16T00:59:13.400132Z
+type = 'qa_proof'
+updated = 2026-05-16T01:03:37.071477Z
+
+[drop_004.drop.l3_f1_dotta_walker]
+created = 2026-05-16T00:37:57.70309Z
+type = 'planner'
+updated = 2026-05-16T01:03:37.086429Z
+
+[drop_004.drop.l3_f1_plan_qa_falsif]
+created = 2026-05-16T00:36:53.692567Z
+type = 'qa_falsification'
+updated = 2026-05-16T00:41:17.137217Z
+
+[drop_004.drop.l3_f1_plan_qa_proof]
+created = 2026-05-16T00:36:53.666773Z
+type = 'qa_proof'
+updated = 2026-05-16T00:42:22.409833Z
 
 [drop_004.drop.mvp_substrate]
 created = 2026-05-15T21:57:13.223048Z
@@ -225,3 +461,63 @@ updated = 2026-05-15T23:24:27.023522Z
 created = 2026-05-15T21:57:13.238972Z
 type = 'planner'
 updated = 2026-05-15T23:24:27.009873Z
+
+[hylla_graph_integration]
+[hylla_graph_integration.tracker]
+created = 2026-05-16T00:32:08.792073Z
+type = 'item'
+updated = 2026-05-16T00:32:08.792073Z
+
+[ini_env_justfile_makefile_dockerfile_types]
+[ini_env_justfile_makefile_dockerfile_types.tracker]
+created = 2026-05-16T00:32:08.812237Z
+type = 'item'
+updated = 2026-05-16T00:32:08.812237Z
+
+[jsonl_log_types]
+[jsonl_log_types.tracker]
+created = 2026-05-16T00:32:08.8221Z
+type = 'item'
+updated = 2026-05-16T00:32:08.8221Z
+
+[line_grained_editing]
+[line_grained_editing.tracker]
+created = 2026-05-16T00:32:08.772188Z
+type = 'item'
+updated = 2026-05-16T00:32:08.772188Z
+
+[polyglot_lang_support]
+[polyglot_lang_support.tracker]
+created = 2026-05-16T00:32:08.762155Z
+type = 'item'
+updated = 2026-05-16T00:32:08.762155Z
+
+[round_trip_preservation_guarantees]
+[round_trip_preservation_guarantees.tracker]
+created = 2026-05-16T00:32:08.832206Z
+type = 'item'
+updated = 2026-05-16T00:32:08.832206Z
+
+[target_system_cursor_aider_continue_cline]
+[target_system_cursor_aider_continue_cline.tracker]
+created = 2026-05-16T00:32:08.842953Z
+type = 'item'
+updated = 2026-05-16T00:32:08.842953Z
+
+[tree_sitter_integration]
+[tree_sitter_integration.tracker]
+created = 2026-05-16T00:32:08.752349Z
+type = 'item'
+updated = 2026-05-16T00:32:08.752349Z
+
+[v0_2_0]
+[v0_2_0.tracker]
+created = 2026-05-16T00:32:08.741542Z
+type = 'version'
+updated = 2026-05-16T00:32:08.741542Z
+
+[yaml_csv_json_file_types]
+[yaml_csv_json_file_types.tracker]
+created = 2026-05-16T00:32:08.802441Z
+type = 'item'
+updated = 2026-05-16T00:32:08.802441Z

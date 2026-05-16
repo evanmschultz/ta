@@ -1,0 +1,8 @@
+[tracker]
+created_at = "2026-05-15T11:50:00Z"
+description = "First-class template_manifest backends for: yaml (yaml.v3 parser, path-selectors like .spec.containers[0].image); csv (encoding/csv, row-by-column-name selectors); json (encoding/json + jsonpath, structural selectors). Round-trip preservation: comments (yaml) and trailing newlines preserved."
+role = "planner"
+state = "todo"
+target_version = "v0_2_0.tracker"
+title = "YAML / CSV / JSON file types"
+updated_at = "2026-05-15T11:50:00Z"

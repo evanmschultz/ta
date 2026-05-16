@@ -1,0 +1,8 @@
+[tracker]
+created_at = "2026-05-15T11:50:00Z"
+description = "Extend the cascade sibling-blocking rule (today: shared paths glob serializes builders) to AST-grained granularity: two builders editing DIFFERENT functions in the same file may parallelize; two builders editing the SAME function serialize. Depends on tree-sitter integration for AST identity. Depends on line-grained editing as fallback when AST identity is ambiguous."
+role = "planner"
+state = "todo"
+target_version = "v0_2_0.tracker"
+title = "Code-file blockers — AST-grained sibling-blocking"
+updated_at = "2026-05-15T11:50:00Z"

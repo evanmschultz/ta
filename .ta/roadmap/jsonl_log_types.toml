@@ -1,0 +1,8 @@
+[tracker]
+created_at = "2026-05-15T11:50:00Z"
+description = "Append-only log backends: jsonl (line-as-record, time-range selectors); log (structured-log parsing for slog/zap/logrus shapes). Distinct from yaml/csv/json BECAUSE splice semantics are append-mostly with optional retention windows, not arbitrary in-place rewrite. Splice rejects non-tail edits by default with explicit opt-in flag."
+role = "planner"
+state = "todo"
+target_version = "v0_2_0.tracker"
+title = "JSONL / log file types"
+updated_at = "2026-05-15T11:50:00Z"

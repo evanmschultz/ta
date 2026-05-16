@@ -1,0 +1,9 @@
+[edge]
+created_at = "2026-05-15T11:50:00Z"
+from_id = "polyglot_lang_support.tracker"
+kind = "enables"
+rationale = "Code-file blockers becomes valuable in proportion to language coverage. Single-language tree-sitter is enough to unblock; broader polyglot expands the practical surface."
+state = "todo"
+title = "Polyglot language support enables code-file blockers"
+to_id = "code_file_blockers.tracker"
+updated_at = "2026-05-15T11:50:00Z"

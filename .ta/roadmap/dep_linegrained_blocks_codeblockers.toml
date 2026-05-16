@@ -1,0 +1,9 @@
+[edge]
+created_at = "2026-05-15T11:50:00Z"
+from_id = "line_grained_editing.tracker"
+kind = "blocks"
+rationale = "Code-file blockers needs the line-range primitive as fallback when AST identity is ambiguous (mixed-language files, generated code with embedded comments)."
+state = "todo"
+title = "Line-grained editing blocks code-file blockers"
+to_id = "code_file_blockers.tracker"
+updated_at = "2026-05-15T11:50:00Z"

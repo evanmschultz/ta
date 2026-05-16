@@ -1,0 +1,9 @@
+[edge]
+created_at = "2026-05-15T11:50:00Z"
+from_id = "hylla_graph_integration.tracker"
+kind = "enables"
+rationale = "Target systems become discoverable / referenceable across projects via Hylla graph nodes. Not a hard blocker; target_system records work standalone but gain reach via Hylla."
+state = "todo"
+title = "Hylla graph enables target system expansion"
+to_id = "target_system_cursor_aider_continue_cline.tracker"
+updated_at = "2026-05-15T11:50:00Z"

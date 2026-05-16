@@ -1,0 +1,9 @@
+[edge]
+created_at = "2026-05-15T11:50:00Z"
+from_id = "browser_served_ui_option.tracker"
+kind = "enables"
+rationale = "Browser UI provides a richer target-system picker than the TUI — visual previews of each target's installed surface, side-by-side comparison."
+state = "todo"
+title = "Browser-served UI enables target system selection UX"
+to_id = "target_system_cursor_aider_continue_cline.tracker"
+updated_at = "2026-05-15T11:50:00Z"

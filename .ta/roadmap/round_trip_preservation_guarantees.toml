@@ -1,0 +1,8 @@
+[tracker]
+created_at = "2026-05-15T11:50:00Z"
+description = "Cross-cutting guarantee: every format backend round-trips byte-identical when no content changes, and minimally-diff when one block changes (no whole-file rewrite, no trailing-whitespace churn, no quote-style normalization). Verified by per-format golden suite. Failure to round-trip is a test-blocker, not a warning. Locks the multi-format-types contract promised in v0.1.0's html/md/txt backends and extended in v0.2.0."
+role = "planner"
+state = "todo"
+target_version = "v0_2_0.tracker"
+title = "Round-trip preservation guarantees"
+updated_at = "2026-05-15T11:50:00Z"

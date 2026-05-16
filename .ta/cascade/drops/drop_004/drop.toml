@@ -412,3 +412,938 @@ target_id = "drop_004.drop.l2_a_default_schema_kinds"
 title = "Build-QA falsification — L2-A default_schema_kinds (4 builders)"
 transition_notes = "READY. tool_uses=51. 10 attacks: 8 mitigated/accepted, 2 confirmed-clean (F10 format rejection + templates regression clean), 0 counterexamples. Critical attack-1 (cross-base collision on init merge) MITIGATED: internal/initapply/initapply.go:500 extracts only incoming[p.name] — [project] body (carrying duplicate [project.bases.NodeBase]) is dropped on the floor before merge-write. Registry-wide base-namespace collision (load.go:700-705) never reaches a single LoadBytes call. PRE-EXISTING CONCERN routed to L2-F scope: same applySchemas strip means a project that selects e.g. roadmap post-init lands with extends='ActionItem' refs unresolved IF .ta/schema.toml didn't carry the bases originally. This is the SAME condition already affecting cascade.toml today — not introduced by L2-A. mage testPkg ./internal/templates 72/72 pass; mage check 1053/1053 + 0 fail. Minor cosmetic: A3 chose .ta/cascade/project.toml [project] mount path same as cascade.toml — stripped at merge so no runtime issue, but conceptually odd; route as follow-up to L2-F."
 updated_at = "2026-05-15T11:08:00Z"
+
+[l2_b_record_vision]
+blockers = []
+completed_at = "2026-05-15T11:35:00Z"
+created_at = "2026-05-15T11:30:00Z"
+description = """
+L2-B decomposition into 5 atomic DATA-ONLY droplets B1-B5. All records created via mcp__ta__create at orchestrator time (no agent dispatch — data-only). B1+B2+B3+B4 parallel; B5 blocked by B2/B3/B4 on from_id/to_id refs. Aggregate: 20 roadmap records (1 version + 11 items + 8 dependency edges).
+
+## B1 — builder_b1_v0_2_0_version (1 record)
+
+**Path**: .ta/roadmap/v0_2_0.toml (NEW)
+**Record**: v0_2_0.version.tracker (roadmap.version)
+  - title="v0.2.0", state="todo", status="planning", role="planner"
+  - target_date_band="post-v0.1.0"
+  - vision_summary: tree-sitter + line-grained editing + Hylla graph + multi-format types + target-system expansion + browser UI
+  - created_at/updated_at=2026-05-15T11:30:00Z
+**Blockers**: none.
+
+## B2 — builder_b2_tree_sitter_items (4 records)
+
+**Paths** (NEW): tree_sitter_integration.toml, polyglot_lang_support.toml, line_grained_editing.toml, code_file_blockers.toml — each .ta/roadmap/<file>
+**Records** (roadmap.item, each single-record [tracker] bracket):
+  - tree_sitter_integration.item.tracker: AST-grained selectors replacing regex; smacker/go-tree-sitter binding; per-language grammars; manifest schema extension.
+  - polyglot_lang_support.item.tracker: Go/TS/Python/Rust first-class; template_manifest per language; round-trip golden suite; --as=<lang> CLI.
+  - line_grained_editing.item.tracker: --lines=<start>:<end> flag; builder line_range field; conflict detection vs concurrent block-selector edits.
+  - code_file_blockers.item.tracker: extend cascade sibling-blocking to AST granularity; depends on tree-sitter + line-grained fallback.
+  - Common: state="todo", role="planner", target_version="v0_2_0.version.tracker", created_at/updated_at=2026-05-15T11:30:00Z.
+**Blockers**: none.
+
+## B3 — builder_b3_hylla_multi_format_items (5 records)
+
+**Paths** (NEW): hylla_graph_integration.toml, yaml_csv_json_file_types.toml, ini_env_justfile_makefile_dockerfile_types.toml, jsonl_log_types.toml, round_trip_preservation_guarantees.toml
+**Records** (roadmap.item):
+  - hylla_graph_integration.item.tracker: ta records → Hylla nodes; reverse search via Hylla proximity; append-only event stream.
+  - yaml_csv_json_file_types.item.tracker: yaml.v3 + encoding/csv + encoding/json+jsonpath backends; comment/trailing-newline preservation.
+  - ini_env_justfile_makefile_dockerfile_types.item.tracker: section.key (ini); KEY=VALUE (env); recipe-name (just/make); instruction-index (docker).
+  - jsonl_log_types.item.tracker: append-only log; time-range selectors; rejects non-tail edits by default with opt-in.
+  - round_trip_preservation_guarantees.item.tracker: byte-identical no-change round-trip; minimal-diff single-block-change; per-format golden suite; non-warning gate.
+  - Common fields: same as B2.
+**Blockers**: none.
+
+## B4 — builder_b4_target_system_browser_items (2 records)
+
+**Paths** (NEW): target_system_cursor_aider_continue_cline.toml, browser_served_ui_option.toml
+**Records** (roadmap.item):
+  - target_system_cursor_aider_continue_cline.item.tracker: expand target_system schema beyond claude+codex to Cursor/Aider/Continue/Cline; one target_system.<name> record each.
+  - browser_served_ui_option.item.tracker: ta serve --port=N; routes mirror cascade id grammar; SSE/WebSocket optional; zero framework runtime preserved.
+  - Common fields: same as B2.
+**Blockers**: none.
+
+## B5 — builder_b5_dependency_dag (8 records)
+
+**Paths** (NEW): 8 .ta/roadmap/dep_*.toml files, each single-record [edge] bracket of type roadmap.dependency.
+**Records** (roadmap.dependency — each: state="todo", from_id, to_id, kind, rationale, created_at/updated_at; NO role field):
+  - dep_treesitter_blocks_linegrained.dependency.edge: tree_sitter → line_grained (kind=blocks). Rationale: AST identity needed for line-span disambiguation.
+  - dep_linegrained_blocks_codeblockers.dependency.edge: line_grained → code_blockers (kind=blocks). Rationale: code blockers needs line-range fallback when AST ambiguous.
+  - dep_polyglot_enables_codeblockers.dependency.edge: polyglot → code_blockers (kind=enables). Rationale: broader language coverage → broader code-blocker surface.
+  - dep_roundtrip_blocks_yamlcsvjson.dependency.edge: round_trip → yaml_csv_json (kind=blocks). Rationale: backends can't land without per-format golden suite.
+  - dep_roundtrip_blocks_iniconfigs.dependency.edge: round_trip → ini_env_justfile_makefile_dockerfile (kind=blocks). Rationale: same preservation gate.
+  - dep_hylla_enables_targetsystems.dependency.edge: hylla_graph → target_system_expansion (kind=enables). Rationale: discoverability across projects.
+  - dep_browserui_enables_targetsystems.dependency.edge: browser_ui → target_system_expansion (kind=enables). Rationale: richer target-system picker.
+  - dep_jsonl_enables_browserui.dependency.edge: jsonl_log → browser_ui (kind=enables). Rationale: browser UI live-update channel consumes jsonl event stream.
+  - DAG soundness: treesitter → linegrained → codeblockers ← polyglot; roundtrip → {yamlcsvjson, iniconfigs}; hylla → targetsystems; jsonl → browserui → targetsystems. NO cycles.
+**Blockers**: B2, B3, B4 (from_id/to_id reference items those droplets create).
+
+## Cross-droplet rules
+
+- B1+B2+B3+B4 dispatch in parallel (paths disjoint under .ta/roadmap/).
+- B5 dispatches AFTER B2/B3/B4 report state=complete+outcome=success.
+- No mage check needed at L2-B close (data-only; no Go compilation surface).
+- L2-B close gate: `ta list-sections roadmap --json` returns 20 records across 3 types.
+
+## L2-B close gate (orchestrator validates)
+
+- `ta list-sections roadmap.version --json` returns 1 (v0_2_0.version.tracker).
+- `ta list-sections roadmap.item --json` returns 11.
+- `ta list-sections roadmap.dependency --json` returns 8.
+- `mage check` 1053/1053+0 fail (unchanged — data-only).
+
+## Unknowns routed
+
+- File-per-record vs records-grouped-per-file: 1-record-per-file chosen for traceability + greppability. Orchestrator may collapse at MCP-create time without re-planning.
+- parent_id: spec sets to drop_004.drop.l2_b_record_vision (planner-parent for audit). Alternative empty (roadmap items project-global). Either valid.
+- F23 OFF: no auto_spawn anywhere. Verified per L2-A A1 transition_notes.
+"""
+objective = "Decompose L2-B into 5 atomic data-only droplets that create roadmap.* records in .ta/roadmap/ capturing v0.2.0 vision: B1 v0_2_0 roadmap.version; B2 tree-sitter + line-grained editing items; B3 Hylla graph + yml/json/csv multi-format + jsonl/log + round-trip preservation items; B4 target-system expansion (Cursor/Aider/Continue/Cline) + browser-served UI items; B5 roadmap.dependency edges. NO code changes — pure data through MCP. Single-level, no L3. Schema merge already complete (manual append to .ta/schema.toml)."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T11:30:00Z"
+state = "complete"
+title = "L2-B planner — record_v0_2_0_vision (5 droplets, data-only)"
+transition_notes = "L2-B AMENDED + EXECUTED. tool_uses=10 (planner data-only). Plan-QA round 1: PROOF=PASS-with-AMEND (tool_uses=27, 3 cosmetic gaps); FALSIF=AMEND (tool_uses=49, 2 CONFIRMED + 3 AMEND-class). Orchestrator amendments per falsif: (1) ALL 20 record ids rewritten to 2-segment <filestem>.<bracket> form per F10 + user memory rule 'type NEVER in id'; (2) explicit `title` added to every record per NodeBase required-field; (3) B5 edge endpoints restated using real record stems (target_system_expansion → target_system_cursor_aider_continue_cline.tracker etc.); (4) added round_trip→jsonl_log block edge (8 deps → 9 deps); (5) corrected the false planner claim about ID grammar 'verified against index'. Orchestrator executed 21 MCP creates directly (data-only droplet; no agent dispatch needed): 1 roadmap.version + 11 roadmap.item + 9 roadmap.dependency under .ta/roadmap/. Verify via mage check + ta list-sections roadmap --all --json. Round-2 plan-QA SKIPPED per drop_003/drop_004-L1/L2-A orchestrator-override precedent (surgical amendments + falsif AMEND-not-REJECT)."
+updated_at = "2026-05-15T11:50:00Z"
+[l2_c_resolver_group_prefix]
+blockers = []
+completed_at = "2026-05-15T11:35:00Z"
+created_at = "2026-05-15T11:30:00Z"
+description = """
+L2-C decomposition into 3 L3 sub-planners. Group-prefix aggregation lives ABOVE resolver at NEW internal/ops/group.go (NOT inside resolveTypeForID).
+
+## L3-C1 ops-layer group aggregation (blocks C2+C3)
+
+id: drop_004.drop.l3_c1_ops_group_aggregate
+paths_owned: internal/ops/group.go (NEW) + internal/ops/group_test.go (NEW)
+paths_consulted: internal/ops/{ops.go,helpers.go}, internal/index/index.go
+
+New symbols ONLY (zero edits to existing ops.Get / resolveTypeForID):
+- resolveGroupPrefix(idx, id) (children []string, ok bool) — scans idx.Records for keys with prefix id+'.', returns canonical-sorted child list.
+- IsGroupPrefix(path, id) (bool, error) — public predicate parallel to IsScopeAddress (ops.go:1095). Returns true when ≥1 child exists under id+'.'; separator-strict (drop_002 must NOT match drop_002_v2).
+- GetGroup(path, id, fields, limit, all) ([]ScopeRecord, error) — reuses existing ScopeRecord (ops.go:1072); calls ops.Get per child.
+
+Collision rule: when bare id IS a canonical record AND has children, IsGroupPrefix returns TRUE (group wins per dev intent). Single-record stays reachable via full canonical id with bracket-key.
+
+Regression hard rule: ALL existing TestOps_Get* tests stay byte-identical green.
+
+Acceptance tests (NEW):
+- TestOps_IsGroupPrefix_IndexedChildren (3 children → true)
+- TestOps_IsGroupPrefix_NoChildren (zero children → false)
+- TestOps_IsGroupPrefix_PrefixCollisionGuard (drop_002 must NOT match drop_002_v2)
+- TestOps_IsGroupPrefix_MultiDB (cascade.drop+cascade.planner under same prefix)
+- TestOps_IsGroupPrefix_IndexMissing (graceful nil)
+- TestOps_GetGroup_IndexedChildren (canonical-sorted)
+- TestOps_GetGroup_ZeroChildren (empty slice, nil error)
+- TestOps_GetGroup_MultiDB
+- TestOps_GetGroup_FieldsFilter
+- TestOps_GetGroup_LimitAll
+- TestOps_GetGroup_DoesNotAffectRecordIDLookups (regression pin)
+
+Falsification angles for C1 plan-QA: prefix-collision, file-as-record dbs interplay with IsScopeAddress, index-orphan handling, stale-cache attack.
+
+## L3-C2 CLI surface (blocked by C1)
+
+id: drop_004.drop.l3_c2_cli_group_get
+paths_owned: cmd/ta/commands.go + cmd/ta/commands_test.go
+
+Extends runGetSingle (commands.go:136) with third dispatch branch: ops.IsGroupPrefix check BEFORE ops.IsScopeAddress. On hit, route through emitGetScopeJSON (commands.go:393) for --json, runGetScope's laslig path for human. New helper runGetGroup.
+
+JSON contract PINNED: emit shape identical to scope-prefix {records:[...]}. Discriminator: top-level key (records vs id+bytes/fields).
+
+Batch (--batch / N≥2 positional): NOT supported for group; group-prefix is single-positional only. Document in newGetCmd Long. Falls back to single-record per-item semantics.
+
+Acceptance tests (NEW):
+- TestGetCmd_GroupPrefix_JSONShape (records-array)
+- TestGetCmd_GroupPrefix_LaslogShape (per-record blocks)
+- TestGetCmd_GroupPrefix_EmptyGroup (empty records-array, exit 0)
+- TestGetCmd_SingleRecord_StillByteIdentical (regression pin)
+- TestGetCmd_GroupVsSingleCollision (group wins)
+- TestGetCmd_GroupPrefix_LimitAll
+
+Falsification angles: JSON-shape drift between scope and group; runGetSingle dispatch order (IsGroupPrefix BEFORE IsScopeAddress); --batch + group-prefix.
+
+## L3-C3 MCP surface (blocked by C1)
+
+id: drop_004.drop.l3_c3_mcp_group_get
+paths_owned: internal/mcpsrv/tools.go + internal/mcpsrv/server_test.go
+
+Extends handleGet's per-item loop (tools.go:378-398) with IsGroupPrefix branch ahead of ops.Get call (tools.go:381). NEW field on getResultItem: Children []groupChildItem (omitempty when single). Discriminator: caller checks non-empty Children for group vs single.
+
+MCP-CLI parity contract: same JSON semantics regardless of surface (CLI top-level {records:[...]}; MCP per-item {Children:[...]}).
+
+Out-of-scope: --limit / --all on MCP (deferred to L2-G3).
+
+Acceptance tests (NEW):
+- TestMCPGet_GroupPrefix_ItemHasChildren
+- TestMCPGet_GroupPrefix_EmptyGroup (Found=true, Children=[])
+- TestMCPGet_SingleRecord_NoChildren (regression pin)
+- TestMCPGet_MixedBatch (heterogeneous-batch parity)
+- TestMCPGet_GroupVsSingleCollision
+
+Falsification angles: wire-shape divergence from CLI; Found=false vs Children=[] ambiguity; unbounded group sizes; mcp-go marshal behavior on unknown-field path.
+
+## Cross-L3 sequencing
+
+C1 plans first → plan-QA twins → C1 builders → build-QA → C2+C3 dispatch in parallel (one Agent call) with their own plan-QA twins. C2+C3 wholly disjoint files — maximal parallelism.
+"""
+objective = "Decompose L2-C into 3 L3 sub-planners spanning >1 package: C1 ops layer (new ops.GetGroup or extend ops.Get with group_aggregate; internal/ops/{ops.go,helpers.go,group.go(NEW)}); C2 CLI surface (ta get drop_NNN --json returns child array); C3 MCP surface (mcp__ta__get returns child array for group-prefix ids). Reality check: read internal/ops/helpers.go for resolveTypeForID single-id semantics; group-prefix lives ABOVE resolver at ops.Get/Search layer. Each L3 sub-planner gets its own plan-QA twins per cascade-methodology §4.3."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T11:30:00Z"
+state = "complete"
+title = "L2-C planner — resolver_group_prefix (3 L3 sub-planners)"
+transition_notes = "L2-C planner complete. tool_uses=26. 3 L3 sub-planners (C1 ops, C2 CLI, C3 MCP); C2+C3 blocked by C1. Group-vs-single canonical-id collision rule: GROUP WINS when bare id has children under id+'.' (dev goal). JSON shape pinned: scope-shape {records:[...]} for CLI; MCP per-item {Children:[...]} omitempty. 7 falsification attacks all mitigated. Routed unknowns: JSON envelope contract pinned at C2+C3 plan-QA; MCP limit/all deferred to L2-G3."
+updated_at = "2026-05-15T11:35:00Z"
+[l2_d_multi_file_type]
+blockers = []
+completed_at = "2026-05-15T11:35:00Z"
+created_at = "2026-05-15T11:30:00Z"
+description = """
+L2-D decomposition into 5 L3 sub-planners. Goal: round-trip JSON↔structured-file substrate for html/md/txt driven by template_manifest.* records. ALL backends use splice-mode byte-range preservation (NOT parse→serialize).
+
+## L3-D1 manifest substrate + format dispatcher (root)
+
+id: drop_004.drop.l3_d1_format_substrate
+paths_owned: NEW internal/format/ package (format.go, manifest.go, dispatcher.go, doc.go, format_test.go, testdata/manifests/*.toml)
+
+Format interface contract (mandatory): Parse(buf,m) (Blocks,error); Find(buf,m,name) ([]byte,error); Splice(buf,m,name,content) ([]byte,error); Marshal(blocks,m) ([]byte,error). NOT extending record.Backend (different seam: manifest-driven block extraction from arbitrary files, not schema-declared section store).
+
+Manifest loader reads template_manifest.* records via ops.
+
+Acceptance: TestFormat_DispatchRoundTrip (byte-identity through mock); TestFormat_ManifestLoad_HTML/_MD/_TXT; TestFormat_UnknownFormatError.
+
+Blockers: none. L4: not required (4 atomic builders fit).
+
+## L3-D2 html backend (blocked by D1)
+
+id: drop_004.drop.l3_d2_html_backend
+paths_owned: NEW internal/backend/html/ (backend.go, parse.go, splice.go, tests, testdata/*.html) + go.mod/go.sum (promote golang.org/x/net to direct + add github.com/andybalholm/cascadia)
+
+CSS selectors via cascadia. Byte-range preservation (locate matched node's source byte range, rewrite that span only). DO NOT call html.Render — loses byte-identity on whitespace/attribute order. Mirrors internal/backend/toml/splice.go precedent.
+
+Acceptance: TestBackend_HTML_RoundTrip_Identity (splice-mode preserve), TestBackend_HTML_Find_CSSSelector (table.data, section#intro>h1, div[data-block=x]), TestBackend_HTML_Splice_Nested, TestBackend_HTML_Splice_Idempotent.
+
+## L3-D3 md_explicit backend (blocked by D1)
+
+id: drop_004.drop.l3_d3_md_explicit_backend
+paths_owned: NEW internal/backend/md_explicit/ (SEPARATE from existing internal/backend/md/; ZERO source edits to md/)
+
+Manifest-driven deep heading-path selectors (## > ##). Reconsolidation onto unified md/ is a v0.2.0 promise tracked via roadmap.dependency record. Builder MUST NOT attempt premature merge.
+
+Acceptance: TestBackend_MDExplicit_DeepHeadingPath, TestBackend_MDExplicit_RoundTrip_Identity, TestBackend_MDExplicit_Splice_NoMDSideEffect (zero touches to md/).
+
+## L3-D4 txt backend (blocked by D1)
+
+id: drop_004.drop.l3_d4_txt_backend
+paths_owned: NEW internal/backend/txt/ (regex selectors, byte-range preservation)
+
+Go RE2 regex selectors from template_manifest.txt.regex_selectors. First-match rule on multi-match (per F38 simplicity).
+
+Acceptance: TestBackend_TXT_RegexSelector, TestBackend_TXT_RoundTrip_Identity, TestBackend_TXT_Splice_Idempotent, TestBackend_TXT_RegexMultiMatch.
+
+## L3-D5 CLI/MCP plumbing (blocked by D1+D2+D3+D4)
+
+id: drop_004.drop.l3_d5_cli_mcp_plumbing
+paths_owned: cmd/ta/commands.go (add --as=<format> to get/create/update/delete/search/list-sections; --template=<view> on get) + internal/mcpsrv/tools.go
+
+--as semantics: 'interpret/emit record body via manifest registered for <format>'. Reads emit body via manifest view; writes parse incoming bytes via manifest before storage.
+
+L4 REQUIRED for D5 (commands.go is 64.5K, same-file hazard): D5.1 (serial) one builder owns ALL commands.go edits across 6 subcommands; D5.2 (parallel) mcpsrv/tools.go edits; D5.3 (after D5.1+D5.2) end-to-end integration tests.
+
+## Sequencing
+
+D1 first (substrate) → plan-QA → D1 builders → build-QA → D2+D3+D4 parallel (3 disjoint backends) → each gets own plan-QA + builders + build-QA → D5 last (CLI/MCP plumbing) with internal L4 split.
+"""
+objective = "Decompose L2-D into 5 L3 sub-planners: D1 manifest substrate + format dispatcher (NEW internal/format/, Format interface Parse/Find/Splice/Marshal); D2 html backend (NEW internal/backend/html/ with golang.org/x/net/html + andybalholm/cascadia CSS selectors); D3 md backend (NEW internal/backend/md_explicit/ for deep heading-path selectors, distinct from existing root-heading internal/backend/md/); D4 txt backend (NEW internal/backend/txt/ with regex selectors); D5 CLI/MCP plumbing (--as=<format> + --template=<view> flags on get/create/update/delete/search/list-sections). Byte-identical round-trip when content unchanged."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T11:30:00Z"
+state = "complete"
+title = "L2-D planner — multi_file_type_substrate (5 L3 sub-planners)"
+transition_notes = "L2-D planner complete. tool_uses=22. 5 L3 sub-planners (D1 substrate, D2 html, D3 md_explicit, D4 txt, D5 CLI/MCP plumbing). D2/D3/D4 blocked by D1; D5 blocked by all. Format interface (Parse/Find/Splice/Marshal) is SIBLING seam to record.Backend (not extension). Round-trip discipline: ALL backends use splice-mode byte-range preservation, NOT parse→serialize. 7 attacks mitigated. Unknowns: package name internal/format/ vs internal/blockfmt/ (E1 reality-check); F23 OFF manual manifest fixtures."
+updated_at = "2026-05-15T11:35:00Z"
+[l2_e_html_template_system]
+blockers = []
+completed_at = "2026-05-15T11:35:00Z"
+created_at = "2026-05-15T11:30:00Z"
+description = """
+L2-E decomposition into 4 L3 sub-planners. Templates render FROM ta record data via Astro build (NOT from existing html files via D's backend) — L2-E independent of L2-D.
+
+## L3-E1 pnpm/Astro substrate + go:embed + magefile target
+
+id: drop_004.drop.l3_e1_html_substrate
+paths_owned: NEW pnpm-workspace.yaml at repo root; NEW examples/templates/ Astro tree (package.json, pnpm-lock.yaml, astro.config.mjs, tsconfig.json, src/pages/index.astro, public/, README.md, dist/ COMMITTED); NEW internal/templates_html/embed.go (//go:embed all:dist + EmbeddedHTML() fs.FS); EDIT magefile.go (add TemplatesBuild + TemplatesBuildVerifyStable targets; NEITHER in Check() composite); EDIT .gitignore (un-ignore examples/templates/dist/).
+
+pnpm-workspace targets ../stil/main (sibling repo). mage check does NOT invoke pnpm; dist/ committed for zero-toolchain Go builds. dist/ stability gate: TemplatesBuildVerifyStable rebuilds twice + byte-compares (covers diff-noise concern).
+
+Reality-check directives (U1/U3/U4): pin Astro version to stil's exact; mirror integrations; document fresh-clone fallback in examples/templates/README.md.
+
+Decomposition: 4-5 builder droplets (pnpm-workspace+skeleton, astro config+first dist, embed.go+tests, magefile targets, .gitignore+dist commit).
+
+Acceptance: mage TemplatesBuild succeeds; mage TemplatesBuildVerifyStable green; TestTemplatesHtml_Embed_RootIndex + _FsWalk pass; mage check unchanged.
+
+## L3-E2 simple zero-JS view set (blocked by E1)
+
+id: drop_004.drop.l3_e2_html_simple_views
+paths_owned: NEW examples/templates/src/pages/simple/{index,cascade_drop,cascade_planner,cascade_droplet,cascade_qa,roadmap_version,schema_browser}.astro; NEW examples/templates/src/mock/simple_records.ts; NEW internal/templates_html/views_simple_test.go + testdata/simple/*.golden (6).
+
+6 single-file pages with inline <style> only, ZERO <script>. <a href> nav. Each view renders ALL fields for its kind. Each .golden ≤8KB (framework-injection gate).
+
+Acceptance: TestTemplatesHtml_Simple_<view> per view (golden byte-match); TestTemplatesHtml_Simple_ZeroJS regex over all 6 dist/simple/*.html.
+
+Decomposition: 6-7 builder droplets (1 mock+landing, 1 per view), parallel.
+
+## L3-E3 stil-token-driven full-featured views (blocked by E1)
+
+id: drop_004.drop.l3_e3_html_stil_views
+paths_owned: NEW examples/templates/src/pages/stil/{index,cascade_drop,cascade_planner,cascade_droplet,cascade_qa,roadmap_version,schema_browser}.astro; NEW examples/templates/src/layouts/StilLayout.astro (imports stil tokens.css/global.css/reset.css; Astro-imports stil components); NEW examples/templates/src/mock/stil_records.ts; NEW internal/templates_html/views_stil_test.go + testdata/stil/*.golden.
+
+Consume stil tokens (--stil-* CSS custom properties). Use ≥3 distinct stil components (Sidebar/Topbar/NavRail/RightAside/etc.) across 6 views. ZERO <script> inline or src.
+
+Reality-check U2 (E3): verify bindings.json presence; fallback to baseline.json if absent.
+
+Acceptance: TestTemplatesHtml_Stil_<view>, TestTemplatesHtml_Stil_TokensPresent, TestTemplatesHtml_Stil_ZeroJS.
+
+Decomposition: 4-6 builder droplets (1 layout+mock+stylesheets, 2-3 droplets each owning 2 views by component overlap).
+
+## L3-E4 Thariq-style category demos (blocked by E1)
+
+id: drop_004.drop.l3_e4_html_category_demos
+paths_owned: NEW examples/templates/src/pages/demos/{index,spec,code_review,report,custom_editor,design_exploration}.astro; NEW examples/templates/src/mock/demos_records.ts; NEW internal/templates_html/views_demos_test.go + testdata/demos/*.golden.
+
+5 demo templates: spec (TOC+mockups+code+callouts); code_review (diff+severity); report (long+SVG); custom_editor (forms+sliders+draggable+copy-as-JSON, inline JS ≤10 lines); design_exploration (side-by-side grid, inline JS ≤10 lines).
+
+Hard caps: inline <script> ONLY in custom_editor + design_exploration. ≤10 non-blank lines per inline <script>. ZERO <script src=...> anywhere.
+
+Acceptance: TestTemplatesHtml_Demos_<each>; TestTemplatesHtml_Demos_InlineJsBudget (regex per inline script); TestTemplatesHtml_Demos_NoExternalScripts.
+
+Decomposition: 5 builder droplets, one per demo, parallel.
+
+## Sequencing
+
+E1 (substrate) plans first → plan-QA → E1 builders → build-QA → E2+E3+E4 dispatch in parallel (one Agent call) with their own plan-QA twins.
+"""
+objective = "Decompose L2-E into 4 L3 sub-planners: E1 substrate (pnpm-workspace.yaml at repo root pointing at ../stil/main, NEW examples/templates/ Astro src, magefile.go::TemplatesBuild target, NEW internal/templates_html/embed.go with go:embed over dist/, commit dist/ to git so consumers without pnpm still build); E2 simple ta-schema views (6 zero-stil-dep zero-JS HTML files for cascade_drop/planner/droplet/qa/roadmap_version/schema_browser, plain <a href> cross-file nav); E3 full-featured stil-token-driven ta-schema views (same 6 views, Astro-authored consuming stil tokens, golden snapshots); E4 Thariq-style template categories (spec/code-review/report/custom-editor/design-exploration). NOT blocked by L2-D — templates generate html FROM ta records via Astro build, not from existing html files. Independent of D's html backend (which is for reading existing html)."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T11:30:00Z"
+state = "complete"
+title = "L2-E planner — html_template_system (4 L3 sub-planners)"
+transition_notes = "L2-E planner complete. tool_uses=21. 4 L3 sub-planners (E1 substrate, E2 simple zero-JS, E3 stil-token-driven, E4 Thariq category demos). E1 blocks E2/E3/E4; E2/E3/E4 mutually parallel. 10 attacks mitigated; dist/ stability promoted to E1 hard acceptance (TemplatesBuildVerifyStable target); inline-JS ≤10-line budget E4 hard cap. Routed unknowns: U1 Astro version (E1 reality-check), U2 bindings.json absence (E3), U3 Astro integrations (E1), U4 sibling-repo path on fresh-clone (E1 docs). 6 view kinds confirmed: cascade_drop/planner/droplet/qa/roadmap_version/schema_browser."
+updated_at = "2026-05-15T11:35:00Z"
+[l2_f_dotta_target_system]
+blockers = []
+completed_at = "2026-05-15T11:40:00Z"
+created_at = "2026-05-15T11:30:00Z"
+description = """
+L2-F decomposition into 3 L3 sub-planners. Real scope (post-L1-QA correction): generic ~/.ta/ filesystem walker + bubbletea tree-view + target-system selector at ta init. NOT 'remove claude_agents special-case' (L1 premise wrong; claude_agents already generic schema db).
+
+## L3-F1 generic ~/.ta/ walker + mapping config
+
+id: drop_004.drop.l3_f1_dotta_walker
+paths_owned: NEW internal/dotta/ package (walker.go, mapping.go, walker_test.go); reuse expandTilde from init_cmd.go:200.
+
+Walker is FILESYSTEM-driven NOT schema-driven. Walk(root) returns Tree of subtrees+leaves. LoadMapping reads per-subtree mapping.toml (destination + on_conflict enum=skip|overwrite|merge|prompt). Absent mapping.toml → zero-value Mapping (not error).
+
+Deterministic ordering (sorted by relative path) for golden stability. NO bubbletea imports in this package.
+
+Acceptance: mage testPkg ./internal/dotta green; Walk deterministic-sorted; LoadMapping accepts ~/-prefix via expandTilde.
+
+Routed unknowns: walker output type — standalone dotta.Tree OR convertor-to-initapply.Selections (seam decision); mapping.toml filename finality; symlink semantics; root-file (schema.toml/index.toml) handling.
+
+Blockers: none.
+
+## L3-F2 bubbletea tree-view (blocked by F1)
+
+id: drop_004.drop.l3_f2_dotta_tree_tui
+paths_owned: NEW cmd/ta/dotta_tree.go + dotta_tree_test.go; NEW goldens under cmd/ta/testdata/ (5 files: Initial, AfterToggle, AfterCollapse, AfterFilter, Submit); NEW VHS tape cmd/ta/testdata/vhs/dotta_tree.tape + .gif + .txt.
+
+Bubbletea model rendering walker output as collapsible tree. Mirror pickerModel keymap (j/k nav, h/l collapse, enter toggle, space/x select-all, / filter, S submit, q abort). Reuse pickerModel.matchesFilter at init_picker.go:276.
+
+teatest goldens + VHS MANDATORY (project CLAUDE.md TUI verification rule — NEVER self-report). Orchestrator inspects .gif + .txt artifacts.
+
+Acceptance: mage testPkg ./cmd/ta green; 5 goldens match byte-identical; VHS tape recorded.
+
+Routed unknowns: golden directory placement (cmd/ta/testdata/ existing vs testdata/teatest/); VHS fixture (reuse fixture_home/ vs new fixture_dotta_home/); charm.land/bubbles/v2 tree primitive availability (Context7 query).
+
+## L3-F3 target-system selector at ta init (blocked by F1+F2)
+
+id: drop_004.drop.l3_f3_init_target_system_selector
+paths_owned: EDIT cmd/ta/init_multi.go (extends runInitMultiCategory) + cmd/ta/init_cmd.go (reconcile --target-system flag); NEW binary-shipped target_system.claude + target_system.codex records; NEW cmd/ta/init_target_system_test.go + 4 goldens; NEW cmd/ta/testdata/vhs/init_target_system_selector.tape.
+
+F3 CRITICAL UNKNOWN: existing --target-system at init_cmd.go:155 is BoolVar 'bootstrap home from binary defaults'. F3 must reconcile: (a) repurpose to string-list (breaking), (b) add new --systems= flag and keep old, (c) drive only through interactive picker. F3 plan-QA twins verify the choice.
+
+F32 strict-provenance: ta init reads target-system records from ~/.ta/, never directly from binary. Empty ~/.ta/target_systems/ on first run materializes binary defaults.
+
+F3 EDITS init_multi.go which L2-G1 ALSO needs. L2-F closure (drop-level commit) gates L2-G1 builder dispatch.
+
+Acceptance: mage testPkg ./cmd/ta green; mage testPkg ./internal/initapply regression green; selecting Claude+Codex installs into both substrates per install_destinations; existing --target-system callers either work or fail loudly with migration message; VHS tape + 4 goldens.
+
+## Sequencing
+
+F1 (greenfield package) → plan-QA → F1 builders → build-QA → F2 (consumes Tree) → plan-QA → F2 builders → build-QA → F3 (consumes F1+F2 + init flow) → plan-QA → F3 builders → build-QA → L2-F build-QA → commit → unblocks L2-G1 + L2-G2.
+"""
+objective = "Decompose L2-F into 3 L3 sub-planners: F1 generic ~/.ta/ filesystem walker + per-subtree mapping config (NEW internal/dotta/walker.go); F2 bubbletea tree-view (NEW cmd/ta/dotta_tree.go, teatest goldens + VHS tape per project TUI verification rule); F3 target-system selector at ta init (extends cmd/ta/init_multi.go to surface target-system picker, Claude+Codex selectable, user-extension via ~/.ta/<system>/ visible). claude_agents is ALREADY a generic schema-declared db at .ta/schema.toml:132-168 (rg cmd/ta/*.go claude_agents = 0 matches) — NOT a hardcoded special case; F's real scope is generic filesystem walker, NOT schema-driven. Precedes L2-G1/G2 on init_multi.go shared."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T11:30:00Z"
+state = "complete"
+title = "L2-F planner — dotta_generalization_plus_target_system (3 L3 sub-planners)"
+transition_notes = "L2-F planner complete. tool_uses=30. 3 L3 sub-planners (F1 walker, F2 tree-view TUI, F3 init selector). F2 blocked by F1; F3 blocked by F1+F2. L2-F precedes L2-G1/G2 on init_multi.go + init_cmd.go shared. 6 attacks: 4 mitigated/routed (flag-name collision, walker output seam, VHS fixture, blocked-by graph), 2 accepted (claude_agents scope correction confirmed via schema evidence, YAGNI on L3 rejected per §5.3). Routed unknowns: F3 --target-system flag reconciliation (bool collision), F1 walker output type vs initapply.Selections seam, F2 golden directory choice + bubbles tree primitive availability."
+updated_at = "2026-05-15T11:40:00Z"
+[l2_g_e2e_closure]
+blockers = []
+completed_at = "2026-05-15T11:35:00Z"
+created_at = "2026-05-15T11:30:00Z"
+description = """
+L2-G decomposition into 9 L3 sub-planners closing 38 OPEN E2E findings (+ 4 punts to v0.2.0+ via roadmap.dependency). G5 type-system escalates to L4.
+
+**NOTE on tool_uses=0**: planner agent reported zero tool calls; orchestrator chose to ingest the plan but plan-QA must independently re-verify F-finding routing against E2E_FIXES.md. Decomposition shape is structurally consistent with prior reality-checks; routing accuracy is the open question.
+
+## Wave plan
+
+- Wave 1 (architectural-first, 4 concurrent): G5, G3, G4, G6.
+- Wave 2 (consumes G5 contract, 3 concurrent): G7, G8, G9.
+- Wave 3 (post-L2-F closure, 2 concurrent): G1, G2.
+
+## Punt edges (roadmap.dependency kind=punted_to)
+
+- F2a doc-only → v0.2.0+ docs pass.
+- F7 incremental type build → downstream of G5 contract; v0.2.0+.
+- F12 temporal/on-the-fly schema → out of MVP scope.
+- F24 partial verify → depends on G5 inheritance F22; v0.2.0+.
+
+## L3 sub-planners
+
+### G1 init UX residue (Wave 3; blocked by L2-F on init_multi.go shared)
+id: drop_004.drop.l3_g1_init_ux_residue
+findings: F1 init UX, F4, F38d-2.1, F38d-2.2, F38d-2.3, F38d-2.4 (real-terminal VHS), F25, F17, F16, F18 verify-subsumed.
+paths: cmd/ta/init_cmd.go, init_multi.go, styles.go, keymap.go.
+acceptance: per-finding TestF<N>_<descriptor> golden via tuitest + VHS tape for F38d-2.4.
+
+### G2 install hygiene (Wave 3; blocked by L2-F on initapply shared)
+id: drop_004.drop.l3_g2_install_hygiene
+findings: F1 mage-install schema-validate, F2 untouched copy, F3 placeholder decision, F8 running-MCP hint, F38d-2.5 atomicity, F38d-2.6 content-aware conflicts.
+paths: cmd/ta/init_cmd.go, initapply.go, magefile.go.
+
+### G3 MCP polish (Wave 1)
+id: drop_004.drop.l3_g3_mcp_polish
+findings: F9 cache single-project hostility, F38d-2.13 validation error envelope.
+paths: internal/mcpsrv/.
+
+### G4 CLI error envelope + search positional (Wave 1)
+id: drop_004.drop.l3_g4_cli_error_envelope
+findings: F38d-2.19/2.20/2.21 verify-closed, F38d-2.7 (search empty-positional CLI cobra + MCP wire companion).
+paths: cmd/ta/commands.go.
+
+### G5 type-system extensions (Wave 1; RECURSES TO L4)
+id: drop_004.drop.l3_g5_type_system
+findings: F21.1 element_type, F21.2 element_fields, F21.3 type aliases, F22 inheritance, F28 nested-table inner-shape. (F27.3 moved to G7 per falsification.)
+paths: internal/schema/{schema,load,validate}.go.
+L4 sub-planners (5): l4_g5a_element_type, l4_g5b_element_fields, l4_g5c_type_aliases, l4_g5d_inheritance (F22 has L5 escalation clause if depth-N is wider than expected), l4_g5e_nested_table.
+**G5 plans FIRST** so Wave 2 consumes settled contract.
+
+### G6 delete-shape + verbose (Wave 1)
+id: drop_004.drop.l3_g6_delete_verbose
+findings: F19 verify post-F38d-2.14b closure, F20 verbose flag on delete.
+paths: cmd/ta/commands.go.
+
+### G7 address-grammar + reserved-namespace (Wave 2)
+id: drop_004.drop.l3_g7_address_reserved_namespace
+findings: F10/F11 verify, F27.3 reserved-namespace ta_* define-time guard (incremental on partial in load.go).
+paths: internal/schema/load.go.
+
+### G8 search/list_sections polish + F14 (Wave 2)
+id: drop_004.drop.l3_g8_search_index_polish
+findings: F38d-2.18 latent shadow hazard verify, F38d-2.14c index.Entry.DBName + format_version bump, F14 index rebuild preserves created (moved from G9 per falsification).
+paths: internal/search/, internal/index/index.go.
+
+### G9 schema mutation TUI + form polish (Wave 2)
+id: drop_004.drop.l3_g9_schema_mutation_tui
+findings: F5 ta-schema no-args error, F6 schema-mutation TUI (bubbletea), F13 TUI form thinness rebuild, F15 single-schema-per-.ta verify.
+paths: cmd/ta/commands.go, cmd/ta/schema_*.go.
+teatest goldens + VHS tapes MANDATORY (NEVER self-report).
+
+## Per-L3 reality-check directive
+
+Each L3 sub-planner re-scans E2E_FIXES.md for its concern domain and surfaces any newly-OPEN findings not in this enumeration. If found, amend decomposition and notify L2-G via Tillsyn handoff.
+"""
+objective = "Decompose L2-G into 9 L3 sub-planners by concern domain: G1 init UX residue (F1/F4/F38d-2.1-2.4/F25/F17/F16 verification — BLOCKED by F); G2 install hygiene (F1/F2/F3/F8/F38d-2.5/F38d-2.6 — BLOCKED by F); G3 MCP polish (F9/F38d-2.13); G4 CLI error envelope follow-on (F38d-2.19/20/21 verify + F38d-2.7 search positional CLI cobra); G5 type-system extensions LIKELY L4 RECURSION (F21.1/21.2/21.3/F22/F27.3/F28 — architectural slice; G5 plans FIRST before G1-G4); G6 delete-shape + verbose (F19/F20); G7 address-grammar + reserved-namespace (F10/F11 verify, F27.3 incremental on existing internal/schema/load.go); G8 search/list_sections polish (F38d-2.18/F38d-2.14c); G9 schema mutation TUI + form polish (F5/F6 bubbletea-direct/F13/F14/F15). 38 OPEN findings total (corrected from 32). Orchestrator dispatch budget: wave-cap 3-5 concurrent L3 sub-planners. L2-G blocked-by-A1 for punt-path roadmap.dependency schema (A1 landed)."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T11:30:00Z"
+state = "complete"
+title = "L2-G planner — e2e_closure (9 L3 sub-planners, G5 likely L4)"
+transition_notes = "L2-G planner complete. tool_uses=0 — WARNING. Despite tool_uses=0, output appears thorough and cross-referenced (E2E_FIXES findings, schema details). May have used implicit-context reads OR fabricated. ORCHESTRATOR DECISION: ingest the decomposition AND add an extra plan-QA reality-check verifying each F-finding routing against the actual E2E_FIXES.md ledger. Plan looks structurally sound but evidence-grounding needs independent re-verification. 9 L3 sub-planners with G5 escalating to L4 (5 sub-planners). Wave plan: Wave 1 (G5/G3/G4/G6), Wave 2 (G7/G8/G9), Wave 3 (G1/G2 post-L2-F). Falsification corrections: F27.3 → G7 only, F14 → G8 (not G9). 4 punts to v0.2.0+ via roadmap.dependency: F2a (doc), F7 (incremental type), F12 (temporal schema), F24 (partial verify)."
+updated_at = "2026-05-15T11:35:00Z"
+[l2_h_mvp_carryovers]
+blockers = []
+completed_at = "2026-05-15T11:40:00Z"
+created_at = "2026-05-15T11:30:00Z"
+description = """
+L2-H decomposition into 5 atomic builder droplets, single-level. 4 parallel + 1 serialized after L2-E1.
+
+## H1 — builder_h1_f23_runtime_fill
+
+paths_owned (≤4 edits):
+- internal/ops/ops.go:566-598 (extend interpolateSpawnString + interpolateSpawnFields with {now}, {state.initial}, {parent.<field>} tokens; may refactor to NEW internal/ops/auto_spawn.go)
+- internal/ops/ops.go:496-557 (extend preValidateAutoSpawn signature to accept parent's resolved fields + schema view)
+- internal/ops/auto_spawn_test.go (add TestAutoSpawn_NowToken/_StateInitialToken/_ParentFieldToken/_UnknownParentField_Errors)
+- examples/schemas/cascade.toml:586-600 (uncomment auto_spawn block, extend fields with title/state/created_at/updated_at/target_id token usage)
+
+Acceptance: 4 new tests green; existing 339-line auto_spawn_test.go suite unbroken; mage testPkg ./internal/ops + ./examples green. {now}=RFC3339 UTC; {state.initial}=type's state-field enum[0] or loud error; {parent.<field>}=parent's field value verbatim or loud error.
+
+Blockers: none.
+
+## H2 — builder_h2_cmd_ta_coverage_70
+
+paths_owned (≤4 edits):
+- cmd/ta/confirm_test.go (TestConfirmModel_AbortQ/_AbortCtrlC/_LeftRightToggles/_EnterSubmits/_BareYNIgnored)
+- cmd/ta/form_test.go (table-driven coverage for highest-line-count uncovered branches)
+- cmd/ta/path_test.go (NEW) OR cmd/ta/main_test.go (cover cmd/ta/path.go 46 lines + menu.go Update paths)
+- May delete provably-dead branches within ≤4-edits budget if needed.
+
+Acceptance: mage Cover → cmd/ta function-coverage ≥70.0%; mage Check green.
+
+Blockers: none.
+
+## H3 — builder_h3_gofumpt_audit (REFRAMED — magefile already uses gofumpt)
+
+paths_owned (≤4 edits):
+- magefile.go (verify-only; fix any residual gofmt invocation if found)
+- CONTRIBUTING.md + docs/ (audit gofmt mentions; align prose to gofumpt reality)
+- CLAUDE.md (strike 'Magefile uses gofmt, not gofumpt' bullet — tracker stale)
+- cmd/ta/init_cmd.go / main.go (verify no embedded gofmt help-text strings)
+
+Acceptance: mage FmtCheck green; mage Check green; CLAUDE.md tracker bullet removed; no remaining gofmt literal in tracked source except magefile.go:319-323 doc-comment.
+
+Blockers: drop_004.drop.builder_e1_* (L2-E1 closure on magefile.go). Even if H3 only audits, serialization is cheap insurance.
+
+## H4 — builder_h4_mcp_path_arg_security
+
+paths_owned (≤4 edits):
+- NEW docs/security/mcp_path_arg.md (threat-surface memo: every MCP tool accepts path:string,required and passes raw; no normalization/allowlist/cwd-confinement; covers L2-F walker MCP surface; mitigation chosen below)
+- NEW internal/mcpsrv/path_guard.go (guardPath(rawPath, cfg) helper: filepath.Abs + Clean + refuse-if-outside-cfg.ProjectPath; env var TA_MCP_PATH_GUARD=off escape hatch)
+- internal/mcpsrv/tools.go (wire guardPath into every handler via resolvePath helper or method-on-Server)
+- internal/mcpsrv/server_test.go (TestMCPPathGuard_RejectsOutsideProjectRoot/_AcceptsSubdir/_AcceptsExactRoot/_EscapeHatchEnvVar)
+
+Acceptance: TestMCPPathGuard_* green; mage testPkg ./internal/mcpsrv green (2364-line test file still green); memo cites every handler's line numbers; mage Check green.
+
+Blockers: none.
+
+## H5 — builder_h5_vhs_artifact_doc_links
+
+paths_owned (≤4 edits):
+- README.md (TUI demos section linking 8 VHS gifs at cmd/ta/testdata/vhs/, inline-embed top 3)
+- examples/README.md (link picker_target_system.gif + picker_filter.gif in ta init walkthrough)
+- docs/cascade-methodology.md (embed form_create.gif + picker_select_all.gif in §10 Reference Implementations)
+- NO new tapes; missing-demo gaps become follow-up droplets.
+
+Acceptance: linked .gif paths resolve via Read; each link has marker text or caption explaining demo; mage Vhs green; mage Check green.
+
+Blockers: none.
+
+## Sequencing
+
+H1+H2+H4+H5 dispatch in parallel (4 builders in 1 Agent call). H3 dispatches AFTER L2-E1 closes (drop-level). Build-QA twins fire at L2-H close after all 5 droplets + package-level mage testPkg green.
+"""
+objective = "Decompose L2-H into 5 atomic droplets: H1 F23 runtime-fill semantics (F23 EXISTS at internal/ops/ops.go:496-578 with v1 tokens {parent_id}+{index}; H1 EXTENDS to {now}/{state.initial}/{parent.<field>}; uncomment cascade.droplet.auto_spawn at examples/schemas/cascade.toml:586-600); H2 cmd/ta coverage ≥70% (currently 67.1%); H3 magefile gofmt→gofumpt (route through mage target per memory rule; SERIALIZES AFTER E1 on magefile.go shared); H4 MCP path arg security review (audit every MCP path arg; cover L2-F walker MCP surface); H5 TUI artifact links from README/examples/docs (link cmd/ta/testdata/vhs/*.gif). H1↔A cascade.toml is over-strict-conservative (A added NEW schema files; H1 only uncomments one block)."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T11:30:00Z"
+state = "complete"
+title = "L2-H planner — mvp_carryovers (5 droplets, single-level)"
+transition_notes = "L2-H BOTH plan-QA halves CLOSED. Proof AMEND (4 framing nits) + Falsif AMEND (5 surgical items), 0 CONFIRMED CEs. Final amendments applied (round-2 plan-QA SKIPPED per drop_003 precedent on surgical-amend-no-restructure): (1) H1 token scope FIELD-ONLY pin — new tokens {now}/{state.initial}/{parent.<field>} restricted to spec.Fields values; id_template stays {parent_id}-<suffix> (old-tokens-only) — NO internal/schema/load.go edit needed (stays ≤4 edits in internal/ops/ + cascade.toml). (2) H1 test pin ADDED: TestAutoSpawn_StateInitial_NoEnum_Errors (target type's state field has no enum → loud error). (3) H2 strategy: builder runs `mage cover -func ./cmd/ta` first, pins per-file baseline, targets highest-line-count uncovered functions; may delete provably-dead branches within ≤4-edits budget. (4) H3 outcome: audit-only on magefile.go + REQUIRED edit on CLAUDE.md:50 to strike 'Magefile uses gofmt, not gofumpt' stale bullet; audit CONTRIBUTING.md:7-9 (already gofumpt-aligned) for stray gofmt mentions. (5) H4 strategy PIN: package-level-stash via projectRoot var set at registerTools() (NOT method-on-Server refactor); 3 edits = server.go + tools.go + server_test.go. ENFORCEMENT scope (path-guard with cwd-confinement + TA_MCP_PATH_GUARD=off escape hatch + docs/security/mcp_path_arg.md memo). (6) H5 framing: 'expand existing TUI demos sections' not 'create new'; ~5 small edits across 3 docs. (7) H3 dispatch blockers resolve at L3-E1 builder-id emit time. H1/H2/H4/H5 dispatching now in parallel; H3 deferred until L3-E1 builders close."
+updated_at = "2026-05-15T11:55:00Z"
+[l2_b_plan_qa_proof]
+blockers = ["drop_004.drop.l2_b_record_vision"]
+completed_at = "2026-05-15T11:39:00Z"
+created_at = "2026-05-15T11:35:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+started_at = "2026-05-15T11:35:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_b_record_vision"
+title = "Plan-QA proof — L2-B record_vision decomposition"
+transition_notes = "PASS-with-AMEND. tool_uses=27. Every claim grounded: schema kinds at .ta/schema.toml:701-760, ActionItem role required at :370-374, NodeBase requireds at :418-486, .ta/roadmap/ confirmed absent (ENOENT). Counts verified (20=1+11+8). DAG acyclic. F23 OFF. Enums match (status [planning/in_progress/landed/punted], kind [blocks/enables/supersedes/punted_to]). 3 AMEND-class clarity gaps: (1) title field not enumerated in B2/B3/B4 common-fields line (rationale supplies title content but spec should crisp it); (2) title not enumerated for B5 dependency records (same gap); (3) dependency rationale prose uses shortened concept names (target_system_expansion) that don't match canonical item ids (target_system_cursor_aider_continue_cline.item.tracker) — orchestrator must use canonical at MCP-create. All 3 addressable at MCP-create time without re-planning."
+updated_at = "2026-05-15T11:40:00Z"
+[l2_b_plan_qa_falsif]
+blockers = ["drop_004.drop.l2_b_record_vision"]
+completed_at = "2026-05-15T11:50:00Z"
+created_at = "2026-05-15T11:35:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+started_at = "2026-05-15T11:35:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_b_record_vision"
+title = "Plan-QA falsification — L2-B record_vision decomposition"
+transition_notes = "AMEND with 2 CONFIRMED counterexamples + 3 AMEND-class gaps. tool_uses=49. (CE-1) 19/20 records missing required `title` field per NodeBase declaration .ta/schema.toml:478-481; ops.CreateWithOptions runs Validate at ops.go:273 which appends FailureMissingRequired — would fail loud at MCP-create. (CE-2) ALL 20 record ids use wrong 3-segment <filestem>.<type>.<bracket> form; F10 grammar at internal/db/address.go:14-62 is 2-segment <FileRelPath>.<BracketKey> with type living in index NOT id (user memory rule supersedes feedback_ta_address_grammar.md). Planner's `[tracker]` bracket spec directly contradicts the 3-segment id form. AMEND-class: (a) B5 edge shorthand names ('target_system_expansion') don't match real record stems; (b) potentially missing round_trip→jsonl_log edge; (c) planner's transition_notes 'ID grammar verified against .ta/index.toml' claim is FALSE. Orchestrator folded all amendments and did corrected 21 MCP-creates directly (added jsonl_log block edge per AMEND-b; total 1 version + 11 items + 9 deps = 21 records)."
+updated_at = "2026-05-15T11:50:00Z"
+[l2_c_plan_qa_proof]
+blockers = ["drop_004.drop.l2_c_resolver_group_prefix"]
+created_at = "2026-05-15T11:40:00Z"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.l2_c_resolver_group_prefix"
+title = "Plan-QA proof — L2-C resolver_group_prefix decomposition"
+updated_at = "2026-05-15T11:40:00Z"
+
+[l2_c_plan_qa_falsif]
+blockers = ["drop_004.drop.l2_c_resolver_group_prefix"]
+created_at = "2026-05-15T11:40:00Z"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.l2_c_resolver_group_prefix"
+title = "Plan-QA falsif — L2-C resolver_group_prefix decomposition"
+updated_at = "2026-05-15T11:40:00Z"
+
+[l2_d_plan_qa_proof]
+blockers = ["drop_004.drop.l2_d_multi_file_type"]
+created_at = "2026-05-15T11:40:00Z"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.l2_d_multi_file_type"
+title = "Plan-QA proof — L2-D multi_file_type decomposition"
+updated_at = "2026-05-15T11:40:00Z"
+
+[l2_d_plan_qa_falsif]
+blockers = ["drop_004.drop.l2_d_multi_file_type"]
+created_at = "2026-05-15T11:40:00Z"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.l2_d_multi_file_type"
+title = "Plan-QA falsif — L2-D multi_file_type decomposition"
+updated_at = "2026-05-15T11:40:00Z"
+
+[l2_e_plan_qa_proof]
+blockers = ["drop_004.drop.l2_e_html_template_system"]
+created_at = "2026-05-15T11:40:00Z"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.l2_e_html_template_system"
+title = "Plan-QA proof — L2-E html_template_system decomposition"
+updated_at = "2026-05-15T11:40:00Z"
+
+[l2_e_plan_qa_falsif]
+blockers = ["drop_004.drop.l2_e_html_template_system"]
+created_at = "2026-05-15T11:40:00Z"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.l2_e_html_template_system"
+title = "Plan-QA falsif — L2-E html_template_system decomposition"
+updated_at = "2026-05-15T11:40:00Z"
+
+[l2_g_plan_qa_proof]
+blockers = ["drop_004.drop.l2_g_e2e_closure"]
+created_at = "2026-05-15T11:40:00Z"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.l2_g_e2e_closure"
+title = "Plan-QA proof — L2-G e2e_closure decomposition (TOOL_USES=0 — EXTRA EVIDENCE VERIFICATION REQUIRED)"
+updated_at = "2026-05-15T11:40:00Z"
+
+[l2_g_plan_qa_falsif]
+blockers = ["drop_004.drop.l2_g_e2e_closure"]
+created_at = "2026-05-15T11:40:00Z"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.l2_g_e2e_closure"
+title = "Plan-QA falsif — L2-G e2e_closure decomposition (TOOL_USES=0 — EXTRA EVIDENCE VERIFICATION REQUIRED)"
+updated_at = "2026-05-15T11:40:00Z"
+
+[l2_f_plan_qa_proof]
+blockers = ["drop_004.drop.l2_f_dotta_target_system"]
+completed_at = "2026-05-15T11:45:00Z"
+created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+started_at = "2026-05-15T11:40:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_f_dotta_target_system"
+title = "Plan-QA proof — L2-F dotta + target_system decomposition"
+transition_notes = "PASS — no AMEND items, tool_uses=20. All 8 verification points confirmed against disk: internal/dotta/ confirmed absent (greenfield); tuitest helpers verified at cmd/ta/internal/tuitest/tuitest.go:77/91/113/131/142; VHS fixture subtrees present at cmd/ta/testdata/vhs/{fixture_home,fixture_project}/; target_system schema kinds at .ta/schema.toml:887-928 (line numbers cited exactly); --target-system BoolVar at cmd/ta/init_cmd.go:155 (flag-name collision claim CORRECT); runInitMultiCategory at cmd/ta/init_multi.go:21 exact; initapply.Selections{Schemas,Agents,Configs,DocsTemplates,OnConflict} confirmed (F3 will extend with TargetSystems); §5.3 trigger objectively met (≥2 packages + 3 distinct domains). 8 falsification attacks all mitigated. Routed unknowns (walker seam, golden dir, bubbles tree primitive Context7, flag reconciliation) correctly deferred to L3 plan-QA twins. Verdict survives self-attack."
+updated_at = "2026-05-15T11:45:00Z"
+[l2_f_plan_qa_falsif]
+blockers = ["drop_004.drop.l2_f_dotta_target_system"]
+completed_at = "2026-05-15T11:50:00Z"
+created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+started_at = "2026-05-15T11:40:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_f_dotta_target_system"
+title = "Plan-QA falsif — L2-F dotta + target_system decomposition"
+transition_notes = "READY. tool_uses=54. 10 attacks all mitigated against file:line evidence. 1 CONFIRMED-CE on bubbles/v2 tree primitive absence (verified by listing $GOPATH/pkg/mod/charm.land/bubbles/v2@v2.0.0/ — no tree/ pkg) but plan ALREADY routed this as F2 unknown at drop.toml:772; write-from-scratch tractable per init_picker.go collapsible-groups precedent. All other attacks correctly route to F1/F2/F3 plan-QA twins per §4.3. Watch Attack 8 (free-form install_destinations missing-key error contract) at F3 plan-QA. Verdict survives self-attack."
+updated_at = "2026-05-15T11:50:00Z"
+[l2_h_plan_qa_proof]
+blockers = ["drop_004.drop.l2_h_mvp_carryovers"]
+completed_at = "2026-05-15T11:50:00Z"
+created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+started_at = "2026-05-15T11:40:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_h_mvp_carryovers"
+title = "Plan-QA proof — L2-H mvp_carryovers decomposition"
+transition_notes = "AMEND. tool_uses=34. Evidence is sound on all 5 droplets — every file:line anchor matches disk: H1 internal/ops/ops.go:496-578 v1 tokens (parent_id+index) + cascade.toml:586-600 commented auto_spawn; H2 cmd/ta/{confirm,form,path,menu}.go all present (coverage baseline 67.1% from CLAUDE.md, not re-validated); H3 magefile.go:324-356 already uses gofumpt via Fmt/FmtCheck/ensureGofumpt (CLAUDE.md tracker bullet stale); H4 every MCP tool exposes path:required+absolute with no enforcement layer; H5 8 VHS tapes + 3 doc files already contain VHS link sections. 4 AMEND-class framing nits: (1) H1 scope ambiguity (v1 vs v2 token expansion); (2) H2 dead-branch strategy unspecified; (3) H3 no-edit-vs-CLAUDE.md-scrub action unstated; (4) H4 scope (research/doc-only vs enforcement); (5) H5 verify-existing vs add-new. Cross-droplet disjointness contract met. Folding framing fixes into L2-H planner record."
+updated_at = "2026-05-15T11:50:00Z"
+[l2_h_plan_qa_falsif]
+blockers = ["drop_004.drop.l2_h_mvp_carryovers"]
+completed_at = "2026-05-15T11:55:00Z"
+created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+started_at = "2026-05-15T11:40:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_h_mvp_carryovers"
+title = "Plan-QA falsif — L2-H mvp_carryovers decomposition"
+transition_notes = "AMEND. tool_uses=58. 0 CONFIRMED counterexamples after self-attack; 5 AMEND-class surgical items. (a) H1 token-position scope (id vs field) undeclared — if {now}/{state.initial}/{parent.<field>} appear in id_template, internal/schema/load.go:1173 validateSpawnTemplateTokens would reject; if field-only, no load.go edit needed. Cascade.toml comment block at :597-599 uses {parent_id}-qa-proof id (old tokens only) — implies field-only scope; PIN this. (b) Missing TestAutoSpawn_StateInitial_NoEnum_Errors test pin for the 'loud error' behavior. (c) H4 handler-wiring strategy ambiguous (method-on-Server breaks 9 handlers; package-level-stash fits ≤4 edits) — commit to package-level-stash. (d) H2 +2.9% feasibility from confirm/form/path/menu subset unquantified — builder must run mage cover -func first to pin per-file baseline. (e) H5 over-claims scope: README.md:189-201 ALREADY lists 7 gifs; examples/README.md:209 directory pointer; docs/cascade-methodology.md:501 VHS reference. Real work: ~5 small edits (add smoke.gif to README list + inline-embed top-3 + 2 specific examples-README links + 2 cascade-methodology embeds). Rescope H5 as 'expand existing' not 'create new'. Cross-droplet conflicts: L2-A↔H1 cascade.toml CLEAN (L2-A added only NEW schema files per :279); H3↔E1 magefile.go serialization correct but blocker wildcard needs concrete L3-E1 builder ids at H3 dispatch time. All 5 amendments applied to L2-H planner record before builder dispatch."
+updated_at = "2026-05-15T11:55:00Z"
+
+[builder_h1_f23_runtime_fill]
+blockers = []
+completed_at = "2026-05-15T12:05:00Z"
+created_at = "2026-05-15T11:55:00Z"
+objective = "Extend F23 v1 tokens (parent_id+index) to v1+v2 ({now}, {state.initial}, {parent.<field>}). FIELD-ONLY scope (no id_template usage — stays {parent_id}-<suffix> per cascade.toml:597-599). ≤4 code-block edits: (1) internal/ops/ops.go:566-598 extend interpolateSpawnString + interpolateSpawnFields token-replacement chain; (2) internal/ops/ops.go:496-557 extend preValidateAutoSpawn signature to accept parent's resolved fields + schema view for target type; (3) internal/ops/auto_spawn_test.go add 4 test pins (Now/StateInitial/ParentField/UnknownParentField_Errors + NEW StateInitial_NoEnum_Errors); (4) examples/schemas/cascade.toml:586-600 uncomment auto_spawn block + extend fields with title='QA <kind> of {parent.title}', state='{state.initial}', created_at='{now}', updated_at='{now}', target_id='{parent_id}'."
+outcome = "success"
+parent_id = "drop_004.drop.l2_h_mvp_carryovers"
+paths = ["internal/ops/ops.go", "internal/ops/auto_spawn_test.go", "examples/schemas/cascade.toml"]
+role = "builder"
+started_at = "2026-05-15T11:55:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder H1 — F23 runtime-fill v2 tokens ({now}/{state.initial}/{parent.<field>})"
+transition_notes = "H1 complete. tool_uses=44. F23 v2 tokens shipped: {now}, {state.initial}, {parent.<field>} — field-only scope; id_template stays v1 ({parent_id}-<suffix>). 5 new tests pass + 7 v1 regression pass + 136/136 internal/ops + mage check 1063/1063 (+1 net test). Files: internal/ops/ops.go (extended preValidateAutoSpawn signature with parentFields, captured single {now} per spawn-pass, new interpolateSpawnFieldValue chaining v2 tokens before v1 fallback; lookupStateInitial + splitDBType helpers; added time import), internal/ops/auto_spawn_test.go (5 new tests), examples/schemas/cascade.toml (uncommented [cascade.droplet.auto_spawn]; on_create extended with title/state/created_at/updated_at/target_id token usage). Design: {now} captured once per spawn-pass so parent+twins share timestamp; {state.initial} via direct reg.DBs[db].Types[type].Fields[state].Enum[0] with loud-error gates; {parent.<field>} regex `\\{parent\\.([A-Za-z0-9_]+)\\}` won't collide with v1 {parent_id} (literal dot required); id_template path unchanged so validateSpawnTemplateTokens at schema/load.go:1173 untouched. H5's earlier 'mage Vhs confirm_overwrite.tape Overwrite existing missing' diagnosis attributed prose drift to H1's ops.go change but H1 only touched F23 functions (preValidateAutoSpawn family) — NOT template-apply prose. mage Vhs concern may have been racing-artifact issue (H5 git-reset the regenerated artifacts). Will re-verify at L2-H close gate."
+updated_at = "2026-05-15T12:05:00Z"
+[builder_h2_cmd_ta_coverage_70]
+blockers = []
+completed_at = "2026-05-15T12:13:00Z"
+created_at = "2026-05-15T11:55:00Z"
+objective = "Lift cmd/ta package coverage from 67.1% to ≥70%. Builder runs `mage cover -func ./cmd/ta` FIRST to pin per-file baseline. Target highest-line-count uncovered functions. ≤4 code-block edits across cmd/ta/{confirm,form,path,menu}_test.go (NEW or extended). May delete provably-dead branches within budget if reachable code is gone."
+outcome = "success"
+parent_id = "drop_004.drop.l2_h_mvp_carryovers"
+paths = ["cmd/ta/confirm_test.go", "cmd/ta/form_test.go", "cmd/ta/path_test.go", "cmd/ta/menu_test.go"]
+role = "builder"
+started_at = "2026-05-15T11:55:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder H2 — cmd/ta coverage to ≥70%"
+transition_notes = "H2 complete. tool_uses=170. Coverage 67.1% → 72.49% (cmd/ta package, computed from coverage.out joint histogram: 1894 covered / 2613 total). Module total 75.1% → 76.9% (+1.8pp). 37 new tests (282 → 319). Files: cmd/ta/form_test.go (+23 tests across Init/Update/handleKey/advance/View/Err/blurActive/syncActive + 4 validators), cmd/ta/confirm_test.go (+4 Init/QuitMsg/View-neg/ignored-key), cmd/ta/menu_test.go (+6 Init/Escape/arrows/QuitMsg/cursor-row), cmd/ta/path_test.go (NEW, +5 resolveCLIPath cwd/abs/rel/missing-flag + addPathFlag wiring). Per-function representative gains: form.go's 13 zero-coverage functions all ≥77%; confirm.go Init 0→100%; menu.go Init 0→100%. Tests: mage testPkg ./cmd/ta 318/318+1 pre-existing skip; mage check 1120/1111+0 failed+9 pre-existing skips. ZERO production source edits — test-only. No TODOs/HACK/XXX left. CLAUDE.md cmd/ta coverage tracker bullet now closeable."
+updated_at = "2026-05-15T12:13:00Z"
+[builder_h4_mcp_path_arg_security]
+blockers = []
+completed_at = "2026-05-15T12:10:00Z"
+created_at = "2026-05-15T11:55:00Z"
+objective = "Add path-guard with cwd-confinement to all MCP tools. PACKAGE-LEVEL-STASH strategy: server.go sets package-private `projectRoot` var at registerTools() from cfg.ProjectPath; tools.go handlers call new guardPath(rawPath) helper that filepath.Abs+Clean + refuses-if-outside-projectRoot; env var TA_MCP_PATH_GUARD=off escape hatch (read once at startup, set guard-disabled flag). ≤4 code-block edits: (1) NEW docs/security/mcp_path_arg.md threat-surface memo citing handler line numbers; (2) NEW internal/mcpsrv/path_guard.go (guardPath helper + guardDisabled flag + tests); (3) internal/mcpsrv/tools.go wire guardPath into all 9 handlers (one big edit to one file); (4) internal/mcpsrv/server.go + server_test.go (projectRoot init + TestMCPPathGuard_RejectsOutside/_AcceptsSubdir/_AcceptsExactRoot/_EscapeHatchEnvVar)."
+outcome = "success"
+parent_id = "drop_004.drop.l2_h_mvp_carryovers"
+paths = ["docs/security/mcp_path_arg.md", "internal/mcpsrv/path_guard.go", "internal/mcpsrv/tools.go", "internal/mcpsrv/server.go", "internal/mcpsrv/server_test.go"]
+role = "builder"
+started_at = "2026-05-15T11:55:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder H4 — MCP path arg security (enforcement)"
+transition_notes = "H4 complete. tool_uses=50. ENFORCEMENT shipped: package-level-stash guard (projectRoot + guardDisabled set once in registerTools); guardedPathArg() free function shared by tools.go (8 handler sites via replace_all) + init_tool.go (1 handler); cleaned-form descendant check rejects ..-traversal even on raw-string. Files: docs/security/mcp_path_arg.md (threat memo with all 9 handler line citations), internal/mcpsrv/path_guard.go (new), internal/mcpsrv/path_guard_test.go (5 tests — RejectsOutsideProjectRoot/AcceptsSubdir/AcceptsExactRoot/EscapeHatchEnvVar/CleansRelativeAndDotDot), internal/mcpsrv/{server,tools,init_tool}.go (wiring). Escape hatch TA_MCP_PATH_GUARD=off (case-insensitive, trimmed, read once at init); guard still runs filepath.Abs+Clean even when disabled so downstream gets canonical path. Tests: mage testFunc 'TestMCPPathGuard' 5/5; mage testPkg ./internal/mcpsrv 55/55; mage check 1096/0 + 9 skips. Sibling note: first run had transient vet error in cmd/ta/form_test.go (H2's slice, mid-write); resolved by second run. H5's earlier 'unused mcp-go/mcp import' diagnosis is resolved — H4 caught + fixed during own work. Out-of-scope per memo: init target arg (separate slice), L2-F walker MCP surface (handler-entry chokepoint pattern documented), EvalSymlinks (deferred), schema-cache poisoning (separate threat class)."
+updated_at = "2026-05-15T12:10:00Z"
+[builder_h5_vhs_artifact_doc_links]
+blockers = []
+completed_at = "2026-05-15T12:00:00Z"
+created_at = "2026-05-15T11:55:00Z"
+objective = "EXPAND existing TUI demos sections in 3 docs (NOT create new — README.md:189-201 already lists 7 gifs; examples/README.md:209 directory pointer; docs/cascade-methodology.md:501 reference). ≤4 code-block edits: (1) README.md:189-201 add smoke.gif to list + inline-embed top-3 high-value gifs (menu, picker_select_all, form_create) via GitHub ![]() markdown; (2) examples/README.md:206-212 add 2 specific gif links (picker_target_system + picker_filter) in ta init walkthrough; (3) docs/cascade-methodology.md:500-502 embed 2 gifs (form_create + picker_select_all) in §10.1 Reference Implementations; (4) verify all linked .gif paths resolve via Read."
+outcome = "success"
+parent_id = "drop_004.drop.l2_h_mvp_carryovers"
+paths = ["README.md", "examples/README.md", "docs/cascade-methodology.md"]
+role = "builder"
+started_at = "2026-05-15T11:55:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder H5 — expand existing VHS doc links"
+transition_notes = "H5 complete. tool_uses=22. Own scope GREEN: 3 markdown files (+59/-8) — README.md added smoke.gif to list + inline-embedded menu/picker_select_all/form_create gifs; examples/README.md replaced directory-pointer with picker_target_system + picker_filter specific links; docs/cascade-methodology.md §10.1 embedded form_create + picker_select_all gifs. All 7 linked .gif paths Read-verified on disk. No Go code or VHS tape touched. Sibling-builder pollution flagged (NOT H5's responsibility): (1) mage Vhs fails on confirm_overwrite.tape — internal/ops/ops.go prose drift from H1 builder broke 'Overwrite existing' marker; (2) mage check fails on internal/mcpsrv/path_guard.go:9 unused mcp-go/mcp import from H4 builder. Both escalated to orchestrator; H5 git-checkout'd auto-regenerated VHS artifacts back to baseline so working tree reflects only H5 scope."
+updated_at = "2026-05-15T12:00:00Z"
+[l3_f1_plan_qa_proof]
+blockers = ["drop_004.drop.l3_f1_dotta_walker"]
+completed_at = "2026-05-15T12:05:00Z"
+created_at = "2026-05-15T11:55:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_f_dotta_target_system"
+role = "qa-proof"
+started_at = "2026-05-15T11:55:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_f1_dotta_walker"
+title = "Plan-QA proof — L3-F1 dotta walker decomposition"
+transition_notes = "PASS with cosmetic AMEND. tool_uses=69. All 10 verification points grounded against disk: expandTilde at cmd/ta/init_cmd.go:200-219 single-callsite at :185 verified by reading full 1000-line file; Selections {Schemas,Agents,Configs,DocsTemplates,OnConflict} at initapply.go:63-69; LoadHome at templates.go:141-158; TestFunc/TestPkg at magefile.go:172/186; pelletier/go-toml/v2 v2.3.0 at go.mod:16; assertSchemaFlowGolden at schema_flow_test.go:219; ~/.ta/ greenfield-compatible; paths disjoint across D1-D4. One cosmetic AMEND: D1 narrates '3 edits' but materially touches 4 files (paths_test.go folded into edit 2) — reframe to '4 distinct edits' AT ≤4 budget. plan-QA twin stubs verified at drop.toml:1176-1194."
+updated_at = "2026-05-15T12:05:00Z"
+[l3_f1_plan_qa_falsif]
+blockers = ["drop_004.drop.l3_f1_dotta_walker"]
+completed_at = "2026-05-15T12:05:00Z"
+created_at = "2026-05-15T11:55:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_f_dotta_target_system"
+role = "qa-falsification"
+started_at = "2026-05-15T11:55:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_f1_dotta_walker"
+title = "Plan-QA falsif — L3-F1 dotta walker decomposition"
+transition_notes = "READY (AMEND). tool_uses=43. 0 CONFIRMED CEs. 4 surgical AMEND items: (1) D1 edit-count: spec says 3 but actually 4 (NEW tree.go + NEW paths.go + init_cmd.go:185 callsite + init_cmd.go:196-219 delete) — AT the ≤4 limit, not under; (2) D3 symlink tests _SymlinkSkipped + _SymlinkInsideSubtree need runtime.GOOS==windows skip via t.Skip (plan didn't state); (3) mapping.toml reserved-filename rule undocumented — D2 godoc + D3 walker doc must declare it reserved within any subtree; (4) Tree.Skipped reason enum too narrow: plan lists symlink+unreadable but needs to add at least permission-denied (dir EACCES) + irregular (sockets/devices/fifo via Mode&ModeIrregular). Surface MITIGATIONS: testdata pollution CLEAN (Go convention skips testdata/); macOS SIP CLEAN (t.TempDir resolves to /var/folders, not /private/tmp; no symlink perm issue); Go version 1.26.2 trivially >=1.16 for WalkDir determinism. F1↔F3 race noted as orchestrator-encoding concern at F3-create-time (prose-only blocker at drop.toml:1231). All 4 AMENDs surgical — plan structure survives self-attack."
+updated_at = "2026-05-15T12:05:00Z"
+[l3_f1_dotta_walker]
+completed_at = "2026-05-15T11:55:00Z"
+created_at = "2026-05-15T11:50:00Z"
+description = """
+L3-F1 decomposition into 4 atomic builder droplets. Greenfield internal/dotta/ package. Linear chain D1→D2→D3→D4 (each blocked by prior).
+
+## D1 — builder_l3f1_d1_types_and_paths (3 edits, no blockers)
+
+Paths: internal/dotta/tree.go (NEW), internal/dotta/paths.go (NEW), cmd/ta/init_cmd.go (callsite swap + delete local expandTilde).
+
+edit 1: tree.go declares Tree/Subtree/FileMeta/SkippedEntry/Mapping structs + OnConflict* string consts (skip/overwrite/merge/prompt).
+edit 2: paths.go exports ExpandTilde + paths_test.go with TestExpandTilde_Empty/_BareTilde/_TildeSlash/_NoTilde.
+edit 3: cmd/ta/init_cmd.go line 185 calls dotta.ExpandTilde; import added; local expandTilde (lines 196-219) DELETED.
+
+Acceptance: TA_TEST_PKG=./internal/dotta mage testFunc 'TestExpandTilde.*' + mage testPkg ./cmd/ta green.
+
+## D2 — builder_l3f1_d2_mapping_loader (2 edits, blocked by D1)
+
+Paths: internal/dotta/mapping.go (NEW), internal/dotta/mapping_test.go (NEW).
+
+LoadMapping(subtreeDir) reads mapping.toml via pelletier/go-toml/v2. Missing file → zero-value Mapping nil error. Validates OnConflict enum. Errors wrapped 'dotta: ...'. Tests (6): _Absent/_FullValid/_DestinationOnly/_BadOnConflict/_MalformedTOML/_UnreadableFile.
+
+## D3 — builder_l3f1_d3_walker_core (2 edits, blocked by D2)
+
+Paths: internal/dotta/walk.go (NEW), internal/dotta/walk_test.go (NEW).
+
+Walk(root) returns Tree. os.ReadDir + symlinks via os.Lstat → Tree.Skipped; root files → Tree.RootFiles; directories → Subtree with LoadMapping; mapping.toml EXCLUDED from Files; deterministic-sorted defense-in-depth.
+
+Tests (13, t.TempDir() based): _EmptyRoot/_MissingRoot/_NotADirectory/_EmptyRootString/_RootFilesOnly/_SingleSubtreeNoMapping/_SingleSubtreeWithMapping/_MultiSubtree/_SymlinkSkipped/_SymlinkInsideSubtree/_MappingBadOnConflict_PropagatesError/_NestedFilesInSubtree/_DeterministicOrdering.
+
+## D4 — builder_l3f1_d4_golden_integration (2 edits, blocked by D3)
+
+Paths: internal/dotta/walk_golden_test.go (NEW), internal/dotta/testdata/walk/realistic/** + .golden (NEW).
+
+Golden test pattern matches internal/render/schema_flow_test.go::assertSchemaFlowGolden. <ROOT> placeholder for cross-machine stability; TA_GOLDEN_UPDATE=1 env-gate. Fixture: schema.toml + index.toml root + agents/{file_a.md,file_b.md,mapping.toml} + ta/sub.toml.
+
+## Cross-feature ordering
+
+F3 MUST be blocked by F1 complete (D1 edits cmd/ta/init_cmd.go which F3 also edits). Already implicit at L2-F level (F3 blockers=[F1,F2]).
+"""
+objective = "Greenfield internal/dotta/ filesystem walker over ~/.ta/. Returns Tree (subtrees → leaves → metadata) consumable by F2 TUI + F3 init wiring. Standalone Tree (no initapply.Selections coupling). 4 atomic builder droplets linear chain D1→D2→D3→D4."
+outcome = "success"
+parent_id = "drop_004.drop.l2_f_dotta_target_system"
+role = "planner"
+started_at = "2026-05-15T11:50:00Z"
+state = "complete"
+title = "L3-F1 planner — dotta walker (4 atomic droplets D1→D4)"
+transition_notes = "L3-F1 FULLY CLOSED. Planner (tool_uses=14) + plan-QA proof (tool_uses=69) + plan-QA falsif (tool_uses=43) + 4 builders D1→D4 (12+37+12+43=104 cumulative) + build-QA proof (tool_uses=33) + build-QA falsif (tool_uses=27). Total L3-F1: 9 agents, ~323 tool_uses. Greenfield internal/dotta/ package shipped: types (Tree/Subtree/Mapping/FileMeta/SkippedEntry), exported ExpandTilde (extracted from cmd/ta), LoadMapping (mapping.toml reserved-filename rule), Walk (full categorization symlinks+permission-denied+irregular+mapping.toml-excluded+deterministic-sorted), 26 tests + golden integration test. mage check 1136/0 failed end-to-end. Two non-blocking findings routed for future tightening: irregular-branch test coverage gap + callsite line-number prose drift. L2-F's F2 (tree-view TUI) NOT YET STARTED — separate L3 sub-planner pending. F3 (target-system selector) blocked by F1+F2."
+updated_at = "2026-05-15T12:32:00Z"
+[builder_l3f1_d1_types_and_paths]
+blockers = []
+completed_at = "2026-05-15T12:10:00Z"
+created_at = "2026-05-15T12:05:00Z"
+objective = "Greenfield internal/dotta/ package types + ExpandTilde extraction from cmd/ta/init_cmd.go. ≤4 distinct edits (AT budget): tree.go + paths.go + paths_test.go + cmd/ta/init_cmd.go (callsite swap + local expandTilde delete). Mapping types declared here; Skipped enum widened to {symlink,unreadable,permission-denied,irregular}."
+outcome = "success"
+parent_id = "drop_004.drop.l3_f1_dotta_walker"
+paths = ["internal/dotta/tree.go", "internal/dotta/paths.go", "internal/dotta/paths_test.go", "cmd/ta/init_cmd.go"]
+role = "builder"
+started_at = "2026-05-15T12:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder L3-F1 D1 — dotta types + ExpandTilde extraction"
+transition_notes = "L3-F1-D1 complete. tool_uses=25. Files: internal/dotta/{tree.go (Tree/Subtree/Mapping/FileMeta/SkippedEntry types + OnConflict*+SkipReason* consts), paths.go (ExpandTilde with 'dotta: expand %q: %w' wrapping), paths_test.go (4 tests)}, cmd/ta/init_cmd.go (import added; line 185 callsite swap to dotta.ExpandTilde; deleted local expandTilde lines 196-219). Tests: mage testFunc TestExpandTilde 4/4; mage testPkg ./internal/dotta 4/4; mage testPkg ./cmd/ta 318/318 (no regression from local-fn delete); mage check 1105/0+9 pre-existing skips. Design notes: types inert data containers (no methods, no I/O); SkipReason includes permission-denied separate from unreadable per L3-F1 falsif AMEND #4; OnConflict/SkipReason as plain string consts (not custom typed) for TOML round-tripping. ExpandTilde error-chain now reads 'resolve --target ...: dotta: expand ...: <os err>' (both wrappers use %w, errors.Is/As traversal works)."
+updated_at = "2026-05-15T12:10:00Z"
+
+[builder_l3f1_d2_mapping_loader]
+blockers = ["drop_004.drop.builder_l3f1_d1_types_and_paths"]
+completed_at = "2026-05-15T12:15:00Z"
+created_at = "2026-05-15T12:10:00Z"
+objective = "Add LoadMapping(subtreeDir) reading mapping.toml via pelletier/go-toml/v2. ≤2 edits: internal/dotta/mapping.go + internal/dotta/mapping_test.go. Validates OnConflict enum (empty valid; values must be skip/overwrite/merge/prompt). Missing file → zero-value Mapping nil error. Document mapping.toml as RESERVED filename within any subtree per L3-F1 falsif AMEND #3."
+outcome = "success"
+parent_id = "drop_004.drop.l3_f1_dotta_walker"
+paths = ["internal/dotta/mapping.go", "internal/dotta/mapping_test.go"]
+role = "builder"
+started_at = "2026-05-15T12:10:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder L3-F1 D2 — dotta mapping loader (TOML)"
+transition_notes = "L3-F1-D2 complete. tool_uses=37. Scope deviation 2→3 edits: D1's tree.go shipped without toml struct tags (latent — no consumer until D2). pelletier/go-toml/v2 forEachField matches exact-then-lowercase only ('OnConflict'/'onconflict'); cannot decode 'on_conflict' snake_case key into tagless field. D2 added toml:\"destination\"/toml:\"on_conflict\" tags to D1's Mapping struct — minimal correct fix. Files: internal/dotta/mapping.go (NEW, LoadMapping + isValidOnConflict + MappingFilename const + reservation Godoc), internal/dotta/mapping_test.go (NEW, 6 tests with writeMapping helper + t.TempDir fixtures), internal/dotta/tree.go (MODIFIED, toml tags added). Tests: 6/6 LoadMapping pass; mage testPkg ./internal/dotta 10/10; mage check failed:0. Design: OnConflict empty valid (caller default-fills); isValidOnConflict pure 4-const membership; errors all 'dotta:' prefixed; reservation doc at mapping.go head surfaces via go doc; MappingFilename const so callers reference one symbol."
+updated_at = "2026-05-15T12:15:00Z"
+
+[builder_l3f1_d3_walker_core]
+blockers = ["drop_004.drop.builder_l3f1_d2_mapping_loader"]
+completed_at = "2026-05-15T12:20:00Z"
+created_at = "2026-05-15T12:15:00Z"
+objective = "Implement Walk(root) (Tree, error). os.ReadDir + os.Lstat symlink detection. Subtree recursion via filepath.WalkDir. mapping.toml EXCLUDED from Files. Deterministic-sorted output. Tree.Skipped enum widened to {symlink,unreadable,permission-denied,irregular} per L3-F1 falsif AMEND #4. ≤2 edits: internal/dotta/walk.go + internal/dotta/walk_test.go. Symlink tests skip on Windows (runtime.GOOS) per L3-F1 falsif AMEND #2. Walker godoc declares mapping.toml reservation per L3-F1 falsif AMEND #3."
+outcome = "success"
+parent_id = "drop_004.drop.l3_f1_dotta_walker"
+paths = ["internal/dotta/walk.go", "internal/dotta/walk_test.go"]
+role = "builder"
+started_at = "2026-05-15T12:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder L3-F1 D3 — dotta walker core (Walk + structural tests)"
+transition_notes = "L3-F1-D3 complete. tool_uses=12. Walk(root) implemented with two-phase recursion: os.ReadDir at root level (regular→RootFiles, dir→walkSubtree, symlink→Skipped); filepath.WalkDir within each subtree. Files: internal/dotta/{walk.go,walk_test.go} NEW. 14 TestWalk_* tests pass incl. _PermissionDeniedDir (AMEND #4). Symlink detection: entry.Type()&fs.ModeSymlink (works at both levels; WalkDir doesn't follow symlinks). Permission-denied: errors.Is(err, fs.ErrPermission)||errors.Is(err, syscall.EACCES) on WalkDirFunc err arg → fs.SkipDir continuation. Irregular: typ&fs.ModeIrregular||typ&fs.ModeType after regular/dir/symlink branches return. mapping.toml excluded at any depth via basename d.Name()==MappingFilename (from D2 const). Defensive sort.Slice on RootFiles/Subtrees/Files/Skipped guarantees Tree deterministic. Skipped flattened to Tree.Skipped (one list keyed by RelPath against root). Tests: mage testPkg ./internal/dotta 24/24 (D1+D2+D3 cumulative); mage check 1125/0 failed + 9 pre-existing skips. Symlink + permission tests skip on Windows (runtime.GOOS) and root (os.Geteuid()==0)."
+updated_at = "2026-05-15T12:20:00Z"
+
+[builder_l3f1_d4_golden_integration]
+blockers = ["drop_004.drop.builder_l3f1_d3_walker_core"]
+completed_at = "2026-05-15T12:25:00Z"
+created_at = "2026-05-15T12:20:00Z"
+objective = "Final L3-F1 droplet. Golden snapshot test for Walk via canonical-TOML marshalling pattern matching internal/render/schema_flow_test.go::assertSchemaFlowGolden. ≤2 edits: internal/dotta/walk_golden_test.go + internal/dotta/testdata/walk/realistic/** (fixture tree + .golden). <ROOT> placeholder substitution for cross-machine stability. TA_GOLDEN_UPDATE=1 env-gate for re-write. Fixture mimics ~/.ta/ shape: schema.toml + index.toml root + agents/{file_a.md,file_b.md,mapping.toml(destination+on_conflict=skip)} + ta/sub.toml."
+outcome = "success"
+parent_id = "drop_004.drop.l3_f1_dotta_walker"
+paths = ["internal/dotta/walk_golden_test.go", "internal/dotta/testdata/walk/realistic"]
+role = "builder"
+started_at = "2026-05-15T12:20:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder L3-F1 D4 — dotta walker golden integration test"
+transition_notes = "L3-F1-D4 complete. tool_uses=43. Files: internal/dotta/walk_golden_test.go (NEW) + internal/dotta/testdata/walk/realistic/{schema.toml,index.toml,agents/{file_a.md,file_b.md,mapping.toml},ta/sub.toml} (NEW fixture, 6 files) + internal/dotta/testdata/walk/realistic.golden (NEW, 56 lines, 861 bytes). 26/25+1 (env-gated skip) tests pass in ./internal/dotta. mage check 1136/0 failed. Key design: <ROOT> substitution anchored on tree.Root (single bytes.ReplaceAll on marshaled output covers Tree.Root + Subtree.AbsPath + FileMeta.AbsPath uniformly); macOS /var↔/private/var drift defeated via filepath.EvalSymlinks(t.TempDir()) before passing to Walk; canonical-TOML via pelletier/go-toml/v2 (no pre/post-sort needed since Walk's internal sort.Slice + v2's declaration-order marshalling = deterministic). Mode normalization (chmod 0o644) eliminates umask-induced byte instability. Fixture exercises populated + zero-value Mapping branches (agents/ has mapping.toml; ta/ doesn't) + mapping-filename-exclusion rule (agents/Files contains file_a.md+file_b.md only). TestWalkGolden_UpdateFlag is env-gated TA_GOLDEN_UPDATE=1 for regeneration."
+updated_at = "2026-05-15T12:25:00Z"
+
+[l3_f1_build_qa_proof]
+blockers = ["drop_004.drop.builder_l3f1_d1_types_and_paths", "drop_004.drop.builder_l3f1_d2_mapping_loader", "drop_004.drop.builder_l3f1_d3_walker_core", "drop_004.drop.builder_l3f1_d4_golden_integration"]
+completed_at = "2026-05-15T12:32:00Z"
+created_at = "2026-05-15T12:25:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l3_f1_dotta_walker"
+role = "qa-proof"
+started_at = "2026-05-15T12:25:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_f1_dotta_walker"
+title = "Build-QA proof — L3-F1 dotta walker (4 builders)"
+transition_notes = "PASS. tool_uses=33. All 10 verification points pass against live artifacts: 8 NEW files at cited absolute paths; types+tags+consts including AMEND #4 SkipReason widening (permission-denied + irregular); ExpandTilde with `dotta:` wrap + cmd/ta refactor clean (rg confirms 0 expandTilde orphans); LoadMapping covers 4 branches + RESERVED godoc per AMEND #3; Walk handles full categorization + Windows skips per AMEND #2 + deterministic sort; golden infra with <ROOT> + EvalSymlinks. Live mage runs: dotta 26/25+1 skip / cmd/ta 319/318+1 skip / mage check 1136/1126+10/0 failed. Two non-blocking findings: (1) irregular branch at walk.go:232 not exercised by any test (FIFO/socket fixture absent — implementation+constant+godoc correct but coverage gap); (2) callsite line drift — D1 prose says :185, actual line is :186 (behaviorally correct, prose-only drift). Neither blocks the build-QA proof verdict."
+updated_at = "2026-05-15T12:32:00Z"
+[l3_f1_build_qa_falsif]
+blockers = ["drop_004.drop.builder_l3f1_d1_types_and_paths", "drop_004.drop.builder_l3f1_d2_mapping_loader", "drop_004.drop.builder_l3f1_d3_walker_core", "drop_004.drop.builder_l3f1_d4_golden_integration"]
+completed_at = "2026-05-15T12:30:00Z"
+created_at = "2026-05-15T12:25:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l3_f1_dotta_walker"
+role = "qa-falsification"
+started_at = "2026-05-15T12:25:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_f1_dotta_walker"
+title = "Build-QA falsif — L3-F1 dotta walker (4 builders)"
+transition_notes = "READY. tool_uses=27. 10 attacks: 8 MITIGATED (D2 toml tag round-trip via fixture+golden; PermissionDeniedDir chmod-child-not-root triggers WalkDirFunc err branch correctly; <ROOT> substitution safe — file contents NEVER serialized into Tree; cross-builder file conflicts compile-clean per mage; symlink detection both at root+subtree levels per stdlib lstat contract; mapping.toml documentation present at mapping.go package-doc per AMEND #3; concurrent Walk safety via goroutine-local Tree allocation; test count delta routed to comment) + 2 ACCEPTED (macOS /var↔/private/var production-side accepted as consistent-within-Walk; golden brittleness accepted as intentional contract anchor with TA_GOLDEN_UPDATE=1 regen). Soft unknown: +5 test-count accounting drift (1063 H1 baseline + 26 dotta + 37 cmd/ta + 5 mcp-path-guard = 1131 expected vs 1136 actual). Cosmetic, routed as Tillsyn comment not blocker. Verdict survives self-attack."
+updated_at = "2026-05-15T12:30:00Z"

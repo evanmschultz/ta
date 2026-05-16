@@ -1,0 +1,8 @@
+[tracker]
+created_at = "2026-05-15T11:50:00Z"
+description = "Address arbitrary line spans, not just block selectors. Enables precise patch-style edits inside code files where AST splicing is unsafe (whitespace-sensitive contexts, mixed-language files, generated code with comments). Surface: --lines=<start>:<end> flag on ta get/update; builders carry line_range field on action-item base; conflict detection against concurrent block-selector edits."
+role = "planner"
+state = "todo"
+target_version = "v0_2_0.tracker"
+title = "Line-grained editing primitive"
+updated_at = "2026-05-15T11:50:00Z"

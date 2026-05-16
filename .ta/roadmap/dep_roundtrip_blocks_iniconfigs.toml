@@ -1,0 +1,9 @@
+[edge]
+created_at = "2026-05-15T11:50:00Z"
+from_id = "round_trip_preservation_guarantees.tracker"
+kind = "blocks"
+rationale = "Same preservation gate as yaml/csv/json — these formats hold user-edited config and must not drift on edit."
+state = "todo"
+title = "Round-trip preservation blocks INI/ENV/Justfile/Makefile/Dockerfile types"
+to_id = "ini_env_justfile_makefile_dockerfile_types.tracker"
+updated_at = "2026-05-15T11:50:00Z"

@@ -1,0 +1,9 @@
+[edge]
+created_at = "2026-05-15T11:50:00Z"
+from_id = "round_trip_preservation_guarantees.tracker"
+kind = "blocks"
+rationale = "yaml/csv/json backends cannot land without the per-format golden suite enforcing byte-identical no-change round-trip — otherwise comment loss + quote-style drift regress silently."
+state = "todo"
+title = "Round-trip preservation blocks YAML/CSV/JSON file types"
+to_id = "yaml_csv_json_file_types.tracker"
+updated_at = "2026-05-15T11:50:00Z"
