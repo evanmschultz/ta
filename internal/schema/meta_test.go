@@ -3,6 +3,7 @@ package schema
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -393,5 +394,93 @@ func TestExamplesClaudeAgents_MultiMount(t *testing.T) {
 	}
 	if _, ok := db.Types["agent"]; !ok {
 		t.Error("claude_agents.agent type missing")
+	}
+}
+
+// TestExamplesCascadeSchema_AutoSpawnByteFidelity locks the drop_004
+// L3-I1-D3 contract: the binary-shipped `examples/schemas/cascade.toml`
+// MUST declare `[cascade.drop.auto_spawn]` and `[cascade.planner.auto_spawn]`
+// blocks whose parsed shape is BYTE-IDENTICAL to the live
+// `.ta/schema.toml`. The example schema is the substrate `ta init` ships
+// into new projects — if the example drifts from the live (the only
+// schema that actually exercises auto_spawn in the dogfood project),
+// every new ta-bootstrapped project gets a regressed cascade contract.
+//
+// Asserted invariants per [cascade.drop, cascade.planner] type:
+//   - both schemas declare the same number of AutoSpawn specs;
+//   - each spec's Type, IDTemplate, and Fields map (F23-v2 token strings
+//     included verbatim) match.
+//
+// Path resolution uses the in-package `repoRoot(t)` helper so the test
+// is stable regardless of the runner's working directory. The
+// `[cascade.droplet.auto_spawn]` block is intentionally OUT OF SCOPE for
+// this fidelity gate — it's already pinned by
+// `TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair` (live + synthetic)
+// and shipped uncommented in the example schema since pre-F23 v2.
+func TestExamplesCascadeSchema_AutoSpawnByteFidelity(t *testing.T) {
+	root := repoRoot(t)
+	liveBytes, err := os.ReadFile(filepath.Join(root, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read live schema: %v", err)
+	}
+	exampleBytes, err := os.ReadFile(filepath.Join(root, "examples", "schemas", "cascade.toml"))
+	if err != nil {
+		t.Fatalf("read example schema: %v", err)
+	}
+
+	liveReg, err := LoadBytes(liveBytes)
+	if err != nil {
+		t.Fatalf("load live schema: %v", err)
+	}
+	exampleReg, err := LoadBytes(exampleBytes)
+	if err != nil {
+		t.Fatalf("load example schema: %v", err)
+	}
+
+	for _, typeName := range []string{"drop", "planner"} {
+		t.Run(typeName, func(t *testing.T) {
+			liveCascade, ok := liveReg.DBs["cascade"]
+			if !ok {
+				t.Fatal("live schema missing cascade db")
+			}
+			liveType, ok := liveCascade.Types[typeName]
+			if !ok {
+				t.Fatalf("live schema missing cascade.%s type", typeName)
+			}
+			exampleCascade, ok := exampleReg.DBs["cascade"]
+			if !ok {
+				t.Fatal("example schema missing cascade db")
+			}
+			exampleType, ok := exampleCascade.Types[typeName]
+			if !ok {
+				t.Fatalf("example schema missing cascade.%s type", typeName)
+			}
+
+			if got, want := len(exampleType.AutoSpawn), len(liveType.AutoSpawn); got != want {
+				t.Fatalf("cascade.%s AutoSpawn len: example=%d, live=%d (must mirror token-for-token)",
+					typeName, got, want)
+			}
+			if len(liveType.AutoSpawn) == 0 {
+				t.Fatalf("cascade.%s declares no AutoSpawn in live schema — drop_004 L2-J should have landed it",
+					typeName)
+			}
+
+			for i := range liveType.AutoSpawn {
+				liveSpec := liveType.AutoSpawn[i]
+				exSpec := exampleType.AutoSpawn[i]
+				if liveSpec.Type != exSpec.Type {
+					t.Errorf("cascade.%s AutoSpawn[%d].Type: example=%q, live=%q",
+						typeName, i, exSpec.Type, liveSpec.Type)
+				}
+				if liveSpec.IDTemplate != exSpec.IDTemplate {
+					t.Errorf("cascade.%s AutoSpawn[%d].IDTemplate: example=%q, live=%q",
+						typeName, i, exSpec.IDTemplate, liveSpec.IDTemplate)
+				}
+				if !reflect.DeepEqual(liveSpec.Fields, exSpec.Fields) {
+					t.Errorf("cascade.%s AutoSpawn[%d].Fields drift:\n  example=%#v\n  live   =%#v",
+						typeName, i, exSpec.Fields, liveSpec.Fields)
+				}
+			}
+		})
 	}
 }

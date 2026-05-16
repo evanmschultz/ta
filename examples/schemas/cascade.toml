@@ -547,6 +547,15 @@ type = "integer"
 required = true
 description = "Sequential drop number (matches the drop_N directory)."
 
+# F23 v2 runtime-fill: every cascade.drop record creation generates
+# its two plan-QA twin records so descent into L2/L3/Ln is gated by
+# schema-driven QA enforcement (drop_004 L2-J).
+[cascade.drop.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+
 # Interior planner node — first-class type. Writes directives for child
 # planners (segment/confluence) or droplets, never both in the same node.
 [cascade.segment]
@@ -601,6 +610,15 @@ on_create = [
 [cascade.planner]
 extends = "ActionItem"
 description = "Generic planner action item — interior cascade work that doesn't fit segment or confluence (e.g. plan-revision, retro)."
+
+# F23 v2 runtime-fill: every cascade.planner record creation generates
+# its two plan-QA twin records so interior planning records (L3+ planners,
+# retros, plan-revisions) are gated by schema-driven QA enforcement.
+[cascade.planner.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
 
 [cascade.qa_proof]
 extends = "ActionItem"
