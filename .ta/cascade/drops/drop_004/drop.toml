@@ -3890,88 +3890,231 @@ L3-I1-D1 BOTH HALVES PASS — fully ratified. L3-I1-D2 unblocks.
 updated_at = "2026-05-16T08:45:00Z"
 [builder_l3_i1_d2_validate_merge]
 blockers = ["drop_004.drop.builder_l3_i1_d1_config_struct"]
+completed_at = "2026-05-16T23:32:00Z"
 created_at = "2026-05-16T06:45:00Z"
 objective = "Config.MergeDefaults consumer + Validate function. Merge: user config overlays binary defaults. Validate: enum + path checks. Tests: TestMerge_OverridesDefaults / _PreservesUnsetFields / TestValidate_RejectsBadEnum / _RejectsBadMergeStrategy. mage testPkg ./internal/installconfig green."
+outcome = "success"
 parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
 paths = ["internal/installconfig/merge.go", "internal/installconfig/validate.go", "internal/installconfig/merge_test.go", "internal/installconfig/validate_test.go"]
 role = "builder"
 started_at = "2026-05-16T23:40:00Z"
-state = "in_progress"
+state = "complete"
 structural_type = "droplet"
 title = "L3-I1-D2 builder — installconfig validation + merge-with-defaults"
-updated_at = "2026-05-16T23:40:00Z"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=10.
+
+mage testPkg ./internal/installconfig: 20/20 PASS.
+
+Files shipped (5):
+- internal/installconfig/merge.go (NEW): Config.MergeDefaults + unexported mergeSubstrate helper.
+- internal/installconfig/validate.go (NEW): exported Validate + flattenStrategyEnum + mergeStrategyEnum.
+- internal/installconfig/merge_test.go (NEW): TestMerge_OverridesDefaults / _PreservesUnsetFields.
+- internal/installconfig/validate_test.go (NEW): TestValidate_AcceptsValidConfig / _RejectsBadEnum / _RejectsBadMergeStrategy (3 subtests) / _RejectsMissingRegisterFields (2 subtests).
+- internal/installconfig/load.go (EDIT): replaced unexported validate with call to exported Validate — ONE validator not two.
+
+Design decisions:
+- Single validator: D2's exported Validate is strict superset of D1's unexported validate; D1 tests pass unchanged.
+- Enum sets include empty string (FlattenStrategy/MergeStrategy optional; unset = empty).
+- Per-field merge with Register slice as single unit (element-merging punted per YAGNI — doc-comment explicit).
+- Mutation-safe MergeDefaults: fresh Substrates map allocated; pinned by mutation-guard assertion in TestMerge_PreservesUnsetFields.
+"""
+updated_at = "2026-05-16T23:32:00Z"
 [builder_l3_i1_d2_validate_merge-qa-proof]
+completed_at = "2026-05-17T00:10:00Z"
 created_at = "2026-05-16T18:18:57Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-17T00:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.builder_l3_i1_d2_validate_merge"
 title = "QA proof of L3-I1-D2 builder — installconfig validation + merge-with-defaults"
-updated_at = "2026-05-16T18:18:57Z"
+transition_notes = """
+VERDICT: PASS. tool_uses=28.
 
+All 9 proof-focus items verified at file:line with direct evidence. mage testPkg ./internal/installconfig 20/20 PASS. Test names exact match per spec. Exported Validate + MergeDefaults signatures exact. load.go calls exported Validate (single validator invariant). Enum maps include empty-string for optional fields. MergeDefaults mutation-safe with assertion in TestMerge_PreservesUnsetFields. Scope = 5 files. Single validator confirmed via rg returning only doc-comment hit.
+"""
+updated_at = "2026-05-17T00:10:00Z"
 [builder_l3_i1_d2_validate_merge-qa-falsification]
+completed_at = "2026-05-17T00:10:00Z"
 created_at = "2026-05-16T18:18:57Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-17T00:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.builder_l3_i1_d2_validate_merge"
 title = "QA falsif of L3-I1-D2 builder — installconfig validation + merge-with-defaults"
-updated_at = "2026-05-16T18:18:57Z"
+transition_notes = """
+VERDICT: PASS. tool_uses=23.
 
+9 attacks evaluated, all MITIGATED (documented contracts, existing tests, or zero-caller blast radius):
+- A1 Register slice aliasing: documented at merge.go:11-12; zero external callers today.
+- A2 Post-merge empty-enum: matches optional-field contract per validate.go:6-8.
+- A3 Strict-superset claim: git diff 926f35d shows additions only; D1 tests pass under new Validate.
+- A4 Empty-string enum acceptance: traced through validateSubstrate; correct for optional fields.
+- A5 Register partial-population: 2 subcases cover Event+SettingsFile; Matcher optional verified via TestLoad_ParsesMultiRegisterEntries.
+- A6 Merge precedence: pinned by TestMerge_OverridesDefaults.
+- A7 D4 fixture orphan-state: routed to L3-I1-D4 falsif (was FAIL, now folded with TestLoadFile_AcceptsCanonicalFixture).
+- A8/A9 Validate value-vs-pointer + merge-empty-as-unset: TOML decoding limitation, documented.
+
+Zero counterexamples to D2's scope.
+"""
+updated_at = "2026-05-17T00:10:00Z"
 [builder_l3_i1_d3_examples_sync]
 blockers = []
+completed_at = "2026-05-16T23:32:00Z"
 created_at = "2026-05-16T06:45:00Z"
 objective = "Add [cascade.drop.auto_spawn] + [cascade.planner.auto_spawn] blocks to examples/schemas/cascade.toml mirroring .ta/schema.toml:46-50 + :119-123 TOKEN-FOR-TOKEN. Extend internal/schema/meta_test.go with TestExamplesCascadeSchema_AutoSpawnByteFidelity asserting per-block F23 v2 token strings + id_template + role match live schema. mage testPkg ./internal/schema green."
+outcome = "success"
 parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
 paths = ["examples/schemas/cascade.toml", "internal/schema/meta_test.go"]
 role = "builder"
 started_at = "2026-05-16T23:40:00Z"
-state = "in_progress"
+state = "complete"
 structural_type = "droplet"
 title = "L3-I1-D3 builder — examples/schemas/cascade.toml sync + byte-fidelity test"
-updated_at = "2026-05-16T23:40:00Z"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=17.
+
+mage testPkg ./internal/schema: 201/201 PASS. mage testFunc TestExamplesCascadeSchema_AutoSpawnByteFidelity: 3/3 PASS (parent + drop subtest + planner subtest).
+
+Files touched (2):
+- examples/schemas/cascade.toml (EDIT): added [cascade.drop.auto_spawn] + [cascade.planner.auto_spawn] blocks TOKEN-FOR-TOKEN identical to live .ta/schema.toml:46-50 + :119-123. [cascade.droplet.auto_spawn] already shipped, untouched.
+- internal/schema/meta_test.go (EDIT): added reflect import + TestExamplesCascadeSchema_AutoSpawnByteFidelity. Test walks cascade.drop + cascade.planner subtests, asserts each spec's Type/IDTemplate/Fields map matches between live and example schemas via reflect.DeepEqual.
+
+Positive byte-fidelity gate: future edit drift between schemas caught at mage check time.
+"""
+updated_at = "2026-05-16T23:32:00Z"
 [builder_l3_i1_d3_examples_sync-qa-proof]
+completed_at = "2026-05-17T00:10:00Z"
 created_at = "2026-05-16T18:18:57Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-17T00:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.builder_l3_i1_d3_examples_sync"
 title = "QA proof of L3-I1-D3 builder — examples/schemas/cascade.toml sync + byte-fidelity test"
-updated_at = "2026-05-16T18:18:57Z"
+transition_notes = """
+VERDICT: PASS. tool_uses=23.
 
+mage testPkg ./internal/schema: 201/201 PASS.
+TestExamplesCascadeSchema_AutoSpawnByteFidelity present at meta_test.go:400-486 with drop + planner subtests via t.Run.
+
+Auto_spawn blocks token-for-token verified:
+- examples/schemas/cascade.toml:553-557 = .ta/schema.toml:46-50 (drop)
+- examples/schemas/cascade.toml:617-621 = .ta/schema.toml:119-123 (planner)
+
+[cascade.droplet.auto_spawn] untouched per scope.
+Scope clean: 2 files modified per commit 423eed1.
+Test sensitivity verified: SpawnSpec.Fields is map[string]any populated from raw TOML; reflect.DeepEqual catches any token drift.
+"""
+updated_at = "2026-05-17T00:10:00Z"
 [builder_l3_i1_d3_examples_sync-qa-falsification]
+completed_at = "2026-05-17T00:10:00Z"
 created_at = "2026-05-16T18:18:57Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-17T00:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.builder_l3_i1_d3_examples_sync"
 title = "QA falsif of L3-I1-D3 builder — examples/schemas/cascade.toml sync + byte-fidelity test"
-updated_at = "2026-05-16T18:18:57Z"
+transition_notes = """
+VERDICT: PASS with non-blocking AMEND recommendation. tool_uses=37.
 
+20 attack surfaces probed; zero unmitigated CEs.
+
+Non-blocking findings (ROUTED, not folded):
+- A20 meta_test.go:418 comment claims droplet pin is '(live + synthetic)' but auto_spawn_test.go:533-680 is synthetic-only. Cosmetic doc drift; recommend amending comment OR adding live droplet sub-test.
+- A3 droplet live-vs-example parity unguarded (only drop + planner covered; droplet has no live-vs-example test). Pre-existing scope gap routed to pre-MVP tracker.
+- A5 wider schema parity beyond auto_spawn unguarded. Pre-existing scope; routed.
+
+MITIGATED attacks:
+- A1 DeepEqual vs ByteFidelity name: cosmetic; test honestly documents the actual invariant.
+- A4 cwd dependency: repoRoot uses runtime.Caller(0); cwd-independent.
+- A6 test sensitivity: would catch any concrete drift via DeepEqual on Fields map[string]any.
+- A7-A19 various: each mitigated with file:line evidence.
+
+Slice scope upheld.
+"""
+updated_at = "2026-05-17T00:10:00Z"
 [builder_l3_i1_d4_testdata_fixture]
 blockers = ["drop_004.drop.builder_l3_i1_d1_config_struct"]
+completed_at = "2026-05-16T23:32:00Z"
 created_at = "2026-05-16T06:45:00Z"
 objective = "NEW canonical fixture covering ≥6 substrate types + 3 merger paths: claude_agents (flatten no-merge), claude_hooks (file copy + register triple), claude_skills (file copy), claude_md_fragments (line merge via internal/configmerge.NewLineMerger), claude_settings_fragments (JSON merge with arrayDedupeKeys via NewJSONMerger), codex_config_fragments (TOML merge via NewTOMLMerger). D1's TestLoad_RecognizesAllSubstrateFields + _ParsesRegistrationArray reference this fixture."
+outcome = "success"
 parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
 paths = ["internal/installconfig/testdata/install.toml"]
 role = "builder"
 started_at = "2026-05-16T23:40:00Z"
-state = "in_progress"
+state = "complete"
 structural_type = "droplet"
 title = "L3-I1-D4 builder — testdata fixture covering 6 substrate types + 3 merger paths"
-updated_at = "2026-05-16T23:40:00Z"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=17.
+
+mage testPkg ./internal/installconfig: 20/20 PASS.
+
+File shipped (1):
+- internal/installconfig/testdata/install.toml (NEW): canonical fixture covering 6 substrate types + 3 merger paths:
+  - claude_agents (flatten no-merge)
+  - claude_hooks (file copy + register triple: 3 [[register]] entries: PreToolUse/Bash + PreToolUse/Agent + SessionStart/empty)
+  - claude_skills (file copy)
+  - claude_md_fragments (line merger via merge_strategy='append')
+  - claude_settings_fragments (JSON merger via merge_strategy='merge' + merge_path='hooks')
+  - codex_config_fragments (TOML merger via merge_strategy='merge' + merge_path='mcp_servers')
+
+All enum values are within declared sets in validate.go. Round-trips via LoadFile + Validate cleanly.
+"""
+updated_at = "2026-05-16T23:32:00Z"
 [builder_l3_i1_d4_testdata_fixture-qa-proof]
+completed_at = "2026-05-17T00:10:00Z"
 created_at = "2026-05-16T18:18:57Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-17T00:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.builder_l3_i1_d4_testdata_fixture"
 title = "QA proof of L3-I1-D4 builder — testdata fixture covering 6 substrate types + 3 merger paths"
-updated_at = "2026-05-16T18:18:57Z"
+transition_notes = """
+VERDICT: PASS. tool_uses=18.
 
+Fixture verified at internal/installconfig/testdata/install.toml: 6 substrate types + 3 merger paths + 3-entry register triple for claude_hooks + chmod=0755 + all enum values valid + paths portable.
+
+mage testPkg ./internal/installconfig: 20/20 PASS (now 21/21 after D4 falsif AMEND fold).
+
+One non-blocking observation: builder admitted no test in package loaded the fixture file via LoadFile (D4 acceptance contract gap). Caught by paired falsif review and folded orchestrator-direct.
+"""
+updated_at = "2026-05-17T00:10:00Z"
 [builder_l3_i1_d4_testdata_fixture-qa-falsification]
+completed_at = "2026-05-17T00:10:00Z"
 created_at = "2026-05-16T18:18:57Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-17T00:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.builder_l3_i1_d4_testdata_fixture"
 title = "QA falsif of L3-I1-D4 builder — testdata fixture covering 6 substrate types + 3 merger paths"
-updated_at = "2026-05-16T18:18:57Z"
+transition_notes = """
+VERDICT: FAIL → FOLDED. tool_uses=27.
 
+CONFIRMED CE: D4 acceptance contract at drop.toml:2262 ('D1's TestLoad_RecognizesAllSubstrateFields + TestLoad_ParsesRegistrationArray reference this fixture; all 6 types parse cleanly') was UNMET because builder shipped the fixture but no test loaded it from disk. Fixture had no regression-gate test.
+
+FOLD APPLIED orchestrator-direct (drop_003 precedent, surgical 30 LOC):
+Added TestLoadFile_AcceptsCanonicalFixture at load_test.go:194-269 that:
+- Loads testdata/install.toml via LoadFile.
+- Asserts len(Substrates)==6 with all 6 named types present.
+- Asserts claude_hooks has 3 register entries + chmod='0755'.
+- Asserts 3 merger paths: claude_md_fragments.MergeStrategy='append', claude_settings_fragments.MergeStrategy='merge', codex_config_fragments.MergeStrategy='merge'.
+- Calls Validate(*cfg) explicitly so regression message points at validation drift.
+
+Verification: mage testPkg ./internal/installconfig → 21/21 PASS (20 baseline + 1 new fixture-load gate).
+
+Fixture is now an active regression gate, not just a staged reference document. Future schema drift in installconfig.Config or its enum sets fails this test rather than silently passing.
+
+Fix-on-cfg-pointer note: LoadFile returns *Config; Validate accepts Config value — deref required. Caught by vet during first mage check; fixed via *cfg argument.
+"""
+updated_at = "2026-05-17T00:10:00Z"
 [builder_l3_e1_d0_stil_reconcile]
 blockers = []
 completed_at = "2026-05-16T08:00:00Z"

@@ -189,3 +189,79 @@ destination = ".claude/skills"
 		t.Fatalf("LoadFile on missing path: expected error, got nil")
 	}
 }
+
+// TestLoadFile_AcceptsCanonicalFixture pins the L3-I1-D4 canonical fixture
+// (`testdata/install.toml`) as a regression gate. The fixture documents the
+// shape the install-substrate layer expects: 6 substrate types covering all
+// 3 merger paths (line / JSON / TOML). If the fixture ever drifts from the
+// loader contract — schema rename, enum tightening, required-field
+// addition — this test fails at `mage check` time rather than at downstream
+// `ta init` time. Per L3-I1-D4 planner acceptance contract at
+// drop.toml:2262 ("D1's TestLoad_RecognizesAllSubstrateFields +
+// TestLoad_ParsesRegistrationArray reference this fixture; all 6 types
+// parse cleanly") — closing the gap that the existing D1 tests use inline
+// TOML rather than load the canonical fixture from disk.
+func TestLoadFile_AcceptsCanonicalFixture(t *testing.T) {
+	cfg, err := LoadFile("testdata/install.toml")
+	if err != nil {
+		t.Fatalf("LoadFile(testdata/install.toml): %v", err)
+	}
+
+	wantTypes := []string{
+		"claude_agents",
+		"claude_hooks",
+		"claude_skills",
+		"claude_md_fragments",
+		"claude_settings_fragments",
+		"codex_config_fragments",
+	}
+	if got := len(cfg.Substrates); got != len(wantTypes) {
+		t.Errorf("Substrates count = %d, want %d", got, len(wantTypes))
+	}
+	for _, name := range wantTypes {
+		if _, ok := cfg.Substrates[name]; !ok {
+			t.Errorf("Substrates[%q] missing", name)
+		}
+	}
+
+	// claude_hooks must declare the register triple (3 entries with
+	// distinct event/matcher combos). This is the load-bearing shape D4's
+	// fixture pins.
+	if hooks, ok := cfg.Substrates["claude_hooks"]; ok {
+		if got := len(hooks.Register); got != 3 {
+			t.Errorf("claude_hooks.Register len = %d, want 3", got)
+		}
+		if hooks.Chmod != "0755" {
+			t.Errorf("claude_hooks.Chmod = %q, want %q", hooks.Chmod, "0755")
+		}
+	}
+
+	// 3 merger paths via merge_strategy: line (append), JSON (merge),
+	// TOML (merge). Verify the strategy fields on the three merger
+	// substrates.
+	mergerCases := []struct {
+		substrate string
+		strategy  string
+	}{
+		{"claude_md_fragments", "append"},
+		{"claude_settings_fragments", "merge"},
+		{"codex_config_fragments", "merge"},
+	}
+	for _, tc := range mergerCases {
+		sub, ok := cfg.Substrates[tc.substrate]
+		if !ok {
+			t.Errorf("Substrates[%q] missing for merger-path coverage", tc.substrate)
+			continue
+		}
+		if sub.MergeStrategy != tc.strategy {
+			t.Errorf("Substrates[%q].MergeStrategy = %q, want %q", tc.substrate, sub.MergeStrategy, tc.strategy)
+		}
+	}
+
+	// Validate post-load — the fixture must pass enum/required-field
+	// gates. (LoadFile already calls Validate, but assert here explicitly
+	// so the regression message points at validation if it ever drifts.)
+	if err := Validate(*cfg); err != nil {
+		t.Errorf("Validate(canonical-fixture): %v", err)
+	}
+}
