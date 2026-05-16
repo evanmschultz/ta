@@ -7,6 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/fang/v2 v2.0.1
 	charm.land/lipgloss/v2 v2.0.2
+	github.com/andybalholm/cascadia v1.3.3
 	github.com/charmbracelet/x/exp/charmtone v0.0.0-20250603201427-c31516f43444
 	github.com/charmbracelet/x/exp/golden v0.0.0-20260323091123-df7b1bcffcca
 	github.com/charmbracelet/x/term v0.2.2
@@ -15,6 +16,7 @@ require (
 	github.com/odvcencio/gotreesitter v0.15.1
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/net v0.52.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -52,7 +54,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
-	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
