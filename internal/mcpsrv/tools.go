@@ -291,12 +291,23 @@ type fieldView struct {
 // is populated when fields was set. Error names per-item failures
 // (resolver / IO) — record-not-found surfaces as Found=false WITHOUT
 // an error string per F37 read semantics.
+//
+// Children is populated when the requested id is a group prefix (at
+// least one canonical child record id begins with `id + "."`). Each
+// child is a single-level deep getResultItem; recursion is not
+// performed — callers that need children of children must re-issue
+// ta_get with the child id.
+//
+// Children is left nil (NOT an empty slice) when the id is not a group
+// prefix or when no children exist. The omitempty tag ensures the
+// "children" key is absent from the JSON wire output in that case.
 type getResultItem struct {
-	ID     string         `json:"id"`
-	Found  bool           `json:"found"`
-	Bytes  string         `json:"bytes,omitempty"`
-	Fields map[string]any `json:"fields,omitempty"`
-	Error  string         `json:"error,omitempty"`
+	ID       string          `json:"id"`
+	Found    bool            `json:"found"`
+	Bytes    string          `json:"bytes,omitempty"`
+	Fields   map[string]any  `json:"fields,omitempty"`
+	Error    string          `json:"error,omitempty"`
+	Children []getResultItem `json:"children,omitempty"`
 }
 
 // getResult is the {path, results: [...]} envelope for the F37 batch
@@ -350,6 +361,15 @@ func decodeGetItems(arr []any) ([]getInputItem, string) {
 // misses surface as Found=false (NOT an error); per-item resolve / IO
 // failures surface as a non-empty Error string. Empty items[] is the
 // only batch-level failure (no work to do).
+//
+// Group-prefix dispatch (L3-C3): before entering the per-item loop the
+// index is loaded once via ops.LoadIndexStrict. A missing index
+// (.ta/index.toml absent) surfaces as a batch-level ToolResultError so
+// the caller knows the index is needed for group-prefix resolution.
+// Per-item, if ops.IsGroupPrefix reports the id is a group prefix, the
+// handler calls ops.GetGroup to aggregate children into the item's
+// Children field. When not a group prefix the handler falls back to the
+// existing ops.Get single-record path.
 func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
 	path, errRes := guardedPathArg(req)
@@ -372,12 +392,54 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	if len(items) == 0 {
 		return mcp.NewToolResultError("ta get: no items provided"), nil
 	}
+
+	// Load the index once outside the per-item loop. A missing index is
+	// a batch-level failure: group-prefix resolution requires it, and
+	// surfacing the error early avoids partial results that would be
+	// misleading. Callers on projects without an index should run
+	// `ta index rebuild` first.
+	idx, err := ops.LoadIndexStrict(path)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
 	// Duplicate ids on read are intentionally allowed — idempotent
 	// fetch returns the record twice in input order. No detect-dup
 	// pass here.
 	results := make([]getResultItem, len(items))
 	for i, it := range items {
 		entry := getResultItem{ID: it.id}
+
+		if ops.IsGroupPrefix(idx, it.id) {
+			// Group-prefix branch: aggregate all children. all=true,
+			// limit=0 (no cap) — the MCP caller can paginate via
+			// re-issuing with child ids if needed.
+			children, groupErr := ops.GetGroup(path, it.id, it.fields, 0, true)
+			if groupErr != nil {
+				entry.Error = groupErr.Error()
+				results[i] = entry
+				continue
+			}
+			entry.Found = true
+			childItems := make([]getResultItem, len(children))
+			for j, child := range children {
+				ci := getResultItem{ID: child.ID, Found: true}
+				if len(it.fields) > 0 {
+					ci.Fields = child.Fields
+				} else {
+					ci.Bytes = string(child.Bytes)
+				}
+				childItems[j] = ci
+			}
+			// Assign only when non-empty to keep nil-omitempty contract.
+			if len(childItems) > 0 {
+				entry.Children = childItems
+			}
+			results[i] = entry
+			continue
+		}
+
+		// Single-record path (unchanged from pre-L3-C3).
 		res, err := ops.Get(path, it.id, "", it.fields)
 		if err != nil {
 			if isMCPNotFound(err) {

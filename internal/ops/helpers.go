@@ -266,9 +266,12 @@ func resolveIDWithIndexHint(resolver *db.Resolver, reg schema.Registry, projectR
 	return resolver.ResolveID(id)
 }
 
-// loadIndexOrSentinel is the strict variant: a missing index file
-// surfaces ErrIndexMissing. Used by callers that want loud failure.
-func loadIndexOrSentinel(projectRoot string) (*index.Index, error) {
+// LoadIndexStrict is the strict variant of tryLoadIndex: a missing
+// index file surfaces ErrIndexMissing rather than returning (nil, nil).
+// Used by callers that want loud failure on absent index (e.g. GetGroup,
+// MCP handleGet). Callers that want a best-effort fallback should call
+// tryLoadIndex directly.
+func LoadIndexStrict(projectRoot string) (*index.Index, error) {
 	idx, err := tryLoadIndex(projectRoot)
 	if err != nil {
 		return nil, err
@@ -277,6 +280,14 @@ func loadIndexOrSentinel(projectRoot string) (*index.Index, error) {
 		return nil, fmt.Errorf("%w: %s", ErrIndexMissing, index.Path(projectRoot))
 	}
 	return idx, nil
+}
+
+// loadIndexOrSentinel is a thin package-internal alias for
+// LoadIndexStrict kept to avoid breaking internal call-sites that were
+// written before the export. New code outside this package should call
+// LoadIndexStrict; within this package either name is fine.
+func loadIndexOrSentinel(projectRoot string) (*index.Index, error) {
+	return LoadIndexStrict(projectRoot)
 }
 
 // writeIndexEntry upserts the canonical id into `.ta/index.toml`

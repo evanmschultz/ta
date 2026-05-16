@@ -962,6 +962,423 @@ format = "markdown"
 	}
 }
 
+// ---- L3-C3 MCP group-prefix get tests -----------------------------------
+
+// cascadeGetSchema is the shared schema fixture for the L3-C3 group-
+// prefix get tests. It declares a three-type `cascade` db backed by a
+// glob-TOML mount so records with ids `drop_001.drop.builder`,
+// `drop_001.drop.planner`, `drop_001.drop.qa_proof` all live under the
+// group prefix `drop_001.drop`.
+const cascadeGetSchema = `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+description = "Cascade trees for group-get tests."
+
+[cascade.drop]
+description = "L1 cascade root."
+
+[cascade.drop.fields.structural_type]
+type = "string"
+required = true
+enum = ["drop"]
+
+[cascade.drop.fields.drop_number]
+type = "integer"
+required = true
+
+[cascade.planner]
+description = "Planner action item."
+
+[cascade.planner.fields.title]
+type = "string"
+required = true
+
+[cascade.qa_proof]
+description = "QA proof action item."
+
+[cascade.qa_proof.fields.target]
+type = "string"
+required = true
+`
+
+// decodeGetResults is a helper for the L3-C3 tests: parses the outer
+// {path, results:[...]} JSON envelope from an MCP get tool response.
+// Returns the results slice as a slice of maps.
+func decodeGetResults(t *testing.T, body string) []map[string]any {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(body), &raw); err != nil {
+		t.Fatalf("parse get JSON: %v\nbody: %s", err, body)
+	}
+	rs, _ := raw["results"].([]any)
+	out := make([]map[string]any, 0, len(rs))
+	for _, r := range rs {
+		if m, ok := r.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// seedCascadeChild creates one record in the cascade db. Type must be
+// the db-qualified form, e.g. "cascade.drop".
+func seedCascadeChild(t *testing.T, root, id, typeName string, data map[string]any) {
+	t.Helper()
+	if _, _, err := ops.Create(root, id, typeName, data); err != nil {
+		t.Fatalf("seed %q (%s): %v", id, typeName, err)
+	}
+}
+
+// TestMCPGet_GroupPrefix_AggregatesChildren — group id with 3 children
+// returns a results[0].children slice with 3 entries, each with
+// found=true and non-empty bytes.
+func TestMCPGet_GroupPrefix_AggregatesChildren(t *testing.T) {
+	fx := newFixtureWith(t, cascadeGetSchema)
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.alpha", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 1})
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.beta", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 2})
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.gamma", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 3})
+
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "drop_001.drop"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	results := decodeGetResults(t, firstText(t, res))
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	r := results[0]
+	if found, _ := r["found"].(bool); !found {
+		t.Errorf("results[0].found = false, want true; full: %+v", r)
+	}
+	children, ok := r["children"].([]any)
+	if !ok {
+		t.Fatalf("results[0].children missing or wrong type; full: %+v", r)
+	}
+	if len(children) != 3 {
+		t.Errorf("children len = %d, want 3; children: %+v", len(children), children)
+	}
+	childIDs := make(map[string]bool, len(children))
+	for _, cv := range children {
+		cm, ok := cv.(map[string]any)
+		if !ok {
+			t.Fatalf("child entry is not an object: %+v", cv)
+		}
+		id, _ := cm["id"].(string)
+		childIDs[id] = true
+		if found, _ := cm["found"].(bool); !found {
+			t.Errorf("child %q found=false; full: %+v", id, cm)
+		}
+		if bytes, _ := cm["bytes"].(string); bytes == "" {
+			t.Errorf("child %q bytes empty; full: %+v", id, cm)
+		}
+	}
+	for _, want := range []string{
+		"drop_001.drop.alpha",
+		"drop_001.drop.beta",
+		"drop_001.drop.gamma",
+	} {
+		if !childIDs[want] {
+			t.Errorf("children missing %q; got %v", want, childIDs)
+		}
+	}
+}
+
+// TestMCPGet_EmptyGroup_FoundTrueChildrenKeyAbsent — an id that is a
+// valid record itself (found=true) but has no child records under it in
+// the index; IsGroupPrefix returns false, we fall through to ops.Get,
+// and Children is nil so the `"children"` key is absent from the
+// marshaled JSON.
+func TestMCPGet_EmptyGroup_FoundTrueChildrenKeyAbsent(t *testing.T) {
+	fx := newFixtureWith(t, cascadeGetSchema)
+	// Seed a single record with no children under it.
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.solo", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 1})
+
+	c := newClient(t, fx.projectRoot)
+	// Request the child directly — it IS a valid record, has no children.
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "drop_001.drop.solo"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	results := decodeGetResults(t, body)
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	r := results[0]
+	if found, _ := r["found"].(bool); !found {
+		t.Errorf("results[0].found = false, want true; full: %+v", r)
+	}
+	// `children` key must be ABSENT from the marshaled JSON.
+	if strings.Contains(body, `"children"`) {
+		t.Errorf("JSON must not contain 'children' key when no children; body: %s", body)
+	}
+}
+
+// TestMCPGet_SingleRecord_NoChildren — a non-group id returns one
+// result with found=true, non-empty bytes, and nil Children (key absent).
+func TestMCPGet_SingleRecord_NoChildren(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "plans.task-1", "plans.task", map[string]any{
+		"id": "task-1", "status": "todo",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.task-1"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"found":true`) {
+		t.Errorf("response missing found:true; body: %s", body)
+	}
+	if strings.Contains(body, `"children"`) {
+		t.Errorf("response must not contain children key for single record; body: %s", body)
+	}
+}
+
+// TestMCPGet_GroupVsSingleCollision — an id that IsGroupPrefix reports
+// as a group prefix. Per spec, the group branch wins: Children is
+// populated and the bytes field (single-record path) is absent, even
+// though the id would resolve as a single record on the single-record
+// path. The implementation contract is the code ordering: if
+// IsGroupPrefix returns true, group dispatch fires first and the
+// single-record ops.Get is never invoked.
+//
+// Collision is proved by verifying the response has children (group
+// branch fired) and no top-level `bytes` field (single-record ops.Get
+// was NOT called for the group-prefix item itself).
+func TestMCPGet_GroupVsSingleCollision(t *testing.T) {
+	fx := newFixtureWith(t, cascadeGetSchema)
+	// Seed two children under the group prefix `drop_001.drop`.
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.alpha", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 1})
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.beta", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 2})
+
+	c := newClient(t, fx.projectRoot)
+	// Request the group-prefix id — group branch MUST win.
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "drop_001.drop"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	// The response MUST contain children (group branch won).
+	if !strings.Contains(body, `"children"`) {
+		t.Errorf("response must contain children when id is a group prefix; body: %s", body)
+	}
+	results := decodeGetResults(t, body)
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	r := results[0]
+	if found, _ := r["found"].(bool); !found {
+		t.Errorf("results[0].found = false, want true")
+	}
+	children, ok := r["children"].([]any)
+	if !ok || len(children) == 0 {
+		t.Errorf("results[0].children must be non-empty slice; full: %+v", r)
+	}
+	// Single-record bytes MUST be absent — group branch preempted the
+	// single-record path for this item.
+	if _, hasBytes := r["bytes"]; hasBytes {
+		t.Errorf("results[0] must not have bytes field when group branch fires; full: %+v", r)
+	}
+}
+
+// TestMCPGet_MixedBatchSingleGroupSingleRecord — items=[group_id, record_id];
+// Children appears only on the group-prefix item.
+func TestMCPGet_MixedBatchSingleGroupSingleRecord(t *testing.T) {
+	fx := newFixtureWith(t, cascadeGetSchema)
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.alpha", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 1})
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.beta", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 2})
+	// Seed a single record that is NOT a group prefix.
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.single", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 3})
+
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "drop_001.drop"},        // group prefix
+			map[string]any{"id": "drop_001.drop.single"}, // single record
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	results := decodeGetResults(t, body)
+	if len(results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(results))
+	}
+	// results[0] = group item: must have children.
+	r0 := results[0]
+	if found, _ := r0["found"].(bool); !found {
+		t.Errorf("results[0].found = false, want true")
+	}
+	if r0["children"] == nil {
+		t.Errorf("results[0] must have children (group prefix item)")
+	}
+	// results[1] = single record item: must NOT have children.
+	r1 := results[1]
+	if found, _ := r1["found"].(bool); !found {
+		t.Errorf("results[1].found = false, want true")
+	}
+	if r1["children"] != nil {
+		t.Errorf("results[1] must not have children (single record item); full: %+v", r1)
+	}
+}
+
+// TestMCPGet_MixedBatchHeterogeneousChildren — one group prefix whose
+// children span cascade.drop + cascade.planner + cascade.qa_proof types.
+func TestMCPGet_MixedBatchHeterogeneousChildren(t *testing.T) {
+	fx := newFixtureWith(t, cascadeGetSchema)
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.root", "cascade.drop",
+		map[string]any{"structural_type": "drop", "drop_number": 1})
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.planner", "cascade.planner",
+		map[string]any{"title": "L2 planner"})
+	seedCascadeChild(t, fx.projectRoot, "drop_001.drop.qa-proof", "cascade.qa_proof",
+		map[string]any{"target": "drop_001.drop.planner"})
+
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "drop_001.drop"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	results := decodeGetResults(t, firstText(t, res))
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	children, ok := results[0]["children"].([]any)
+	if !ok {
+		t.Fatalf("children missing; full: %+v", results[0])
+	}
+	if len(children) != 3 {
+		t.Fatalf("children len = %d, want 3 (heterogeneous types); children: %+v", len(children), children)
+	}
+	// Children must come back in canonical (lexicographic) id order
+	// regardless of insert order. Insert order was [root, planner, qa-proof];
+	// canonical order is [planner, qa-proof, root]. ops.GetGroup sorts via
+	// sort.Strings — pin that here so a future regression that leaks insert
+	// order through the MCP envelope gets caught.
+	wantIDs := []string{
+		"drop_001.drop.planner",
+		"drop_001.drop.qa-proof",
+		"drop_001.drop.root",
+	}
+	for i, child := range children {
+		cm, ok := child.(map[string]any)
+		if !ok {
+			t.Errorf("children[%d] not a map: %T", i, child)
+			continue
+		}
+		if got := cm["id"]; got != wantIDs[i] {
+			t.Errorf("children[%d].id = %v, want %s (canonical-sort regression — insert order should NOT leak through)", i, got, wantIDs[i])
+		}
+	}
+}
+
+// TestMCPGet_IndexMissingBatchLevelError — a fresh project with no
+// .ta/index.toml causes LoadIndexStrict to fail; handleGet returns a
+// batch-level ToolResultError (IsError=true), not a per-item miss.
+func TestMCPGet_IndexMissingBatchLevelError(t *testing.T) {
+	// Use a fresh project root with schema but NO index.toml.
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".ta"), 0o755); err != nil {
+		t.Fatalf("mkdir .ta: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".ta", "schema.toml"), []byte(tomlTaskSchema), 0o644); err != nil {
+		t.Fatalf("seed schema: %v", err)
+	}
+	ops.ResetDefaultCacheForTest()
+	// Confirm no index.toml exists.
+	idxPath := filepath.Join(root, ".ta", "index.toml")
+	if _, err := os.Stat(idxPath); err == nil {
+		t.Fatal("index.toml must not exist for this test — pre-condition failed")
+	}
+
+	c := newClient(t, root)
+	res := callTool(t, c, "get", map[string]any{
+		"path": root,
+		"items": []any{
+			map[string]any{"id": "plans.task-1"},
+		},
+	})
+	// Must be a batch-level error (IsError=true), not a per-item miss.
+	if !res.IsError {
+		t.Errorf("expected batch-level error when index.toml absent; got non-error response: %s", firstText(t, res))
+	}
+	msg := firstText(t, res)
+	if !strings.Contains(msg, "index missing") {
+		t.Errorf("error should mention 'index missing'; got: %s", msg)
+	}
+}
+
+// TestMCPGet_SingleRecord_NoChildren_OmittedFromJSON — marshal a
+// single-record response, assert the JSON output does NOT contain the
+// "children" key. Locks the nil-slice omitempty contract at the wire level.
+func TestMCPGet_SingleRecord_NoChildren_OmittedFromJSON(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "plans.task-2", "plans.task", map[string]any{
+		"id": "task-2", "status": "done",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.task-2"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("get errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	// Assert "children" key is completely absent from the JSON wire output.
+	if strings.Contains(body, `"children"`) {
+		t.Errorf("JSON wire output must omit 'children' key for single record; body: %s", body)
+	}
+	// Assert found:true and bytes present.
+	if !strings.Contains(body, `"found":true`) {
+		t.Errorf("response missing found:true; body: %s", body)
+	}
+}
+
 // TestMCPMove_DuplicateSrcInBatch_Errors — same src_id appearing
 // twice in items[] errors loud BEFORE any per-item disk write.
 // Mirrors the CLI-level test for symmetric MCP coverage.
