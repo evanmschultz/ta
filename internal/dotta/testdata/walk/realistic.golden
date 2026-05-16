@@ -1,0 +1,55 @@
+Root = '<ROOT>'
+Skipped = []
+
+[[RootFiles]]
+Name = 'index.toml'
+AbsPath = '<ROOT>/index.toml'
+RelPath = 'index.toml'
+Size = 14
+Mode = 420
+
+[[RootFiles]]
+Name = 'schema.toml'
+AbsPath = '<ROOT>/schema.toml'
+RelPath = 'schema.toml'
+Size = 14
+Mode = 420
+
+[[Subtrees]]
+Name = 'agents'
+AbsPath = '<ROOT>/agents'
+RelPath = 'agents'
+
+[Subtrees.Mapping]
+destination = '.claude/agents'
+on_conflict = 'skip'
+
+[[Subtrees.Files]]
+Name = 'file_a.md'
+AbsPath = '<ROOT>/agents/file_a.md'
+RelPath = 'file_a.md'
+Size = 14
+Mode = 420
+
+[[Subtrees.Files]]
+Name = 'file_b.md'
+AbsPath = '<ROOT>/agents/file_b.md'
+RelPath = 'file_b.md'
+Size = 14
+Mode = 420
+
+[[Subtrees]]
+Name = 'ta'
+AbsPath = '<ROOT>/ta'
+RelPath = 'ta'
+
+[Subtrees.Mapping]
+destination = ''
+on_conflict = ''
+
+[[Subtrees.Files]]
+Name = 'sub.toml'
+AbsPath = '<ROOT>/ta/sub.toml'
+RelPath = 'sub.toml'
+Size = 14
+Mode = 420

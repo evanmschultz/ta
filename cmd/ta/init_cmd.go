@@ -15,6 +15,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/evanmschultz/ta/internal/dotta"
 	"github.com/evanmschultz/ta/internal/fsatomic"
 	"github.com/evanmschultz/ta/internal/render"
 	"github.com/evanmschultz/ta/internal/schema"
@@ -182,7 +183,7 @@ func resolveInitTarget(cmd *cobra.Command, f initFlags) (string, error) {
 	if f.target == "" {
 		return resolveCLIPath(cmd)
 	}
-	expanded, err := expandTilde(f.target)
+	expanded, err := dotta.ExpandTilde(f.target)
 	if err != nil {
 		return "", fmt.Errorf("resolve --target %q: %w", f.target, err)
 	}
@@ -191,31 +192,6 @@ func resolveInitTarget(cmd *cobra.Command, f initFlags) (string, error) {
 		return "", fmt.Errorf("resolve --target %q: %w", f.target, err)
 	}
 	return filepath.Clean(abs), nil
-}
-
-// expandTilde rewrites a leading `~` or `~/` against $HOME so users
-// can type `--target=~/.ta` without shell expansion (e.g. when the
-// flag value is quoted or comes from a JSON config). Non-tilde
-// inputs pass through unchanged.
-func expandTilde(p string) (string, error) {
-	if p == "" {
-		return p, nil
-	}
-	if p == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return home, nil
-	}
-	if strings.HasPrefix(p, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, strings.TrimPrefix(p, "~/")), nil
-	}
-	return p, nil
 }
 
 // runInit dispatches between two execution paths:
