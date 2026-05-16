@@ -181,3 +181,60 @@ func TestConfirm_DefaultAffirmativeFallback(t *testing.T) {
 		t.Errorf("expected negative fallback to No, got %q", m.negative)
 	}
 }
+
+// --- drop_004 H2: cmd/ta coverage drive ---
+
+// TestConfirm_InitIsNil locks the tea.Cmd contract for confirmModel:
+// Init returns nil (no startup command).
+func TestConfirm_InitIsNil(t *testing.T) {
+	t.Parallel()
+	m := newConfirmModel("Continue?", "Yes", "No", true)
+	if cmd := m.Init(); cmd != nil {
+		t.Errorf("confirmModel.Init() = %v, want nil", cmd)
+	}
+}
+
+// TestConfirm_QuitMsgPassthrough drives a tea.QuitMsg through
+// Update; asserts no state change and no command.
+func TestConfirm_QuitMsgPassthrough(t *testing.T) {
+	t.Parallel()
+	m := newConfirmModel("Continue?", "Yes", "No", true)
+	updated, cmd := m.Update(tea.QuitMsg{})
+	cm := updated.(*confirmModel)
+	if cm.aborted || cm.submitted {
+		t.Fatalf("QuitMsg should not flip state, got aborted=%v submitted=%v", cm.aborted, cm.submitted)
+	}
+	if cmd != nil {
+		t.Fatalf("QuitMsg should not produce cmd, got %v", cmd)
+	}
+}
+
+// TestConfirm_View_NegativeCursorBranch renders the model with the
+// cursor on the Negative side and asserts the right branch of View
+// is taken (cursor indicator preceding the negative label).
+func TestConfirm_View_NegativeCursorBranch(t *testing.T) {
+	t.Parallel()
+	m := newConfirmModel("Continue?", "Yes", "No", false)
+	view := m.View()
+	// "> No" must appear when default is negative — cursor is on No.
+	if !strings.Contains(view.Content, "> No") {
+		t.Errorf("expected '> No' marker in negative-cursor View, got:\n%s", view.Content)
+	}
+}
+
+// TestConfirm_IgnoredKeyPassthrough drives an arbitrary key (Tab)
+// that has no binding; asserts state is unchanged and no cmd. Pins
+// the F18 "queued bytes are no-ops" contract across keys we don't
+// explicitly enumerate in the y/n regression test.
+func TestConfirm_IgnoredKeyPassthrough(t *testing.T) {
+	t.Parallel()
+	m := newConfirmModel("Continue?", "Yes", "No", true)
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	cm := updated.(*confirmModel)
+	if cm.submitted || cm.aborted {
+		t.Fatalf("Tab should be a no-op, got submitted=%v aborted=%v", cm.submitted, cm.aborted)
+	}
+	if cmd != nil {
+		t.Fatalf("Tab should produce no cmd, got %v", cmd)
+	}
+}
