@@ -29,6 +29,28 @@ The project's `.claude/agents/` shadows the global `~/.claude/agents/` definitio
 
 Direct edits of `~/.claude/agents/*-agent.md` or `~/.ta/agents/*/*.md` bypass ta's substrate tracking and create drift. The tool is built for this — use it.
 
+## Hylla Discipline — Go-Only, Primary Evidence Source, Push-Often + Ingest-After-Push
+
+ta is a Go project. Hylla (`mcp__hylla__*`) is the **primary evidence source** for committed Go code — planners, plan-QA, builders, and build-QA all use Hylla BEFORE Read/Grep for any question about committed Go symbols, references, or structural facts. Project-local `ta-go-*` agents now carry `mcp__hylla__hylla_search`, `_search_keyword`, `_node_full`, `_refs_find`, `_graph_nav` in their `tools:` allowlist.
+
+**Evidence-source priority for Go work**:
+
+1. **Hylla** — committed Go symbols, refs, graphs, full-node bodies.
+2. **`git diff`** — uncommitted local deltas (Hylla can't see uncommitted work).
+3. **Read / Grep / Glob** — non-Go files AND uncommitted Go (between push and ingest).
+4. **Context7 + `go doc` + LSP** — external library semantics + live LSP queries.
+
+**Hylla is Go-only.** NEVER query Hylla for `.toml`, `.json`, `.md`, `.yml`, magefile, scripts, or any non-Go file type. For those, go straight to Read/Grep/Glob. No fallback miss to log — it's by design.
+
+**Push-often + ingest-after-push**:
+
+- After every commit batch, push to origin so the Hylla index stays close to disk. Don't accumulate large unpushed work.
+- After every push, trigger `mcp__hylla__hylla_ingest` so the next agent dispatch sees the latest committed state.
+- The `/commit-and-reingest` skill bundles push + ingest — use it as the canonical exit gate for a slice.
+- Between push and ingest there's a brief window where Hylla shows stale data; agents in that window fall back to `git log` / `Read` for the very latest commits.
+
+**Spawn prompts MUST include the Hylla artifact ref** for dispatched ta-go-* agents (e.g. `github.com/evanmschultz/ta@main`). The agent uses that ref for every Hylla call.
+
 ## Pre-QA LSP Refresh Discipline
 
 ta is a Go project. The active LSP is gopls. Before spawning any `ta-go-qa-proof` or `ta-go-qa-falsification`, the gopls daemon's workspace index must reflect the build agent's edits — otherwise QA reads stale diagnostics that don't match disk truth (recurring failure mode: agent reports "undefined: X" for symbols that mage check confirms exist).
