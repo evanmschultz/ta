@@ -1,0 +1,220 @@
+# Template-manifest schema — per-format manifests describing how a file maps
+# to/from JSON for agent read/write.
+#
+# A manifest binds a file format (html, md, txt) to the selectors / parsers
+# that pluck named blocks out of a file and the type bindings that coerce
+# those blocks into typed JSON values. Three concrete manifest types share a
+# `Manifest` base extending `NodeBase`.
+#
+# Self-contained bases: this file ships its own NodeBase + Comment alias
+# rather than depending on cascade.toml — every example schema must load
+# standalone via LoadBytes.
+#
+# F23 OFF: no auto_spawn blocks anywhere in this file. QA twins are still
+# created manually until F23 supports runtime-fill semantics.
+
+# ============================================================================
+# project db — required header so the `project` namespace under which the
+# shared NodeBase + Comment alias live can declare its mount path. The
+# loader requires every declared db carry `paths`. The mount path here is
+# intentionally distinct from cascade.toml's `[project]` mount so the two
+# example schemas remain side-by-side composable in scratch registries.
+# ============================================================================
+
+[project]
+description = "Root container for shared bases and aliases referenced by the template_manifest db."
+paths = [".ta/templates/manifests/_project_marker.toml"]
+
+# ============================================================================
+# Base types — shared field sets that concrete types extend.
+# ============================================================================
+
+[project.bases.NodeBase]
+description = "Common fields for any node — shared by manifests and any future user-defined type."
+
+[project.bases.NodeBase.fields.parent_id]
+type = "string"
+description = "ta record id of the parent node, or empty for root nodes."
+
+[project.bases.NodeBase.fields.title]
+type = "string"
+required = true
+description = "Short headline for the node."
+
+[project.bases.NodeBase.fields.description]
+type = "string"
+format = "markdown"
+description = "Free prose describing the node. Markdown supported."
+
+[project.bases.NodeBase.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete", "failed", "archived"]
+description = "Lifecycle state."
+
+[project.bases.NodeBase.fields.outcome]
+type = "string"
+enum = ["", "success", "failure", "blocked"]
+default = ""
+description = "Set when reaching terminal state."
+
+[project.bases.NodeBase.fields.priority]
+type = "string"
+enum = ["low", "medium", "high"]
+default = "medium"
+description = "Operator-set priority hint."
+
+[project.bases.NodeBase.fields.labels]
+type = "array"
+element_type = "string"
+description = "Free-form tag strings."
+
+[project.bases.NodeBase.fields.created_at]
+type = "datetime"
+required = true
+description = "Creation timestamp (RFC3339)."
+
+[project.bases.NodeBase.fields.updated_at]
+type = "datetime"
+required = true
+description = "Last-update timestamp (RFC3339)."
+
+[project.bases.NodeBase.fields.started_at]
+type = "datetime"
+description = "Set on transition to in_progress."
+
+[project.bases.NodeBase.fields.completed_at]
+type = "datetime"
+description = "Set on transition to complete or failed."
+
+[project.bases.NodeBase.fields.archived_at]
+type = "datetime"
+description = "Set on transition to archived."
+
+[project.bases.NodeBase.fields.created_by_actor]
+type = "string"
+description = "Actor identity that created the node."
+
+[project.bases.NodeBase.fields.created_by_type]
+type = "string"
+enum = ["user", "agent", "system"]
+description = "Actor category."
+
+[project.bases.NodeBase.fields.updated_by_actor]
+type = "string"
+description = "Actor identity that last updated the node."
+
+[project.bases.NodeBase.fields.updated_by_type]
+type = "string"
+enum = ["user", "agent", "system"]
+
+[project.bases.NodeBase.fields.comments]
+type = "array"
+element_type = "Comment"
+description = "Embedded thread of comments on this node. Append-only."
+
+# ----------------------------------------------------------------------------
+# Comment alias — element type for NodeBase.comments.
+# ----------------------------------------------------------------------------
+
+[project.types.Comment]
+description = "Append-only thread entry on any node."
+
+[project.types.Comment.fields.id]
+type = "string"
+required = true
+description = "Comment identifier (caller-set; recommend ULID or short slug)."
+
+[project.types.Comment.fields.author]
+type = "string"
+required = true
+description = "Actor identity that wrote the comment."
+
+[project.types.Comment.fields.body]
+type = "string"
+format = "markdown"
+required = true
+description = "Comment content."
+
+[project.types.Comment.fields.role]
+type = "string"
+description = "Optional role context for the comment author."
+
+[project.types.Comment.fields.timestamp]
+type = "datetime"
+required = true
+description = "When the comment was written (RFC3339)."
+
+# ============================================================================
+# template_manifest db — per-format manifests.
+# ============================================================================
+#
+# Format is INFERRED from the `.toml` extension on the path glob (F10 rule:
+# `format =` is NOT a recognized meta-field at the db level).
+
+[template_manifest]
+description = "Per-format manifests describing how a file maps to/from JSON for agent read/write."
+paths = [".ta/templates/manifests/*.toml"]
+
+# ----------------------------------------------------------------------------
+# Manifest base — shared shape for every per-format manifest type.
+# ----------------------------------------------------------------------------
+
+[template_manifest.bases.Manifest]
+extends = "NodeBase"
+description = "Shared base for per-format manifest records — adds the format-agnostic field-type bindings and a description field."
+
+[template_manifest.bases.Manifest.fields.field_type_bindings]
+type = "table"
+description = "Free-form table mapping block-name → JSON-type binding (string, integer, datetime, array, etc.). Inner shape intentionally unconstrained — each format declares its own conventions in prose."
+
+[template_manifest.bases.Manifest.fields.description]
+type = "string"
+format = "markdown"
+description = "Free prose describing what the manifest binds. Markdown supported."
+
+# ----------------------------------------------------------------------------
+# Concrete manifest types — one per supported source format.
+# ----------------------------------------------------------------------------
+
+[template_manifest.html]
+extends = "Manifest"
+description = "HTML-format manifest — selectors are CSS selectors evaluated via cascadia."
+
+[template_manifest.html.fields.format]
+type = "string"
+required = true
+enum = ["html"]
+description = "Source-file format. Locked to \"html\" for this type."
+
+[template_manifest.html.fields.selectors]
+type = "table"
+description = "Free-form table mapping block-name → CSS selector via cascadia."
+
+[template_manifest.md]
+extends = "Manifest"
+description = "Markdown-format manifest — selectors are heading paths."
+
+[template_manifest.md.fields.format]
+type = "string"
+required = true
+enum = ["md"]
+description = "Source-file format. Locked to \"md\" for this type."
+
+[template_manifest.md.fields.heading_path_selectors]
+type = "table"
+description = "Free-form table mapping block-name → heading path like '## > ##'."
+
+[template_manifest.txt]
+extends = "Manifest"
+description = "Plain-text manifest — selectors are regex patterns."
+
+[template_manifest.txt.fields.format]
+type = "string"
+required = true
+enum = ["txt"]
+description = "Source-file format. Locked to \"txt\" for this type."
+
+[template_manifest.txt.fields.regex_selectors]
+type = "table"
+description = "Free-form table mapping block-name → regex pattern."

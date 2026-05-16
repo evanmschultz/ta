@@ -1,0 +1,414 @@
+[mvp_substrate]
+created_at = "2026-05-15T10:00:00Z"
+definition_of_complete = "All 8 L2 planners report state=complete + outcome=success with mage check green. New schema kinds present in default binary schema. v0.2.0 vision items recorded as roadmap.* records. ta get drop_NNN aggregates all child records (group-prefix resolver fix verified). html/md/txt templates work end-to-end with round-trip preservation. Stil-based HTML templates embedded in binary, render cascade.* + roadmap.* + schema records as browseable HTML with cross-file <a href> nav, zero framework runtime. ~/.ta/ tree-walker + TUI tree-view + target-system-selector working in ta init. All open E2E_FIXES.md findings closed or punted with explicit rationale. Pre-MVP carryovers all closed."
+drop_number = 4.0
+implementation_notes_user = "Methodology learnings from drop_002/003 baked in: (a) enumerate ALL touchpoints upfront via reality-check pass; (b) identify cross-L2 file conflicts at L1 (saves rounds at L2 decomposition); (c) parallelize sibling L2s when contracts pinned; (d) tool_uses=0 → dismiss as fabrication; (e) per-L2 commits (atomic + max parallelism per cascade methodology §5.3 recursive decomposition rule); (f) build-QA fires at every planner level, not just L1."
+labels = ["mvp", "v0_1_0", "html-templates", "multi-file-type", "stil", "e2e-closure", "schema-kinds", "roadmap", "dotta-generalization", "target-system-selector", "resolver-fix"]
+objective = "Land the substrate work that makes v0.1.0 MVP-feature-complete: (A) add default schema kinds for roadmap/template_manifest/html_template/target_system; (B) record full v0.2.0 vision as roadmap.* records (no more loss-prone MD); (C) fix resolver to recognize group-prefix addresses (ta get drop_NNN aggregates all drop_NNN.*); (D) multi-file-type substrate with html/md/txt round-trip + template manifest schema + --as=<format> flag; (E) Astro-authored stil-based HTML template system embedded in binary (simple + full-featured + 5 Thariq categories + ta-schema view templates for cascade.* / roadmap.* / schema browser, all with plain <a href> cross-file nav, zero framework runtime); (F) generalize ~/.ta/ as flexible user-customization substrate with tree-walking bubbletea TUI + target system selector (Claude Code + Codex defaults, more v0.2.0+); (G) close ALL open E2E_FIXES.md findings with full reality-check ledger first; (H) finish pre-MVP carryovers (F23 runtime-fill, coverage ≥70%, magefile gofumpt-only, MCP project-arg gate-keeping, TUI artifact links)."
+role = "planner"
+state = "in_progress"
+structural_type = "drop"
+title = "MVP substrate — schema kinds + multi-file-type + HTML templates + dotta generalization + E2E closure"
+updated_at = "2026-05-15T10:00:00Z"
+
+[planner_decompose]
+completed_at = "2026-05-15T10:06:00Z"
+created_at = "2026-05-15T10:00:00Z"
+description = """
+drop_004 L1 decomposition into 8 L2 planners (A=schema kinds, B=v0.2.0 vision, C=resolver group-prefix, D=multi-file-type substrate, E=HTML template system, F=dotta generalization + target system, G=E2E closure, H=MVP carryovers). 5 of 8 recurse to L3 per cascade-methodology §5.3 (>4 children OR >1 domain OR >1 package). AMENDED PER PLAN-QA ROUND 1 (see transition_notes for amendment ledger).
+
+## L2-A default_schema_kinds — PINNED FIRST (single-level, 4 droplets)
+
+Adds new top-level schema kinds to default binary schema. All other L2s reference kinds A adds.
+
+- **A1 roadmap.toml**: `examples/schemas/roadmap.toml` declaring `roadmap.{version,item,dependency}`. roadmap.dependency is load-bearing for L2-G punt path.
+- **A2 template_manifest.toml**: declares `template_manifest.{html,md,txt}` with selector + field_type_bindings + format enum fields.
+- **A3 html_template.toml**: declares 6 html_template VIEW KINDS (schema-level declarations): cascade_drop_view, cascade_planner_view, cascade_droplet_view, cascade_qa_view, roadmap_version_view, schema_browser_view. Templates that RENDER these views ship via L2-E2/E3 (simple zero-stil-dep + full-featured stil-token-driven). Schema/render boundary; not duplication.
+- **A4 target_system.toml**: declares `target_system.{claude,codex}` with declarative install rules (path-map per kind, on_conflict_default, requires_substrate_dir). Out-of-scope for A4: actual install behavior (L2-F walker).
+
+**Paths owned**: `examples/schemas/{roadmap,template_manifest,html_template,target_system}.toml` (NEW). `//go:embed all:examples` in `embed.go:19` auto-covers new schema files — no magefile.go edit needed for embedding.
+**Acceptance**: `mage testPkg ./internal/schema/...` green; `mage check` green; binary rebuilt; `ta schema get --db=roadmap --json` returns new schema; `ta schema get --db=target_system --json` returns claude + codex.
+**Risk**: low. Schema-content-only.
+
+## L2-B record_v0_2_0_vision — blocked by A (single-level, 5 droplets)
+
+Records v0.2.0 vision as `roadmap.*` records in `.ta/roadmap/`. No code changes.
+
+- B1: `v0_2_0` roadmap.version record.
+- B2: tree-sitter + line-grained editing roadmap items.
+- B3: Hylla graph + multi-format (yml/json/csv, ini/env/justfile/makefile/dockerfile, jsonl/log) + round-trip preservation items.
+- B4: target-system expansion (Cursor/Aider/Continue/Cline) + browser-served UI option items.
+- B5: roadmap.dependency edges linking items into planning DAG.
+
+**Paths owned**: `.ta/roadmap/*.toml` (NEW user-side data only).
+**Acceptance**: `ta list-sections --scope roadmap --json` lists all; `ta search --scope roadmap --query tree-sitter --json` matches; mage check unaffected.
+**Risk**: low. Content-only.
+
+## L2-C resolver_group_prefix — MUST L3 SPLIT (3 sub-planners)
+
+WRONG-SCOPE CORRECTION FROM REALITY CHECK: group-prefix aggregation does NOT live inside `resolveTypeForID` (single-id-to-type). Must live ABOVE resolver at `ops.Get` / new `ops.GetGroup`. resolveTypeForID decl at internal/ops/helpers.go:107 (CALL site at lines 117-121 inside resolveTypeForID; tryLoadIndex decl at 217); recordExistsOnDisk at 188; resolveIDWithIndexHint at 247.
+
+- **C1 ops layer**: new helper `resolveGroupPrefix(id) ([]string, bool)` + new `ops.GetGroup(id)` OR extend `ops.Get` (decl at internal/ops/ops.go:82) with `group_aggregate` flag. `internal/ops/{ops.go, helpers.go, group.go(NEW)}`. Tests: indexed/unindexed children, single/multi-db, zero-children.
+- **C2 CLI surface**: `ta get drop_NNN --json` returns child array when id has children in index. `cmd/ta/commands.go` + 4-6 test cases.
+- **C3 MCP surface**: `mcp__ta__get` returns child array for group-prefix ids. `internal/mcpsrv/tools.go` + wire-level tests.
+
+**Paths owned**: `internal/ops/{ops.go,helpers.go,group.go}`, `cmd/ta/commands.go`, `internal/mcpsrv/tools.go` + tests.
+**Cross-L2 conflicts**: G3 (MCP polish) and G8 (search) serialize AFTER C.
+**Acceptance**: `ta get drop_001 --json` returns all child records; regression: record-id-only get still works; MCP parity.
+**Risk**: medium.
+
+## L2-D multi_file_type_substrate — MUST L3 SPLIT (5 sub-planners)
+
+- **D1 manifest substrate + format dispatcher**: NEW `internal/format/` package. Loads `template_manifest.*` records; dispatches via `Format` interface (Parse/Find/Splice/Marshal).
+- **D2 html backend**: NEW `internal/backend/html/`. Uses `golang.org/x/net/html` + `github.com/andybalholm/cascadia` for CSS selectors. Byte-identical round-trip when content unchanged.
+- **D3 md backend (manifest-driven, deep heading paths)**: NEW `internal/backend/md_explicit/` SEPARATE from existing `internal/backend/md/` (heading-based) BECAUSE manifest-driven backend supports arbitrary heading-path selectors (e.g. `## > ##` deep nesting) while existing backend only supports root-heading addressing. Reconsolidation v0.2.0 via roadmap.dependency.
+- **D4 txt backend**: NEW `internal/backend/txt/`. Regex-based selectors.
+- **D5 CLI/MCP plumbing**: `--as=<format>` flag on ta get/create/update/delete/**search**/**list-sections** + MCP equivalents. `--template=<view-name>` companion flag for render-with-template on get. `cmd/ta/commands.go` + `internal/mcpsrv/tools.go`.
+
+**Paths owned**: `internal/format/` (NEW), `internal/backend/{html,md_explicit,txt}/` (NEW), `cmd/ta/commands.go`, `internal/mcpsrv/tools.go`.
+**Cross-L2 conflicts**: D2 BLOCKS E2-E4 (HTML templates consume html backend).
+**Acceptance**: byte-identical round-trip on representative html/md/txt files when no content change. `--as=html --template=<view>` on `ta get` renders embedded template.
+**Risk**: medium-high. D2 (html) carries most surface.
+
+## L2-E html_template_system — MUST L3 SPLIT (4 sub-planners)
+
+Highest cross-toolchain surface in drop_004.
+
+- **E1 substrate**: pnpm workspace at repo root pointing at `../stil/main` (relative dev path). NEW `examples/templates/` Astro src. `magefile.go::TemplatesBuild` mage target. NEW `internal/templates_html/embed.go` with `embed.FS` over `dist/`. **Commit `dist/` to git** so consumers without pnpm still build Go binary; `mage check` independent of pnpm.
+- **E2 simple ta-schema views**: 6 zero-stil-dep, zero-JS HTML files rendering the 6 view kinds declared by A3. Plain `<a href>` for cross-file nav.
+- **E3 full-featured stil-token-driven ta-schema views**: same 6 view kinds, Astro-authored consuming stil tokens. Golden snapshots per view.
+- **E4 Thariq-style template categories**: 5 templates — spec, code-review, report, custom-editor, design-exploration. **MVP-feature-link**: v0.1.0 onboarding showcase demonstrating ta's HTML render capability beyond the cascade-record use case (per Thariq article reference in CLAUDE.md). If runtime-constrained, E4 punts to v0.2.0 with explicit roadmap.dependency.
+
+**Paths owned**: `pnpm-workspace.yaml` (NEW root), `examples/templates/` (NEW), `magefile.go` (TemplatesBuild target), `internal/templates_html/` (NEW), `internal/templates_html/dist/` (committed build artifact).
+**Cross-L2 conflicts**: (a) blocked by D2 if templates need live html-source read; (b) magefile.go shared with H3 (gofumpt target) — H3 serializes after E1 OR edits disjoint target sections.
+**Acceptance**: `ta get drop_001 --as=html --template=cascade_drop_view` emits valid HTML; both simple + full-featured embed in binary; `mage check` does NOT invoke pnpm.
+**Risk**: high. Cross-toolchain coordination AND: (a) `dist/` binary diff noise polluting PRs (Astro fingerprinted asset hashes), (b) pnpm-lock.yaml churn polluting commits, (c) Astro v6 vs v5 ABI break risk (sibling `../stil/main/astro.config.mjs` pin must align), (d) stil version drift.
+
+## L2-F dotta_generalization_plus_target_system — MUST L3 SPLIT (3 sub-planners)
+
+WRONG-SCOPE CORRECTION: claude_agents is ALREADY a generic schema-declared db at `.ta/schema.toml:132-168` (rg cmd/ta/*.go claude_agents = 0 matches). F's real scope is generic *filesystem* walker (NOT schema-driven) + bubbletea tree-view TUI + target-system selector at init. `runInit` at cmd/ta/init_cmd.go:234; `isMultiCategoryRun` at 274; `runInitMultiCategory` at cmd/ta/init_multi.go:21.
+
+- **F1 generic ~/.ta/ filesystem walker + per-subtree mapping config**: NEW `internal/dotta/walker.go`. Walks ~/.ta/ as filesystem tree. Reads per-subtree `mapping.toml` declaring destination + on-conflict policy.
+- **F2 bubbletea tree-view**: NEW `cmd/ta/dotta_tree.go`. Bubbletea model rendering walker output as collapsible tree with checkbox-per-leaf. teatest goldens + VHS tape per project CLAUDE.md TUI verification rule.
+- **F3 target-system selector at ta init**: extends `cmd/ta/init_multi.go` to surface target-system picker (Claude+Codex selectable; user-extension via ~/.ta/<system>/ visible if present).
+
+**Paths owned**: `internal/dotta/` (NEW), `cmd/ta/{dotta_tree.go,init_multi.go}` + tests + `cmd/ta/testdata/vhs/dotta_*.tape`.
+**Cross-L2 conflicts**: F3 edits init_multi.go which G1 also wants — F PRECEDES G1.
+**Acceptance**: ta init shows multi-category picker WITH target-system row; bubbletea tree-view via teatest golden; VHS demo committed.
+**Risk**: medium. New TUI surface — golden + VHS mandatory.
+
+## L2-G e2e_closure — MUST L3 SPLIT (9 sub-planners, G5 likely L4)
+
+Largest unknown. 38 OPEN findings (corrected from 32) spanning 9 concern domains. **L2-G blocked-by-A1**: G's punt-path uses roadmap.dependency schema from A1.
+
+- **G1 init UX residue** (blocked by F): F1, F4, F38d-2.1, F38d-2.2, F38d-2.3, F38d-2.4 (verify real-terminal), F25 ctrl+a collision, F17/F16 verification. F18 audit-only — likely CLOSED-by-F38d huh-removal per CLAUDE.md §huh-removal-complete; confirm and mark CLOSED-by-F38d in ledger.
+- **G2 install hygiene** (blocked by F): F1, F2 outcome:untouched copy, F3 placeholder decision, F8 running-MCP hint, F38d-2.5 atomicity, F38d-2.6 content-aware conflicts.
+- **G3 MCP polish**: F9 cache single-project hostility, F38d-2.13 validation error envelope.
+- **G4 CLI error envelope follow-on + search positional**: verify F38d-2.19/20/21 closure + operator residue + **F38d-2.7** (search empty-positional cobra-routing CLI issue + MCP wire-surface companion).
+- **G5 type-system extensions — LIKELY L4 RECURSION**: F21.1 element_type, F21.2 element_fields, F21.3 type aliases, F22 inheritance, F27.3 reserved-namespace guard, F28 nested-table inner-shape. Architectural slice. `internal/schema/`. G5 plans FIRST before G1-G4 dispatch so type-system contract settles.
+- **G6 delete-shape + verbose**: F19 verify, F20 verbose flag.
+- **G7 address-grammar + reserved-namespace**: F10/F11 verify, F27.3 close. F27.3 IS INCREMENTAL on existing partial implementation in `internal/schema/load.go` (rg ta_schema confirms partial). Builder scopes as 'tighten existing guard', not net-new.
+- **G8 search/list_sections polish**: F38d-2.18 latent shadow hazard, F38d-2.14c index.Entry.DBName + format_version bump.
+- **G9 schema mutation TUI + form polish**: F5, F6 (bubbletea-direct, not huh), F13, F14, F15 verify.
+- **Punted to v0.2.0+ with rationale**: F2a (doc-only), F7 (decide via G5), F12 (temporal/on-the-fly schema), F24 partial verify.
+
+**Orchestrator dispatch budget**: batch L3 sub-planner dispatch in waves of 3-5 concurrent (not all 9 in parallel) to respect orchestrator ingest bandwidth.
+**Acceptance**: every OPEN F-finding CLOSED with test OR punted with roadmap.dependency reference; E2E_FIXES.md ledger updated; mage check green.
+**Risk**: highest. G5 may recurse to L4.
+
+## L2-H mvp_carryovers — single-level (5 droplets)
+
+- **H1 F23 runtime-fill semantics**: F23 implementation EXISTS at `internal/ops/ops.go:496-578` (`preValidateAutoSpawn`, `interpolateSpawnString`, `interpolateSpawnFields`). v1 token set is `{parent_id}` + `{index}` ONLY. H1 EXTENDS to include `{now}` + `{state.initial}` + `{parent.<field>}`. Builder choice: extend in-place at `internal/ops/ops.go:496-578` OR refactor into NEW `internal/ops/auto_spawn.go` (existing `internal/ops/auto_spawn_test.go` would migrate). Uncomment `cascade.droplet.auto_spawn` block at `examples/schemas/cascade.toml:586-600`. Tests extend `internal/ops/auto_spawn_test.go`.
+- **H2 cmd/ta coverage ≥70%**: identify dead branches; add table-driven tests until green.
+- **H3 magefile gofmt→gofumpt**: route gofumpt through mage target per memory rule. Cross-L2 conflict with E1 on `magefile.go`: H3 SERIALIZES AFTER E1 OR edits disjoint mage-target sections.
+- **H4 MCP path arg security review**: audit every MCP `path` arg; doc threat surface; cover L2-F walker MCP surface if exposed.
+- **H5 TUI artifact links**: link `cmd/ta/testdata/vhs/*.gif` from README, examples README, docs/cascade-methodology.md.
+
+**Paths owned**: `internal/ops/{ops.go,auto_spawn_test.go,(maybe)auto_spawn.go}`, `examples/schemas/cascade.toml` (H1 auto_spawn uncomment), `cmd/ta/*_test.go` (H2), `magefile.go` (H3, after E1), `internal/mcpsrv/tools.go` (H4), README + docs (H5).
+**Cross-L2 conflicts**: H1↔A on cascade.toml is over-strict (A adds NEW schema files, doesn't edit cascade.toml; H1 only edits cascade.toml auto_spawn block at :586-600). Conservative serialization; can parallelize if needed. H3 SERIALIZES AFTER E1 on magefile.go.
+**Acceptance**: F23 end-to-end (create cascade.drop → child QA twins auto-created); mage cover ≥70% on cmd/ta; gofumpt clean; MCP security memo; README links.
+
+## Cross-L2 sequencing
+
+```
+L2-A ─ PINNED FIRST
+  ├─→ L2-B  (data only; references A's roadmap.* kinds)
+  ├─→ L2-C ─→ L2-G3, L2-G8 serialize after
+  ├─→ L2-D ─→ D2 BLOCKS L2-E2/E3/E4
+  ├─→ L2-E (E1 unblocked; E2-E4 blocked on D2; magefile shared with H3)
+  ├─→ L2-F ─→ L2-G1, L2-G2 serialize after (init_multi.go shared)
+  ├─→ L2-G (blocked-by-A1 on roadmap.dependency punt path; sub-planner waves of 3-5)
+  └─→ L2-H (H1 ↔ A is over-strict-conservative; H3 SERIALIZES after E1 on magefile.go)
+```
+
+Per-L2 commit cadence: L2-A commit + `mage install` + MCP server bounce before L2-B/D/E/F/H runtime deps active.
+
+## E2E_FIXES OPEN/CLOSED ledger
+
+**CLOSED**: F10, F11, F26, F27 (partial), F38d-2.10/11/12/14/14b/15/16/17/19/20/21/22/23/8/9.
+**OPEN (38, corrected from 32)**: F1, F2, F2a, F3, F4, F5, F6, F7, F8, F9, F12, F13, F14, F15, F16, F17, F19, F20, F21.1, F21.2, F21.3, F22, F23, F24 partial, F25, F27 part 3, F28, F38d-2.1, .2, .3, .4, .5, .6, .7 (routed G4), .13, .18, .14c. F18 likely CLOSED-by-F38d — audit during G1.
+
+## Plan-QA twins fire at EVERY planner node per cascade-methodology §4.3. L2=8 pairs. L3=24 pairs (C=3 + D=5 + E=4 + F=3 + G=9). L4 (G5 architectural slices)=TBD. Orchestrator dispatches in parallel background per CLAUDE.md spawn defaults; G's 9 sub-planners batched in waves of 3-5.
+"""
+objective = "Recursive decomposition into 8 L2 planners (A=default_schema_kinds, B=record_v0_2_0_vision, C=resolver_group_prefix, D=multi_file_type_substrate, E=html_template_system, F=dotta_generalization_plus_target_system, G=e2e_closure, H=mvp_carryovers). Reality-check first: inspect resolver code, init_cmd code, current schema.toml kinds, ~/.ta/ contents, hylla/stil templates, E2E_FIXES.md OPEN/CLOSED status. Per cascade-methodology §5.3 most L2s will recurse to L3+ sub-planners — this planner identifies which AND identifies cross-L2 file conflicts at L1 to prevent decomposition-time discovery (drop_002 lesson)."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T10:00:00Z"
+state = "complete"
+title = "Planner — decompose MVP substrate into L2 planners"
+transition_notes = "Plan-QA round 1 complete. PROOF=PASS-with-AMEND (6 cosmetic clarity gaps; tool_uses=67). FALSIF=AMEND (1 CONFIRMED counterexample + 9 gaps; tool_uses=70). Orchestrator amendments applied surgically: (1) H1 path corrected internal/ops/auto_spawn.go → internal/ops/ops.go:496-578 (v1 tokens {parent_id}+{index} extend to {now}/{state.initial}/{parent.<field>}); (2) ta render acceptance reshaped to ta get --as=html --template=<view>; (3) D5 --as flag extends to search + list-sections; (4) L2-G blocked-by-A1 added (roadmap.dependency punt path); (5) magefile.go E1↔H3 cross-conflict noted; (6) L2-E risk expanded (dist/ diff noise, pnpm-lock churn, Astro v6/v5 break, stil drift); (7) G L3 dispatch wave-cap 3-5 concurrent; (8) F18 → CLOSED-by-F38d in ledger; (9) F38d-2.7 routing G3 → G4 (CLI cobra issue not pure MCP); (10) OPEN count 38 not 32; (11) A3/E2-E3 schema_browser_view double-mention clarified (schema declaration vs template rendering); (12) E4 Thariq 5 categories MVP-link rationale; (13) D3 dual-MD rationale (manifest deep-heading-path vs existing root-heading); (14) G7 F27.3 incremental on existing partial. Round-2 plan-QA SKIPPED per drop_003 precedent (orchestrator override on surgical amendments + proof PASS + falsif AMEND-not-REJECT). Descending to L2-A."
+updated_at = "2026-05-15T10:30:00Z"
+[plan_qa_proof_l1]
+completed_at = "2026-05-15T10:12:00Z"
+created_at = "2026-05-15T10:00:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+started_at = "2026-05-15T10:06:00Z"
+state = "complete"
+target_id = "drop_004.drop.planner_decompose"
+title = "Plan-QA proof — drop_004 L1 decomposition"
+transition_notes = "PASS with AMEND notes. 16 file reads + 12 rg/Bash searches. Every load-bearing claim (symbols, line numbers, schema kinds, NEW-path absence, F23 comment block, §5.3 triggers, E2E CLOSED/OPEN spot-checks, cross-L2 conflicts) is grounded on disk. Six AMEND-class clarity gaps (tryLoadIndex line cite, auto_spawn.go (NEW) flag, F18 ledger position, F38d-2.7 G3→G4 routing, OPEN count 32→38, H1↔A over-strict sequencing). All folded into planner amendment. tool_uses=67."
+updated_at = "2026-05-15T10:30:00Z"
+[plan_qa_falsif_l1]
+completed_at = "2026-05-15T10:12:00Z"
+created_at = "2026-05-15T10:00:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+started_at = "2026-05-15T10:06:00Z"
+state = "complete"
+target_id = "drop_004.drop.planner_decompose"
+title = "Plan-QA falsification — drop_004 L1 decomposition"
+transition_notes = "AMEND. 10 attacks: 1 CONFIRMED counterexample (H1 fabricated path internal/ops/auto_spawn.go — real path internal/ops/ops.go:496-578) + 9 AMEND-class gaps (ta render command absent, --as flag enumeration incomplete, G↔A1 punt-path dependency, magefile.go E1↔H3 conflict unflagged, E1 risk underestimated, G L3 dispatch budget unbounded, YAGNI schema_browser_view + Thariq 5 categories, D3 dual-MD rationale thin, G7 F27.3 incremental). All 10 folded into planner amendment. Verdict survives self-attack pass. tool_uses=70."
+updated_at = "2026-05-15T10:30:00Z"
+
+[l2_a_default_schema_kinds]
+blockers = []
+completed_at = "2026-05-15T10:35:00Z"
+created_at = "2026-05-15T10:30:00Z"
+description = """
+L2-A decomposition into 4 atomic builder droplets, each ≤2 code-block edits (1 new schema file + 1 new test file), fully disjoint paths → 4-way parallel dispatch after plan-QA clears. No L3 recursion needed.
+
+## A1 — builder_a1_roadmap_schema
+
+**Paths owned (NEW)**:
+- `examples/schemas/roadmap.toml`
+- `internal/schema/roadmap_schema_test.go`
+
+**Schema content** — db `roadmap`, multi-file mount `.ta/roadmap/*.toml`, 3 types:
+- `[roadmap.version] extends = "ActionItem"` — adds vision_summary (markdown), target_date_band (string), status (enum=[planning,in_progress,landed,punted], required).
+- `[roadmap.item] extends = "ActionItem"` — adds target_version (string, names roadmap.version ref), dependencies (array, element_type=string).
+- `[roadmap.dependency] extends = "NodeBase"` — adds from_id (required), to_id (required), kind (enum=[blocks,enables,supersedes,punted_to], required), rationale (markdown).
+- NO auto_spawn block.
+
+**Tests** (package `schema`):
+- `TestSchemaLoad_Roadmap` — load via os.ReadFile + LoadBytes; assert reg.DBs["roadmap"] with Types[version|item|dependency]; assert AutoSpawn empty.
+- `TestSchemaValidate_Roadmap_SampleRecord` — minimal samples per type; reg.Validate("roadmap.<type>", sample) returns nil.
+
+**Acceptance**: `mage testFunc 'TestSchemaLoad_Roadmap|TestSchemaValidate_Roadmap_SampleRecord'` returns 0; `mage testPkg ./internal/templates` regression-green.
+
+## A2 — builder_a2_template_manifest_schema
+
+**Paths owned (NEW)**:
+- `examples/schemas/template_manifest.toml`
+- `internal/schema/template_manifest_schema_test.go`
+
+**Schema content** — db `template_manifest`, multi-file mount `.ta/templates/manifests/*.toml`, 3 types via shared base:
+- `[template_manifest.bases.Manifest] extends = "NodeBase"` — field_type_bindings (type=table, free-form), description (markdown).
+- `[template_manifest.html] extends = "Manifest"` — format (enum=[html], required), selectors (type=table, CSS-selector map).
+- `[template_manifest.md] extends = "Manifest"` — format (enum=[md], required), heading_path_selectors (type=table).
+- `[template_manifest.txt] extends = "Manifest"` — format (enum=[txt], required), regex_selectors (type=table).
+- NO auto_spawn.
+
+**Tests** (package `schema`):
+- `TestSchemaLoad_TemplateManifest` — assert 3 types load; each Fields["format"].Enum has 1 value; AutoSpawn empty.
+- `TestSchemaValidate_TemplateManifest_SampleRecord` — 3 minimal samples with per-type format; reg.Validate returns nil.
+
+**Acceptance**: `mage testFunc 'TestSchemaLoad_TemplateManifest|TestSchemaValidate_TemplateManifest_SampleRecord'` returns 0; templates regression green.
+
+## A3 — builder_a3_html_template_schema
+
+**Paths owned (NEW)**:
+- `examples/schemas/html_template.toml`
+- `internal/schema/html_template_schema_test.go`
+
+**Schema content** — db `html_template`, multi-file mount `.ta/templates/html_views/*.toml`, 6 view types via shared base:
+- `[html_template.bases.View] extends = "NodeBase"` — view_name (required), template_relpath (required, names 'relative to embedded dist/'), description (markdown), target_record_type (string, names 'db.type the view renders'), variant (enum=[simple,stil_full], default=simple).
+- `[html_template.cascade_drop_view] extends = "View"`
+- `[html_template.cascade_planner_view] extends = "View"`
+- `[html_template.cascade_droplet_view] extends = "View"`
+- `[html_template.cascade_qa_view] extends = "View"`
+- `[html_template.roadmap_version_view] extends = "View"`
+- `[html_template.schema_browser_view] extends = "View"`
+- NO auto_spawn.
+
+**Tests** (package `schema`):
+- `TestSchemaLoad_HtmlTemplate` — assert all 6 types present; each has view_name/template_relpath/variant; AutoSpawn empty.
+- `TestSchemaValidate_HtmlTemplate_SampleRecord` — sample for cascade_drop_view; reg.Validate returns nil.
+- `TestSchemaLoad_HtmlTemplate_AllSixViewsDeclared` — enumerate expected 6 view names; assert all present in Types.
+
+**Acceptance**: `mage testFunc 'TestSchemaLoad_HtmlTemplate|TestSchemaValidate_HtmlTemplate_SampleRecord|TestSchemaLoad_HtmlTemplate_AllSixViewsDeclared'` returns 0.
+
+## A4 — builder_a4_target_system_schema
+
+**Paths owned (NEW)**:
+- `examples/schemas/target_system.toml`
+- `internal/schema/target_system_schema_test.go`
+
+**Schema content** — db `target_system`, multi-file mount `.ta/target_systems/*.toml`, 2 types via shared base:
+- `[target_system.bases.TargetSystem] extends = "NodeBase"` — name (required, display name), install_destinations (type=table, free-form, names 'subtree-name → destination path'), on_conflict_default (enum=[skip,overwrite,merge,prompt], default=prompt), requires_substrate_dir (string), description (markdown).
+- `[target_system.claude] extends = "TargetSystem"` — description names Claude Code conventions.
+- `[target_system.codex] extends = "TargetSystem"` — description names Codex conventions.
+- NO auto_spawn.
+
+**Tests** (package `schema`):
+- `TestSchemaLoad_TargetSystem` — assert claude + codex types load; each Fields["install_destinations"].Type == TypeTable; AutoSpawn empty.
+- `TestSchemaValidate_TargetSystem_SampleRecord` — realistic samples (claude: agents → .claude/agents/, hooks → .claude/hooks/; codex: agents → .codex/agents/, settings → .codex/config.toml:merge); reg.Validate returns nil for both.
+- `TestSchemaLoad_TargetSystem_BothInstallDestinationsTableShape` — assert install_destinations.Type == TypeTable for both types; assert neither declares fixed inner shape (free-form contract).
+
+**Acceptance**: `mage testFunc 'TestSchemaLoad_TargetSystem|TestSchemaValidate_TargetSystem_SampleRecord|TestSchemaLoad_TargetSystem_BothInstallDestinationsTableShape'` returns 0.
+
+## Cross-cutting builder rules
+
+- Test files use package `schema` (not `schema_test`) matching `meta_test.go` precedent.
+- Each test reads its schema via `os.ReadFile` with path from `runtime.Caller` climbing to repo root, then descending to `examples/schemas/<file>.toml` — avoids cwd assumptions.
+- Sample records use only required fields (per type's `Fields.Required`) + enum constraints.
+- After own test passes, builder runs `mage testPkg ./internal/templates` to confirm no templates-loading regression (auto-validated by `templates.go:674-714`).
+- NO edits to `embed.go`, `magefile.go`, `internal/schema/load.go`, `internal/schema/meta_schema.toml`. Out of L2-A scope.
+- F23 OFF — all schemas MUST have empty AutoSpawn slice (asserted by load test).
+
+## L2-A close gate
+
+`mage testPkg ./internal/schema && mage testPkg ./internal/templates` (both green).
+
+## Unknowns routed
+
+- `target_record_type` ref-validation is string-only (no schema-language ref-type yet). Out of L2-A scope; v0.2.0 consideration.
+- `roadmap.item.dependencies` is `element_type=string` for now (record-id strings). Future structured `RoadmapEdge` alias — out of scope.
+- F23 OFF — if F23 lands before H1, A1-A4 may want auto_spawn for roadmap edges. Explicitly punted.
+"""
+objective = "Decompose L2-A into 4 atomic builder droplets, one per new top-level schema file: A1 roadmap.toml (roadmap.{version,item,dependency}), A2 template_manifest.toml (template_manifest.{html,md,txt}), A3 html_template.toml (6 view kinds: cascade_drop_view / cascade_planner_view / cascade_droplet_view / cascade_qa_view / roadmap_version_view / schema_browser_view), A4 target_system.toml (target_system.{claude,codex} with declarative install rules: path-map per kind, on_conflict_default, requires_substrate_dir). Single-level decomposition (no L3): each droplet owns a disjoint new file; zero cross-droplet conflicts. PINNED FIRST in drop_004 sequencing because L2-B/D/E/F/H all reference kinds A adds."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-15T10:30:00Z"
+state = "complete"
+title = "L2-A planner — default_schema_kinds (4 droplets)"
+transition_notes = "L2-A FULL CLOSURE. Planner+plan-QA complete (round 1 with surgical amendments, no round-2 per orchestrator-override precedent). 4 builders complete (A1-A4, all state=complete outcome=success). Build-QA pair complete (proof=PASS tool_uses=37, falsif=READY tool_uses=51, 0 counterexamples). 8 NEW files landed (4 schema + 4 test); 0 edits to existing files. mage check green at 1053/1053 + 0 fail + 16/18 pkg green (+31 tests over drop_003 baseline). 2 follow-ups routed: (1) TestExamplesLoadCleanly enumerator extension to cover 4 new schemas (planner-explicit optional, L2-G9 candidate); (2) initapply strip-bases-at-merge behavior architecturally surfaces a base-resolution gap on fresh-project init — PRE-EXISTING (already affects cascade.toml), L2-F walker scope. Ready for orchestrator commit + mage install + MCP server bounce before L2-B/D/E/F/H runtime deps active. tool_uses across L2-A: planner=51 + plan-QA proof=60 + plan-QA falsif=53 + A1=36 + A2=36 + A3=44 + A4=28 + build-QA proof=37 + build-QA falsif=51 = 396 total agent tool_uses for L2-A."
+updated_at = "2026-05-15T11:08:00Z"
+[l2_a_plan_qa_proof]
+blockers = ["drop_004.drop.l2_a_default_schema_kinds"]
+completed_at = "2026-05-15T10:42:00Z"
+created_at = "2026-05-15T10:30:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-proof"
+started_at = "2026-05-15T10:35:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_a_default_schema_kinds"
+title = "Plan-QA proof — L2-A default_schema_kinds decomposition"
+transition_notes = "PASS-with-AMEND. 16+ tool calls; every cited file:line resolves. CRITICAL finding: standalone LoadBytes on new schemas requires bases self-contained (cascade.toml:22-220 precedent). 2 additional clarity gaps (templates.go regression citation, runtime.Caller path strategy). All 3 folded into planner amendment. tool_uses=60."
+updated_at = "2026-05-15T10:50:00Z"
+[l2_a_plan_qa_falsif]
+blockers = ["drop_004.drop.l2_a_default_schema_kinds"]
+completed_at = "2026-05-15T10:42:00Z"
+created_at = "2026-05-15T10:30:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "qa-falsification"
+started_at = "2026-05-15T10:35:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_a_default_schema_kinds"
+title = "Plan-QA falsification — L2-A default_schema_kinds decomposition"
+transition_notes = "AMEND. 10 attacks: 1 CONFIRMED counterexample (cross-db extends standalone LoadBytes failure on A1-A4 — load.go:809-827 ErrUnknownBase) + 4 GAP-class (helper-collision unpinned, runtime.Caller precedent-drift, Comment alias derivative requirement, templates regression citation wrong surface) + 5 mitigated + 1 explicitly accepted per L1 amendment #11. Fix is surgical — mirror cascade.toml:22-220 self-contained bases pattern. All folded into planner amendment. tool_uses=53."
+updated_at = "2026-05-15T10:50:00Z"
+
+[builder_a1_roadmap_schema]
+blockers = []
+completed_at = "2026-05-15T10:58:00Z"
+created_at = "2026-05-15T10:50:00Z"
+objective = "Create examples/schemas/roadmap.toml + internal/schema/roadmap_schema_test.go. Schema declares roadmap db with 3 types extending project.ActionItem/NodeBase. Tests verify standalone LoadBytes + Validate. ≤2 code-block edits. Self-contained bases REQUIRED per L2-A plan-QA: declare [project.bases.NodeBase] + [project.bases.ActionItem] (+ [project.types.Comment] alias if NodeBase.comments retained) at top mirroring cascade.toml:22-220."
+outcome = "success"
+parent_id = "drop_004.drop.l2_a_default_schema_kinds"
+paths = ["examples/schemas/roadmap.toml", "internal/schema/roadmap_schema_test.go"]
+role = "builder"
+started_at = "2026-05-15T10:50:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder A1 — roadmap.toml schema (roadmap.{version,item,dependency})"
+transition_notes = "A1 complete. tool_uses=36. Files: examples/schemas/roadmap.toml + internal/schema/roadmap_schema_test.go. 2 named tests pass via mage testFunc. Filtered 196/196 pre-existing schema suite green. Two methodology learnings caught (same as A2/A4): (1) [project] bases-only container requires `paths = [\".ta/roadmap/project.toml\"]` even with no concrete types — loader contract; (2) `format = \"toml\"` REJECTED at db level per F10 (load.go:16-21) — format inferred from path extension. Comment alias DROPPED (NodeBase.comments field omitted per task allowance — simpler scaffold). roadmap.dependency extends NodeBase (not ActionItem) so role NOT required. F23 OFF asserted via len(AutoSpawn)==0 for all 3 types. Sibling-isolation report: A2/A3/A4 WIP-failures visible in mage testPkg ./internal/schema but NOT in A1's files; per cascade isolation rule reported own scope green."
+updated_at = "2026-05-15T10:58:00Z"
+[builder_a2_template_manifest_schema]
+blockers = []
+completed_at = "2026-05-15T10:58:00Z"
+created_at = "2026-05-15T10:50:00Z"
+objective = "Create examples/schemas/template_manifest.toml + internal/schema/template_manifest_schema_test.go. Schema declares template_manifest db with 3 format-specific types via shared Manifest base. Tests verify standalone LoadBytes + Validate. ≤2 code-block edits. Self-contained bases REQUIRED."
+outcome = "success"
+parent_id = "drop_004.drop.l2_a_default_schema_kinds"
+paths = ["examples/schemas/template_manifest.toml", "internal/schema/template_manifest_schema_test.go"]
+role = "builder"
+started_at = "2026-05-15T10:50:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder A2 — template_manifest.toml schema (template_manifest.{html,md,txt})"
+transition_notes = "A2 complete. tool_uses=36. Files: examples/schemas/template_manifest.toml + internal/schema/template_manifest_schema_test.go. 2 named tests (8 sub-tests) pass via mage testFunc. Same 2 learnings as A1/A4: (1) [project] paths required at db level; (2) `format = \"toml\"` REJECTED per F10. Comment alias KEPT here ([project.types.Comment] declared since NodeBase.comments retained). Manifest base extends NodeBase; 3 leaf types (html/md/txt) extend Manifest with per-type `format` single-value enum. Free-form table fields (selectors/heading_path_selectors/regex_selectors/field_type_bindings) declared as type=table with no inner fields. F23 OFF asserted. Cascade-isolation: A3 still WIP, A2 reports own scope green."
+updated_at = "2026-05-15T10:58:00Z"
+[builder_a3_html_template_schema]
+blockers = []
+completed_at = "2026-05-15T11:00:00Z"
+created_at = "2026-05-15T10:50:00Z"
+objective = "Create examples/schemas/html_template.toml + internal/schema/html_template_schema_test.go. Schema declares html_template db with 6 view types via shared View base: cascade_drop_view, cascade_planner_view, cascade_droplet_view, cascade_qa_view, roadmap_version_view, schema_browser_view. Tests verify standalone LoadBytes + Validate + all-six-enumerated. ≤2 code-block edits. Self-contained bases REQUIRED."
+outcome = "success"
+parent_id = "drop_004.drop.l2_a_default_schema_kinds"
+paths = ["examples/schemas/html_template.toml", "internal/schema/html_template_schema_test.go"]
+role = "builder"
+started_at = "2026-05-15T10:50:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder A3 — html_template.toml schema (6 view kinds)"
+transition_notes = "A3 complete. tool_uses=44. Files written: examples/schemas/html_template.toml (195 lines, 6 view types extending View base) + internal/schema/html_template_schema_test.go (109 lines, 3 tests). BUILDER REPORTED 'STATUS: BLOCKED' on mage testFunc/testPkg — Bash denied 6× during builder run (permissions environment issue, root cause unknown — other 3 builders ran fine). Orchestrator verified work directly: `mage testFunc TestSchemaLoad_HtmlTemplate|...` returns 9/9 pass, all 18 packages green. Same learnings as A1/A2/A4: (1) [project] container needs paths; (2) format= REJECTED per F10. Comment alias dropped (NodeBase.comments omitted). NO auto_spawn (F23 OFF). Methodology note: builder-environment Bash denial mid-flight — builder agent correctly reported BLOCKED status with static analysis evidence rather than fabricating verdict; orchestrator picked up verification. L2-A close gate `mage check`: 1062 tests, 1053 passed, 0 failed, 9 skipped (pre-existing skips), 16 packages green. +31 tests over drop_003's 1031 baseline."
+updated_at = "2026-05-15T11:00:00Z"
+[builder_a4_target_system_schema]
+blockers = []
+completed_at = "2026-05-15T10:57:00Z"
+created_at = "2026-05-15T10:50:00Z"
+objective = "Create examples/schemas/target_system.toml + internal/schema/target_system_schema_test.go. Schema declares target_system db with 2 types via shared TargetSystem base with declarative install rules. Tests verify standalone LoadBytes + Validate + install_destinations free-form table. ≤2 code-block edits. Self-contained bases REQUIRED."
+outcome = "success"
+parent_id = "drop_004.drop.l2_a_default_schema_kinds"
+paths = ["examples/schemas/target_system.toml", "internal/schema/target_system_schema_test.go"]
+role = "builder"
+started_at = "2026-05-15T10:50:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "Builder A4 — target_system.toml schema (target_system.{claude,codex})"
+transition_notes = "A4 builder complete. tool_uses=28. Files written: examples/schemas/target_system.toml + internal/schema/target_system_schema_test.go. 3 named tests pass via mage testFunc. Learnings surfaced (NEW methodology contracts caught at builder layer): (1) [project] bases-only container STILL requires `paths = [\".ta/project.toml\"]` declaration even when only declaring bases (loader contract); (2) `format = \"toml\"` meta-field is REJECTED per F10 — format inferred from path extension, NEVER declared explicitly. Both folded into final schema as design rule. install_destinations declared `type=\"table\"` with no inner Fields (free-form map per spec). claude+codex types extend TargetSystem base with zero new fields; differentiation in description prose + per-record install data. NO auto_spawn (F23 OFF). Sibling-isolation: A4 noted A3 failing in `mage testPkg ./internal/schema` with same [project] paths error A4 hit + fixed. Reporting verdict against own scope per cascade isolation rule; orchestrator coordinates sibling-failure handling."
+updated_at = "2026-05-15T10:57:00Z"
+
+[build_qa_proof_l2_a]
+blockers = ["drop_004.drop.builder_a1_roadmap_schema", "drop_004.drop.builder_a2_template_manifest_schema", "drop_004.drop.builder_a3_html_template_schema", "drop_004.drop.builder_a4_target_system_schema"]
+completed_at = "2026-05-15T11:08:00Z"
+created_at = "2026-05-15T11:00:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_a_default_schema_kinds"
+role = "qa-proof"
+started_at = "2026-05-15T11:00:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_a_default_schema_kinds"
+title = "Build-QA proof — L2-A default_schema_kinds (4 builders)"
+transition_notes = "PASS. tool_uses=37. Independently re-verified all 4 schemas via Read (8 NEW files exist at cited paths); confirmed self-contained bases (roadmap.toml:30-220 NodeBase+ActionItem; template_manifest.toml:32-146 NodeBase+Comment; html_template.toml:32-124 NodeBase no-Comment; target_system.toml:22-114 NodeBase no-Comment); confirmed package=schema + ../../examples/schemas path strategy + no shared helpers; confirmed F23 OFF (len(AutoSpawn)==0 at every load test); confirmed builder deviation drop format='toml' correct per load.go:16-21; ran mage testFunc for all 4 builders (22 sub-tests pass) including independent A3 re-verification; ran mage check 1053/1053 + 0 fail + 9 pre-existing skips + 16/18 pkg green. One non-blocking gap: TestExamplesLoadCleanly at meta_test.go:173-188 not extended to enumerate 4 new schemas (planner-explicit optional)."
+updated_at = "2026-05-15T11:08:00Z"
+[build_qa_falsif_l2_a]
+blockers = ["drop_004.drop.builder_a1_roadmap_schema", "drop_004.drop.builder_a2_template_manifest_schema", "drop_004.drop.builder_a3_html_template_schema", "drop_004.drop.builder_a4_target_system_schema"]
+completed_at = "2026-05-15T11:08:00Z"
+created_at = "2026-05-15T11:00:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_a_default_schema_kinds"
+role = "qa-falsification"
+started_at = "2026-05-15T11:00:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_a_default_schema_kinds"
+title = "Build-QA falsification — L2-A default_schema_kinds (4 builders)"
+transition_notes = "READY. tool_uses=51. 10 attacks: 8 mitigated/accepted, 2 confirmed-clean (F10 format rejection + templates regression clean), 0 counterexamples. Critical attack-1 (cross-base collision on init merge) MITIGATED: internal/initapply/initapply.go:500 extracts only incoming[p.name] — [project] body (carrying duplicate [project.bases.NodeBase]) is dropped on the floor before merge-write. Registry-wide base-namespace collision (load.go:700-705) never reaches a single LoadBytes call. PRE-EXISTING CONCERN routed to L2-F scope: same applySchemas strip means a project that selects e.g. roadmap post-init lands with extends='ActionItem' refs unresolved IF .ta/schema.toml didn't carry the bases originally. This is the SAME condition already affecting cascade.toml today — not introduced by L2-A. mage testPkg ./internal/templates 72/72 pass; mage check 1053/1053 + 0 fail. Minor cosmetic: A3 chose .ta/cascade/project.toml [project] mount path same as cascade.toml — stripped at merge so no runtime issue, but conceptually odd; route as follow-up to L2-F."
+updated_at = "2026-05-15T11:08:00Z"

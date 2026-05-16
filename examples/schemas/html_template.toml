@@ -1,0 +1,195 @@
+# HTML view-template manifest schema — DRAFT (2026-05-15)
+#
+# Tracks the declared HTML view templates that ship via binary embed
+# under dist/. Each record is one addressable view (cascade drop view,
+# planner view, roadmap version view, schema browser, etc.). The
+# rendering templates themselves live in the embedded `dist/`
+# directory; this schema is the schema for the manifest entries that
+# point at those embedded templates.
+#
+# Self-contained: NodeBase is inlined here (under a minimal `project`
+# db so the loader accepts the file) so this schema loads cleanly
+# without depending on cascade.toml being merged in the same registry.
+# The Comment alias is intentionally NOT carried — NodeBase's
+# `comments` field is dropped here.
+#
+# F23 is OFF — no `[<type>.auto_spawn]` blocks anywhere.
+
+# ============================================================================
+# Base types — shared field sets that concrete types extend (F22).
+# ============================================================================
+#
+# The `project` db is declared with a path so the loader accepts the
+# file (every db needs at least one path entry per F10). Its only
+# purpose here is to host the shared NodeBase under a stable home;
+# bases share a Registry-wide flat namespace so `extends = "NodeBase"`
+# from another db resolves cleanly.
+
+[project]
+paths = [".ta/cascade/project.toml"]
+description = "Project node — host for the shared NodeBase used by html_template view manifests."
+
+[project.bases.NodeBase]
+description = "Common fields for any cascade node — shared by project, plans, discussions, drop-tree action items."
+
+[project.bases.NodeBase.fields.parent_id]
+type = "string"
+description = "ta record id of the parent node, or empty for root nodes."
+
+[project.bases.NodeBase.fields.title]
+type = "string"
+required = true
+description = "Short headline for the node."
+
+[project.bases.NodeBase.fields.description]
+type = "string"
+format = "markdown"
+description = "Free prose describing the node. Markdown supported."
+
+[project.bases.NodeBase.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete", "failed", "archived"]
+description = "Lifecycle state. todo: not started. in_progress: actively being worked. complete: terminal success. failed: terminal failure. archived: soft-retired."
+
+[project.bases.NodeBase.fields.outcome]
+type = "string"
+enum = ["", "success", "failure", "blocked"]
+default = ""
+description = "Set when reaching terminal state. Disambiguates complete-via-promotion from complete-via-rejection."
+
+[project.bases.NodeBase.fields.priority]
+type = "string"
+enum = ["low", "medium", "high"]
+default = "medium"
+description = "Operator-set priority hint."
+
+[project.bases.NodeBase.fields.labels]
+type = "array"
+element_type = "string"
+description = "Free-form tag strings."
+
+[project.bases.NodeBase.fields.blockers]
+type = "array"
+element_type = "string"
+description = "ta record ids of nodes that must reach state=complete before this node can transition todo→in_progress."
+
+[project.bases.NodeBase.fields.depends_on]
+type = "array"
+element_type = "string"
+description = "Soft dependencies — referenced but not strictly blocking."
+
+[project.bases.NodeBase.fields.related_items]
+type = "array"
+element_type = "string"
+description = "ta record ids related to this node for cross-reference."
+
+[project.bases.NodeBase.fields.created_at]
+type = "datetime"
+required = true
+description = "Creation timestamp (RFC3339)."
+
+[project.bases.NodeBase.fields.updated_at]
+type = "datetime"
+required = true
+description = "Last-update timestamp (RFC3339)."
+
+[project.bases.NodeBase.fields.started_at]
+type = "datetime"
+description = "Set on transition to in_progress."
+
+[project.bases.NodeBase.fields.completed_at]
+type = "datetime"
+description = "Set on transition to complete or failed."
+
+[project.bases.NodeBase.fields.archived_at]
+type = "datetime"
+description = "Set on transition to archived."
+
+[project.bases.NodeBase.fields.created_by_actor]
+type = "string"
+description = "Actor identity that created the node (e.g. 'agent:planner-1', 'user:ev')."
+
+[project.bases.NodeBase.fields.created_by_type]
+type = "string"
+enum = ["user", "agent", "system"]
+description = "Actor category."
+
+[project.bases.NodeBase.fields.updated_by_actor]
+type = "string"
+description = "Actor identity that last updated the node."
+
+[project.bases.NodeBase.fields.updated_by_type]
+type = "string"
+enum = ["user", "agent", "system"]
+
+# (Comments field intentionally omitted — keeps this schema self-contained
+# without pulling in the Comment alias.)
+
+# ============================================================================
+# html_template db — view-template manifests.
+# ============================================================================
+
+[html_template]
+description = "HTML view-template manifests — one record per addressable view; rendering templates ship via binary embed, this is the schema for tracking view declarations."
+paths = [".ta/templates/html_views/*.toml"]
+
+# Shared base for every view manifest. Extends NodeBase so each view
+# record carries the standard lifecycle / authorship metadata.
+
+[html_template.bases.View]
+extends = "NodeBase"
+description = "Shared base for HTML view-template manifest records — one per addressable view."
+
+[html_template.bases.View.fields.view_name]
+type = "string"
+required = true
+description = "Canonical view name (e.g. cascade_drop, roadmap_version)."
+
+[html_template.bases.View.fields.template_relpath]
+type = "string"
+required = true
+description = "Template file path relative to the embedded dist/ directory shipped with the binary."
+
+[html_template.bases.View.fields.description]
+type = "string"
+format = "markdown"
+description = "Free prose describing what the view renders and when it is used."
+
+[html_template.bases.View.fields.target_record_type]
+type = "string"
+description = "db.type the view renders, e.g. cascade.drop."
+
+[html_template.bases.View.fields.variant]
+type = "string"
+enum = ["simple", "stil_full"]
+default = "simple"
+description = "Render variant — `simple` for inline / compact layouts, `stil_full` for the full Stil-themed page chrome."
+
+# ----------------------------------------------------------------------------
+# Concrete view types — each extends View; descriptions name the specific
+# record kind the view renders.
+
+[html_template.cascade_drop_view]
+extends = "View"
+description = "View template for a cascade.drop record — L1 cascade root."
+
+[html_template.cascade_planner_view]
+extends = "View"
+description = "View template for a cascade.planner record — interior planner node decomposition."
+
+[html_template.cascade_droplet_view]
+extends = "View"
+description = "View template for a cascade.droplet record — atomic build leaf."
+
+[html_template.cascade_qa_view]
+extends = "View"
+description = "View template for cascade.qa_proof / cascade.qa_falsification records — QA verification artifacts."
+
+[html_template.roadmap_version_view]
+extends = "View"
+description = "View template for a roadmap version record — release-scoped feature ledger."
+
+[html_template.schema_browser_view]
+extends = "View"
+description = "View template for the schema browser — renders db / type / field declarations from the loaded schema registry."

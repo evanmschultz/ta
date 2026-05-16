@@ -1,0 +1,288 @@
+# Default roadmap schema — DRAFT (2026-05-15)
+#
+# Tracks pre-MVP and post-MVP roadmap planning surface for a project:
+# versions (release bands), items (work units assigned to a version),
+# and dependencies (typed relationships between items).
+#
+# Self-contained: declares its own NodeBase + ActionItem bases mirroring
+# the cascade schema convention so the file loads cleanly under ta's
+# meta-schema grammar (F21/F22) without depending on any other schema
+# file. The shared field bundles are duplicated rather than imported —
+# ta's loader is single-file scope, and each example schema is a
+# stand-alone scaffold copied into target projects.
+#
+# F23 OFF: no [<type>.auto_spawn] blocks — auto-spawn (QA twin
+# generation, etc.) lands in a separate slice; until then twins are
+# created manually per cascade methodology § 4.
+
+# ============================================================================
+# Project db — overarching project metadata + the bases [roadmap.*] extend.
+# ============================================================================
+
+[project]
+description = "Project node — onboarding metadata + shared bases hosted under [project.bases.*]."
+paths = [".ta/roadmap/project.toml"]
+
+# ----------------------------------------------------------------------------
+# Base types — shared field sets that concrete types extend (F22).
+# ----------------------------------------------------------------------------
+
+[project.bases.NodeBase]
+description = "Common fields for any roadmap node — shared by versions, items, dependencies."
+
+[project.bases.NodeBase.fields.parent_id]
+type = "string"
+description = "ta record id of the parent node, or empty for root nodes."
+
+[project.bases.NodeBase.fields.title]
+type = "string"
+required = true
+description = "Short headline for the node."
+
+[project.bases.NodeBase.fields.description]
+type = "string"
+format = "markdown"
+description = "Free prose describing the node. Markdown supported."
+
+[project.bases.NodeBase.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete", "failed", "archived"]
+description = "Lifecycle state. todo: not started. in_progress: actively being worked. complete: terminal success. failed: terminal failure. archived: soft-retired."
+
+[project.bases.NodeBase.fields.outcome]
+type = "string"
+enum = ["", "success", "failure", "blocked"]
+default = ""
+description = "Set when reaching terminal state. Disambiguates complete-via-promotion from complete-via-rejection."
+
+[project.bases.NodeBase.fields.priority]
+type = "string"
+enum = ["low", "medium", "high"]
+default = "medium"
+description = "Operator-set priority hint."
+
+[project.bases.NodeBase.fields.labels]
+type = "array"
+element_type = "string"
+description = "Free-form tag strings."
+
+[project.bases.NodeBase.fields.blockers]
+type = "array"
+element_type = "string"
+description = "ta record ids of nodes that must reach state=complete before this node can transition todo→in_progress."
+
+[project.bases.NodeBase.fields.depends_on]
+type = "array"
+element_type = "string"
+description = "Soft dependencies — referenced but not strictly blocking."
+
+[project.bases.NodeBase.fields.related_items]
+type = "array"
+element_type = "string"
+description = "ta record ids related to this node for cross-reference."
+
+[project.bases.NodeBase.fields.created_at]
+type = "datetime"
+required = true
+description = "Creation timestamp (RFC3339)."
+
+[project.bases.NodeBase.fields.updated_at]
+type = "datetime"
+required = true
+description = "Last-update timestamp (RFC3339)."
+
+[project.bases.NodeBase.fields.started_at]
+type = "datetime"
+description = "Set on transition to in_progress."
+
+[project.bases.NodeBase.fields.completed_at]
+type = "datetime"
+description = "Set on transition to complete or failed."
+
+[project.bases.NodeBase.fields.archived_at]
+type = "datetime"
+description = "Set on transition to archived."
+
+[project.bases.NodeBase.fields.created_by_actor]
+type = "string"
+description = "Actor identity that created the node (e.g. 'agent:planner-1', 'user:ev')."
+
+[project.bases.NodeBase.fields.created_by_type]
+type = "string"
+enum = ["user", "agent", "system"]
+description = "Actor category."
+
+[project.bases.NodeBase.fields.updated_by_actor]
+type = "string"
+description = "Actor identity that last updated the node."
+
+[project.bases.NodeBase.fields.updated_by_type]
+type = "string"
+enum = ["user", "agent", "system"]
+
+# ----------------------------------------------------------------------------
+
+[project.bases.ActionItem]
+extends = "NodeBase"
+description = "An action item — a node carrying work. Adds role, structural classification, edit-scope fields, completion contract."
+
+[project.bases.ActionItem.fields.role]
+type = "string"
+required = true
+enum = ["builder", "qa-proof", "qa-falsification", "qa-a11y", "qa-visual",
+        "design", "commit", "planner", "research"]
+description = "Work-lane the action item runs in."
+
+[project.bases.ActionItem.fields.structural_type]
+type = "string"
+enum = ["", "drop", "segment", "confluence", "droplet"]
+default = ""
+description = "Cascade structural classification. Empty for non-cascade containers."
+
+[project.bases.ActionItem.fields.persistent]
+type = "boolean"
+default = false
+description = "True for retained anchor items that don't archive."
+
+[project.bases.ActionItem.fields.dev_gated]
+type = "boolean"
+default = false
+description = "True if state transitions require human reviewer approval."
+
+[project.bases.ActionItem.fields.owner]
+type = "string"
+description = "Actor identity that gates state transitions on this item."
+
+[project.bases.ActionItem.fields.due_at]
+type = "datetime"
+description = "Optional deadline."
+
+[project.bases.ActionItem.fields.canceled_at]
+type = "datetime"
+
+[project.bases.ActionItem.fields.paths]
+type = "array"
+element_type = "string"
+description = "File globs this item writes to. Planner fills; builder/QA read; sibling-blocking input."
+
+[project.bases.ActionItem.fields.packages]
+type = "array"
+element_type = "string"
+description = "Packages affected (sibling-blocking unit). Implementation-language-specific format."
+
+[project.bases.ActionItem.fields.files]
+type = "array"
+element_type = "string"
+description = "Reference attachments — files the agent should read for context but not write."
+
+[project.bases.ActionItem.fields.start_commit]
+type = "string"
+description = "Commit hash at which in_progress started — git diff anchor."
+
+[project.bases.ActionItem.fields.end_commit]
+type = "string"
+description = "Commit hash at which terminal state was reached."
+
+[project.bases.ActionItem.fields.objective]
+type = "string"
+format = "markdown"
+description = "What this item is trying to achieve, in prose."
+
+[project.bases.ActionItem.fields.acceptance_criteria]
+type = "string"
+format = "markdown"
+description = "Behavior-level assertions — how we know it's done."
+
+[project.bases.ActionItem.fields.definition_of_complete]
+type = "string"
+format = "markdown"
+description = "Concrete checklist of what 'complete' means for this item."
+
+[project.bases.ActionItem.fields.validation_plan]
+type = "string"
+format = "markdown"
+description = "How the work will be validated (tests, manual review, gates)."
+
+[project.bases.ActionItem.fields.implementation_notes_user]
+type = "string"
+format = "markdown"
+description = "Human-authored implementation guidance for the agent."
+
+[project.bases.ActionItem.fields.implementation_notes_agent]
+type = "string"
+format = "markdown"
+description = "Agent-authored notes captured during work."
+
+[project.bases.ActionItem.fields.transition_notes]
+type = "string"
+format = "markdown"
+description = "Notes captured at state transitions."
+
+# ============================================================================
+# Roadmap db — versions, items, dependencies.
+# ============================================================================
+
+[roadmap]
+description = "Roadmap versions, items, and dependencies — pre-MVP and post-MVP planning surface."
+paths = [".ta/roadmap/*.toml"]
+
+# Release / milestone band.
+[roadmap.version]
+extends = "ActionItem"
+description = "A roadmap version — a release band or milestone that groups roadmap items toward a target date."
+
+[roadmap.version.fields.vision_summary]
+type = "string"
+format = "markdown"
+description = "Narrative summary of what this version aims to deliver."
+
+[roadmap.version.fields.target_date_band]
+type = "string"
+description = "Loose target window (e.g. 'Q3 2026', '2026-09', 'pre-MVP') — not a hard deadline."
+
+[roadmap.version.fields.status]
+type = "string"
+required = true
+enum = ["planning", "in_progress", "landed", "punted"]
+description = "Version lifecycle status. planning: scoping. in_progress: actively building. landed: shipped. punted: deferred to a later version."
+
+# Work unit assigned to a version.
+[roadmap.item]
+extends = "ActionItem"
+description = "A roadmap item — one work unit assigned to a roadmap.version with optional typed dependencies on other items."
+
+[roadmap.item.fields.target_version]
+type = "string"
+description = "roadmap.version record id ref — the version this item targets."
+
+[roadmap.item.fields.dependencies]
+type = "array"
+element_type = "string"
+description = "roadmap.dependency record id refs — typed relationships originating from this item."
+
+# Typed relationship between roadmap items.
+[roadmap.dependency]
+extends = "NodeBase"
+description = "Typed relationship between two roadmap.item records (blocks, enables, supersedes, punted_to)."
+
+[roadmap.dependency.fields.from_id]
+type = "string"
+required = true
+description = "roadmap.item record id this dependency originates from."
+
+[roadmap.dependency.fields.to_id]
+type = "string"
+required = true
+description = "roadmap.item record id this dependency targets."
+
+[roadmap.dependency.fields.kind]
+type = "string"
+required = true
+enum = ["blocks", "enables", "supersedes", "punted_to"]
+description = "Relationship kind. blocks: from must complete before to. enables: from unlocks to (soft). supersedes: from replaces to. punted_to: from deferred to to (cross-version)."
+
+[roadmap.dependency.fields.rationale]
+type = "string"
+format = "markdown"
+description = "Free prose explaining why this dependency exists."

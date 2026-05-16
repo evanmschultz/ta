@@ -1,0 +1,166 @@
+# Target system schema — DRAFT (2026-05-15)
+#
+# Declarative descriptors for agent-harness target systems (Claude Code,
+# Codex, ...). Each record describes one target system: display name,
+# where its assets install on disk, conflict policy, substrate
+# requirements. Install behavior itself lives in the L2-F walker, NOT
+# here — this schema is the source-of-truth for WHAT a target system
+# is, not HOW the walker performs the install.
+#
+# Self-contained: NodeBase declared inline so this schema can ship via
+# embed.FS independently. Comment is dropped — target_system records do
+# not carry threaded discussion.
+
+# ============================================================================
+# Base types — shared field sets that concrete types extend (F22).
+# ============================================================================
+
+[project]
+paths = [".ta/project.toml"]
+description = "Project container — hosts shared bases for inheritance by other dbs."
+
+[project.bases.NodeBase]
+description = "Common fields for any cascade node — shared baseline for declarative records."
+
+[project.bases.NodeBase.fields.parent_id]
+type = "string"
+description = "ta record id of the parent node, or empty for root nodes."
+
+[project.bases.NodeBase.fields.title]
+type = "string"
+required = true
+description = "Short headline for the node."
+
+[project.bases.NodeBase.fields.description]
+type = "string"
+format = "markdown"
+description = "Free prose describing the node. Markdown supported."
+
+[project.bases.NodeBase.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete", "failed", "archived"]
+description = "Lifecycle state."
+
+[project.bases.NodeBase.fields.outcome]
+type = "string"
+enum = ["", "success", "failure", "blocked"]
+default = ""
+description = "Set when reaching terminal state."
+
+[project.bases.NodeBase.fields.priority]
+type = "string"
+enum = ["low", "medium", "high"]
+default = "medium"
+description = "Operator-set priority hint."
+
+[project.bases.NodeBase.fields.labels]
+type = "array"
+element_type = "string"
+description = "Free-form tag strings."
+
+[project.bases.NodeBase.fields.blockers]
+type = "array"
+element_type = "string"
+description = "ta record ids of nodes that must reach state=complete before this node can transition."
+
+[project.bases.NodeBase.fields.depends_on]
+type = "array"
+element_type = "string"
+description = "Soft dependencies — referenced but not strictly blocking."
+
+[project.bases.NodeBase.fields.related_items]
+type = "array"
+element_type = "string"
+description = "ta record ids related to this node for cross-reference."
+
+[project.bases.NodeBase.fields.created_at]
+type = "datetime"
+required = true
+description = "Creation timestamp (RFC3339)."
+
+[project.bases.NodeBase.fields.updated_at]
+type = "datetime"
+required = true
+description = "Last-update timestamp (RFC3339)."
+
+[project.bases.NodeBase.fields.started_at]
+type = "datetime"
+description = "Set on transition to in_progress."
+
+[project.bases.NodeBase.fields.completed_at]
+type = "datetime"
+description = "Set on transition to complete or failed."
+
+[project.bases.NodeBase.fields.archived_at]
+type = "datetime"
+description = "Set on transition to archived."
+
+[project.bases.NodeBase.fields.created_by_actor]
+type = "string"
+description = "Actor identity that created the node."
+
+[project.bases.NodeBase.fields.created_by_type]
+type = "string"
+enum = ["user", "agent", "system"]
+description = "Actor category."
+
+[project.bases.NodeBase.fields.updated_by_actor]
+type = "string"
+description = "Actor identity that last updated the node."
+
+[project.bases.NodeBase.fields.updated_by_type]
+type = "string"
+enum = ["user", "agent", "system"]
+
+# ============================================================================
+# target_system db — declarative agent-harness descriptors.
+# ============================================================================
+
+[target_system]
+description = "Target agent-harness descriptors. Each record describes one target system with declarative install destinations and conflict policy. Install behavior lives in the L2-F walker, NOT here."
+paths = [".ta/target_systems/*.toml"]
+
+# ----------------------------------------------------------------------------
+# Shared base — fields common to every target system.
+# ----------------------------------------------------------------------------
+
+[target_system.bases.TargetSystem]
+extends = "NodeBase"
+description = "Common fields for any target agent-harness descriptor."
+
+[target_system.bases.TargetSystem.fields.name]
+type = "string"
+required = true
+description = "display name"
+
+[target_system.bases.TargetSystem.fields.install_destinations]
+type = "table"
+description = "subtree-name → destination path. Keys like agents, hooks, skills, settings_fragments."
+
+[target_system.bases.TargetSystem.fields.on_conflict_default]
+type = "string"
+enum = ["skip", "overwrite", "merge", "prompt"]
+default = "prompt"
+description = "Default conflict policy when an install destination already exists."
+
+[target_system.bases.TargetSystem.fields.requires_substrate_dir]
+type = "string"
+description = "absolute or ~/-rooted path"
+
+[target_system.bases.TargetSystem.fields.description]
+type = "string"
+format = "markdown"
+description = "Prose description of the target system. Markdown supported."
+
+# ----------------------------------------------------------------------------
+# Concrete target system types — one per supported agent harness.
+# ----------------------------------------------------------------------------
+
+[target_system.claude]
+extends = "TargetSystem"
+description = "Claude Code conventions — .claude/agents/, .claude/hooks/, .claude/skills/, .claude/settings.json fragments."
+
+[target_system.codex]
+extends = "TargetSystem"
+description = "Codex conventions — .codex/agents/, .codex/config.toml fragments, AGENTS.md root file."
