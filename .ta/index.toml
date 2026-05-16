@@ -232,10 +232,40 @@ created = 2026-05-15T23:52:22.748098Z
 type = 'qa_falsification'
 updated = 2026-05-15T23:59:34.444672Z
 
+[drop_004.drop.build_qa_falsif_l2_b]
+created = 2026-05-16T05:42:21.008266Z
+type = 'qa_falsification'
+updated = 2026-05-16T05:46:04.908087Z
+
+[drop_004.drop.build_qa_falsif_l2_h]
+created = 2026-05-16T05:42:21.028324Z
+type = 'qa_falsification'
+updated = 2026-05-16T05:47:29.024907Z
+
+[drop_004.drop.build_qa_falsif_l2_j]
+created = 2026-05-16T06:04:12.867952Z
+type = 'qa_falsification'
+updated = 2026-05-16T06:18:21.444499Z
+
 [drop_004.drop.build_qa_proof_l2_a]
 created = 2026-05-15T23:52:22.735565Z
 type = 'qa_proof'
 updated = 2026-05-15T23:59:34.432028Z
+
+[drop_004.drop.build_qa_proof_l2_b]
+created = 2026-05-16T05:42:20.998318Z
+type = 'qa_proof'
+updated = 2026-05-16T05:46:45.666886Z
+
+[drop_004.drop.build_qa_proof_l2_h]
+created = 2026-05-16T05:42:21.018322Z
+type = 'qa_proof'
+updated = 2026-05-16T05:50:02.860225Z
+
+[drop_004.drop.build_qa_proof_l2_j]
+created = 2026-05-16T06:04:12.857946Z
+type = 'qa_proof'
+updated = 2026-05-16T06:14:57.203907Z
 
 [drop_004.drop.builder_a1_roadmap_schema]
 created = 2026-05-15T23:42:05.369326Z
@@ -276,6 +306,31 @@ updated = 2026-05-16T00:43:18.001411Z
 created = 2026-05-16T00:35:10.396263Z
 type = 'droplet'
 updated = 2026-05-16T00:39:30.279499Z
+
+[drop_004.drop.builder_j1_droplet_auto_spawn]
+created = 2026-05-16T06:04:12.805284Z
+type = 'droplet'
+updated = 2026-05-16T06:07:57.951623Z
+
+[drop_004.drop.builder_j2_drop_auto_spawn]
+created = 2026-05-16T06:04:12.816033Z
+type = 'droplet'
+updated = 2026-05-16T06:09:46.129537Z
+
+[drop_004.drop.builder_j3_planner_auto_spawn]
+created = 2026-05-16T06:04:12.828017Z
+type = 'droplet'
+updated = 2026-05-16T06:12:41.541831Z
+
+[drop_004.drop.builder_j4_live_schema_load_test]
+created = 2026-05-16T06:04:12.838026Z
+type = 'droplet'
+updated = 2026-05-16T06:06:25.50739Z
+
+[drop_004.drop.builder_j5_methodology_update]
+created = 2026-05-16T06:04:12.848293Z
+type = 'droplet'
+updated = 2026-05-16T06:06:41.626689Z
 
 [drop_004.drop.builder_l3f1_d1_types_and_paths]
 created = 2026-05-16T00:42:26.906756Z
@@ -330,12 +385,12 @@ updated = 2026-05-16T00:31:18.663539Z
 [drop_004.drop.l2_c_plan_qa_falsif]
 created = 2026-05-16T00:26:12.080801Z
 type = 'qa_falsification'
-updated = 2026-05-16T00:26:12.080801Z
+updated = 2026-05-16T05:13:25.908501Z
 
 [drop_004.drop.l2_c_plan_qa_proof]
 created = 2026-05-16T00:26:12.068226Z
 type = 'qa_proof'
-updated = 2026-05-16T00:26:12.068226Z
+updated = 2026-05-16T05:13:25.895685Z
 
 [drop_004.drop.l2_c_resolver_group_prefix]
 created = 2026-05-16T00:18:04.325852Z
@@ -350,12 +405,12 @@ updated = 2026-05-16T00:25:56.394567Z
 [drop_004.drop.l2_d_plan_qa_falsif]
 created = 2026-05-16T00:26:12.103882Z
 type = 'qa_falsification'
-updated = 2026-05-16T00:26:12.103882Z
+updated = 2026-05-16T05:14:33.380047Z
 
 [drop_004.drop.l2_d_plan_qa_proof]
 created = 2026-05-16T00:26:12.092874Z
 type = 'qa_proof'
-updated = 2026-05-16T00:26:12.092874Z
+updated = 2026-05-16T05:13:25.922459Z
 
 [drop_004.drop.l2_e_html_template_system]
 created = 2026-05-16T00:18:04.346878Z
@@ -365,12 +420,12 @@ updated = 2026-05-16T00:25:56.406519Z
 [drop_004.drop.l2_e_plan_qa_falsif]
 created = 2026-05-16T00:26:12.124879Z
 type = 'qa_falsification'
-updated = 2026-05-16T00:26:12.124879Z
+updated = 2026-05-16T05:16:53.765592Z
 
 [drop_004.drop.l2_e_plan_qa_proof]
 created = 2026-05-16T00:26:12.114867Z
 type = 'qa_proof'
-updated = 2026-05-16T00:26:12.114867Z
+updated = 2026-05-16T05:11:38.188566Z
 
 [drop_004.drop.l2_f_dotta_target_system]
 created = 2026-05-16T00:18:04.358758Z
@@ -395,12 +450,12 @@ updated = 2026-05-16T00:25:56.419062Z
 [drop_004.drop.l2_g_plan_qa_falsif]
 created = 2026-05-16T00:26:12.144728Z
 type = 'qa_falsification'
-updated = 2026-05-16T00:26:12.144728Z
+updated = 2026-05-16T05:13:25.934465Z
 
 [drop_004.drop.l2_g_plan_qa_proof]
 created = 2026-05-16T00:26:12.134781Z
 type = 'qa_proof'
-updated = 2026-05-16T00:26:12.134781Z
+updated = 2026-05-16T05:15:30.654508Z
 
 [drop_004.drop.l2_h_mvp_carryovers]
 created = 2026-05-16T00:18:04.380955Z
@@ -416,6 +471,21 @@ updated = 2026-05-16T00:34:46.29757Z
 created = 2026-05-16T00:27:43.423606Z
 type = 'qa_proof'
 updated = 2026-05-16T00:32:55.766863Z
+
+[drop_004.drop.l2_j_cascade_qa_auto_spawn]
+created = 2026-05-16T05:42:20.966221Z
+type = 'planner'
+updated = 2026-05-16T06:18:21.45682Z
+
+[drop_004.drop.l2_j_plan_qa_falsif]
+created = 2026-05-16T05:42:20.988365Z
+type = 'qa_falsification'
+updated = 2026-05-16T05:49:24.691489Z
+
+[drop_004.drop.l2_j_plan_qa_proof]
+created = 2026-05-16T05:42:20.978298Z
+type = 'qa_proof'
+updated = 2026-05-16T05:50:56.646027Z
 
 [drop_004.drop.l3_f1_build_qa_falsif]
 created = 2026-05-16T00:59:13.420221Z

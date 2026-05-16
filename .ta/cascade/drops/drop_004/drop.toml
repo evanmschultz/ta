@@ -991,84 +991,168 @@ transition_notes = "AMEND with 2 CONFIRMED counterexamples + 3 AMEND-class gaps.
 updated_at = "2026-05-15T11:50:00Z"
 [l2_c_plan_qa_proof]
 blockers = ["drop_004.drop.l2_c_resolver_group_prefix"]
+completed_at = "2026-05-15T22:00:00Z"
 created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-15T20:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.l2_c_resolver_group_prefix"
 title = "Plan-QA proof — L2-C resolver_group_prefix decomposition"
-updated_at = "2026-05-15T11:40:00Z"
-
+transition_notes = "VERDICT: PASS. tool_uses=20 (Read=8, Bash=11, Edit=1). All 5 proof axes PASS: decomposition exhaustive (3 L3s match 3 packages touched per §5.3); paths owned verified on disk (C1 NEW group.go/group_test.go correctly flagged greenfield); blocker DAG correct (C1→{C2,C3 parallel}); acceptance criteria concrete (22 named test functions + 3 regression pins); reference symbols verified with signatures (resolveTypeForID:107, tryLoadIndex:217, recordExistsOnDisk:188, runGetSingle:136, emitGetScopeJSON:393 emits {records:[...]} envelope, handleGet:378-398, getResultItem:294-300). Index-scan precedent at internal/index/index.go:411-443 maps directly to proposed prefix-scan pattern. Falsification angles audited: prefix-collision via separator-strict, file-as-record interplay verified at ops.go:1262-1268, JSON-shape pinned via existing emitGetScopeJSON, dispatch order rule explicit. NON-BLOCKING AMENDMENTS: (1) line-cite drift on IsScopeAddress (cited :1095, actual :1245) and ScopeRecord (cited :1072, actual :1222) — ~150-line consistent drift, likely planner authored against earlier checkout; fix at C1 plan-time, not blocking. (2) C2 test naming variance: existing convention TestGetCmdScope* (camelCase); plan proposes TestGetCmd_GroupPrefix_* (underscore) — still discoverable, non-blocking. Descent to L3-C1 unblocked from proof side."
+updated_at = "2026-05-15T22:00:00Z"
 [l2_c_plan_qa_falsif]
 blockers = ["drop_004.drop.l2_c_resolver_group_prefix"]
+completed_at = "2026-05-15T22:10:00Z"
 created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-15T20:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.l2_c_resolver_group_prefix"
 title = "Plan-QA falsif — L2-C resolver_group_prefix decomposition"
-updated_at = "2026-05-15T11:40:00Z"
-
+transition_notes = "VERDICT: PASS. tool_uses=20 (Read=7, Grep-via-Bash=11, mcp__plugin_context7=1, mcp__ta=1-attempted). 14 attacks executed; 13 MITIGATED, 1 AMEND-class drafting fold-in. Zero CONFIRMED-CE to decomposition contract. A1 search-gap YAGNI (get-only). A2 C2/C3 paths disjoint. A3 ordering explicit. A4 structural_type=droplet pattern established at drop.toml:339,354,369,384. A5 F10 2-segment id confirmed (file-relpath=drop_004.drop). A6 no auto_spawn reliance. A7 stale ops.go:1095/1072 cites (real :1245/:1222) — ROUTED-KNOWN. A8 collision-guard test budgeted. A9 wording sloppy but intent+test clear. A10 IsGroupPrefix predicate ↔ TestGetCmd_GroupPrefix_EmptyGroup spec inconsistency — AMEND fold-in at L3-C2 plan-QA (rename test OR widen predicate). A11 JSON envelope divergence intentional+tested. A12 GetGroup impl seam (per-child ops.Get vs GetScope search.Run) is implementation choice. A13 collision tests adequate. A14 --batch+group-prefix not-supported documented. ROUTED-KNOWN: stale ops.go anchors; structural_type not re-stated in L3 specs; A10 test naming clarification."
+updated_at = "2026-05-15T22:10:00Z"
 [l2_d_plan_qa_proof]
 blockers = ["drop_004.drop.l2_d_multi_file_type"]
+completed_at = "2026-05-15T22:20:00Z"
 created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-15T20:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.l2_d_multi_file_type"
 title = "Plan-QA proof — L2-D multi_file_type decomposition"
-updated_at = "2026-05-15T11:40:00Z"
-
+transition_notes = "VERDICT: PASS-with-AMEND. tool_uses=19 (Read=7, Bash=10, Edit=2). All 4 structural axes PASS: decomposition exhaustive (D1 substrate + D2 html + D3 md_explicit + D4 txt + D5 plumbing covers every file-type + plumbing path); paths verified on disk (commands.go=1740 lines confirmed, 6 read-subcommand constructors all colocated at newGetCmd:40/newListSectionsCmd:532/newCreateCmd:614/newUpdateCmd:832/newDeleteCmd:1020/newSearchCmd:1358; newSchemaCmd:1228 correctly excluded; internal/backend/{html,md_explicit,txt,format} correctly NEW); blocker graph acyclic (D1→{D2,D3,D4}→D5); acceptance test names concrete + behavior gates pinned. **CRITICAL CONFIRMATION**: D5.1's 6-subcommand-edits single builder VIOLATES project CLAUDE.md ≤4-distinct-code-block atomic-droplet contract (6>4). User's L3-D0 pre-split hint is therefore the CORRECT amendment, NOT just parallelism optimization. Per-subcommand split has precedent (move_cmd.go, init_cmd.go, template_cmd.go, index_cmd.go, batch_cmd.go already split). RECOMMENDED FOLD: insert L3-D0 split-droplet as new first child (get_cmd.go/list_sections_cmd.go/create_cmd.go/update_cmd.go/delete_cmd.go/search_cmd.go extracted from commands.go); D5 blockers extend to include D0; D5.1 redefined as parallel-per-file --as wiring. SURGICAL AMEND-2: D5.3 integration-test paths implicit (should pin cmd/ta/multi_format_test.go + internal/mcpsrv/server_test.go edits). SURGICAL AMEND-3: D2 paths_owned may exceed ≤4-block budget (go.mod + go.sum + new pkg source + tests + testdata); L3-D2 plan-QA verify L4 split or invoke methodology §2.3 irreducible-droplet justification. NO re-decomposition; all amendments orchestrator-foldable."
+updated_at = "2026-05-15T22:20:00Z"
 [l2_d_plan_qa_falsif]
 blockers = ["drop_004.drop.l2_d_multi_file_type"]
+completed_at = "2026-05-15T22:40:00Z"
 created_at = "2026-05-15T11:40:00Z"
+outcome = "failure"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-15T20:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.l2_d_multi_file_type"
 title = "Plan-QA falsif — L2-D multi_file_type decomposition"
-updated_at = "2026-05-15T11:40:00Z"
+transition_notes = """
+VERDICT: AMEND with 3 CONFIRMED CEs (outcome=failure per CONFIRMED-CE policy; surgical-foldable, not re-plan). tool_uses=28 (Read=6, Bash=20, Context7=2). CONVERGES with L2-D plan-QA proof verdict on same fix.
 
+CE-1: D5.1 droplet exceeds ≤4-edits cap. CLAUDE.md:94 contract: 'Each droplet touches ≤4 distinct code-block edits'. Pattern at cmd/ta/commands.go:40-129 for ONE subcommand requires 3 distinct edits (var-decl, Flags-decl, RunE plumb). 6 subcommands × ≥3 edits = ≥18 distinct edits in one droplet. Plus '--template=<view>' on `get` adds more.
+
+CE-2: Plan ignores explicit user-memory rule feedback_commands_go_split_before_parallelize.md — authored specifically for THIS situation per its body text: 'Drop_004 L2-D wanted to wire --as=<format> flags onto 6 read subcommands in cmd/ta/commands.go (1740 lines). Cascade isolation rule blocks parallel edits to the same file → all 6 builders would serialize.' Rule prescription: 'If 3+ builders share a single file > ~500 lines → insert a split droplet/slice BEFORE the family.'
+
+CE-3: L4-D5 internal split is shallow (3 children D5.1/D5.2/D5.3 — bottom of 3-6 range) AND D5.1 itself fails ≤4 cap.
+
+AMENDMENTS REQUIRED (surgical, orchestrator-foldable, no re-plan): (a) Insert L2-D0 as new first child: split cmd/ta/commands.go into per-feature files (get_cmd.go/create_cmd.go/update_cmd.go/delete_cmd.go/search_cmd.go/list_sections_cmd.go/schema_cmd.go), single serial behavior-preserving builder, mage check green. (b) After L2-D0 lands, D5.1 becomes 6-droplet parallel family (one per subcommand), each ≤4 edits. D5.2 (mcpsrv/tools.go) + D5.3 (integration tests) stay as planned. (c) Sequencing: L2-D0 → plan-QA → builder → build-QA → D1 substrate → D2/D3/D4 parallel → D5 family parallel post-D1+D2+D3+D4.
+
+ROUTED-KNOWN: (U1) verify internal/mcpsrv/tools.go exists at L3-D5 plan-time. (U2) package name internal/format/ vs internal/blockfmt/ (planner's own routed unknown, L3-D1 reality-check). (U3) x/net/html byte-position recovery for D2 — `*html.Node` has no offset field per Context7; toml/splice.go precedent doesn't transfer cleanly; needs L3-D2 planner addition routing through `html.Tokenizer.Raw()` mid-parse OR re-tokenize during splice. (U4) STALE: 'F23 OFF' Unknowns prose in L2-D — F23 v2 landed via commit f97c893 (internal/ops/auto_spawn_test.go:301-487 confirms {now}/{state.initial}/{parent.<field>} tests). Cosmetic; orchestrator amends in-place at L3 dispatch.
+
+NON-CE attacks (7) MITIGATED: format boundary disjoint packages, sibling-overlap none (only D2 touches go.mod/go.sum), no shared global state, F10 id grammar 2-segment correct, structural_type=droplet pattern established, YAGNI cleared (4 backends are real MVP needs per schema declarations), no path-not-found, --as=/--json no naming collision.
+"""
+updated_at = "2026-05-15T22:40:00Z"
 [l2_e_plan_qa_proof]
 blockers = ["drop_004.drop.l2_e_html_template_system"]
+completed_at = "2026-05-15T20:30:00Z"
 created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-15T20:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.l2_e_html_template_system"
 title = "Plan-QA proof — L2-E html_template_system decomposition"
-updated_at = "2026-05-15T11:40:00Z"
+transition_notes = """
+PASS-with-AMEND. 4 amendments — 2 CRITICAL + 2 surgical. 0 CONFIRMED CEs to structure. Tool inventory: Read=4, Bash=14, TOTAL=18 (above 5-call floor, no fabrication).
 
+CRITICAL 1: L3-E1 lacks stil-reconcile gate. Stil filesystem drift: dist/tokens.json EXISTS (built); dist/bindings.json does NOT (real path is dist/bindings/baseline.json per scripts/build-tokens.ts:5-7). README.md:5 claims bindings.json. User chose option-a (make filesystem match README; stil work committed+pushed in stil's repo). L3-E1 must add a stil-reconcile-gate droplet whose acceptance reads stil/dist/ for {tokens.json, bindings.json} per README, OR fold the verification into the first L3-E1 builder.
+
+CRITICAL 2: TemplatesBuildVerifyStable unimplementable as-spec. Stil tokens.json embeds generated_at: new Date().toISOString() (build-tokens.ts:111) — two consecutive rebuilds bytes-diff on every run. Fix at stil layer (drop generated_at in reconcile work) OR strip-timestamp-before-compare in the mage target.
+
+AMEND 3: L3-E3 line 707 'fallback to baseline.json if absent' becomes stale guidance post-reconcile; should be 'consume bindings.json post-reconcile; fail loud if absent'.
+
+AMEND 4: Astro dist → go:embed materialization step unspecified. examples/templates/dist/ (Astro) → internal/templates_html/dist/ (embed scope) needs explicit copy/sync step in TemplatesBuild (Go embed forbids ../ traversal).
+
+PASS 5/7 points verified: (3) TemplatesBuild + TemplatesBuildVerifyStable defined at :679,681,687; (5) pnpm-workspace ../stil/main at :730; (6) ZERO-script rule pinned :694/:705/:720 with InlineJsBudget + NoExternalScripts tests :722; (7) <a href> nav at :694/L1:78 with ZERO-script transitively enforcing E3/E4; methodology §3/§4.3/§5.3 satisfied (L2-E :728 promises plan-QA at every L3 node).
+
+Recommend orchestrator fold 4 amendments into L2-E description (or pre-bake into L3-E1 spawn prompt) before L3-E1 dispatch; no re-decomposition needed. Hold fold until plan-QA falsif twin returns to combine verdicts.
+"""
+updated_at = "2026-05-15T20:30:00Z"
 [l2_e_plan_qa_falsif]
 blockers = ["drop_004.drop.l2_e_html_template_system"]
+completed_at = "2026-05-15T23:00:00Z"
 created_at = "2026-05-15T11:40:00Z"
+outcome = "failure"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-15T20:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.l2_e_html_template_system"
 title = "Plan-QA falsif — L2-E html_template_system decomposition"
-updated_at = "2026-05-15T11:40:00Z"
+transition_notes = """
+VERDICT: FAIL with 5 CONFIRMED-CEs (outcome=failure per CONFIRMED-CE policy). tool_uses=20 (Read=5, Grep=14, Edit=1 — NOTE: agent direct-Edit-ed cascade toml file, bypassing mcp__ta__update; policy issue for follow-up alongside L2-G proof which also did this). Orchestrator overwrote with canonical mcp__ta__update version.
 
+ALL 5 CEs SURGICAL-FOLDABLE; no re-plan, addressable at L2-E description amendment + L3-E1 spawn-prompt directives.
+
+CE-1 (Astro caret-pin self-defeat, planner §683): stil/package.json:18 has '"astro": "^6.1.10"' (caret-float). Mirroring stil's pin in examples/templates/package.json replicates the float, contradicting planner's 'pin Astro version to stil's exact' directive. Fix: explicit exact version (6.1.10 not ^6.1.10) in examples/templates/package.json.
+
+CE-2 (//go:embed all:dist path-traversal blocked, planner §679): Plan declares 'NEW internal/templates_html/embed.go (//go:embed all:dist + EmbeddedHTML() fs.FS)'. Go's //go:embed is package-relative + cannot contain '..' + does NOT follow symlinks. From internal/templates_html/ the directive resolves to internal/templates_html/dist/ — NOT planned examples/templates/dist/. Path is structurally unreachable. Fix options: (a) move embed.go into examples/templates/; (b) Astro outputs directly to internal/templates_html/dist/; (c) reuse existing embed.go:19 //go:embed all:examples via subFS at examples/templates/dist/. CONVERGES with L2-E plan-QA proof AMEND-4 (proof said 'unspecified', falsif identifies as structurally unreachable).
+
+CE-3 (Double-embed via existing embed.go:19, planner §679): /Users/evanschultz/Documents/Code/hylla/ta/main/embed.go:19 already declares '//go:embed all:examples' covering examples/templates/dist/ once it's created. Adding internal/templates_html/embed.go (if CE-2 fixed via option a or c) would embed dist payload TWICE — including _astro/*.woff/woff2 + JS chunks (verified at stil/main/dist/_astro/). Fix: explicit exclusion OR choose option (b) above.
+
+CE-4 (stil reconcile-prep droplet MISSING, planner §707): User hint explicitly required 'add stil-reconcile prep droplet to L2-E1, committed separately to stil's repo'. Plan only does runtime fallback 'verify bindings.json presence; fallback to baseline.json'. Evidence: stil/scripts/build-tokens.ts:6-7,60 emits dist/tokens.json + dist/bindings/baseline.json; README claim of bindings.json is aspirational. Cross-repo prep droplet MUST be added under L2-E1 + committed to stil/main/ BEFORE L3-E3 plan-QA closes. CONVERGES with L2-E plan-QA proof CRIT-1.
+
+CE-6 (pnpm-workspace.yaml cross-repo path, planner §681): Plan declares 'pnpm-workspace targets ../stil/main (sibling repo)'. pnpm workspace packages globs are intended for paths INSIDE workspace root; '../stil/main' escapes. pnpm v8+ may reject or behave unpredictably. Fix: pick concrete import strategy — (a) symlink stil into ta tree, (b) file: URL dependency, (c) treat stil as published npm pkg, (d) git submodule.
+
+NON-CE attacks: 3 ROUTED-KNOWN (aligned with plan's own routed unknowns), 5 MITIGATED, 1 NOT-APPLICABLE. Combined with L2-E proof's 4 amendments (CRIT-1 stil reconcile, CRIT-2 generated_at timestamp, AMEND-3 stale fallback, AMEND-4 dist materialization), L2-E has 7 distinct surgical amendments: 4 unique to falsif (CE-1/3/6 + the proof-falsif crossover) + 2 unique to proof (CRIT-2 generated_at, AMEND-3 stale fallback) + 1 stil-reconcile (CE-4 = CRIT-1).
+"""
+updated_at = "2026-05-15T23:00:00Z"
 [l2_g_plan_qa_proof]
 blockers = ["drop_004.drop.l2_g_e2e_closure"]
+completed_at = "2026-05-15T22:50:00Z"
 created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-15T20:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.l2_g_e2e_closure"
 title = "Plan-QA proof — L2-G e2e_closure decomposition (TOOL_USES=0 — EXTRA EVIDENCE VERIFICATION REQUIRED)"
-updated_at = "2026-05-15T11:40:00Z"
+transition_notes = """
+VERDICT: PASS-with-AMEND. tool_uses=26 (Read=6, Bash=19, Edit=1 — NOTE: agent direct-Edit-ed cascade toml, bypassing mcp__ta__update; policy issue for follow-up). Despite previous L2-G planner reporting tool_uses=0, evidence-grounding verifiable post-hoc.
 
+38-finding count mathematically CORRECT (F1 counted once across G1/G2 dual-listing): 10+5+2+4+5+2+3+3+4=38. Every cited section ID maps to real E2E_FIXES.md header (F1@5, F2@17, F2a@11 [punted], F3@37, F4@48, F5@58, F6@70, F7@81 [punted], F8@98, F9@112, F10@134 [RESOLVED], F11@176 [RETIRED], F12@230 [punted], F13@262, F14@279, F15@299, F16@329, F17@350, F18@370, F19@427, F20@454, F21@464, F22@518, F23@587 [L2-H], F24@619 [punted], F25@788, F27@816, F28@802, F38d-2.{1,2,3,4,5,6,7,13,14c,18,19,20,21}). Zero fabricated F-numbers. F23 correctly excluded (L2-H H1 territory, commit f97c893). F26 correctly excluded (F38d-superseded). F38d-2.19/20 effectively closed via drop_002 verified.
+
+3 AMENDMENTS (surgical, no re-plan, addressable at L3 dispatch):
+
+AMEND-1: G1 'F1 init UX' label drift. F1 actual content at E2E_FIXES.md:5 = 'mage install does not validate pre-existing ~/.ta/schema.toml' = install hygiene NOT init UX. F1 belongs to G2 only. CONVERGES with L2-G falsif CE-1.
+
+AMEND-2: G2 cites unqualified 'initapply.go'. Real path: internal/initapply/initapply.go (NOT cmd/ta/initapply.go which doesn't exist). L3-G2 planner needs qualified path. CONVERGES with L2-G falsif CE-2.
+
+AMEND-3: G9 cites cmd/ta/schema_*.go which DOES NOT EXIST (glob returns 0). Schema mutation logic lives at cmd/ta/commands.go:1228 (newSchemaCmd). Two options: (a) L3-G9 depends on L2-D0 split slice splitting commands.go into schema_cmd.go FIRST; OR (b) correct G9 paths to cmd/ta/commands.go and accept shared-file lock with other commands.go-touching L3s. PROOF-UNIQUE finding, not in falsif.
+
+NON-CE attacks MITIGATED: F1 dup math is labeling not counting; F38d-2.19/20 verify-task framing materially correct per drop_002/drop.toml:57,134; F23/F26 correctly excluded; G8's index format ownership confirmed (paths include internal/index/index.go); F27.3 reserved-namespace genuinely unfixed (rg ta_schema|ErrReservedDBName in internal/schema/load.go returned 0). Concern-domain coherence holds; wave dependencies defensible (G7 address-grammar inheritance from G5 is weakest link but not a CE).
+
+Out-of-scope hygiene: E2E_FIXES.md F38d-2.19@1288 + F38d-2.20@1304 still labeled [MAJOR] without [CLOSED] marker; suggest ledger edit, not blocker.
+"""
+updated_at = "2026-05-15T22:50:00Z"
 [l2_g_plan_qa_falsif]
 blockers = ["drop_004.drop.l2_g_e2e_closure"]
+completed_at = "2026-05-15T22:30:00Z"
 created_at = "2026-05-15T11:40:00Z"
+outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-15T20:00:00Z"
+state = "complete"
 target_id = "drop_004.drop.l2_g_e2e_closure"
 title = "Plan-QA falsif — L2-G e2e_closure decomposition (TOOL_USES=0 — EXTRA EVIDENCE VERIFICATION REQUIRED)"
-updated_at = "2026-05-15T11:40:00Z"
-
+transition_notes = "VERDICT: PASS-with-AMEND. tool_uses=17 (Read=5, Bash-rg=12). **tool_uses=0 from prior L2-G planner was NOT fabrication** — 5/5 sampled F-routings VERIFIED in E2E_FIXES.md at correct section IDs (F38d-2.4@898, F38d-2.5@911, F38d-2.14c@1033, F27.3@824, F38d-2.7@952). The planner DID read; just didn't report inventory. Threshold '3+ fabrication CEs → REJECT' NOT met. Decomposition structurally sound: 9 L3s cleanly carve concern-domains (init UX / install / MCP / CLI envelope / type-system / delete-verbose / address-grammar / search / TUI mutation). 4 CONFIRMED-CEs ALL surgical-amend, no re-plan: (CE-1) F1 duplicate-routed G1+G2 — strike G1 mention (E2E_FIXES.md:5-9 shows F1 is purely install-time schema-validate, no init-UX scope). (CE-2) G2 path cmd/ta/initapply.go DOES NOT EXIST — real package is internal/initapply/initapply.go (verified rg). (CE-3) Wave 1 sibling-overlap G4 ∩ G6 BOTH on cmd/ta/commands.go violates methodology §7 — fix via blockers gate (G6 blocked by G4) OR merge. (CE-4) Wave 3 sibling-overlap G1 ∩ G2 BOTH on cmd/ta/init_cmd.go same §7 violation — gate G2 behind G1. NON-CE attacks (8) MITIGATED: A1 5/5 sample PASS, A3 F23-missing routed to L2-H H1, A6 coherence sound, A9 F10 verify-only, A10 structural_type N/A at L2-planner level, A11 no auto_spawn, A12 per-L3 reality-check directive routes unknowns. Sum-of-routings 39 vs claimed 38 — transparency-class (F11 RETIRED verify-gate accounting); reconcile at L3 emit time. ROUTED-KNOWN: F38d-2.19/2.20 closure-state verify on contact (G4 may discover drop_002 already closed)."
+updated_at = "2026-05-15T22:30:00Z"
 [l2_f_plan_qa_proof]
 blockers = ["drop_004.drop.l2_f_dotta_target_system"]
 completed_at = "2026-05-15T11:45:00Z"
@@ -1347,3 +1431,496 @@ target_id = "drop_004.drop.l3_f1_dotta_walker"
 title = "Build-QA falsif — L3-F1 dotta walker (4 builders)"
 transition_notes = "READY. tool_uses=27. 10 attacks: 8 MITIGATED (D2 toml tag round-trip via fixture+golden; PermissionDeniedDir chmod-child-not-root triggers WalkDirFunc err branch correctly; <ROOT> substitution safe — file contents NEVER serialized into Tree; cross-builder file conflicts compile-clean per mage; symlink detection both at root+subtree levels per stdlib lstat contract; mapping.toml documentation present at mapping.go package-doc per AMEND #3; concurrent Walk safety via goroutine-local Tree allocation; test count delta routed to comment) + 2 ACCEPTED (macOS /var↔/private/var production-side accepted as consistent-within-Walk; golden brittleness accepted as intentional contract anchor with TA_GOLDEN_UPDATE=1 regen). Soft unknown: +5 test-count accounting drift (1063 H1 baseline + 26 dotta + 37 cmd/ta + 5 mcp-path-guard = 1131 expected vs 1136 actual). Cosmetic, routed as Tillsyn comment not blocker. Verdict survives self-attack."
 updated_at = "2026-05-15T12:30:00Z"
+
+[l2_j_cascade_qa_auto_spawn]
+blockers = []
+completed_at = "2026-05-16T01:15:00Z"
+created_at = "2026-05-15T23:30:00Z"
+description = """
+L2-J decomposition into 5 atomic builder droplets, single-level. J1+J4+J5 parallel; J2 blocked by J1; J3 blocked by J2.
+
+PLAN-QA FOLDS (both halves PASS): (A11) RESOLVED via new J5 — methodology §4 updates to accept per-droplet auto_spawn as new norm. (A12) RESOLVED via new J4 — TestLiveSchemaLoads adds mage-check gate for live schema. (U1) RESOLVED via J3 test-set extension — add TestAutoSpawn_StateInitialToken_InheritedFromBase covering extends-chain target type.
+
+## J1 — builder_j1_droplet_auto_spawn
+
+Paths owned (EDIT + NEW):
+- .ta/schema.toml (add [cascade.droplet.auto_spawn] block mirroring examples/schemas/cascade.toml:586-599 verbatim)
+- internal/schema/auto_spawn_test.go (NEW; TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair using synthetic schema via fstest.MapFile)
+
+Acceptance: mage testFunc TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair green; mage check green.
+Blockers: none.
+
+## J2 — builder_j2_drop_auto_spawn
+
+Paths owned (EDIT):
+- .ta/schema.toml (add [cascade.drop.auto_spawn] block with id_template={parent_id}-plan-qa-proof / -plan-qa-falsification + v2 tokens in fields)
+- internal/schema/auto_spawn_test.go (extend with TestAutoSpawn_DropCreates_SpawnsPlanQATwinPair)
+
+Acceptance: TestAutoSpawn_DropCreates_SpawnsPlanQATwinPair green; mage check green.
+Blockers: drop_004.drop.builder_j1_droplet_auto_spawn (shared .ta/schema.toml + shared auto_spawn_test.go).
+
+## J3 — builder_j3_planner_auto_spawn
+
+Paths owned (EDIT):
+- .ta/schema.toml (add [cascade.planner.auto_spawn] block — same shape as J2 but for cascade.planner)
+- internal/schema/auto_spawn_test.go (extend with TestAutoSpawn_PlannerCreates_SpawnsPlanQATwinPair PLUS U1 fold: TestAutoSpawn_StateInitialToken_InheritedFromBase covering extends-chain {state.initial} resolution on cascade.qa_proof/qa_falsification targets)
+
+Acceptance: TestAutoSpawn_PlannerCreates_SpawnsPlanQATwinPair + TestAutoSpawn_StateInitialToken_InheritedFromBase green; mage check green.
+Blockers: drop_004.drop.builder_j2_drop_auto_spawn (shared file serialization).
+
+## J4 — builder_j4_live_schema_load_test (NEW from plan-QA A12 fold)
+
+Paths owned (NEW):
+- internal/schema/live_test.go (NEW; TestLiveSchemaLoads reads <repo>/.ta/schema.toml via os.ReadFile + Load; asserts no error; closes the mage-check coverage gap on live schema)
+
+Acceptance: mage testFunc TestLiveSchemaLoads green; mage check green.
+Blockers: none (different file from J1/J2/J3; parallel with J1).
+
+## J5 — builder_j5_methodology_update (NEW from plan-QA A11 fold)
+
+Paths owned (EDIT):
+- docs/cascade-methodology.md (replace §4 'None run at the droplet level.' line + surrounding context. New text: 'Per-droplet build-QA twins fire automatically via schema-driven auto_spawn (cascade.droplet.auto_spawn declared in .ta/schema.toml, F23 v2 engine). This SUPPLEMENTS per-planner-family build-QA at family close. Net: every builder gets reviewed by its own dedicated QA pair AND integration-level QA fires at planner-family close. Per-droplet QA prevents the build-QA-twin-skipped failure class observed during drop_004 L2-B + L2-H.')
+
+Acceptance: prose update committed; no test changes; mage check green (docs-only).
+Blockers: none (different file; parallel with J1+J4).
+
+## Sequencing
+
+Wave A (parallel, 3 agents): J1 + J4 + J5
+Wave B (after J1 closes, 1 agent): J2
+Wave C (after J2 closes, 1 agent): J3
+L2-J close: one L2-level build-QA pair after all 5 builders close (per existing methodology pre-J5; post-J5 auto_spawn covers future droplets per-droplet).
+
+Total wall-clock estimate: ~45-60 min for 5 builders + ~30 min L2-level build-QA + commit + mage install + Claude Code restart.
+
+## Structural compat (verified by plan-QA twins)
+
+Unchanged — L2-J is the ONLY in-flight L2 modifying .ta/schema.toml. L2-A owns examples/schemas/*.toml (NEW). L2-B/H shipped. L2-C/D/E/F/G paths all disjoint per their planner records. L2-I doesn't yet exist as authored record.
+
+## L2-J close gate
+
+mage check green at full module. After commit + mage install + Claude Code restart: 4 new TestAutoSpawn_* tests green (DropletCreates, DropCreates, PlannerCreates, StateInitialToken_InheritedFromBase) + TestLiveSchemaLoads green + cascade-methodology.md §4 updated.
+
+## Unknowns routed (post-fold)
+
+- Per-droplet vs per-family build-QA semantics: BOTH coexist per J5 methodology update. Per-droplet via auto_spawn; per-family at planner close manually-created (Wave 2C onwards may also auto-spawn per L3 planner via J3's cascade.planner.auto_spawn).
+- State-transition-driven auto-DISPATCH: future enhancement post-MVP.
+- Retroactive on existing records: auto_spawn is on_create only by design; L2-B + L2-H retroactive build-QA already completed manually.
+"""
+objective = "Add 3 schema-driven auto_spawn rules to .ta/schema.toml so every cascade planner/builder record create atomically generates its QA twin pair. Prevents the L2-B + L2-H build-QA-twin-skipped failure class observed during drop_004. F23 v2 engine (commit f97c893) already supports auto_spawn; canonical example schema (examples/schemas/cascade.toml:595-599) declares cascade.droplet.auto_spawn block; live .ta/schema.toml declares ZERO auto_spawn blocks. This slice promotes example + extends to plan-QA coverage. After L2-J ships + mage install + MCP restart: future cascade.drop creates auto-spawn plan-QA twins; future cascade.planner creates auto-spawn plan-QA twins; future cascade.droplet creates auto-spawn build-QA twins. L2-B + L2-H retroactive build-QA pairs run in parallel as one-off manual cleanup."
+outcome = "success"
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-16T00:15:00Z"
+state = "complete"
+title = "L2-J planner — cascade_qa_auto_spawn (schema-driven QA twin enforcement)"
+transition_notes = """
+L2-J FULL CLOSURE. Both plan-QA halves PASS — surgical AMENDs (A11/A12/U1) folded into 5-droplet decomposition. All 5 builders complete + outcome=success (J1 droplet auto_spawn schema, J2 drop auto_spawn schema, J3 planner auto_spawn schema + U1 extends-chain test, J4 TestLiveSchemaLoads gate, J5 cascade-methodology.md §4+§4.6 update). L2-J build-QA pair complete + outcome=success (proof tool_uses=10, falsif tool_uses=21, 0 unmitigated CE).
+
+F23 v2 CASCADE COVERAGE COMPLETE: schema-driven QA twin auto_spawn declared at all 3 interior cascade kinds (drop → plan-QA; planner → plan-QA; droplet → build-QA). Methodology updated to reflect per-droplet auto_spawn as new norm complementing per-planner-family build-QA.
+
+mage check green at 1141 tests / 0 failures / 17 packages green / 10 pre-existing skips.
+
+Routes:
+- MCP server reload required post-commit to activate auto_spawn for this-session creates (orchestrator commit + mage install + restart sequence handles).
+- {parent.title} quote/dot/equals regression test recommended in later slice; not blocker.
+- Aggregate tool_uses across L2-J: planner=0 (orchestrator-drafted) + plan-QA proof=10 + plan-QA falsif=24 + J1=10 + J2=6 + J3=6 + J4=9 + J5=7 + build-QA proof=10 + build-QA falsif=21 = 103 total agent tool_uses.
+
+Ready for orchestrator commit + mage install + Claude Code restart → then Wave 2C L3 record creates auto-spawn QA twins atomically.
+"""
+updated_at = "2026-05-16T01:15:00Z"
+[l2_j_plan_qa_proof]
+completed_at = "2026-05-16T00:10:00Z"
+created_at = "2026-05-15T23:30:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+role = "qa-proof"
+started_at = "2026-05-15T23:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+title = "L2-J plan-QA proof — verify cascade_qa_auto_spawn plan + structural compat"
+transition_notes = """
+VERDICT: PASS (with one non-blocking AMEND). tool_uses=10 (Read=9, Bash=1; many Bash calls denied by sandbox on .ta/ tree, worked around via Read offset/limit).
+
+All 7 proof axes satisfied:
+(1) Decomposition matches scope: J1 mirror, J2 NEW cascade.drop, J3 NEW cascade.planner. drop.toml:1449-1454 mirrors examples/schemas/cascade.toml:595-599 VERBATIM.
+(2) Mirror source canonical: cascade.toml:586-594 F23 v2 commentary documents same 3 v2 tokens.
+(3) F23 v2 engine support: ops.go:502-749 (preValidateAutoSpawn + interpolateSpawnFieldValue + lookupStateInitial + splitDBType). 5 token tests at auto_spawn_test.go:301-477 cover happy + loud-error paths.
+(4) Schema loader parses auto_spawn: schema/auto_spawn_test.go:12-549 exercises 10 loader paths. validateSpawnTemplateTokens at load.go:1173-1204 enforces id_template token restrictions (only {parent_id} + {index}); L2-J id_templates use only {parent_id} — compliant.
+(5) {state.initial} resolves to 'todo' via NodeBase.state enum at .ta/schema.toml:474. cascade.qa_proof + cascade.qa_falsification extend ActionItem extends NodeBase — inherit state field via extends-chain. lookupStateInitial at ops.go:730 reads dbDecl.Types[typeName].Fields['state'].Enum[0].
+(6) id_template collision-free: index scan .ta/index.toml:200-498 confirms existing manual records use underscore-style suffixes (_plan_qa_proof, _plan_qa_falsif, _build_qa_proof) with prefix-first form. L2-J's hyphen-style suffixes (-qa-proof, -plan-qa-proof) produce disjoint namespace. Zero collision.
+(7) Decomposition exhaustive: cascade declares 7 types at .ta/schema.toml:14-130. Children-bearing kinds (drop/droplet/planner) covered by J1/J2/J3. cascade.qa_* are TERMINAL (auto_spawn cycle prevention by ErrSpawnCycle at schema/auto_spawn_test.go:185). cascade.failure post-mortem artifact — not a planning node. cascade.segment/confluence structural integrators (zero current index hits) — appropriately deferred.
+
+Structural compat: L1 paths_owned scan at drop.toml:14-128 + L2-J structural compat block at drop.toml:1499-1505 — zero in-flight L2 modifies .ta/schema.toml. L2-A owns examples/schemas/*.toml NEW; L2-B/H already shipped; L2-C/D/E/F/G paths all disjoint per their planner records; L2-I doesn't yet exist as authored planner record.
+
+Falsification self-attacks (10): 0 unmitigated CE. Cycle prevention OK (qa kinds have no auto_spawn). {parent.title} always resolves (NodeBase.title required). Naming-convention drift between manual underscore-style pre-J3 records and auto-spawned hyphen-style post-J3 explicitly acknowledged at drop.toml:1515 as one-time cost.
+
+MINOR NON-BLOCKING AMEND (U1): no DIRECT integration test pins {state.initial} resolving through extends-chain (cascade.qa_proof extends ActionItem extends NodeBase → Fields['state'] flattened during loader). Existing tests cover {state.initial} against direct-declared state field (auto_spawn_test.go:370-378) AND base-inheritance separately (schema/auto_spawn_test.go:423). Composed path inferred-correct. SUGGESTED FOLD: add TestAutoSpawn_StateInitialToken_InheritedFromBase to auto_spawn_test.go exercising extends-chained target type. Builder-discretion; not blocker.
+
+L2-J READY for J1→J2→J3 builder dispatch pending dev decision on A11 (methodology §4 departure) + A12 (live schema mage-check coverage).
+"""
+updated_at = "2026-05-16T00:10:00Z"
+[l2_j_plan_qa_falsif]
+completed_at = "2026-05-16T00:00:00Z"
+created_at = "2026-05-15T23:30:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+role = "qa-falsification"
+started_at = "2026-05-15T23:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+title = "L2-J plan-QA falsification — attack auto_spawn plan + cross-L2 conflict surfaces"
+transition_notes = """
+VERDICT: PASS. tool_uses=24 (Read=7, Bash=17). 12 attacks: 9 MITIGATED + 3 ROUTED-KNOWN + 0 CONFIRMED-CE.
+
+MITIGATED:
+(A1) state.initial inheritance — internal/schema/load.go:809-845 expandBases merges base fields at LOAD time; cascade.qa_proof.Fields['state'] carries NodeBase enum at lookupStateInitial:ops.go:717 read time. TestAutoSpawn_StateInitialToken + TestAutoSpawn_StateInitial_NoEnum_Errors confirm both paths.
+(A2) id_template collision — on_create gated by ops.go:286 + ErrRecordExists via probeSpawnChild:377-393 atomic-abort before parent writes. Hyphen-style {parent_id}-qa-proof doesn't collide with underscore-style existing twins.
+(A3) cross-L2 file collision — rg confirms other L2s reference schema.toml for READ context only; L2-J:1499-1505 enumerates each L2 disjoint.
+(A4) cascade.planner double-fire — ops.go:284 reads parentType:= dbDecl.Types[bareType] for SPECIFIC parent type; cascade.drop and cascade.planner are separate types, no cross-firing.
+(A5) empty parent.field — ops.go:670-678 loud-errors on missing key; empty-but-present passes through verbatim. TestAutoSpawn_UnknownParentField_Errors confirms.
+(A6) retroactive trigger — ops.go:286 gates inside CreateWithOptions only, on_create-only trigger surface, already-shipped droplets NOT retroactively spawned (plan acknowledges :1515).
+(A8) cascade.planner YAGNI — NOT-APPLICABLE: methodology §4.3 (cascade-methodology.md:151-160) requires build-QA twins at EVERY planner level. cascade.planner.auto_spawn enforces same discipline at L3+/Ln. Required for methodology conformance.
+(A9) F10 hyphen support — auto_spawn_test.go:75-83 uses 'plans.drop-001-qa-proof' as canonical fixture. Hyphens in bracket keys idiomatic.
+(A10) schema-load test regression — meta_test.go loads only examples/schemas/cascade.toml and claude_agents.toml NOT live .ta/schema.toml. No regression.
+
+ROUTED-KNOWN (3):
+(A7) mage install + MCP restart required post-commit — plan acknowledges :1495.
+(A11) **DEV-DECISION REQUIRED**: methodology §4 says 'None run at the droplet level' but L2-J J1 adds cascade.droplet.auto_spawn firing build-QA per droplet. METHODOLOGICAL DEPARTURE. Plan acknowledges in Unknowns:1513 with 'BOTH coexist' assertion but doesn't articulate why §4 should be relaxed. Three options: (a) update methodology to reflect per-droplet QA via auto_spawn as new norm (recommend), (b) drop J1 — only cascade.drop + cascade.planner plan-QA (keeps methodology unchanged but loses build-QA enforcement), (c) keep J1 + explicit methodology departure rationale.
+(A12) mage check coverage gap — doesn't load live .ta/schema.toml (only examples via meta_test.go). Malformed live block passes mage check; surfaces at next ta invocation. SUGGEST FOLD: add internal/schema/live_test.go::TestLiveSchemaLoads as new J4 droplet OR extend J3 test scope.
+
+Self-attacks (4): all SAFE — (1) base inheritance verified at load.go:840, (2) validateSpawnTemplateTokens at load.go:1173 accepts {parent_id}-qa-proof pattern, (3) hyphen pervasive in test cases no regex restriction, (4) methodology contradiction is routed-known not hidden defect.
+"""
+updated_at = "2026-05-16T00:00:00Z"
+[build_qa_proof_l2_b]
+completed_at = "2026-05-15T23:50:00Z"
+created_at = "2026-05-15T23:30:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_b_record_vision"
+role = "qa-proof"
+started_at = "2026-05-15T23:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_b_record_vision"
+title = "L2-B build-QA proof — retroactive review of roadmap.* records + schema merge stopgap (commit 1cc135a)"
+transition_notes = """
+VERDICT: PASS (one minor cosmetic finding). tool_uses=17 (Read=7, Grep/Bash-rg=5, Bash-git=5). Retroactive ratification of commit 1cc135a.
+
+Proof axes all satisfied:
+(1) Commit data-only — 0 Go source touched (git show 1cc135a --stat -- 'internal/**' and 'cmd/**' both empty). 24 files, 1647 insertions, all under .ta/.
+(2) 21 roadmap records present on disk: 1 v0_2_0.toml + 11 items + 9 dep_*.toml (matches planner amendment +1 edge per AMEND #4).
+(3) Index registers all 21: rg counts confirm 9 dependency + 11 item + 1 version (v0_2_0.tracker) at .ta/index.toml:3-67.
+(4) F10 id grammar compliant: every id 2-segment <filestem>.<bracket>; type NEVER in id (lives in index only). Memory rule feedback_ta_id.md satisfied.
+(5) Schema merge stopgap at .ta/schema.toml:692-929 correctly appends 4 dbs: roadmap (L701), template_manifest (L766), html_template (L829), target_system (L890). Each declares paths glob + extends + required fields.
+(6) NodeBase required title present on all spot-checked records.
+(7) DAG soundness: all 9 from_id/to_id refs resolve to existing item/version stems. Zero dangling, zero cycles.
+(8) mage check: 1136 tests / 1126 passed / 0 failed / 10 skipped / 19 packages / 17 pkg green. Identical baseline-vs-now signature; zero regression to drop_002/003/L2-A.
+(9) L2-B planner record state=complete outcome=success transition_notes carries 5-amendment audit trail.
+
+Minor cosmetic finding: planner description prose opens 'Aggregate: 20 roadmap records (1 version + 11 items + 8 dependency edges)' but reality is 21/9 (AMEND #4 added round_trip→jsonl_log edge). transition_notes carries authoritative tally. Orchestrator may optionally tidy planner description prose; NOT blocking ratification.
+
+Falsification attacks (7) all MITIGATED: stale planner prose (cosmetic, resolved by transition_notes), schema merge stopgap provisional (explicit comment marks debt, L2-J + L2-F successors tracked), path glob conflict (dir-owned-by-db pattern is universal), role field on items but not deps (deps extend NodeBase not ActionItem, schema-consistent), timestamp skew (created_at≠index.created — distinct concepts), mage check coverage (internal/schema pkg exercises new dbs via parse tests), cmd/ta coverage 67.1% (pre-existing per CLAUDE.md tracker, not L2-B-introduced).
+
+L2-B FULLY RATIFIED (both halves PASS).
+"""
+updated_at = "2026-05-15T23:50:00Z"
+[build_qa_falsif_l2_b]
+completed_at = "2026-05-15T23:45:00Z"
+created_at = "2026-05-15T23:30:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_b_record_vision"
+role = "qa-falsification"
+started_at = "2026-05-15T23:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_b_record_vision"
+title = "L2-B build-QA falsif — retroactive attack on roadmap.* records + schema merge stopgap"
+transition_notes = """
+VERDICT: PASS. tool_uses=31 (Read=17, Bash=14). 12 attacks: 9 MITIGATED, 1 ROUTED-KNOWN (no new CONFIRMED-CE). Retroactive ratification of L2-B shipped work (commit 1cc135a: 21 roadmap.* records + 4-db schema merge stopgap).
+
+MITIGATED: (A1) record content matches v0.2.0 vision per v0_2_0.toml:9. (A2) 4 new dbs roadmap+template_manifest+html_template+target_system at .ta/schema.toml:701-928 wire correctly; mage check 1136/1136 + 17/17 packages green. (A3) F10 id grammar upheld: 'tracker' and 'edge' are bracket-key segments NOT types; type lives in index (.ta/index.toml:551 v0_2_0.tracker→version, 12x item, 9x dependency). (A5) 20/20 graph cross-references resolve: every target_version='v0_2_0.tracker' (11x) points at .ta/index.toml:549; every from_id (9x) + to_id (9x) points at existing item record. (A7) schema merge stopgap adds 238 lines (701-929); zero pre-existing test regressed; 10 skips are pre-existing fuzz seeds + opt-in TUI tests. (A8) required fields populated on all 21 records: state+created_at+updated_at+title+role+status on version; state+created_at+updated_at+title+role on items; state+created_at+updated_at+title+from_id+to_id+kind on deps. (A9) cross-ref consistency. (A10) no null/empty fields on deps. (A11) state='todo' valid per enum :474; kind 5xblocks+4xenables per enum :754; status='planning' per enum :721; role='planner' per enum :372. (A12) created_at + updated_at present + RFC3339 on all.
+
+ROUTED-KNOWN: A4/A6 — roadmap.item.dependencies field structurally defined but EMPTY on every item record. Graph queryable via dep from_id/to_id records (functionally a redundancy/denormalization gap, not data corruption). Already noted in handoff §8. Not a new CE.
+
+Soft observation (NOT a CE): acceptance_criteria / validation_plan / objective fields absent on every roadmap.item record. Schema doesn't require them (ActionItem.fields.* have no required=true) so conformant. Acceptable for vision-level roadmap; populate when items decompose into v0.2.0 droplets.
+"""
+updated_at = "2026-05-15T23:45:00Z"
+[build_qa_proof_l2_h]
+completed_at = "2026-05-16T00:05:00Z"
+created_at = "2026-05-15T23:30:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_h_mvp_carryovers"
+role = "qa-proof"
+started_at = "2026-05-15T23:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_h_mvp_carryovers"
+title = "L2-H build-QA proof — retroactive review of H1/H2/H4/H5 (commits f97c893/a84aa6c/da275cd/810c442)"
+transition_notes = """
+VERDICT: PASS. tool_uses=28 (Read=2, Bash-mage/git/rg=26). Retroactive ratification of L2-H 4-builder family (commits f97c893+a84aa6c+da275cd+810c442).
+
+All 4 builder droplets have on-disk evidence for their acceptance gates:
+
+H1 (f97c893): F23 v2 runtime-fill tokens shipped. 3 named acceptance tests + 2 error-path tests present at internal/ops/auto_spawn_test.go:303 (TestAutoSpawn_NowToken), :354 (TestAutoSpawn_StateInitialToken), :440 (TestAutoSpawn_ParentFieldToken). cascade.toml uncomment at examples/schemas/cascade.toml:595-599 uses v1-only id_template + v2 field-tokens per plan-QA pin. internal/schema 193/193 tests green confirms block loads.
+
+H2 (a84aa6c): cmd/ta coverage lifted via test-only edits across confirm/form/menu/path_test.go. Zero production source touched. mage cover module total=77.1%. Per-function distribution comfortably meets ≥70% gate. 318/318 cmd/ta tests + 1 pre-existing skip.
+
+H4 (da275cd): MCP path-guard cwd-confinement wired to all 9 handler sites (tools.go:355,422,521,614,700,784,910,954 + init_tool.go:56). No surviving raw RequireString('path') callsites. 5 TestMCPPathGuard_* tests pass (RejectsOutsideProjectRoot/AcceptsSubdir/AcceptsExactRoot/EscapeHatchEnvVar/CleansRelativeAndDotDot). Threat memo at docs/security/mcp_path_arg.md. TA_MCP_PATH_GUARD=off escape hatch documented. internal/mcpsrv 55/55 green.
+
+H5 (810c442): 8 gif assets resolve from README + examples/README + docs/cascade-methodology.md — cmd/ta/testdata/vhs/{smoke,menu,picker_project,picker_filter,picker_select_all,picker_target_system,confirm_overwrite,form_create}.gif all present.
+
+Cross-builder integration clean: 4 commits' file paths mutually disjoint (zero overlap). mage check green at HEAD module-wide with only pre-existing skips (FuzzSpliceInvariant seeds + TestPickerSelectionsContractCapture).
+
+Falsification self-attacks: 9 attacks, 0 unmitigated CE. All attacks resolved via documented design, routed unknowns, or out-of-scope (H3 deferral, VHS tape re-recordability, drop-level integration test for cascade.toml).
+
+Missing Evidence (acknowledged, non-blocking):
+(1) No drop-level integration test for cascade.droplet.auto_spawn uncomment — unit tests cover same code path with synthetic schema. Follow-up if dogfood exercises auto_spawn block in production.
+(2) cmd/ta package coverage at HEAD trusted from H2 transition_notes 72.49% claim — per-function distribution observed independently consistent with claim. Not extracted to decimal in this session.
+(3) VHS tape re-recordability — H5 acceptance was 'linked .gif resolve' + 'mage Vhs green' (first verified, second not re-verified at session). Out of L2-H scope.
+
+L2-H FULLY RATIFIED (both halves PASS).
+"""
+updated_at = "2026-05-16T00:05:00Z"
+[build_qa_falsif_l2_h]
+completed_at = "2026-05-15T23:55:00Z"
+created_at = "2026-05-15T23:30:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_h_mvp_carryovers"
+role = "qa-falsification"
+started_at = "2026-05-15T23:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_h_mvp_carryovers"
+title = "L2-H build-QA falsif — retroactive attack on H1/H2/H4/H5 4-builder family"
+transition_notes = """
+VERDICT: PASS. tool_uses=22 (Read=7, Bash=15). 12 attacks: 0 CONFIRMED-CE. Retroactive ratification of L2-H 4-builder family (commits f97c893+a84aa6c+da275cd+810c442). mage Check GREEN module-wide across 19 packages.
+
+MITIGATED:
+(A1) H1 F23 v2 token wiring — internal/ops/ops.go:614-692 implements v2 chain; {now} once per spawn-pass (:506), {state.initial} via lookupStateInitial (:698-738) with 4 distinct loud errors (no enum, non-string enum[0], unknown type, malformed spec.type), {parent.<field>} regex-matched (:596) with loud error on missing key (:672-675). 6 tests at auto_spawn_test.go:301-562 exercise happy + loud-error + parent-atomicity invariants.
+(A2) H1 cascade.toml auto_spawn uncomment — [cascade.droplet.auto_spawn] at examples/schemas/cascade.toml:595-599; target types cascade.qa_proof:605 + cascade.qa_falsification:619 both extend ActionItem→NodeBase inheriting state enum from NodeBase:42 → {state.initial}='todo'. mage check proves schema loads.
+(A3) H2 coverage — cmd/ta/path_test.go covers LIVE branches (resolveCLIPath, FormFor, dispatchWidget, prefill PATCH), not dead code.
+(A4) H2 reliability — rg of time.Now|time.Sleep|os.Stdin|os.Setenv|isatty across new test files returns ZERO matches. Deterministic.
+(A5) H4 TA_MCP_PATH_GUARD=off escape hatch — path_guard.go:48-50 reads at init() (process startup); guardPath:93-95 checks guardDisabled||projectRoot=='' falls through to Abs+Clean. Test TestMCPPathGuard_EscapeHatchEnvVar at path_guard_test.go:99-112. Mid-process toggling has NO effect (by design, documented :43-44).
+(A6) H4 handler coverage — 9 handlers, 9 guardedPathArg callsites (tools.go:355,422,521,614,700,784,910,954 + init_tool.go:56). Every path-arg ingress chokepointed.
+(A7) H4 projectRoot race — path_guard.go:36-40 doc 'Set once at registerTools time. Reads stable for process lifetime, no concurrent mutation, no mutex.' server.go:74 calls registerTools exactly once per New(). Multi-server-in-process out of contract (server.go:14-19 documents one-project-per-process) — ROUTED-KNOWN architectural choice.
+(A8) H5 gif resolvability — 8 linked gifs exist at cmd/ta/testdata/vhs/: menu/picker_select_all/form_create/smoke/picker_project/picker_filter/picker_target_system/confirm_overwrite.gif.
+(A10) H1×H4 cross-builder — H1 touches examples/schemas/cascade.toml only; H4 mcpsrv tests use in-memory fstest.MapFile schemas (server_test.go:681). No coupling.
+(A11) mage check at HEAD — 19 packages green; 4 commits compose cleanly.
+(A12) H1 'spec.Fields only' prose accuracy — ops.go:571-590 interpolates id_template via v1-only path; ops.go:614 interpolateSpawnFields walks spec.Fields w/ v1+v2. Split enforced by structure, exactly matches prose.
+
+ROUTED-KNOWN:
+- A9 H5 doc drift (prose vs gif content) — unverifiable from static; .tape files exist alongside .gif/.txt so structural correspondence committed; upstream F38d-1/F38d-7 QA-gated.
+- A7 multi-server-in-process scenario — explicitly out-of-contract per server.go:14-19.
+- init handleInit 'target' arg gap — explicitly routed in H4 threat memo docs/security/mcp_path_arg.md §6.
+
+L2-H build-QA falsif strongest finding: H4's threat memo at docs/security/mcp_path_arg.md is the cleanest artifact of the slice — explicitly enumerates §6 out-of-scope items (init target arg, symlinks, walker surface, schema-write threats) so apparent gaps don't become silent CE counterexamples.
+"""
+updated_at = "2026-05-15T23:55:00Z"
+
+[builder_j1_droplet_auto_spawn]
+blockers = []
+completed_at = "2026-05-16T00:45:00Z"
+created_at = "2026-05-16T00:15:00Z"
+objective = "Add [cascade.droplet.auto_spawn] block to .ta/schema.toml mirroring examples/schemas/cascade.toml:586-599 verbatim. Create internal/schema/auto_spawn_test.go (NEW) with TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair that loads a synthetic schema via fstest.MapFile + creates a cascade.droplet record via ops.Create + asserts qa_proof+qa_falsification twins auto-spawned with correct field values."
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+paths = [".ta/schema.toml", "internal/schema/auto_spawn_test.go"]
+role = "builder"
+started_at = "2026-05-16T00:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L2-J J1 builder — sync cascade.droplet.auto_spawn from example to live schema"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=10 (Read=6, Edit/Write=2, Bash-mage=2). Above 3-call builder floor.
+
+Changes:
+1. .ta/schema.toml — inserted [cascade.droplet.auto_spawn] block (F23 v2 comment + on_create array, 2 specs targeting cascade.qa_proof + cascade.qa_falsification) after [cascade.droplet.fields.structural_type] at line 56. Mirrors examples/schemas/cascade.toml:586-599 VERBATIM.
+2. internal/schema/auto_spawn_test.go — appended TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair (load-level pin of wire-format: specs, types, IDTemplates, F23 v2 token strings {state.initial}/{parent.title}/{now}/{parent_id} all preserved verbatim on each spec's Fields map).
+
+Verification:
+- mage testFunc TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair: 1 passed, 0 failed.
+- mage testPkg ./internal/schema: 195 passed, 0 failed (up from 193 baseline, +2 from this droplet plus one other recently-added).
+
+DIRECTIVE DEVIATION (acceptable): Original prompt asked for testing/fstest.MapFS + ops.Create flow. Impossible — internal/schema CANNOT import internal/ops (import cycle: ops imports schema). schema.Load takes io.Reader not fs.FS. Pivoted to load-half test pinning wire-format. Runtime materialization (token interpolation, twin pair appearing on-disk) is already exhaustively locked by internal/ops/auto_spawn_test.go: TestCreate_FiresSpawn_TwoQAChildren (:64-105) + F23 v2 token tests (TestAutoSpawn_NowToken :303, TestAutoSpawn_StateInitialToken :354, TestAutoSpawn_ParentFieldToken :440). Load-half + runtime-half together bracket the full contract. Reasonable deviation.
+
+Edit count: 2 distinct code-block edits (1 schema.toml block + 1 test addition). Well under ≤4 budget.
+Paths touched: exactly the 2 declared (.ta/schema.toml + internal/schema/auto_spawn_test.go). No other files modified.
+"""
+updated_at = "2026-05-16T00:45:00Z"
+[builder_j2_drop_auto_spawn]
+blockers = ["drop_004.drop.builder_j1_droplet_auto_spawn"]
+completed_at = "2026-05-16T00:50:00Z"
+created_at = "2026-05-16T00:15:00Z"
+objective = "Add [cascade.drop.auto_spawn] block to .ta/schema.toml with id_template={parent_id}-plan-qa-proof / -plan-qa-falsification + v2 tokens in fields. Extend internal/schema/auto_spawn_test.go with TestAutoSpawn_DropCreates_SpawnsPlanQATwinPair."
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+paths = [".ta/schema.toml", "internal/schema/auto_spawn_test.go"]
+role = "builder"
+started_at = "2026-05-16T00:46:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L2-J J2 builder — add cascade.drop.auto_spawn for plan-QA twins"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=6 (Read=2, Edit=2, Bash-mage=2). Above 3-call builder floor.
+
+Changes:
+1. .ta/schema.toml — inserted [cascade.drop.auto_spawn] block at lines 43-51 between [cascade.drop.fields.structural_type] and [cascade.droplet]. Mirrors J1's pattern but for plan-QA: id_template={parent_id}-plan-qa-proof / -plan-qa-falsification; title='Plan-QA proof of {parent.title}' / 'Plan-QA falsif of {parent.title}'.
+2. internal/schema/auto_spawn_test.go — appended TestAutoSpawn_DropCreates_SpawnsPlanQATwinPair before TestAutoSpawn_DBPrefixMismatch. Synthetic schema declares cascade.drop + cascade.qa_proof + cascade.qa_falsification + drop.auto_spawn; asserts 2 specs, types, IDTemplates, F23 v2 tokens verbatim on Fields map.
+
+Verification:
+- mage testFunc TestAutoSpawn_DropCreates_SpawnsPlanQATwinPair: 1/1 green.
+- mage testPkg ./internal/schema: 196/196 green (baseline 195 + 1 new test, zero regression).
+
+Edits stayed at ≤4 distinct code-block edits. Paths touched: exactly the 2 declared. No other files modified.
+"""
+updated_at = "2026-05-16T00:50:00Z"
+[builder_j3_planner_auto_spawn]
+blockers = ["drop_004.drop.builder_j2_drop_auto_spawn"]
+completed_at = "2026-05-16T00:55:00Z"
+created_at = "2026-05-16T00:15:00Z"
+objective = "Add [cascade.planner.auto_spawn] block to .ta/schema.toml (same shape as J2 but for cascade.planner). Extend internal/schema/auto_spawn_test.go with TestAutoSpawn_PlannerCreates_SpawnsPlanQATwinPair PLUS U1 fold TestAutoSpawn_StateInitialToken_InheritedFromBase covering extends-chain {state.initial} resolution against a cascade.qa_proof/qa_falsification target type."
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+paths = [".ta/schema.toml", "internal/schema/auto_spawn_test.go"]
+role = "builder"
+started_at = "2026-05-16T00:51:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L2-J J3 builder — add cascade.planner.auto_spawn + U1 extends-chain test fold"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=6 (Read=2, Edit=2, Bash-mage=2). Above 3-call builder floor.
+
+Changes:
+1. .ta/schema.toml — inserted [cascade.planner.auto_spawn] block at lines 116-122 between cascade.planner and cascade.qa_falsification. Mirrors J2 plan-QA pattern with id_template={parent_id}-plan-qa-proof / -plan-qa-falsification + 'Plan-QA proof/falsif of {parent.title}' titles.
+2. internal/schema/auto_spawn_test.go — appended TWO test functions: (a) TestAutoSpawn_PlannerCreates_SpawnsPlanQATwinPair (mirrors J2 verbatim with drop→planner rename); (b) TestAutoSpawn_StateInitialToken_InheritedFromBase (U1 fold) which pins {state.initial} resolution through extends-chain via synthetic cascade.bases.QABase declaring state enum + cascade.qa_concrete extends QABase without redeclaring state + cascade.parent auto_spawn targeting qa_concrete. Three assertions: state field inherited, enum[0]=todo flattened, {state.initial} token preserved verbatim on spec.
+
+Verification:
+- mage testFunc 'TestAutoSpawn_PlannerCreates_SpawnsPlanQATwinPair|TestAutoSpawn_StateInitialToken_InheritedFromBase': 2/2 green.
+- mage testPkg ./internal/schema: 198/198 green (baseline 196 + 2 new tests; zero regression).
+
+Edit count: 2 distinct code-block edits (schema insertion + test-file contiguous append). Well under ≤4 cap.
+
+F23 v2 CASCADE COVERAGE COMPLETE: cascade.drop.auto_spawn (J2) + cascade.droplet.auto_spawn (J1) + cascade.planner.auto_spawn (J3) all live in schema. Plan-QA twins schema-driven at every interior planning level; build-QA twins schema-driven on every droplet leaf. U1 extends-chain inheritance gap pinned at load level. Runtime token interpolation already covered by internal/ops/auto_spawn_test.go.
+"""
+updated_at = "2026-05-16T00:55:00Z"
+[builder_j4_live_schema_load_test]
+blockers = []
+completed_at = "2026-05-16T00:25:00Z"
+created_at = "2026-05-16T00:15:00Z"
+objective = "Create internal/schema/live_test.go (NEW) with TestLiveSchemaLoads that reads <repo>/.ta/schema.toml via os.ReadFile + calls schema.Load + asserts no error. Closes mage-check coverage gap on live schema (plan-QA A12). Parallel with J1; different file."
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+paths = ["internal/schema/live_test.go"]
+role = "builder"
+started_at = "2026-05-16T00:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L2-J J4 builder — TestLiveSchemaLoads gate (A12 fold)"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=9 (Read=3, Write=1, Bash-mage=2, Bash-evidence=3). Above 3-call builder floor.
+
+File created: internal/schema/live_test.go (NEW, 75 lines). TestLiveSchemaLoads uses runtime.Caller(0) + go.mod ancestor walk to root the repo path robustly (independent of test-runner cwd), loads .ta/schema.toml via os.ReadFile + schema.LoadBytes, asserts 5 required DBs present (cascade + roadmap + template_manifest + html_template + target_system).
+
+Verification:
+- `mage testFunc TestLiveSchemaLoads`: 1 passed, 0 failed across 19 packages.
+- `mage testPkg ./internal/schema`: 194/194 passed (193 prior + 1 new TestLiveSchemaLoads).
+- .ta/schema.toml UNTOUCHED.
+- No files touched outside internal/schema/live_test.go.
+
+Falsification self-attacks MITIGATED:
+- Working-dir fragility — runtime.Caller(0) + ancestor walk handles arbitrary test-runner cwd.
+- go.mod walk infinite loop — parent==dir terminal check with t.Fatalf.
+- 5 DB names hardcoded drift — ACCEPTABLE; floor set; drift becomes a forced conversation (the gate's purpose).
+- Inadvertent file touch — single Write call to single new path; verified via post-write ls.
+
+Closed the mage-check coverage gap on live .ta/schema.toml. Future malformed live block will surface in mage check, not at next ta invocation.
+"""
+updated_at = "2026-05-16T00:25:00Z"
+[builder_j5_methodology_update]
+blockers = []
+completed_at = "2026-05-16T00:35:00Z"
+created_at = "2026-05-16T00:15:00Z"
+objective = "Update docs/cascade-methodology.md §4 to replace 'None run at the droplet level.' with new norm: per-droplet build-QA twins fire automatically via schema-driven cascade.droplet.auto_spawn (F23 v2). Supplements per-planner-family build-QA at family close. Cite drop_004 L2-J as the introducing slice + L2-B/L2-H failure mode it prevents."
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+paths = ["docs/cascade-methodology.md"]
+role = "builder"
+started_at = "2026-05-16T00:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L2-J J5 builder — cascade-methodology.md §4 update for per-droplet QA new norm (A11 fold)"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=7 (Read=3, Edit=2, Bash=2). Above 3-call builder floor.
+
+Two edit sites in docs/cascade-methodology.md:
+- :136-146 — §4 opener rewritten to credit per-droplet auto_spawn norm, name F23 v2 engine, cite drop_004 L2-B + L2-H as empirical falsification case, name propagation to cascade.drop.auto_spawn + cascade.planner.auto_spawn.
+- :212-229 — §4.6 header + body rewritten from 'Why No Droplet-Level LLM QA' → 'Why Per-Droplet LLM QA — Schema-Enforced via auto_spawn'. Explicitly acknowledges the pivot from earlier drafts, explains why earlier reasoning was falsified, clarifies per-droplet + planner-family layers complementary.
+
+Falsification self-attacks MITIGATED:
+- §4 opener vs §4.1 package-level build+test: orthogonal layers (per-droplet QA + package build+test independently triggered on droplet completion).
+- §4.6 vs §4.2 planner-family build-QA: §4.6 explicitly states 'Planner-family build-QA (§4.2) still runs at family close for integration-level verdicts.'
+- 'Four QA surfaces' count vs section enumeration: §4.1+§4.2+§4.3+§4.4 = four subsections; per-droplet QA is the meta-pattern the opener calls out. Coherent.
+- auto_spawn terminology readability: opener + §4.6 both name F23 v2 — readers can follow reference to schema.
+
+Verification:
+- mage check green: 17 pkg passed, 0 pkg failed, 2 pre-existing skips.
+- Internal cross-refs verified (§4.2 reference in §4.6).
+- No file outside docs/cascade-methodology.md touched.
+"""
+updated_at = "2026-05-16T00:35:00Z"
+[build_qa_proof_l2_j]
+blockers = ["drop_004.drop.builder_j1_droplet_auto_spawn", "drop_004.drop.builder_j2_drop_auto_spawn", "drop_004.drop.builder_j3_planner_auto_spawn", "drop_004.drop.builder_j4_live_schema_load_test", "drop_004.drop.builder_j5_methodology_update"]
+completed_at = "2026-05-16T01:05:00Z"
+created_at = "2026-05-16T00:15:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+role = "qa-proof"
+started_at = "2026-05-16T00:56:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+title = "L2-J L2-level build-QA proof — verify all 5 J droplets close cleanly + mage check green"
+transition_notes = """
+VERDICT: PASS. tool_uses=10 (Read=4, Bash=6 mage/git, 3 permission-denied + 3 successful). Above 5-call floor.
+
+All 6 proof axes satisfied:
+(1) Schema integrity: 3 auto_spawn blocks present at .ta/schema.toml:46-50 (drop), :76-80 (droplet), :119-123 (planner). Each declares 2 on_create specs (qa_proof + qa_falsification) with F23 v2 tokens used verbatim per spec contract.
+(2) Test coverage: 4 new tests at auto_spawn_test.go:533 (J1), :693 (J2), :884 (J3), :1050 (J3 U1 fold). Plus internal/schema/live_test.go:26 TestLiveSchemaLoads (J4).
+(3) mage check: 1141 tests, 1131 passed, 0 failed, 10 skipped, 19 packages PASS / 0 FAIL. All 10 skips pre-existing (tuitest smoke, dotta walk-golden, md fuzz seeds, cmd/ta picker capture). Zero introduced by J1-J5.
+(4) Methodology: docs/cascade-methodology.md §4 opener (:134) rewritten 'Three QA surfaces → Four QA surfaces' with per-droplet auto_spawn norm + drop_004 L2-B/L2-H empirical citation. §4.6 retitled 'Why No Droplet-Level LLM QA' → 'Why Per-Droplet LLM QA — Schema-Enforced via auto_spawn' (:212-229). F23 v2 named. §4.2 planner-family build-QA explicitly retained as complementary layer.
+(5) Cross-builder coherence: git diff --stat HEAD scoped exactly to claimed paths (.ta/schema.toml +33, internal/schema/auto_spawn_test.go +592, internal/schema/live_test.go +76 new, docs/cascade-methodology.md +29/-8) plus cascade record bookkeeping. No collisions, no stray edits.
+(6) Substrate verified pre-J: F23 v2 engine (load.go ErrSpawn* + AutoSpawn field) landed in commit f97c893; J1-J5 build cleanly on existing substrate.
+
+Falsification self-attacks (8) all MITIGATED: token spelling drift, db prefix on id_template, methodology dilution, U1 fold orphan, mage check hidden failure, missing-required-db silent drop, untracked/merge collision, missing load.go substrate. No unmitigated counterexample.
+
+L2-J ready for commit gate.
+"""
+updated_at = "2026-05-16T01:05:00Z"
+[build_qa_falsif_l2_j]
+blockers = ["drop_004.drop.builder_j1_droplet_auto_spawn", "drop_004.drop.builder_j2_drop_auto_spawn", "drop_004.drop.builder_j3_planner_auto_spawn", "drop_004.drop.builder_j4_live_schema_load_test", "drop_004.drop.builder_j5_methodology_update"]
+completed_at = "2026-05-16T01:15:00Z"
+created_at = "2026-05-16T00:15:00Z"
+outcome = "success"
+parent_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+role = "qa-falsification"
+started_at = "2026-05-16T00:56:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_j_cascade_qa_auto_spawn"
+title = "L2-J L2-level build-QA falsif — attack all 5 J droplets + auto_spawn behavior in live schema"
+transition_notes = """
+VERDICT: PASS. tool_uses=21 (Read=5, Bash=16). Above 5-call floor. 12 attacks: 10 MITIGATED + 2 ROUTED-KNOWN + 0 CONFIRMED-CE.
+
+MITIGATED (10):
+(A1) Other-package regression: internal/ops 136/internal/mcpsrv 55/internal/schema 198 all green; mage check 1141 tests 0 fail.
+(A2) Token-format compliance: live schema tokens cross-checked against engine handlers ops.go:582,654,656-661,665-686; live schema parses; runtime path verified via TestAutoSpawn_* in internal/ops/auto_spawn_test.go:438-476.
+(A3) Cycle via auto_spawn on QA twin types: cascade.qa_proof (schema.toml:140-153) + cascade.qa_falsification (:125-138) have NO auto_spawn block. Engine bypass via direct planRecordWrite (ops.go:320-345) prevents recursive Create even hypothetically — two independent layers.
+(A4) id_template collision: rg .ta/index.toml for 'plan-qa-proof|plan-qa-falsification|-qa-proof|-qa-falsification' returns 0 matches. Reserved patterns unclaimed.
+(A5) Live schema parse: TestLiveSchemaLoads green.
+(A6) Methodology coherence: §4 opener 'Four QA surfaces' matches §4.1+§4.2+§4.3+§4.6. §4.4/4.5/4.7 are refinements/universal-discipline rules not separate surfaces. Internally consistent.
+(A7) U1 multi-level extends rigor: U1 covers 1-level (qa_concrete→QABase). Loader resolveBase is recursive with visiting set (load.go:1206-1232, transitive chains :330,785,866). Live schema 2-level chain (cascade.qa_proof→ActionItem→NodeBase) reaches state at NodeBase:505; confirmed by 198 schema tests passing.
+(A8) mage check vs testPkg parity: 1141 tests, 0 failures, 17 pkg pass / 0 pkg fail.
+(A9) Methodology cross-ref accuracy: drop_004 L2-B + L2-H cited at :142, :216 as motivating history; nothing load-bearing depends on future reader knowing those segments.
+(A12) A12+A11 fold-in exhaustiveness: drop_004 record diffs show prior plan-QA verdicts converged on manual-twin-skipped failure class which §4.6 directly addresses; J4 (live gate) + J5 (methodology) close substrate gap.
+
+ROUTED-KNOWN (2):
+(A10) MCP server reload required: 3 new auto_spawn blocks on-disk in .ta/schema.toml; running MCP server holds cached schema from start-of-process. This-session creates won't auto-spawn until bounce. Documented routed-known per dev framing; NOT L2-J ship blocker (orchestrator commit + mage install + restart sequence handles this).
+(A11) {parent.title} with TOML-special chars: no direct test for quote/dot/equals. Engine path = Go string substitution + toml emitter w/ standard escaping verified at internal/backend/toml/emit_test.go:112. Recommend quote-bearing-title regression test in later slice; not L2-J-blocking.
+
+L2-J SLICE SHIPS. mage check green at 1141 tests / 0 failures / 17 packages.
+"""
+updated_at = "2026-05-16T01:15:00Z"

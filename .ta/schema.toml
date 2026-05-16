@@ -40,6 +40,15 @@ enum = ['drop']
 required = true
 type = 'string'
 
+# F23 v2 runtime-fill: every cascade.drop record creation generates
+# its two plan-QA twin records so descent into L2/L3/Ln is gated by
+# schema-driven QA enforcement (drop_004 L2-J).
+[cascade.drop.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+
 [cascade.droplet]
 description = 'Atomic build leaf — what a builder agent finishes in one shot. Touches one file (or tight cluster) with a few blocks of change.'
 extends = 'ActionItem'
@@ -54,6 +63,21 @@ type = 'boolean'
 enum = ['droplet']
 required = true
 type = 'string'
+
+# F23 v2 runtime-fill (FIELD-ONLY): every droplet creation generates
+# its two QA twin records so the build leaf cannot slip past review.
+# id_template stays v1-only ({parent_id}); field values use the v2
+# tokens to fill the required-no-default fields on the target type:
+#   {now}              → RFC3339 UTC timestamp at create time
+#   {state.initial}    → enum[0] of the target type's `state` field
+#   {parent.<field>}   → parent record's same-named field
+# Structural home is [cascade.droplet] (the build leaf), NOT
+# [cascade.drop] where this comment sat pre-F35.
+[cascade.droplet.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-qa-proof",         fields = { role = "qa-proof",         title = "QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-qa-falsification", fields = { role = "qa-falsification", title = "QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
 
 [cascade.failure]
 description = 'Captured failure artifact — what went wrong, when, where, with what context. Persistent record for cascade post-mortems.'
@@ -88,6 +112,15 @@ type = 'string'
 [cascade.planner]
 description = "Generic planner action item — interior cascade work that doesn't fit segment or confluence (e.g. plan-revision, retro)."
 extends = 'ActionItem'
+
+# F23 v2 runtime-fill: every cascade.planner record creation generates
+# its two plan-QA twin records so interior planning records (L3+ planners,
+# retros, plan-revisions) are gated by schema-driven QA enforcement.
+[cascade.planner.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
 
 [cascade.qa_falsification]
 description = "QA falsification record — actively attacks the target's conclusion via counterexamples, hidden dependencies, contract drift."

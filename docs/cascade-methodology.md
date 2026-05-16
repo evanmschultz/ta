@@ -133,7 +133,17 @@ per-path and per-action-item type once the team has data.
 
 ## 4. QA Placement
 
-Three QA surfaces. **None run at the droplet level.**
+Four QA surfaces. Per-droplet build-QA twins fire automatically via
+schema-driven auto_spawn (`cascade.droplet.auto_spawn` declared in the
+live schema, F23 v2 engine), supplementing per-planner-family build-QA
+at family close. Net: every builder gets reviewed by its own dedicated
+QA pair AND integration-level QA fires at planner-family close.
+Per-droplet QA prevents the build-QA-twin-skipped failure class
+observed during drop_004 L2-B + L2-H, when QA twin creation was
+manual-only and easily forgotten under speed pressure. The pattern
+propagates to other planner kinds via `cascade.drop.auto_spawn` (plan-QA
+on L1/L2 drops) and `cascade.planner.auto_spawn` (plan-QA on interior
+planners) — schema enforces what methodology requires.
 
 ### 4.1 Package-Level Build+Test (Automated, Not LLM)
 
@@ -199,13 +209,24 @@ The same discipline applies to the build runner equivalents in other languages (
 
 This pairs with §4.4's pre-QA LSP refresh — a fresh LSP plus a slice-scoped test run gives a clean evidence layer for the QA agent to reason against, without other agents' in-flight work corrupting either side.
 
-### 4.6 Why No Droplet-Level LLM QA
+### 4.6 Why Per-Droplet LLM QA — Schema-Enforced via auto_spawn
 
-Droplets are too small to QA meaningfully in isolation. Correctness at
-the droplet level is either trivially satisfied against the acceptance
-criteria or obviously wrong — automated build+test catches the second
-case. LLM QA at this level pays full cost for near-zero signal. QA
-moves up to where integration actually happens.
+Earlier drafts of this methodology argued droplet-level LLM QA paid
+full cost for near-zero signal, on the theory that droplets were too
+small to QA meaningfully in isolation. Drop_004 L2-B + L2-H falsified
+that theory: when build-QA twin creation was manual-only at the
+planner-family close, it was repeatedly forgotten under speed pressure,
+and integration-level QA alone was not a sufficient gate. The fix is
+**schema-enforced per-droplet QA** via `cascade.droplet.auto_spawn`
+(F23 v2): every builder droplet auto-spawns its own `qa-proof` +
+`qa-falsification` twins as soon as it reaches `state=complete`, with
+zero opportunity for the orchestrator to skip the step. Planner-family
+build-QA (§4.2) still runs at family close for integration-level
+verdicts. The two layers are complementary: per-droplet QA catches
+per-slice contract drift early; planner-family QA catches cross-droplet
+integration gaps. Cost is real but pays for itself in caught defects
+and removed coordination burden — schema enforces what methodology
+requires, so no human or orchestrator memory is on the critical path.
 
 ### 4.7 Pre-QA LSP Refresh — Universal Discipline
 

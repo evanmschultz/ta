@@ -519,6 +519,326 @@ on_create = [
 	}
 }
 
+// TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair — drop_004 L2-J J1
+// pin. The live `.ta/schema.toml` declares `[cascade.droplet.auto_spawn]`
+// (mirrored verbatim from examples/schemas/cascade.toml:586-599) so that
+// every cascade.droplet record materializes a build-QA twin pair on
+// create. This test exercises the load-time half of that contract:
+// a synthetic schema declaring cascade.droplet + cascade.qa_proof +
+// cascade.qa_falsification + the auto_spawn block parses cleanly and
+// exposes both specs in declaration order with the F23-v2 token strings
+// preserved verbatim on each spec's Fields map. Runtime materialization
+// (token interpolation, on-disk write, target_id resolution) is locked
+// downstream in internal/ops/auto_spawn_test.go.
+func TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair(t *testing.T) {
+	src := `
+[cascade]
+paths = ["cascade.toml"]
+
+[cascade.droplet]
+description = "Atomic build leaf"
+
+[cascade.droplet.fields.title]
+type = "string"
+required = true
+
+[cascade.droplet.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_proof]
+description = "QA proof twin"
+
+[cascade.qa_proof.fields.role]
+type = "string"
+required = true
+enum = ["qa-proof"]
+
+[cascade.qa_proof.fields.title]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_proof.fields.created_at]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.updated_at]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.target_id]
+type = "string"
+required = true
+
+[cascade.qa_falsification]
+description = "QA falsification twin"
+
+[cascade.qa_falsification.fields.role]
+type = "string"
+required = true
+enum = ["qa-falsification"]
+
+[cascade.qa_falsification.fields.title]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_falsification.fields.created_at]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.updated_at]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.target_id]
+type = "string"
+required = true
+
+[cascade.droplet.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-qa-proof",         fields = { role = "qa-proof",         title = "QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-qa-falsification", fields = { role = "qa-falsification", title = "QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	droplet := reg.DBs["cascade"].Types["droplet"]
+	if got, want := len(droplet.AutoSpawn), 2; got != want {
+		t.Fatalf("droplet.AutoSpawn len = %d, want %d", got, want)
+	}
+
+	// Spec 0 — qa_proof twin.
+	proof := droplet.AutoSpawn[0]
+	if proof.Type != "cascade.qa_proof" {
+		t.Errorf("spec[0].Type = %q, want cascade.qa_proof", proof.Type)
+	}
+	if proof.IDTemplate != "{parent_id}-qa-proof" {
+		t.Errorf("spec[0].IDTemplate = %q, want {parent_id}-qa-proof", proof.IDTemplate)
+	}
+	for _, c := range []struct {
+		key  string
+		want string
+	}{
+		{"role", "qa-proof"},
+		{"title", "QA proof of {parent.title}"},
+		{"state", "{state.initial}"},
+		{"created_at", "{now}"},
+		{"updated_at", "{now}"},
+		{"target_id", "{parent_id}"},
+	} {
+		got, ok := proof.Fields[c.key].(string)
+		if !ok {
+			t.Errorf("spec[0].Fields[%q] = %v (%T), want string %q", c.key, proof.Fields[c.key], proof.Fields[c.key], c.want)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("spec[0].Fields[%q] = %q, want %q (token must be preserved verbatim at load; interpolation is a runtime concern)", c.key, got, c.want)
+		}
+	}
+
+	// Spec 1 — qa_falsification twin.
+	falsif := droplet.AutoSpawn[1]
+	if falsif.Type != "cascade.qa_falsification" {
+		t.Errorf("spec[1].Type = %q, want cascade.qa_falsification", falsif.Type)
+	}
+	if falsif.IDTemplate != "{parent_id}-qa-falsification" {
+		t.Errorf("spec[1].IDTemplate = %q, want {parent_id}-qa-falsification", falsif.IDTemplate)
+	}
+	for _, c := range []struct {
+		key  string
+		want string
+	}{
+		{"role", "qa-falsification"},
+		{"title", "QA falsif of {parent.title}"},
+		{"state", "{state.initial}"},
+		{"created_at", "{now}"},
+		{"updated_at", "{now}"},
+		{"target_id", "{parent_id}"},
+	} {
+		got, ok := falsif.Fields[c.key].(string)
+		if !ok {
+			t.Errorf("spec[1].Fields[%q] = %v (%T), want string %q", c.key, falsif.Fields[c.key], falsif.Fields[c.key], c.want)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("spec[1].Fields[%q] = %q, want %q (token must be preserved verbatim at load; interpolation is a runtime concern)", c.key, got, c.want)
+		}
+	}
+}
+
+// TestAutoSpawn_DropCreates_SpawnsPlanQATwinPair — drop_004 L2-J J2 pin.
+// The live `.ta/schema.toml` declares `[cascade.drop.auto_spawn]` so that
+// every cascade.drop record materializes a plan-QA twin pair on create —
+// gating descent into L2/L3/Ln with schema-driven QA enforcement.
+// This test exercises the load-time half of that contract: a synthetic
+// schema declaring cascade.drop + cascade.qa_proof + cascade.qa_falsification
+// + the auto_spawn block parses cleanly and exposes both specs in
+// declaration order with the F23-v2 token strings preserved verbatim on
+// each spec's Fields map. Runtime materialization (token interpolation,
+// on-disk write, target_id resolution) is locked downstream in
+// internal/ops/auto_spawn_test.go.
+func TestAutoSpawn_DropCreates_SpawnsPlanQATwinPair(t *testing.T) {
+	src := `
+[cascade]
+paths = ["cascade.toml"]
+
+[cascade.drop]
+description = "L1 cascade root"
+
+[cascade.drop.fields.title]
+type = "string"
+required = true
+
+[cascade.drop.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_proof]
+description = "QA proof twin"
+
+[cascade.qa_proof.fields.role]
+type = "string"
+required = true
+enum = ["qa-proof"]
+
+[cascade.qa_proof.fields.title]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_proof.fields.created_at]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.updated_at]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.target_id]
+type = "string"
+required = true
+
+[cascade.qa_falsification]
+description = "QA falsification twin"
+
+[cascade.qa_falsification.fields.role]
+type = "string"
+required = true
+enum = ["qa-falsification"]
+
+[cascade.qa_falsification.fields.title]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_falsification.fields.created_at]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.updated_at]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.target_id]
+type = "string"
+required = true
+
+[cascade.drop.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	drop := reg.DBs["cascade"].Types["drop"]
+	if got, want := len(drop.AutoSpawn), 2; got != want {
+		t.Fatalf("drop.AutoSpawn len = %d, want %d", got, want)
+	}
+
+	// Spec 0 — plan-qa-proof twin.
+	proof := drop.AutoSpawn[0]
+	if proof.Type != "cascade.qa_proof" {
+		t.Errorf("spec[0].Type = %q, want cascade.qa_proof", proof.Type)
+	}
+	if proof.IDTemplate != "{parent_id}-plan-qa-proof" {
+		t.Errorf("spec[0].IDTemplate = %q, want {parent_id}-plan-qa-proof", proof.IDTemplate)
+	}
+	for _, c := range []struct {
+		key  string
+		want string
+	}{
+		{"role", "qa-proof"},
+		{"title", "Plan-QA proof of {parent.title}"},
+		{"state", "{state.initial}"},
+		{"created_at", "{now}"},
+		{"updated_at", "{now}"},
+		{"target_id", "{parent_id}"},
+	} {
+		got, ok := proof.Fields[c.key].(string)
+		if !ok {
+			t.Errorf("spec[0].Fields[%q] = %v (%T), want string %q", c.key, proof.Fields[c.key], proof.Fields[c.key], c.want)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("spec[0].Fields[%q] = %q, want %q (token must be preserved verbatim at load; interpolation is a runtime concern)", c.key, got, c.want)
+		}
+	}
+
+	// Spec 1 — plan-qa-falsification twin.
+	falsif := drop.AutoSpawn[1]
+	if falsif.Type != "cascade.qa_falsification" {
+		t.Errorf("spec[1].Type = %q, want cascade.qa_falsification", falsif.Type)
+	}
+	if falsif.IDTemplate != "{parent_id}-plan-qa-falsification" {
+		t.Errorf("spec[1].IDTemplate = %q, want {parent_id}-plan-qa-falsification", falsif.IDTemplate)
+	}
+	for _, c := range []struct {
+		key  string
+		want string
+	}{
+		{"role", "qa-falsification"},
+		{"title", "Plan-QA falsif of {parent.title}"},
+		{"state", "{state.initial}"},
+		{"created_at", "{now}"},
+		{"updated_at", "{now}"},
+		{"target_id", "{parent_id}"},
+	} {
+		got, ok := falsif.Fields[c.key].(string)
+		if !ok {
+			t.Errorf("spec[1].Fields[%q] = %v (%T), want string %q", c.key, falsif.Fields[c.key], falsif.Fields[c.key], c.want)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("spec[1].Fields[%q] = %q, want %q (token must be preserved verbatim at load; interpolation is a runtime concern)", c.key, got, c.want)
+		}
+	}
+}
+
 // TestAutoSpawn_DBPrefixMismatch — id_template tokens are syntactically
 // valid but the spec.type is malformed (bare slug not db.type) →
 // ErrSpawnUnknownType (target type cannot resolve).
@@ -545,5 +865,277 @@ on_create = [
 	}
 	if !errors.Is(err, ErrSpawnUnknownType) {
 		t.Errorf("err = %v, want ErrSpawnUnknownType", err)
+	}
+}
+
+// TestAutoSpawn_PlannerCreates_SpawnsPlanQATwinPair — drop_004 L2-J J3
+// pin. The live `.ta/schema.toml` declares `[cascade.planner.auto_spawn]`
+// so that every cascade.planner record materializes a plan-QA twin pair
+// on create — gating L3+ planners, retros, and plan-revisions with
+// schema-driven QA enforcement (mirrors the cascade.drop pattern from J2,
+// but anchored on the interior planner record instead of the L1 root).
+// This test exercises the load-time half of that contract: a synthetic
+// schema declaring cascade.planner + cascade.qa_proof +
+// cascade.qa_falsification + the auto_spawn block parses cleanly and
+// exposes both specs in declaration order with the F23-v2 token strings
+// preserved verbatim on each spec's Fields map. Runtime materialization
+// (token interpolation, on-disk write, target_id resolution) is locked
+// downstream in internal/ops/auto_spawn_test.go.
+func TestAutoSpawn_PlannerCreates_SpawnsPlanQATwinPair(t *testing.T) {
+	src := `
+[cascade]
+paths = ["cascade.toml"]
+
+[cascade.planner]
+description = "Generic planner action item"
+
+[cascade.planner.fields.title]
+type = "string"
+required = true
+
+[cascade.planner.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_proof]
+description = "QA proof twin"
+
+[cascade.qa_proof.fields.role]
+type = "string"
+required = true
+enum = ["qa-proof"]
+
+[cascade.qa_proof.fields.title]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_proof.fields.created_at]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.updated_at]
+type = "string"
+required = true
+
+[cascade.qa_proof.fields.target_id]
+type = "string"
+required = true
+
+[cascade.qa_falsification]
+description = "QA falsification twin"
+
+[cascade.qa_falsification.fields.role]
+type = "string"
+required = true
+enum = ["qa-falsification"]
+
+[cascade.qa_falsification.fields.title]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.qa_falsification.fields.created_at]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.updated_at]
+type = "string"
+required = true
+
+[cascade.qa_falsification.fields.target_id]
+type = "string"
+required = true
+
+[cascade.planner.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	planner := reg.DBs["cascade"].Types["planner"]
+	if got, want := len(planner.AutoSpawn), 2; got != want {
+		t.Fatalf("planner.AutoSpawn len = %d, want %d", got, want)
+	}
+
+	// Spec 0 — plan-qa-proof twin.
+	proof := planner.AutoSpawn[0]
+	if proof.Type != "cascade.qa_proof" {
+		t.Errorf("spec[0].Type = %q, want cascade.qa_proof", proof.Type)
+	}
+	if proof.IDTemplate != "{parent_id}-plan-qa-proof" {
+		t.Errorf("spec[0].IDTemplate = %q, want {parent_id}-plan-qa-proof", proof.IDTemplate)
+	}
+	for _, c := range []struct {
+		key  string
+		want string
+	}{
+		{"role", "qa-proof"},
+		{"title", "Plan-QA proof of {parent.title}"},
+		{"state", "{state.initial}"},
+		{"created_at", "{now}"},
+		{"updated_at", "{now}"},
+		{"target_id", "{parent_id}"},
+	} {
+		got, ok := proof.Fields[c.key].(string)
+		if !ok {
+			t.Errorf("spec[0].Fields[%q] = %v (%T), want string %q", c.key, proof.Fields[c.key], proof.Fields[c.key], c.want)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("spec[0].Fields[%q] = %q, want %q (token must be preserved verbatim at load; interpolation is a runtime concern)", c.key, got, c.want)
+		}
+	}
+
+	// Spec 1 — plan-qa-falsification twin.
+	falsif := planner.AutoSpawn[1]
+	if falsif.Type != "cascade.qa_falsification" {
+		t.Errorf("spec[1].Type = %q, want cascade.qa_falsification", falsif.Type)
+	}
+	if falsif.IDTemplate != "{parent_id}-plan-qa-falsification" {
+		t.Errorf("spec[1].IDTemplate = %q, want {parent_id}-plan-qa-falsification", falsif.IDTemplate)
+	}
+	for _, c := range []struct {
+		key  string
+		want string
+	}{
+		{"role", "qa-falsification"},
+		{"title", "Plan-QA falsif of {parent.title}"},
+		{"state", "{state.initial}"},
+		{"created_at", "{now}"},
+		{"updated_at", "{now}"},
+		{"target_id", "{parent_id}"},
+	} {
+		got, ok := falsif.Fields[c.key].(string)
+		if !ok {
+			t.Errorf("spec[1].Fields[%q] = %v (%T), want string %q", c.key, falsif.Fields[c.key], falsif.Fields[c.key], c.want)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("spec[1].Fields[%q] = %q, want %q (token must be preserved verbatim at load; interpolation is a runtime concern)", c.key, got, c.want)
+		}
+	}
+}
+
+// TestAutoSpawn_StateInitialToken_InheritedFromBase — drop_004 L2-J J3
+// U1 fold. Pins that `{state.initial}` resolves correctly when the
+// target type's `state` field is INHERITED via the extends-chain (not
+// declared directly on the concrete type). The runtime token
+// interpolation path is locked downstream by
+// internal/ops/auto_spawn_test.go::TestAutoSpawn_StateInitialToken;
+// THIS test pins the schema-resolution half — that base inheritance
+// flattens enum[0] of `state` onto the concrete type so
+// `{state.initial}` has a valid resolution path at runtime.
+//
+// Synthetic schema shape:
+//   - QABase declares state field with enum=[todo, in_progress, complete]
+//   - cascade.qa_concrete extends QABase WITHOUT redeclaring state
+//   - cascade.parent declares auto_spawn targeting qa_concrete with
+//     state = "{state.initial}" in the on_create fields map
+//   - Assert reg.DBs[cascade].Types[qa_concrete].Fields[state].Enum[0] == "todo"
+//     (proves base flattening happened, so {state.initial} has a target).
+func TestAutoSpawn_StateInitialToken_InheritedFromBase(t *testing.T) {
+	src := `
+[cascade]
+paths = ["cascade.toml"]
+
+[cascade.bases.QABase]
+description = "Base carrying the state enum so concrete QA types inherit it."
+
+[cascade.bases.QABase.fields.title]
+type = "string"
+required = true
+
+[cascade.bases.QABase.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.bases.QABase.fields.created_at]
+type = "string"
+required = true
+
+[cascade.bases.QABase.fields.updated_at]
+type = "string"
+required = true
+
+[cascade.bases.QABase.fields.target_id]
+type = "string"
+required = true
+
+[cascade.qa_concrete]
+description = "Concrete QA type — inherits state from QABase without redeclaring it."
+extends = "QABase"
+
+[cascade.qa_concrete.fields.role]
+type = "string"
+required = true
+enum = ["qa-proof"]
+
+[cascade.parent]
+description = "Parent type — auto_spawns qa_concrete with {state.initial}."
+
+[cascade.parent.fields.title]
+type = "string"
+required = true
+
+[cascade.parent.fields.state]
+type = "string"
+required = true
+enum = ["todo", "in_progress", "complete"]
+
+[cascade.parent.auto_spawn]
+on_create = [
+    { type = "cascade.qa_concrete", id_template = "{parent_id}-qa", fields = { role = "qa-proof", title = "QA of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+`
+	reg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Pin 1: concrete type inherits `state` field from QABase via extends.
+	qa := reg.DBs["cascade"].Types["qa_concrete"]
+	stateField, ok := qa.Fields["state"]
+	if !ok {
+		t.Fatalf("qa_concrete.Fields[state] missing — extends-chain inheritance did not flatten base fields onto concrete type")
+	}
+
+	// Pin 2: inherited enum is intact with "todo" as enum[0] — the
+	// runtime resolution target for {state.initial}.
+	if len(stateField.Enum) == 0 {
+		t.Fatalf("qa_concrete.Fields[state].Enum is empty — base enum did not flatten")
+	}
+	if got, want := stateField.Enum[0], "todo"; got != want {
+		t.Errorf("qa_concrete.Fields[state].Enum[0] = %q, want %q (the value {state.initial} would resolve to at runtime)", got, want)
+	}
+
+	// Pin 3: the auto_spawn spec carrying {state.initial} loaded with
+	// the token preserved verbatim — runtime interpolation will read
+	// enum[0] from the resolved (inherited) state field above.
+	parent := reg.DBs["cascade"].Types["parent"]
+	if got, want := len(parent.AutoSpawn), 1; got != want {
+		t.Fatalf("parent.AutoSpawn len = %d, want %d", got, want)
+	}
+	spec := parent.AutoSpawn[0]
+	stateTok, ok := spec.Fields["state"].(string)
+	if !ok {
+		t.Fatalf("spec.Fields[state] = %v (%T), want string", spec.Fields["state"], spec.Fields["state"])
+	}
+	if stateTok != "{state.initial}" {
+		t.Errorf("spec.Fields[state] = %q, want %q verbatim at load (interpolation is a runtime concern)", stateTok, "{state.initial}")
 	}
 }
