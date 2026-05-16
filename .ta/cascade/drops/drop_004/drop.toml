@@ -3620,19 +3620,19 @@ updated_at = "2026-05-16T04:00:00Z"
 [l3_d3_md_explicit_backend-plan-qa-proof]
 created_at = "2026-05-16T07:20:50Z"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-16T23:40:00Z"
+state = "in_progress"
 target_id = "drop_004.drop.l3_d3_md_explicit_backend"
 title = "Plan-QA proof of L3-D3 planner — md_explicit backend (heading-path selectors, stdlib only)"
-updated_at = "2026-05-16T07:20:50Z"
-
+updated_at = "2026-05-16T23:40:00Z"
 [l3_d3_md_explicit_backend-plan-qa-falsification]
 created_at = "2026-05-16T07:20:50Z"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-16T23:40:00Z"
+state = "in_progress"
 target_id = "drop_004.drop.l3_d3_md_explicit_backend"
 title = "Plan-QA falsif of L3-D3 planner — md_explicit backend (heading-path selectors, stdlib only)"
-updated_at = "2026-05-16T07:20:50Z"
-
+updated_at = "2026-05-16T23:40:00Z"
 [l3_d4_txt_backend]
 blockers = ["drop_004.drop.l3_d1_format_substrate"]
 created_at = "2026-05-16T04:00:00Z"
@@ -3661,19 +3661,19 @@ updated_at = "2026-05-16T04:00:00Z"
 [l3_d4_txt_backend-plan-qa-proof]
 created_at = "2026-05-16T07:20:50Z"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-16T23:40:00Z"
+state = "in_progress"
 target_id = "drop_004.drop.l3_d4_txt_backend"
 title = "Plan-QA proof of L3-D4 planner — txt backend (regex selectors, stdlib only)"
-updated_at = "2026-05-16T07:20:50Z"
-
+updated_at = "2026-05-16T23:40:00Z"
 [l3_d4_txt_backend-plan-qa-falsification]
 created_at = "2026-05-16T07:20:50Z"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-16T23:40:00Z"
+state = "in_progress"
 target_id = "drop_004.drop.l3_d4_txt_backend"
 title = "Plan-QA falsif of L3-D4 planner — txt backend (regex selectors, stdlib only)"
-updated_at = "2026-05-16T07:20:50Z"
-
+updated_at = "2026-05-16T23:40:00Z"
 [builder_l3_c1_d2_get_group]
 blockers = ["drop_004.drop.builder_l3_c1_d1_is_group_prefix"]
 completed_at = "2026-05-16T05:50:00Z"
@@ -3895,11 +3895,11 @@ objective = "Config.MergeDefaults consumer + Validate function. Merge: user conf
 parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
 paths = ["internal/installconfig/merge.go", "internal/installconfig/validate.go", "internal/installconfig/merge_test.go", "internal/installconfig/validate_test.go"]
 role = "builder"
-state = "todo"
+started_at = "2026-05-16T23:40:00Z"
+state = "in_progress"
 structural_type = "droplet"
 title = "L3-I1-D2 builder — installconfig validation + merge-with-defaults"
-updated_at = "2026-05-16T06:45:00Z"
-
+updated_at = "2026-05-16T23:40:00Z"
 [builder_l3_i1_d2_validate_merge-qa-proof]
 created_at = "2026-05-16T18:18:57Z"
 role = "qa-proof"
@@ -3923,11 +3923,11 @@ objective = "Add [cascade.drop.auto_spawn] + [cascade.planner.auto_spawn] blocks
 parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
 paths = ["examples/schemas/cascade.toml", "internal/schema/meta_test.go"]
 role = "builder"
-state = "todo"
+started_at = "2026-05-16T23:40:00Z"
+state = "in_progress"
 structural_type = "droplet"
 title = "L3-I1-D3 builder — examples/schemas/cascade.toml sync + byte-fidelity test"
-updated_at = "2026-05-16T06:45:00Z"
-
+updated_at = "2026-05-16T23:40:00Z"
 [builder_l3_i1_d3_examples_sync-qa-proof]
 created_at = "2026-05-16T18:18:57Z"
 role = "qa-proof"
@@ -3951,11 +3951,11 @@ objective = "NEW canonical fixture covering ≥6 substrate types + 3 merger path
 parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
 paths = ["internal/installconfig/testdata/install.toml"]
 role = "builder"
-state = "todo"
+started_at = "2026-05-16T23:40:00Z"
+state = "in_progress"
 structural_type = "droplet"
 title = "L3-I1-D4 builder — testdata fixture covering 6 substrate types + 3 merger paths"
-updated_at = "2026-05-16T06:45:00Z"
-
+updated_at = "2026-05-16T23:40:00Z"
 [builder_l3_i1_d4_testdata_fixture-qa-proof]
 created_at = "2026-05-16T18:18:57Z"
 role = "qa-proof"
@@ -3977,11 +3977,12 @@ blockers = []
 completed_at = "2026-05-16T08:00:00Z"
 created_at = "2026-05-16T06:45:00Z"
 objective = "Edit stil sibling repo at ~/Documents/Code/hylla/stil/main/. (1) Drop generated_at: new Date().toISOString() at scripts/build-tokens.ts line 167. (2) Change BINDINGS_OUT path from dist/bindings/baseline.json to dist/bindings.json at line 144. (3) Verify README.md file names match emit. Acceptance: stil dist/ contains tokens.json + bindings.json; two consecutive `pnpm --filter stil build` produce sha256-identical files. Commit + push to stil main remote SEPARATELY from ta commits per feedback_stil_separate_repo_discipline.md. RECORD D0 commit SHA in this droplet's transition_notes BEFORE D1 dispatches."
-outcome = "blocked"
+outcome = ""
 parent_id = "drop_004.drop.l3_e1_astro_substrate"
 paths = ["../stil/main/scripts/build-tokens.ts", "../stil/main/README.md"]
 role = "builder"
-state = "failed"
+started_at = "2026-05-16T23:45:00Z"
+state = "in_progress"
 structural_type = "droplet"
 title = "L3-E1-D0 builder — stil-reconcile prep (SEPARATE STIL REPO commits)"
 transition_notes = """
@@ -3999,7 +4000,7 @@ L3-E1-D0 stays state=failed/outcome=blocked until orchestrator-direct execution 
 
 FOLLOW-UP MEMORY: cross-repo builder dispatches need orchestrator-direct execution OR session-restart-from-target-repo. Add to feedback_stil_separate_repo_discipline.md OR new memory feedback_cross_repo_agent_sandbox.md.
 """
-updated_at = "2026-05-16T08:00:00Z"
+updated_at = "2026-05-16T23:45:00Z"
 [builder_l3_e1_d0_stil_reconcile-qa-proof]
 created_at = "2026-05-16T18:18:57Z"
 role = "qa-proof"
