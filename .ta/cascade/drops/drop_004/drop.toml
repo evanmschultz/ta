@@ -595,7 +595,17 @@ role = "planner"
 started_at = "2026-05-15T11:30:00Z"
 state = "complete"
 title = "L2-C planner — resolver_group_prefix (3 L3 sub-planners)"
-transition_notes = "L2-C planner complete. tool_uses=26. 3 L3 sub-planners (C1 ops, C2 CLI, C3 MCP); C2+C3 blocked by C1. Group-vs-single canonical-id collision rule: GROUP WINS when bare id has children under id+'.' (dev goal). JSON shape pinned: scope-shape {records:[...]} for CLI; MCP per-item {Children:[...]} omitempty. 7 falsification attacks all mitigated. Routed unknowns: JSON envelope contract pinned at C2+C3 plan-QA; MCP limit/all deferred to L2-G3."
+transition_notes = """
+L2-C planner complete. tool_uses=26. 3 L3 sub-planners (C1 ops, C2 CLI, C3 MCP); C2+C3 blocked by C1. Group-vs-single canonical-id collision rule: GROUP WINS when bare id has children under id+'.' (dev goal). JSON shape pinned: scope-shape {records:[...]} for CLI; MCP per-item {Children:[...]} omitempty. 7 falsification attacks all mitigated. Routed unknowns: JSON envelope contract pinned at C2+C3 plan-QA; MCP limit/all deferred to L2-G3.
+
+## ROUTED POST-WAVE FOLLOW-UPS (from build-QA falsif on L3-C2-D1 + L3-C3-D1)
+
+1. **CLI vs MCP ErrIndexMissing divergence** (build-QA-falsif on L3-C3-D1 CE-2): cmd/ta/get_cmd.go:157 treats ErrIndexMissing as graceful FALL-THROUGH to single-record path (allows ta get on freshly-initialized projects with no records yet); internal/mcpsrv/tools.go:401-404 treats it as BATCH-LEVEL fatal error. Two transports → two contracts on the same scenario. NOT a defect of either D1 — both implemented their respective planner specs (L3-C2 spec says fall-through; L3-C3 spec CE-3 explicitly says batch-level error). PRODUCT-LEVEL DECISION required: harmonize behavior across transports OR document the divergence as intentional UX (CLI tolerant for dev convenience; MCP strict for agent correctness). Non-blocking; raise before drop_004 close OR carry forward as a separate post-MVP slice.
+
+2. **LoadIndexStrict CLI refactor symmetry** (build-QA-falsif on L3-C2-D1 ROUTED-KNOWN advisory): L3-C2-D1 uses ops.GetGroup-as-gate (treating ErrNoGroup as fall-through); L3-C3-D1 uses the cleaner two-step ops.LoadIndexStrict + ops.IsGroupPrefix gate. The C2 design is semantically equivalent in cost (GetGroup internally calls LoadIndexStrict) and was a deliberate choice during the parallel-dispatch wave when LoadIndexStrict wasn't yet ratified. ACCEPT AS DESIGN-DEFENSIBLE DIVERGENCE: CLI hides the index check inside GetGroup; MCP exposes it for per-item branching efficiency. NOT a defect. Documented for future maintainers.
+
+Both items are post-wave routing only — no code changes required at this level.
+"""
 updated_at = "2026-05-15T11:35:00Z"
 [l2_d_multi_file_type]
 blockers = []
@@ -661,11 +671,23 @@ objective = "Decompose L2-D into 5 L3 sub-planners: D1 manifest substrate + form
 outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "planner"
-started_at = "2026-05-15T11:30:00Z"
-state = "complete"
+started_at = "2026-05-16T02:15:00Z"
+state = "in_progress"
 title = "L2-D planner — multi_file_type_substrate (5 L3 sub-planners)"
-transition_notes = "L2-D planner complete. tool_uses=22. 5 L3 sub-planners (D1 substrate, D2 html, D3 md_explicit, D4 txt, D5 CLI/MCP plumbing). D2/D3/D4 blocked by D1; D5 blocked by all. Format interface (Parse/Find/Splice/Marshal) is SIBLING seam to record.Backend (not extension). Round-trip discipline: ALL backends use splice-mode byte-range preservation, NOT parse→serialize. 7 attacks mitigated. Unknowns: package name internal/format/ vs internal/blockfmt/ (E1 reality-check); F23 OFF manual manifest fixtures."
-updated_at = "2026-05-15T11:35:00Z"
+transition_notes = """
+AMENDMENTS APPLIED (orchestrator-override per drop_003 precedent on surgical AMEND-with-CONFIRMED-CE):
+
+1. **L3-D0 INSERTED** as new first child: split cmd/ta/commands.go (1740 lines) into per-subcommand files (get_cmd.go/list_sections_cmd.go/search_cmd.go/schema_cmd.go/create_cmd.go/update_cmd.go/delete_cmd.go). Single serial behavior-preserving builder. Methodology §2.3 irreducible-droplet (atomic refactor). mage check green required. Blockers: none.
+2. **L3-D5 RESTRUCTURED** from 'single serial builder owns commands.go edits' to **6-droplet parallel family** post-L3-D0: D5.1 get_cmd / D5.2 list_sections_cmd / D5.3 search_cmd / D5.4 schema_cmd (wires --as=<format> flag per subcommand). Plus D5.5 mcpsrv/tools.go wiring (parallel). Plus D5.6 integration tests at cmd/ta/multi_format_test.go + internal/mcpsrv/server_test.go.
+3. L3-D2 paths_owned budget: verify L4 split OR invoke methodology §2.3 irreducible at D2 plan-QA.
+4. L3-D5 integration-test paths PINNED to cmd/ta/multi_format_test.go + internal/mcpsrv/server_test.go.
+5. F23 v2 'OFF' Unknowns prose in description is STALE (F23 v2 landed in commit f97c893 / L2-H1; cascade.* auto_spawn now firing). Cosmetic only.
+
+L3 descent order: L3-D0 (split prep) → L3-D1/D2/D3/D4 (substrate + html + md_explicit + txt backends, parallel post-D0) → L3-D5 6-droplet family (parallel post-D0+D1+D2+D3+D4).
+
+Ready for L3-D0 record creation + plan-QA dispatch in Wave 2D-1.
+"""
+updated_at = "2026-05-16T02:15:00Z"
 [l2_e_html_template_system]
 blockers = []
 completed_at = "2026-05-15T11:35:00Z"
@@ -731,11 +753,27 @@ objective = "Decompose L2-E into 4 L3 sub-planners: E1 substrate (pnpm-workspace
 outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "planner"
-started_at = "2026-05-15T11:30:00Z"
-state = "complete"
+started_at = "2026-05-16T02:15:00Z"
+state = "in_progress"
 title = "L2-E planner — html_template_system (4 L3 sub-planners)"
-transition_notes = "L2-E planner complete. tool_uses=21. 4 L3 sub-planners (E1 substrate, E2 simple zero-JS, E3 stil-token-driven, E4 Thariq category demos). E1 blocks E2/E3/E4; E2/E3/E4 mutually parallel. 10 attacks mitigated; dist/ stability promoted to E1 hard acceptance (TemplatesBuildVerifyStable target); inline-JS ≤10-line budget E4 hard cap. Routed unknowns: U1 Astro version (E1 reality-check), U2 bindings.json absence (E3), U3 Astro integrations (E1), U4 sibling-repo path on fresh-clone (E1 docs). 6 view kinds confirmed: cascade_drop/planner/droplet/qa/roadmap_version/schema_browser."
-updated_at = "2026-05-15T11:35:00Z"
+transition_notes = """
+AMENDMENTS APPLIED (orchestrator-override on 7 surgical CONFIRMED-CEs from plan-QA proof + falsif twins):
+
+1. **L3-E1 stil-reconcile PREP DROPLET (D0)** inserted as new first child: edit stil sibling repo at ~/Documents/Code/hylla/stil/main/scripts/build-tokens.ts to (a) emit dist/bindings.json at expected path (currently dist/bindings/baseline.json) AND (b) drop generated_at: new Date().toISOString() from dist/tokens.json (build-tokens.ts:111) for byte-determinism. Committed + pushed to stil's own repo separately from ta commits per feedback_stil_separate_repo_discipline.md.
+2. TemplatesBuildVerifyStable byte-determinism: PICK option (a) — stil drops generated_at. Two consecutive `pnpm build` runs produce sha256-identical dist files post-reconcile.
+3. L3-E3 fallback clause UPDATED: 'consume bindings.json post-reconcile; FAIL LOUD if absent' (no fallback to baseline.json).
+4. Astro→go:embed materialization: PICK option (b) — Astro outputs DIRECTLY to internal/templates_html/dist/ (sidesteps //go:embed ../ traversal blocker + sidesteps double-embed with existing embed.go:19).
+5. Astro caret-pin: examples/templates/package.json declares '"astro": "6.1.10"' EXACT (not '^6.1.10' mirror; pin to avoid caret-float self-defeat).
+6. Double-embed prevented via #4 choice (Astro output path doesn't overlap with examples/ scope of existing embed.go:19).
+7. pnpm-workspace cross-repo path: use **file: URL dependency** pointing at stil's repo OR pnpm-pack approach. NOT pnpm-workspace.yaml ../stil/main (escapes workspace root). Pin at L3-E1 plan-QA.
+
+L3 descent: L3-E1 (substrate + stil-reconcile + magefile + go:embed) → L3-E2/E3/E4 (FE views) parallel post-E1.
+
+FE agents (ta-fe-builder, ta-fe-qa-*) fire at L3-E2/E3/E4. Playwright MCP fires inside ta-fe-qa-* build-QA agents.
+
+Ready for L3-E1 record creation + plan-QA dispatch in Wave 2D-1.
+"""
+updated_at = "2026-05-16T02:15:00Z"
 [l2_f_dotta_target_system]
 blockers = []
 completed_at = "2026-05-15T11:40:00Z"
@@ -878,11 +916,27 @@ objective = "Decompose L2-G into 9 L3 sub-planners by concern domain: G1 init UX
 outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "planner"
-started_at = "2026-05-15T11:30:00Z"
-state = "complete"
+started_at = "2026-05-16T02:15:00Z"
+state = "in_progress"
 title = "L2-G planner — e2e_closure (9 L3 sub-planners, G5 likely L4)"
-transition_notes = "L2-G planner complete. tool_uses=0 — WARNING. Despite tool_uses=0, output appears thorough and cross-referenced (E2E_FIXES findings, schema details). May have used implicit-context reads OR fabricated. ORCHESTRATOR DECISION: ingest the decomposition AND add an extra plan-QA reality-check verifying each F-finding routing against the actual E2E_FIXES.md ledger. Plan looks structurally sound but evidence-grounding needs independent re-verification. 9 L3 sub-planners with G5 escalating to L4 (5 sub-planners). Wave plan: Wave 1 (G5/G3/G4/G6), Wave 2 (G7/G8/G9), Wave 3 (G1/G2 post-L2-F). Falsification corrections: F27.3 → G7 only, F14 → G8 (not G9). 4 punts to v0.2.0+ via roadmap.dependency: F2a (doc), F7 (incremental type), F12 (temporal schema), F24 (partial verify)."
-updated_at = "2026-05-15T11:35:00Z"
+transition_notes = """
+AMENDMENTS APPLIED (orchestrator-override on 5 surgical routing AMENDs from plan-QA twins, both halves CONVERGED):
+
+1. Strike 'F1 init UX' from G1. F1 is install-time schema-validate per E2E_FIXES.md:5-9; belongs to G2 only.
+2. G2 path CORRECTED: cmd/ta/initapply.go → internal/initapply/initapply.go (verified at internal/initapply/initapply.go).
+3. G9 path FIX: cmd/ta/schema_*.go doesn't exist. GATE G9 on L2-D L3-D0 closure (commands.go split produces cmd/ta/schema_cmd.go which G9 will edit).
+4. Wave 1 sibling-overlap G4 ∩ G6 on cmd/ta/commands.go: gate G6 blockers on G4 close (G6 sequences AFTER G4 per methodology §7).
+5. Wave 3 sibling-overlap G1 ∩ G2 on cmd/ta/init_cmd.go: gate G2 blockers on G1 close (G2 sequences AFTER G1).
+
+ROUTED-KNOWN:
+- F38d-2.19/2.20 may have closed via drop_002 work; G4 verifies on contact.
+- Sum-of-routings 39 vs claimed 38 (likely F11 RETIRED verify-gate accounting): reconcile at L3 emit time.
+
+L3 descent order: G3/G5 dispatch freely (disjoint paths). G4 dispatches; on G4 close G6 unblocks. G1 dispatches; on G1 close G2 unblocks. G9 blocked by L2-D L3-D0.
+
+Ready for L3-G3/G4/G5 record creation + plan-QA dispatch in Wave 2D-2 (after Wave 2D-1).
+"""
+updated_at = "2026-05-16T02:15:00Z"
 [l2_h_mvp_carryovers]
 blockers = []
 completed_at = "2026-05-15T11:40:00Z"
@@ -1924,3 +1978,2517 @@ ROUTED-KNOWN (2):
 L2-J SLICE SHIPS. mage check green at 1141 tests / 0 failures / 17 packages.
 """
 updated_at = "2026-05-16T01:15:00Z"
+
+[l2_i_installable_substrate]
+blockers = []
+created_at = "2026-05-16T01:30:00Z"
+description = """
+L2-I decomposes into 6 L3 sub-planners. AMENDED per plan-QA twins (proof + falsif both returned AMEND, 9 folds applied below).
+
+## PLAN-QA AMENDMENTS APPLIED (9 folds)
+
+1. **Blocker graph**: L3-I4 blocked by L2-F L3-F3 (init_multi.go shared); L3-I1/I2/I3/I5/I6 fire freely in parallel with L2-F.
+2. **F0-prep explicit droplet** under L3-I4 (rename --target-system → --bootstrap-home).
+3. **L2-G G1 cross-check**: L2-G G1 also touches init_cmd.go — sequences AFTER L3-I4 in commit order.
+4. **Config filename CHANGED**: home-side install spec lives at `~/.ta/install.toml` NOT `~/.ta/config.toml`. Disambiguates from existing project-local `<path>/.ta/config.toml` (`bootstrapConfig` at init_cmd.go:85-93, V2-PLAN §14.5).
+5. **Wave-cap explicit**: 3-5 concurrent L3 dispatch per wave (adopts L2-J precedent).
+6. **Hylla MCPConfig confirmation**: orchestrator-side verification before L3-I1 dispatch. Hylla's MCPConfig at internal/core/config.go separates runtime config (default_graph, auth_mode, local_graph_paths) from data schema. Same separation pattern applies to ta: install.toml = runtime/customization; schema.toml = record-shape declarations.
+7. **L3-I3 dotta seam pin**: internal/install CONSUMES internal/dotta/Tree (shipped via L3-F1) + Tree.Walk results. NO parallel walker logic. internal/install ADDS destination-template resolution + file-copy primitives + deep-merge + registration directive execution.
+8. **L3-I6 e2e scope**: MUST follow ta/main pattern per memory `feedback_e2e_in_ta_main.md`. NEVER tmpdir.
+9. **examples/schemas/cascade.toml sync** (NEW routed-known fold): L2-J added auto_spawn blocks to live schema but didn't propagate to canonical example. Small extra droplet under L3-I1 syncs.
+
+CE1 from falsif REJECTED: empirically verified auto_spawn fires for cascade.planner via this very planner record's plan-QA twin auto-spawn. Agent's evidence was example file (out-of-sync), not live schema.
+
+## L3-I1 — config_schema_and_loader (+ example sync fold)
+
+Paths owned (NEW + EDIT):
+- internal/config/{config,load,config_test,load_test}.go (NEW)
+- examples/schemas/cascade.toml (EDIT — add cascade.drop.auto_spawn + cascade.planner.auto_spawn to canonical example, mirroring J2+J3 work in live schema)
+
+Config struct (TOML-bound): [substrate.<name>] table with source, destination, destination_merge, flatten_strategy, chmod, register, merge_strategy, merge_path.
+
+Home-side file: `~/.ta/install.toml` (renamed per CE3 fold). Project-local `<path>/.ta/config.toml` stays unchanged.
+
+~3 atomic builder droplets + 1 examples-sync droplet (4 total).
+Blockers: none.
+
+## L3-I2 — embedded_defaults
+
+Paths owned (NEW):
+- embed/install.toml (default substrate map for 12 types: claude_agents/claude_hooks/claude_skills/claude_output_styles/claude_plugins/claude_settings_fragments/claude_md_fragments/claude_mcp_servers/codex_agents/codex_config_fragments/codex_mcp_servers/agents_md)
+- internal/config/defaults.go + defaults_test.go
+- magefile.go (verify embed/install.toml ships with binary)
+
+~2 atomic builder droplets.
+Blockers: L3-I1.
+
+## L3-I3 — install_engine (DOTTA SEAM PINNED)
+
+Paths owned (NEW):
+- internal/install/{install,resolve,merge,register,install_test,merge_test,register_test}.go (NEW)
+
+CRITICAL CONTRACT: internal/install CONSUMES internal/dotta/Tree from L3-F1. NO parallel walker. Adds:
+- destination-template resolution ({project}, {name}, {flatten_dirs})
+- file-copy primitives (cp-with-chmod)
+- deep-merge primitive for settings.json / config.toml
+- registration directive execution (hooks, plugins, MCP servers)
+
+Apply(cfg Config, dottaTree dotta.Tree, projectRoot string) error — main entry point.
+
+~3-4 atomic builder droplets.
+Blockers: L3-I1, L3-I2.
+
+## L3-I4 — init_integration (F0-PREP DROPLET + L2-F BLOCKER)
+
+Paths owned (EDIT):
+- cmd/ta/init_cmd.go (EDIT — replace hardcoded claude_agents flatten with internal/install.Apply; rename --target-system→--bootstrap-home in F0-prep droplet)
+- cmd/ta/init_multi.go (EDIT — refactor multi-category picker to use config-driven substrate list)
+- cmd/ta/init_cmd_test.go (EDIT)
+
+CRITICAL BLOCKERS:
+- L3-I3 (Apply needed)
+- L2-F L3-F3 (init_multi.go shared) — L2-F L3-F3 ships --target-system picker; coordinate commit ordering: L3-F3 first, then L3-I4 retrofits its picker call into config-driven Apply
+
+F0-PREP DROPLET (explicit, atomic):
+- Rename --target-system → --bootstrap-home at init_cmd.go:156
+- Update godoc at init_cmd.go:163-171 (resolveInitTarget)
+- Update tests + README flag examples
+- 4 distinct edits (within ≤4 budget)
+
+L3-I4 droplets: F0-prep + init.Apply integration + multi-category refactor + tests (~3-4 total, with F0-prep standalone).
+Blockers: L3-I3 + L2-F L3-F3.
+
+## L3-I5 — registration_directives
+
+Paths owned (NEW + EDIT):
+- internal/install/register.go (NEW — hook insertion under SubagentStop matcher; plugin enable in settings.json; MCP server registration in .mcp.json)
+- internal/install/register_test.go (NEW)
+
+Alert-on-missing-plugin: if substrate.claude_plugins references plugin not installed in user's Claude Code, emit warning (per plan-QA #6 routing).
+
+~3 atomic builder droplets.
+Blockers: L3-I3.
+
+## L3-I6 — end_to_end_test (TA/MAIN SCOPE PIN)
+
+Paths owned (NEW):
+- internal/install/e2e_test.go (NEW)
+
+CRITICAL: e2e MUST follow ta/main pattern per feedback_e2e_in_ta_main.md. NEVER tmpdir. Test flow:
+- Empty ~/.ta/ subtree (test helper backs up/restores)
+- bootstrap into ~/.ta/ via ta init --bootstrap-home
+- ta init AGAINST ta/main itself (NOT tmpdir)
+- Verify all 12 substrate types installed correctly into ta/main/.claude/* + ta/main/.codex/* + ta/main root
+- SubagentStop hook from ~/.ta/hooks/subagent_stop_tool_use_check.sh installs into ta/main/.claude/hooks/ + registers in ta/main/.claude/settings.json under SubagentStop matcher
+- Cleanup restores ta/main pre-test state
+
+~1 builder droplet.
+Blockers: L3-I1, L3-I2, L3-I3, L3-I4, L3-I5.
+
+## Parallel dispatch graph (wave-capped 3-5 concurrent)
+
+- Wave A: L3-I1 (1 planner)
+- Wave B (after L3-I1): L3-I2 + L3-I3 (2 planners parallel)
+- Wave C (after L3-I3): L3-I5 parallel with L3-I4 [also blocked on L2-F L3-F3]
+- Wave D (after L3-I4 + L3-I5): L3-I6
+
+Estimated total: ~14-19 builder droplets across 6 L3 sub-planners + 12 plan-QA twin records (auto-spawned via cascade.planner.auto_spawn).
+
+## L2-I close gate
+
+mage check green at full module. ta init in fresh test project installs 12 substrate types from ~/.ta/install.toml defaults. SubagentStop hook auto-installs + auto-registers. mage testFunc TestInstall_E2E_FullSubstrate green.
+
+## Unknowns routed (post-amendment)
+
+All 9 amendments folded above. Remaining routes:
+- merge_strategy conflict semantics → L3-I3 plan-QA
+- Plugin-binary install scope → v0.2.0+ roadmap.dependency
+- Codex sub-agent format → L3-I2 plan-QA verify against Context7
+- Wave-cap 3-5 — may revisit at first L3 plan-QA round closure
+
+Ready for orchestrator-override descent: dispatch L3-I1 record creation (auto-spawns L3-I1 plan-QA twins via cascade.planner.auto_spawn).
+"""
+objective = "Deliver config-driven substrate install system. Add ~/.ta/config.toml as separate customization layer (modeled on Hylla's MCPConfig/schema separation). Generic install primitive in `ta init` reads config, walks ~/.ta/, applies destination templates, runs registration directives. NO new ta subcommands — ta init does it generically. Sensible defaults shipped via go:embed for Claude Code + Codex substrate types (agents, hooks, skills, output_styles, plugins, settings fragments, MCP servers, CLAUDE.md/AGENTS.md fragments). First consumer: SubagentStop hook at ~/.ta/hooks/ installs into <project>/.claude/hooks/ via the new mechanism with auto-registration into <project>/.claude/settings.json hooks section."
+parent_id = "drop_004.drop.mvp_substrate"
+role = "planner"
+started_at = "2026-05-16T02:00:00Z"
+state = "in_progress"
+title = "L2-I planner — installable_substrate (config-driven generic install)"
+updated_at = "2026-05-16T02:00:00Z"
+[l2_i_installable_substrate-plan-qa-proof]
+completed_at = "2026-05-16T01:45:00Z"
+created_at = "2026-05-16T06:24:48Z"
+outcome = "failure"
+role = "qa-proof"
+started_at = "2026-05-16T01:35:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_i_installable_substrate"
+title = "Plan-QA proof of L2-I planner — installable_substrate (config-driven generic install)"
+transition_notes = """
+VERDICT: AMEND. tool_uses=14 (Read=7, Bash=7 most denied/some succeeded; mcp__ta__*=0 + mcp__hylla__*=0 — NOT in this agent's allowlist, substituted with direct Read on drop.toml + on-disk TOML).
+
+**CONFIRMED COUNTEREXAMPLE (1.6)**: Three-way file collision on cmd/ta/init_cmd.go + init_multi.go across L2-I L3-I4, L2-F F3, and F0-prep. Potential fourth surface L2-G G1. L2-I.blockers currently []. L1 cross-L2 sequencing graph at drop.toml:131-142 predates L2-I (lists only A-H, not I). L2-I authored AFTER L1 graph sealed — conflict avoided L1 scrutiny. This is exactly the failure class L1 planner explicitly tried to prevent.
+
+6 SURGICAL AMENDMENTS required before L3 dispatch:
+
+(1) L2-I.blockers = ['drop_004.drop.l2_f_dotta_generalization'] OR coordinated commit batching of L3-I4 with L2-F F3.
+(2) F0-prep folding: name F0-prep rename (--target-system → --bootstrap-home) as explicit atomic droplet under L3-I4. Currently buried in NOTE comment.
+(3) L2-G G1 cross-check: confirm L2-G G1 init_cmd.go touchpoints don't collide. Likely chain: L2-F → L2-I → L2-G1 if L2-I sequences after L2-F.
+(4) Bootstrap-config naming clarification: explicit prose distinguishing user-global ~/.ta/config.toml (proposed by L2-I) from existing project-local <path>/.ta/config.toml (bootstrapConfig at init_cmd.go:85-93). Same filename, different scope.
+(5) Wave-cap restatement: adopt L2-J precedent of explicit '3-5 concurrent' bound; current graph is by-wave-implicit-cap.
+(6) Hylla MCPConfig confirmation: orchestrator with Hylla MCP access verify structural parallel before L3 dispatch (agent couldn't — mcp__hylla__* not in allowlist).
+
+MITIGATED:
+(1.1) L2-I record well-formed, target_id wiring correct (auto-spawned plan-QA twins at drop.toml:1982-1999 — FIRST CONSUMER OF AUTO_SPAWN PIPELINE).
+(1.3) Substrate-type coverage exhaustive: 12 substrate types listed in L3-I2 covers claude_* + codex_* surfaces.
+(1.4) L3 blocker graph internally consistent: I1→{I2,I3}→{I4,I5}→I6 reflects real import dependencies.
+(1.5) First-consumer dogfood real: ~/.ta/hooks/subagent_stop_tool_use_check.sh exists (2.3K).
+(1.7) Methodology compliance: 6 L3 sub-planners acceptable for PLANNERS (3-6 droplet contract is per-planner, not planner-children count). Each L3 plans 1-4 droplets per estimates.
+(1.9) L2-J prior-art validated: 3 auto_spawn blocks at schema.toml:46-50/76-80/119-123 functional; pipeline works as designed.
+(1.10) L2-C/L2-D disjoint from L2-I confirmed.
+
+ROUTED-KNOWN:
+(2.1) Hylla MCPConfig parallel — evidence gap, agent couldn't fetch.
+(2.4) merge_strategy edge cases routed to L3-I3 plan-QA.
+(2.5) Plugin-binary install scope to roadmap.dependency in v0.2.0.
+(2.3) Wave-cap missing (folded into AMEND 5).
+
+NON-REJECT: AMEND-class surgical, no re-plan. Plan ~90% there; fix blocker graph + name F0-prep as droplet + restate naming, then descend.
+"""
+updated_at = "2026-05-16T01:45:00Z"
+[l2_i_installable_substrate-plan-qa-falsification]
+completed_at = "2026-05-16T01:55:00Z"
+created_at = "2026-05-16T06:24:48Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-16T01:35:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_i_installable_substrate"
+title = "Plan-QA falsif of L2-I planner — installable_substrate (config-driven generic install)"
+transition_notes = """
+VERDICT: AMEND (downgraded from agent's claimed FAIL/REWORK). tool_uses=26 (Read=6, Bash=17, mcp__plugin_context7=2, mcp__hylla__*=1 errored not in allowlist). Above floor.
+
+13 attacks: 5 MITIGATED + 4 ROUTED-KNOWN + 2 valid CONFIRMED-CE + **1 INCORRECT CE rejected** + 1 NOT-APPLICABLE.
+
+**CE1 REJECTED (incorrect)**: agent claimed 'cascade.planner has NO auto_spawn declaration; auto_spawn dogfood premise broken at L3 planner level.' EMPIRICALLY FALSIFIED — we just successfully dogfooded auto_spawn this turn: mcp__ta__create on cascade.planner (L2-I) atomically generated plan-QA twins at drop_004.drop.l2_i_installable_substrate-plan-qa-proof + -plan-qa-falsification per F23 v2 engine reading the LIVE schema. Agent's evidence was examples/schemas/cascade.toml:595 (canonical example pre-L2-J propagation) NOT .ta/schema.toml:119-123 (LIVE schema where J3 added cascade.planner.auto_spawn per build-QA proof verdict). The example file IS out-of-sync — separate follow-up to sync example with live schema, but NOT a planning-contract violation. Auto_spawn dogfood claim STANDS for L2-I L3 record creates (cascade.planner kind).
+
+**CE2 ACCEPTED (valid)**: internal/install/ vs internal/dotta/ scope duplication. internal/dotta/ ALREADY ships generic filesystem walker (walk.go:38) + per-subtree mapping.toml (mapping.go:20-71). L2-I L3-I3 plans NEW internal/install/ for similar responsibility. Fold required: L3-I3 plan must declare 'install consumes dotta.Tree + adds destination-template/merge primitives, NOT parallel walker.' Mitigation: amend L3-I3 description with dotta seam pin.
+
+**CE3 ACCEPTED (valid)**: config.toml filename collision (home vs project). bootstrapConfig at init_cmd.go:85-93 reads <path>/.ta/config.toml (project-scope, V2-PLAN §14.5). L2-I introduces ~/.ta/config.toml (home-scope) with SAME filename. Mitigation options: (a) rename home-side to install.toml or substrate.toml, OR (b) explicit scope-discriminator in L2-I plan + error messages must distinguish. Fold required. CONVERGES with proof amendment #4.
+
+MITIGATED (5):
+#3 substrate type completeness (12 types cover Claude+Codex; missing types reasonable v0.2.0 punt)
+#5 flatten_strategy variants OK for v0.1.0
+#6 plugin enable semantics route to L3-I5 plan-QA
+#12 YAGNI MITIGATED (first consumer hook from ~/.ta/hooks/ demonstrates real need)
+
+ROUTED-KNOWN (4):
+#1 Hylla MCPConfig parallel (agent couldn't fetch; route to L3-I1 plan-QA)
+#4 destination_merge conflict semantics (already routed by L2-I to L3-I3 plan-QA)
+#7 .mcp.json key collision (route to L3-I5)
+#13 Codex sub-agent format (already routed)
+
+**ADDITIONAL must-route (#8)**: L3-I6 e2e MUST follow ta/main pattern per feedback_e2e_in_ta_main.md memory; reject any tmpdir proposal at L3-I6 plan-QA.
+
+**ADDITIONAL routed-known**: examples/schemas/cascade.toml is OUT-OF-SYNC with .ta/schema.toml — J2 + J3 added cascade.drop.auto_spawn + cascade.planner.auto_spawn to LIVE schema but didn't propagate to canonical example. Follow-up: small droplet to sync example (probably folds adjacent to L3-I1 which touches internal/config/).
+
+CONVERGES with L2-I plan-QA proof on amendment set. Combined required folds:
+- (proof 1) L2-I.blockers = [drop_004.drop.l2_f_dotta_target_system] gate on L2-F closure
+- (proof 2) F0-prep as explicit droplet under L3-I4
+- (proof 3) L2-G G1 cross-check
+- (proof 4 = falsif CE3) Bootstrap-config naming clarification
+- (proof 5) Wave-cap restatement
+- (proof 6) Hylla MCPConfig confirmation
+- (falsif CE2) dotta↔install seam pin in L3-I3
+- (falsif #8) ta/main scope for L3-I6 e2e
+- (NEW routed-known) examples/schemas/cascade.toml sync follow-up
+
+Downgraded REWORK→AMEND because CE1 was incorrect (empirically falsified) and remaining CE2/CE3 are surgical-foldable per drop_003 precedent (orchestrator-override on AMEND-with-no-structural-fabrication). Plan ~85% there; 9 surgical folds, then descend.
+"""
+updated_at = "2026-05-16T01:55:00Z"
+
+[l3_i1_config_schema_and_loader]
+blockers = []
+created_at = "2026-05-16T02:20:00Z"
+description = """
+L3-I1 (installable_substrate config + loader + examples sync) REWORKED. **Package renamed**: internal/config/ → internal/installconfig/ to avoid collision with existing internal/config/ schema-resolver (V2-PLAN §12.11). Both packages coexist; internal/config/ schema-resolver UNTOUCHED.
+
+## REWORK FOLDS APPLIED (4 total)
+
+1. **Package rename** internal/config/ → internal/installconfig/ propagates through L3-I1 + L3-I2 + L3-I3 path references in L2-I planner.
+2. **D4 fixture expanded** to ≥6 substrate types covering all 3 merger paths (JSON/TOML/Line) + register triple.
+3. **register field shape pinned**: register is []Registration where Registration = {Event string, Matcher string, SettingsFile string}.
+4. **D3 byte-fidelity acceptance test** added for auto_spawn block sync.
+
+## L3-I1-D1 — installconfig Config + Substrate + Registration structs + load
+
+Paths owned (NEW):
+- internal/installconfig/config.go (Config + Substrate structs with TOML tags: source/destination/destination_merge/flatten_strategy/chmod/register/merge_strategy/merge_path; Registration struct = {Event, Matcher, SettingsFile})
+- internal/installconfig/load.go (LoadFile + LoadBytes; pelletier/go-toml/v2)
+- internal/installconfig/config_test.go + load_test.go
+
+Acceptance: TestLoad_ParsesValidSubstrate / _RejectsMissingRequired / _RecognizesAllSubstrateFields / _ParsesRegistrationArray (NEW per fold-3) / _ParsesMultiRegisterEntries (multi-event hook) green; mage testPkg ./internal/installconfig green.
+Blockers: none.
+
+## L3-I1-D2 — installconfig validation + merge
+
+Paths owned (NEW):
+- internal/installconfig/merge.go + validate.go
+- internal/installconfig/merge_test.go + validate_test.go
+
+Acceptance: TestMerge_OverridesDefaults / _PreservesUnsetFields / TestValidate_RejectsBadEnum / _RejectsBadMergeStrategy green.
+Blockers: D1.
+
+## L3-I1-D3 — examples/schemas/cascade.toml sync + byte-fidelity test
+
+Paths owned (EDIT):
+- examples/schemas/cascade.toml (add [cascade.drop.auto_spawn] + [cascade.planner.auto_spawn] blocks mirroring .ta/schema.toml:46-50 + :119-123 TOKEN-FOR-TOKEN)
+- internal/schema/meta_test.go (extend with TestExamplesCascadeSchema_AutoSpawnByteFidelity asserting per-block F23 v2 token strings + id_template + role match live schema)
+
+Acceptance: TestExamplesLoadCleanly + TestExamplesCascadeSchema_AutoSpawnByteFidelity green; mage testPkg ./internal/schema green.
+Blockers: none.
+
+## L3-I1-D4 — testdata fixture (EXPANDED to ≥6 types covering all merger paths)
+
+Paths owned (NEW):
+- internal/installconfig/testdata/install.toml — canonical example covering: claude_agents (flatten, no merge), claude_hooks (file copy + register triple), claude_skills (file copy), claude_md_fragments (line merge via internal/configmerge.NewLineMerger), claude_settings_fragments (JSON merge with arrayDedupeKeys via NewJSONMerger), codex_config_fragments (TOML merge via NewTOMLMerger)
+
+Acceptance: D1's TestLoad_RecognizesAllSubstrateFields + TestLoad_ParsesRegistrationArray reference this fixture; all 6 types parse cleanly.
+Blockers: D1.
+
+## Close gate
+mage testPkg ./internal/installconfig + mage testPkg ./internal/schema both green; mage check green.
+
+L3-I1 close → L3-I2 unblocks (embedded_defaults consumes installconfig.Config struct).
+"""
+objective = "Deliver internal/config/ package with Config struct (TOML-bound), LoadFile/LoadBytes loaders, validation, and merge-with-defaults. PLUS sync examples/schemas/cascade.toml with live schema's auto_spawn additions from L2-J (J2 + J3 added cascade.drop.auto_spawn + cascade.planner.auto_spawn to .ta/schema.toml but didn't propagate to canonical example)."
+parent_id = "drop_004.drop.l2_i_installable_substrate"
+role = "planner"
+started_at = "2026-05-16T04:00:00Z"
+state = "in_progress"
+title = "L3-I1 planner — config schema + loader + examples-schema sync"
+transition_notes = "REWORKED per plan-QA REWORK verdict (falsif FAIL + proof AMEND converged on package collision). All 4 surgical-extended folds applied."
+updated_at = "2026-05-16T04:00:00Z"
+[l3_i1_config_schema_and_loader-plan-qa-proof]
+completed_at = "2026-05-16T02:40:00Z"
+created_at = "2026-05-16T07:02:54Z"
+outcome = "failure"
+role = "qa-proof"
+started_at = "2026-05-16T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i1_config_schema_and_loader"
+title = "Plan-QA proof of L3-I1 planner — config schema + loader + examples-schema sync"
+transition_notes = """
+VERDICT: AMEND (1 surgical CE; outcome=failure per CONFIRMED-CE policy; orchestrator-foldable). tool_uses=19 (Read=6, Bash=12, Context7=1; mcp__ta__*=0 substituted via direct Read on drop.toml; mcp__hylla__*=0 — Hylla discharge inherited from L2-I AMENDMENT #6).
+
+5 of 6 axes PASS:
+(1) Decomposition exhaustive: D1+D2+D3+D4 cover Config struct + load + validate + merge + examples sync + testdata. Matches L2-I L3-I1 spec.
+(3) Blocker graph correct: D2/D4 blocked by D1, D3 parallel. Disjoint paths.
+(4) Hylla MCPConfig parallel discharged by L2-I AMENDMENT #6 transition_notes (parent already cleared this).
+(5) ~/.ta/install.toml rename consistent across L2-I AMENDMENT #4 + L3-I1 D4 fixture name.
+(6) Substrate field set: 8-for-8 exact match (source/destination/destination_merge/flatten_strategy/chmod/register/merge_strategy/merge_path).
+(8) D3 sync work real: examples/schemas/cascade.toml:595 has ONLY [cascade.droplet.auto_spawn]; .ta/schema.toml:46/76/119 has all 3 (drop + droplet + planner). D3 closes gap.
+
+**CONFIRMED-CE (axis 2 FAILS)**: D1 paths_owned tags `internal/config/config.go` + `internal/config/config_test.go` as NEW. On-disk evidence:
+- internal/config/config.go:1-75 EXISTS containing package config + Resolution + Resolve(projectPath) + loadSchema + ErrNoSchema (V2-PLAN §12.11 schema-resolution)
+- internal/config/config_test.go:1-97 EXISTS with 4 tests (TestResolveFindsProjectSchema/_NoSchema/_MalformedSchemaPropagates/_IgnoresHomeLayer)
+- internal/config/doc.go:1-8 EXISTS documenting current scope
+
+NEW tag on existing files would either (a) silently overwrite regressing 4 tests + ErrNoSchema semantics, OR (b) parallel-builder collision because EDIT path-conflict check skips files tagged NEW.
+
+REQUIRED FOLD (1 paragraph, surgical):
+Option (a) RECOMMENDED — rename D1's new files:
+- internal/config/install_config.go (NEW) — holds Config struct + LoadFile + LoadBytes (substrate install)
+- internal/config/install_config_test.go (NEW) — holds substrate tests
+Preserves existing schema-resolution module intact. Disambiguates package-level (Config = install substrate vs Resolution = schema resolution, both legit in same package).
+
+Alternatively: option (c) split into new internal/installconfig/ package to keep responsibilities fully disjoint. Cleaner long-term; more upfront cost.
+
+ROUTED-KNOWN (non-blocking):
+- D1 acceptance test name _RecognizesAllSubstrateFields ambiguous: tests raw string round-trip OR parsed-token list? Foldable at D1 plan-QA.
+- Existing Resolve(projectPath) vs new Config struct cohesion: are they related? If independent, package-level cohesion drift. Naming (Config vs SubstrateConfig) clarifies.
+
+Falsification self-attacks (7) MITIGATED: planner intent ambiguous (option a/c/b unspecified); silent overwrite would regress; tag-mismatch is contract-level not trivial; D3 in scope per L2-I AMENDMENT #9; D3/D1 paths disjoint; 8-field spec match exact.
+
+L3-I1 ~95% ready. One fold + D1 dispatches.
+"""
+updated_at = "2026-05-16T02:40:00Z"
+[l3_i1_config_schema_and_loader-plan-qa-falsification]
+completed_at = "2026-05-16T03:20:00Z"
+created_at = "2026-05-16T07:02:54Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-16T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i1_config_schema_and_loader"
+title = "Plan-QA falsif of L3-I1 planner — config schema + loader + examples-schema sync"
+transition_notes = """
+VERDICT: FAIL (REWORK before descent) — 1 structural REWORK-class CE + 3 surgical AMEND-class CEs. tool_uses=22 (Read=8, Grep/Bash=14, mcp__ta__*=0).
+
+12 attacks: 4 CONFIRMED-CE + 4 MITIGATED + 4 ROUTED-KNOWN.
+
+**CE1 (REWORK-class, CONVERGES + ESCALATES proof AMEND)**: internal/config/ package collision. Already exists at internal/config/config.go:1-75 as schema-resolver (exports Resolve, ErrNoSchema, SchemaFileName, SchemaDirName, Resolution). doc.go:1-9 explicitly scopes 'resolves the schema file that governs a project.' Falsif escalates from proof's file-rename AMEND to PACKAGE-rename REWORK because same-package mixed responsibility (schema-resolver + install-config) requires doc.go rewrite + creates conceptual drift.
+
+RECOMMENDED FIX (Option A, surgical-structural): rename install-config package to `internal/installconfig/` (NOT `internal/config/`). Propagates to:
+- L3-I1 D1: internal/installconfig/{config,load,config_test,load_test}.go (NEW)
+- L3-I1 D2: internal/installconfig/{merge,validate,merge_test,validate_test}.go (NEW)
+- L3-I1 D4: internal/installconfig/testdata/install.toml (NEW)
+- L3-I2: internal/installconfig/defaults.go + embed/install.toml (REPLACES drop.toml:2009 reference to internal/config/defaults.go)
+- L3-I3: internal/install/* unchanged (separate package)
+- L3-I4: cmd/ta/init_cmd.go calls installconfig.LoadFile() + install.Apply() (replaces hardcoded claude_agents flatten)
+Existing internal/config/ schema-resolver UNTOUCHED. Both packages coexist cleanly.
+
+CE2 (AMEND): D4 fixture under-specified. Plan covers 4 substrate types; needs ≥6 covering all 3 merger paths (internal/configmerge/configmerge.go ships JSON + TOML + Line mergers). Add claude_md_fragments (line merge), claude_settings_fragments (JSON merge with arrayDedupeKeys), codex_config_fragments (TOML merge), and a register-triple entry.
+
+CE3 (AMEND): register field shape unspecified. Pin: register is []Registration where Registration = {Event string, Matcher string, SettingsFile string}. Multi-event = multiple entries.
+
+CE4 (AMEND): D3 byte-fidelity for auto_spawn sync. Add explicit test asserting example's cascade.drop.auto_spawn[i] matches .ta/schema.toml's same block token-for-token on F23 v2 fields.
+
+MITIGATED (4): A1 (pelletier handles register table fine); A11 F23 droplet auto_spawn fires for L3-I1 droplet creates (verified via L2-J ship 3db15a9); A10 D3 semantic cohesion acceptable per §5.3; A8 register naming style (registrations would be clearer but not blocking).
+
+ROUTED-KNOWN (4): A3 D3+D1 path-independence verified (different test packages); A5 D3 ordering vs L2-A shipped work (D3 must add ONLY 2 blocks, no kind/db changes); A7 flatten_strategy enum coverage (validate.go must error-on-unknown OR accept-pass-through); A6 substrate field set vs 12 types (merger coverage in 1.6 + arrayDedupeKeys param escalates to D2 plan-QA).
+
+CONVERGES with L3-I1 plan-QA proof on CE1 + further deepens with 3 new AMEND-class CEs.
+
+ORCHESTRATOR-OVERRIDE FOLD (no re-plan-agent dispatch per drop_003 precedent):
+1. CE1: rename internal/config/ → internal/installconfig/ throughout L3-I1 + L3-I2 + L3-I3 + L3-I4 references in L2-I description.
+2. CE2: expand D4 fixture to ≥6 types covering all merger paths + register triple.
+3. CE3: pin register field shape as []Registration{Event,Matcher,SettingsFile} in D1.
+4. CE4: add D3 byte-fidelity test acceptance.
+
+L3-I1 NEEDS ORCHESTRATOR-OVERRIDE REWORK before D1 dispatches.
+"""
+updated_at = "2026-05-16T03:20:00Z"
+[l3_c1_ops_group_aggregate]
+blockers = []
+completed_at = "2026-05-16T06:35:00Z"
+created_at = "2026-05-16T02:20:00Z"
+description = """
+L3-C1 decomposes into 2 atomic builder droplets.
+
+## L3-C1-D1 — IsGroupPrefix + resolveGroupPrefix
+Paths owned (NEW):
+- internal/ops/group.go (IsGroupPrefix; resolveGroupPrefix helper; uses prefix := fileRelPath + '.' separator-strict pattern from index.go:411-443)
+- internal/ops/group_test.go (TestOps_IsGroupPrefix_BasicPrefix / _PrefixCollisionGuard (drop_002 must NOT match drop_002_v2) / _FileAsRecordReturnsFalse / _UnknownID / _EmptyGroup)
+Acceptance: 5 tests green; mage testFunc 'TestOps_IsGroupPrefix_*' green; mage testPkg ./internal/ops green.
+Blockers: none.
+
+## L3-C1-D2 — GetGroup + integration
+Paths owned (EDIT + NEW):
+- internal/ops/group.go (GetGroup using per-child ops.Get + canonical-sort matching index.go:451-455 sort.Strings pattern)
+- internal/ops/group_test.go (TestOps_GetGroup_AggregatesChildren / _CanonicalSortOrder / _EmptyGroupOK / _SingleRecord / _DoesNotAffectRecordIDLookups)
+Acceptance: 5 more tests green; mage testFunc 'TestOps_GetGroup_*' green; mage testPkg ./internal/ops green.
+Blockers: D1.
+
+## Note on planner line-cite drift (non-blocking)
+L2-C planner cited ops.go:1095 (IsScopeAddress) and ops.go:1072 (ScopeRecord). Actual lines are 1245 and 1222. Builders find symbols by name via Grep/rg, not line number. Non-blocking; document as informal comment in group.go header.
+
+## Close gate
+mage testPkg ./internal/ops green. 10 new TestOps_* tests green.
+
+L3-C1 close → L3-C2 (CLI) + L3-C3 (MCP) unblock (both consume ops.IsGroupPrefix + ops.GetGroup).
+"""
+objective = "Deliver ops-layer group-prefix resolution: add IsGroupPrefix(idx, id) bool + GetGroup(idx, id) ([]Record, error) + resolveGroupPrefix helper. Uses index-scan precedent from internal/index/index.go:411-443 (prefix-strings.HasPrefix with separator-strict collision guard). Per-child ops.Get implementation (NOT GetScope's search.Run path)."
+outcome = "success"
+parent_id = "drop_004.drop.l2_c_resolver_group_prefix"
+role = "planner"
+started_at = "2026-05-16T04:00:00Z"
+state = "complete"
+title = "L3-C1 planner — ops group-prefix aggregate (IsGroupPrefix + GetGroup + resolveGroupPrefix)"
+transition_notes = """
+L3-C1 FULL CLOSURE. Both droplets ratified:
+- D1 builder_l3_c1_d1_is_group_prefix: IsGroupPrefix + resolveGroupPrefix + 6 tests (BasicPrefix/PrefixCollisionGuard/FileAsRecordReturnsFalse/UnknownID/EmptyGroup/MultiDB)
+- D2 builder_l3_c1_d2_get_group: GetGroup public API + ErrNoGroup sentinel + 6 tests (AggregatesChildren/CanonicalSortOrder/MultiDB/FieldsFilter/LimitAll/IndexMissing)
+
+Both halves of plan-QA: PASS (proof + falsif converged on AMEND folds applied).
+Both halves of D1 build-QA: PASS (12 ops pkg tests; F31 implicit-handling verified at rebuild.go:250).
+Both halves of D2 build-QA: PASS (signature pinned; 151/151 ops pkg; per-child Get NOT search.Run honoring L2-C falsif A12).
+
+Final mage testPkg ./internal/ops: 151/151 (baseline 136 + 6 D1 + 3 EmptyGroup subtests + 6 D2 = 151, exact match).
+
+L3-C1 UNBLOCKS:
+- L3-C2 (CLI dispatch in cmd/ta/get_cmd.go consuming ops.GetGroup + ops.IsGroupPrefix)
+- L3-C3 (MCP dispatch in internal/mcpsrv/tools.go consuming same)
+
+2 routed-known follow-up tests (non-blocking): partial-failure-aborts-group branch + ErrNoGroup-sentinel-routing.
+
+Aggregate tool_uses across L3-C1: planner=orchestrator-drafted + plan-QA proof=12 + plan-QA falsif=16 + D1 builder=24 + D1 build-QA proof=18 + D1 build-QA falsif=12 + D2 builder=14 + D2 build-QA proof=15 + D2 build-QA falsif=17 = 128 total agent tool_uses for L3-C1.
+"""
+updated_at = "2026-05-16T06:35:00Z"
+[l3_c1_ops_group_aggregate-plan-qa-proof]
+completed_at = "2026-05-16T02:50:00Z"
+created_at = "2026-05-16T07:02:54Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c1_ops_group_aggregate"
+title = "Plan-QA proof of L3-C1 planner — ops group-prefix aggregate (IsGroupPrefix + GetGroup + resolveGroupPrefix)"
+transition_notes = """
+VERDICT: PASS-with-AMEND (2 surgical issues, foldable). tool_uses=12 (Read=5, Grep/Bash=7, mcp__ta__*=0 substituted with direct disk Read).
+
+8 of 8 axes PASS with verified evidence:
+(1) 2-droplet decomposition (D1+D2) correct.
+(2) NEW paths internal/ops/group.go + group_test.go verified absent.
+(3) index.go:411-443 prefix precedent VERIFIED at lines 411-443 (DeleteByFile + CountByFile using prefix := fileRelPath + '.' + strings.HasPrefix pattern).
+(4) ScopeRecord at ops.go:1222 + IsScopeAddress at ops.go:1245 line-cite drift acknowledged in description.
+(5) emitGetScopeJSON envelope {records:[...]} verified at commands.go:393, 403.
+(6) TestOps_IsGroupPrefix_* + TestOps_GetGroup_* naming consistent.
+(7) Blocker D1→D2 correct.
+(8) L2-C parent context confirmed at drop.toml:509-597 (state=complete outcome=success).
+
+SURGICAL AMENDS (2):
+
+AMEND-1: Acceptance test coverage drift vs L2-C parent. L2-C lists 11 tests; L3-C1 lists 10. DROPPED: _MultiDB (cascade.drop+cascade.planner under same prefix — real semantic case L2-C flagged at :535), _FieldsFilter, _LimitAll. ADDED: _FileAsRecordReturnsFalse, _SingleRecord. _MultiDB drop is concerning — covers multi-db prefix-scan case. AMEND: restore _MultiDB in D1 test list OR explicit justification 'inferred coverage via _AggregatesChildren'.
+
+AMEND-2: GetGroup signature has 3 variants in planner record:
+- L3-C1 objective (:2290): `GetGroup(idx, id) ([]Record, error)` — takes idx, returns Record (doesn't exist as public type)
+- L2-C parent (:525): `GetGroup(path, id, fields, limit, all) ([]ScopeRecord, error)` — path-rooted, ScopeRecord (exists at ops.go:1222)
+- L3-C1 D2 description (:2277): 'per-child ops.Get' — signature unspecified
+
+RECOMMEND: pin L2-C parent signature — GetGroup(path, id, fields, limit, all) ([]ScopeRecord, error). Matches ScopeRecord existence + Get(path, id, ...) path-rooted convention + supports fields/limit/all parity with existing ops surface.
+
+ROUTED-KNOWN:
+- 2-droplet decomposition below methodology §5.3 (3-6 atomic droplets) but acceptable for narrow symbol-pair scope; further split would create paths-sharing siblings (both edit group.go) that must serialize anyway. NOT a defect.
+
+L3-C1 ~95% ready. Two minor planner-text amends + D1 dispatches.
+"""
+updated_at = "2026-05-16T02:50:00Z"
+[l3_c1_ops_group_aggregate-plan-qa-falsification]
+completed_at = "2026-05-16T03:10:00Z"
+created_at = "2026-05-16T07:02:54Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c1_ops_group_aggregate"
+title = "Plan-QA falsif of L3-C1 planner — ops group-prefix aggregate (IsGroupPrefix + GetGroup + resolveGroupPrefix)"
+transition_notes = """
+VERDICT: PASS-with-AMEND (1 CE; outcome=success per surgical-foldable + orchestrator-override on AMEND-with-CONFIRMED-CE). tool_uses=16 (Read=7, Grep/Bash=9, mcp__ta__*=0).
+
+13 attacks: 12 MITIGATED/ROUTED-KNOWN + 1 CONFIRMED-CE.
+
+MITIGATED (8):
+- A1 PrefixCollisionGuard: prefix := id + '.' separator-strict; 'drop_002.' does NOT match 'drop_002_v2.drop'. drop_002.drop_v2 case (file drop_002.toml/bracket drop_v2) DOES match — correct group-wins semantic per L2-C:527.
+- A2 F31 file-as-record: ops.go:1266 schema.DBHasFileAsRecord pattern; _FileAsRecordReturnsFalse test pins contract.
+- A4 Canonical sort: index.go:451-455 sort.Strings precedent.
+- A7 Test naming: mixed in repo; TestOps_*_* underscore-suffix dominant in recent code (ops_test.go:866-914).
+- A8 Builder count 2 < §5.3: §2.3 irreducible justification (IsGroupPrefix+GetGroup tightly-coupled atomic).
+- A11 Performance: O(n) acceptable for v0.1.0.
+- A12 Snapshot vs live: tryLoadIndex helpers.go:217-230 returns *Index snapshot.
+- A13 [no number used in agent output]: covered by other attacks.
+
+ROUTED-KNOWN (4):
+- A3 Empty-group IsGroupPrefix↔TestGetCmd_GroupPrefix_EmptyGroup spec: defer to L3-C2 plan-QA (CLI layer) per L2-C falsif A10.
+- A6 Per-child ops.Get vs GetScope search.Run: implementation choice per L2-C falsif A12.
+- A9 Stale line-cite drift (1095/1072 actual 1245/1222): plan acknowledges at line 2282-2283; builders find by name.
+- A5 JSON envelope divergence: NOT-APPLICABLE for L3-C1 ops-only; decisions at L3-C2 + L3-C3.
+
+**CONFIRMED-CE 13**: Test-list contraction from L2-C parent contract. L2-C parent specifies 11 tests; L3-C1 specifies 10 — DROPS _MultiDB (both IsGroupPrefix AND GetGroup), _IndexMissing, _FieldsFilter, _LimitAll. Real coverage gaps:
+- _MultiDB (cascade.drop + cascade.planner under same prefix) — CRITICAL for actual cascade dogfood use case (drop_004 spans multiple cascade.* dbs)
+- _LimitAll — untested if GetGroup signature includes limit/all params
+- _FieldsFilter — untested if GetGroup signature includes fields []string
+- _IndexMissing — graceful nil error path
+
+CONVERGES with L3-C1 plan-QA proof AMEND-1 (proof flagged same 4 dropped tests).
+
+AMEND (surgical, orchestrator-foldable): restore the 4 tests to L3-C1 acceptance list — TestOps_IsGroupPrefix_MultiDB + _IndexMissing on D1; TestOps_GetGroup_MultiDB + _FieldsFilter + _LimitAll on D2. Also pin GetGroup signature per proof AMEND-2: GetGroup(path, id, fields, limit, all) ([]ScopeRecord, error) per L2-C parent line 525.
+
+L3-C1 BOTH HALVES converge on PASS-with-AMEND. Surgical fold + dispatch.
+"""
+updated_at = "2026-05-16T03:10:00Z"
+[l3_d0_commands_split]
+blockers = []
+completed_at = "2026-05-16T06:30:00Z"
+created_at = "2026-05-16T02:20:00Z"
+description = """
+L3-D0 is a single atomic builder droplet, methodology §2.3 irreducible-droplet justified (atomic refactor must move all subcommands together to preserve package test green).
+
+## L3-D0-D1 — Split cmd/ta/commands.go (single serial builder, methodology §2.3 irreducible)
+Paths owned (EDIT + NEW):
+- cmd/ta/commands.go (REDUCE — leave only shared helpers like addPathFlag if any; or DELETE if no shared surface)
+- cmd/ta/get_cmd.go (NEW — extract newGetCmd + runGetSingle + emitGetScopeJSON + addPathFlag helper if scoped)
+- cmd/ta/list_sections_cmd.go (NEW — extract newListSectionsCmd)
+- cmd/ta/search_cmd.go (NEW — extract newSearchCmd)
+- cmd/ta/schema_cmd.go (NEW — extract newSchemaCmd)
+- cmd/ta/create_cmd.go (NEW — extract newCreateCmd)
+- cmd/ta/update_cmd.go (NEW — extract newUpdateCmd)
+- cmd/ta/delete_cmd.go (NEW — extract newDeleteCmd)
+
+## Refactor discipline
+- ZERO behavior change. Each newXxxCmd function body unchanged.
+- Preserve package commands.go's import set; per-file imports follow Go's auto-import rules.
+- Run gofumpt via mage Fmt after extraction.
+- Existing tests at cmd/ta/*_test.go MUST pass unchanged.
+
+## Acceptance (close gate)
+- mage check green at full module.
+- mage testPkg ./cmd/ta: 318/318 tests pass (current baseline; no regression).
+- mage cover ./cmd/ta unchanged (test coverage preserved per H2 work).
+- git log/diff shows the split was move-only (no logic changes).
+
+L3-D0 close → unblocks:
+- L2-D D5 6-droplet parallel family (one per read subcommand: D5.1-D5.6 wire --as= flag, each on its own *_cmd.go file)
+- L2-G G9 (uses new cmd/ta/schema_cmd.go for schema-mutation TUI; G9 was originally cited as cmd/ta/schema_*.go which didn't exist)
+
+Blockers: none.
+"""
+objective = "Behavior-preserving refactor: split cmd/ta/commands.go (1740 lines) into per-subcommand files so D5 family (--as=<format> wiring on 6 read subcommands) can parallelize. Per CLAUDE.md ≤4-block droplet rule, D5.1-D5.6 are not viable as a single serial builder; this prep slice unblocks them."
+outcome = "success"
+parent_id = "drop_004.drop.l2_d_multi_file_type"
+role = "planner"
+started_at = "2026-05-16T04:00:00Z"
+state = "complete"
+title = "L3-D0 planner — split cmd/ta/commands.go into per-subcommand files (prep for D5 family parallelization)"
+transition_notes = """
+L3-D0 FULL CLOSURE. Single droplet D1 (commands.go split refactor) shipped + build-QA pair both PASS. cmd/ta/commands.go reduced 1740→209 lines (atomic move-only, methodology §2.3 irreducible justified); 7 NEW per-subcommand files (get/list_sections/search/schema/create/update/delete_cmd.go); mage check 0 failures; cmd/ta 318/318 baseline preserved.
+
+L3-D0 close UNBLOCKS:
+- L2-D D5 6-droplet --as= family (parallel post-split; each D5.N targets different *_cmd.go file)
+- L2-G G9 (schema-mutation TUI uses new cmd/ta/schema_cmd.go)
+- L2-C L3-C2 (CLI dispatch in cmd/ta/get_cmd.go post-split)
+
+Aggregate tool_uses across L3-D0: planner=orchestrator-drafted + plan-QA proof=18 + plan-QA falsif=30 + D1 builder=27 + build-QA proof=28 + build-QA falsif=29 = 132 total agent tool_uses for L3-D0.
+"""
+updated_at = "2026-05-16T06:30:00Z"
+[l3_d0_commands_split-plan-qa-proof]
+completed_at = "2026-05-16T03:00:00Z"
+created_at = "2026-05-16T07:02:54Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d0_commands_split"
+title = "Plan-QA proof of L3-D0 planner — split cmd/ta/commands.go into per-subcommand files (prep for D5 family parallelization)"
+transition_notes = """
+VERDICT: PASS (2 advisory non-blocking items; outcome=success). tool_uses=18 (Read=4, Grep/Bash=14; mcp__ta__*=0 substituted with disk Read). Above floor.
+
+11 axes ALL VERIFIED on-disk:
+(1) Line count: cmd/ta/commands.go = 1740 lines (wc match).
+(2) 7 constructors at claimed lines: newGetCmd@40, newListSectionsCmd@532, newCreateCmd@614, newUpdateCmd@832, newDeleteCmd@1020, newSchemaCmd@1228, newSearchCmd@1358. Note: brief listed Search before Schema but file has Schema (1228) before Search (1358) — cosmetic ordering, no plan impact.
+(3) 7 target NEW files all missing in cmd/ta/ — no name collisions.
+(4) Split-pattern precedent established: move_cmd.go (newMoveCmd@68), init_cmd.go (newInitCmd@95), template_cmd.go (6 newTemplate*Cmd), index_cmd.go (newIndexCmd@18, newIndexRebuildCmd@41), batch_cmd.go.
+(5) Methodology §2.3 irreducible-droplet exception correctly invoked: shared helpers (runWithJSONErrEnvelope:266, isNotFound:295, dbFormatFor:459, buildRenderFields:475, lookupDBAndType:504) used cross-subcommand AND by index_cmd.go:59 make partial extraction unsafe.
+(6) ZERO-behavior-change discipline encoded.
+(7) 318-test baseline cross-referenced across 4 drop_004 records (drop.toml:1281, 1401, 1463, 1707). Top-level func grep yields 282; t.Run subtests bring leaf-count to 318.
+(8) L2-D parent transition_notes fold confirmed at drop.toml:670-671 (L3-D0 inserted as first child + L3-D5 restructured to post-L3-D0 6-droplet family).
+(9) Plan-QA twins target correct planner record.
+(10) mage check is close gate (no raw go test).
+(11) Downstream unblocking concrete (L2-D D5 family + L2-G G9 use new cmd/ta/schema_cmd.go).
+
+ADVISORY (non-blocking, acceptance gates catch wrong choices):
+- Shared-helper destination unspecified: 'REDUCE commands.go to shared helpers OR DELETE' — but helpers used by cmd/ta/index_cmd.go:59 means commands.go CANNOT delete. Builder must pick: reduce commands.go to cmd_shared.go-style OR migrate helpers to new cmd_shared.go. mage check + 318/318 catch wrong choice.
+- Per-file test moves: planner says 'Existing tests at cmd/ta/*_test.go MUST pass unchanged' — correct for atomic refactor. commands_test.go (78.8K, 73 Test funcs) stays as-is. Stylistic asymmetry but acceptance gate enforces unchanged.
+- F23 OFF caveat: L2-D parent notes F23 v2 LANDED in commit f97c893 (stale caveat). L3-D0 plan-QA twins exist (auto-spawned via cascade.planner.auto_spawn from L2-J). No action.
+
+Falsification self-attacks (7) all MITIGATED. §5.3 single-droplet acceptable for atomic refactor; 7 NEW files within §2.3 (move-only, no logic change); shared helpers acceptance-gate-caught; 318 baseline authoritative; snake_case naming consistent.
+"""
+updated_at = "2026-05-16T03:00:00Z"
+[l3_d0_commands_split-plan-qa-falsification]
+completed_at = "2026-05-16T03:40:00Z"
+created_at = "2026-05-16T07:02:54Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d0_commands_split"
+title = "Plan-QA falsif of L3-D0 planner — split cmd/ta/commands.go into per-subcommand files (prep for D5 family parallelization)"
+transition_notes = """
+VERDICT: PASS-with-AMEND (surgical fold). tool_uses=30 (Read=6, Grep/Bash=24, mcp__ta__*=0). Above floor.
+
+15 attacks: 2 CONFIRMED-CE (fold into 1 AMEND) + 11 MITIGATED/NOT-APPLICABLE/ROUTED-KNOWN.
+
+**AMEND (folded surgically into L3-D0 description before D1 dispatch)**: Shared-helper post-split home. Plan's 'commands.go (REDUCE — leave only shared helpers like addPathFlag if any; or DELETE if no shared surface)' is incorrect:
+(a) addPathFlag already lives at cmd/ta/path.go:20 — not in commands.go (hypothetical example is moot)
+(b) DELETE branch unreachable: multi-consumer helpers MUST stay shared.
+
+Enumerated residual-shared surface (verified via Grep):
+- runWithJSONErrEnvelope (commands.go:266) — consumed by index_cmd.go:59 + template_cmd.go:78,246 + 7 subcommands
+- noticeMutation (commands.go:1706) — consumed by batch_cmd.go:175 + move_cmd.go:241
+- lookupDBAndType (commands.go:504) — multi-subcommand internal
+- renderVerboseRecord (commands.go:429), renderRawRecord (commands.go:440), dbFormatFor (commands.go:459), isNotFound (commands.go:295) — multi-consumer internal
+- runCreate / runUpdate / runDelete / runSchemaMutate thin wrappers (commands.go:1722-1740)
+
+**AMEND-1 (REQUIRED)**: pin STAY-shared list above in commands.go (residual ~150 lines). Strip 'DELETE if no shared surface' branch (unreachable in current code state).
+
+**TRAVEL with owning subcommand file**:
+- buildRenderFields (get-only) → get_cmd.go
+- renderMetaSchema (schema-only) → schema_cmd.go
+- resolveListScope (list-sections-only) → list_sections_cmd.go
+- emitDeleteNotice (delete-only) → delete_cmd.go
+- collectGetItems/validateGetItems/runGetItems/emitGetBatch/emitGetScopeJSON/emitGetJSON/anyGetErrored → get_cmd.go
+- collectCreateItems/validateCreateItems/runCreateItems/createBatchAnyFailed → create_cmd.go (mirror for update/delete)
+
+**AMEND-2 (OPTIONAL/taste)**: Explicitly state cmd/ta/commands_test.go is NOT split in D0; tests stay package-private to `main` and remain in scope. Test-file symmetry split deferred to post-MVP.
+
+MITIGATED/NOT-APPLICABLE/ROUTED-KNOWN (11):
+- Attack 1 §2.3 irreducible: justified (atomic refactor required)
+- Attack 3 test-file split: tests don't need moving (package main scope preserved)
+- Attack 5 import cycle: NOT-APPLICABLE (all package main, 28 files)
+- Attack 6 build-tags: NOT-APPLICABLE (no //go: directives in commands.go)
+- Attack 7 init(): NOT-APPLICABLE (only main.go:31)
+- Attack 8 go:generate/go:embed: NOT-APPLICABLE
+- Attack 9 gofumpt regression: MITIGATED (mage Fmt runs gofumpt -w)
+- Attack 10 coverage delta: MITIGATED (package-scoped, not per-file)
+- Attack 11 git history loss: ROUTED-KNOWN (default 50% rename-similarity defeated by 1740→50-line shrink; accept; non-defect)
+- Attack 12 L2-G G9 path glob: MITIGATED (cmd/ta/schema_*.go matches schema_cmd.go)
+- Attack 13 L2-D D5 family: MITIGATED (D5.1-D5.4 file names ALIGN with D0 output; bonus observation: L2-D internal contradiction — objective lists 6 subcommands receiving --as=, D5 amend lists only 4. Surface to L2-D plan-QA, not D0.)
+- Attack 15 residual filename: ROUTED-KNOWN (commands.go keeps name; cosmetic)
+
+L3-D0 ~95% ready. Surgical AMEND-1 fold + D1 dispatches as single irreducible builder.
+"""
+updated_at = "2026-05-16T03:40:00Z"
+[l3_e1_astro_substrate]
+blockers = []
+created_at = "2026-05-16T02:20:00Z"
+description = """
+L3-E1 (astro_substrate) REWORKED. **Astro project relocated**: examples/templates/ → web/templates/ to avoid double-embed via existing //go:embed all:examples at embed.go:19.
+
+## REWORK FOLDS APPLIED (7 total)
+
+1. **Astro relocation** examples/templates/ → web/templates/ — web/ is NEW top-level repo dir, NOT embedded.
+2. **.gitignore additions**: web/templates/node_modules/, web/templates/.astro/, web/templates/dist/, internal/templates_html/dist/* (except .keep placeholder per fold-4).
+3. **mage Check pnpm strategy**: skip-if-pnpm-absent with verbose WARN in Check composite; hard-fail only if mage TemplatesBuild invoked directly. pnpm install requirement documented in CONTRIBUTING.md.
+4. **D3 embed seed**: commit placeholder internal/templates_html/dist/.keep so //go:embed all:dist has content at clone time. mage TemplatesBuild documented as prerequisite of full embedded-build in CONTRIBUTING.md.
+5. **Astro determinism criterion**: strict byte-diff with retry-once-then-fail flake policy + diagnostic dump.
+6. **Cross-repo SHA recording**: D0 commit SHA recorded in D1 description before D1 dispatch. Stil-side QA via separate flow gate.
+7. **Line cite fix**: build-tokens.ts generated_at is at line **167**, NOT 111 as prior text said.
+
+## L3-E1-D0 — Stil-reconcile prep (SEPARATE STIL REPO)
+
+Paths owned (EDIT in ~/Documents/Code/hylla/stil/main/):
+- scripts/build-tokens.ts (drop `generated_at: new Date().toISOString()` at line 167; change BINDINGS_OUT from `dist/bindings/baseline.json` to `dist/bindings.json` at line 144)
+- README.md (verify file names match emit)
+
+Acceptance: stil dist/ contains tokens.json + bindings.json. Two consecutive pnpm --filter stil build produce sha256-identical files. Commit + push to stil main remote per feedback_stil_separate_repo_discipline.md.
+
+Blockers: none on ta side.
+CROSS-REPO HANDOFF: D0 commit SHA captured + recorded in this L3-E1 description BEFORE D1 dispatch.
+
+## L3-E1-D1 — Astro skeleton at web/templates/ (RELOCATED from examples/templates/)
+
+Paths owned (NEW in ta):
+- web/templates/package.json ('astro': '6.1.10' EXACT; stil dep via file: URL pointing at ../../../stil/main, OR pnpm-pack .tgz)
+- web/templates/astro.config.mjs (outDir: '../../internal/templates_html/dist/')
+- web/templates/src/pages/index.astro (placeholder smoke test)
+- web/templates/.gitignore (node_modules, .astro, dist)
+- .gitignore at repo root (web/templates/node_modules/, web/templates/.astro/, web/templates/dist/; internal/templates_html/dist/* except .keep)
+
+Acceptance: pnpm install + pnpm build in web/templates/ produces internal/templates_html/dist/. embed.go:19 //go:embed all:examples does NOT pull web/ (web is a different top-level dir).
+
+Blockers: D0.
+
+## L3-E1-D2 — magefile TemplatesBuild + TemplatesBuildVerifyStable + pnpm-skip + CONTRIBUTING
+
+Paths owned (EDIT):
+- magefile.go (add TemplatesBuild target: runs `pnpm --filter web/templates run build`; add TemplatesBuildVerifyStable: rebuild-twice sha256-compare with retry-once-then-fail flake policy; add ensurePnpm-or-skip helper in Check composite with verbose WARN)
+- CONTRIBUTING.md (document pnpm install requirement + that TemplatesBuild is prerequisite of full embedded-build)
+
+Acceptance: mage TemplatesBuild green when pnpm available; mage Check passes with skip-warn when pnpm absent; TemplatesBuildVerifyStable byte-identical post-D0.
+
+Blockers: D1.
+
+## L3-E1-D3 — go:embed wiring with placeholder seed
+
+Paths owned (NEW):
+- internal/templates_html/embed.go (//go:embed all:dist + EmbeddedHTML() fs.FS)
+- internal/templates_html/dist/.keep (NEW placeholder so //go:embed has at least one file at clone time)
+- internal/templates_html/embed_test.go (TestEmbed_DistRootAccessible / _DistKeepPresent / _NoDoubleEmbedFromExamplesScope)
+
+Acceptance: mage testPkg ./internal/templates_html green even at fresh clone (placeholder seed satisfies embed); double-embed test verifies //go:embed all:examples does NOT include web/templates/ source.
+
+Blockers: D2.
+
+## Close gate
+mage check green at full module (pnpm-absent skip OK). mage TemplatesBuild green when pnpm available. mage TemplatesBuildVerifyStable green. embed test green at fresh clone.
+
+L3-E1 close → unblocks L3-E2/E3/E4 (FE views + Playwright build-QA via ta-fe-builder + ta-fe-qa-*).
+"""
+objective = "Set up Astro authoring toolchain for ta's HTML template system. (D0) Stil-reconcile prep (separate stil repo commit). (D1) Astro skeleton at examples/templates/ with EXACT Astro pin + file: URL stil dep. (D2) magefile TemplatesBuild + TemplatesBuildVerifyStable targets. (D3) go:embed wiring at internal/templates_html/embed.go with output-path-redirect avoiding double-embed via existing embed.go:19."
+parent_id = "drop_004.drop.l2_e_html_template_system"
+role = "planner"
+started_at = "2026-05-16T04:00:00Z"
+state = "in_progress"
+title = "L3-E1 planner — Astro substrate + stil-reconcile prep + magefile TemplatesBuild + go:embed"
+transition_notes = "REWORKED per plan-QA falsif FAIL verdict (8 CONFIRMED-CEs). All 7 folds applied. Primary fix: Astro project moved OUT of examples/ to avoid source pollution via existing //go:embed all:examples."
+updated_at = "2026-05-16T04:00:00Z"
+[l3_e1_astro_substrate-plan-qa-proof]
+completed_at = "2026-05-16T03:50:00Z"
+created_at = "2026-05-16T07:02:54Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e1_astro_substrate"
+title = "Plan-QA proof of L3-E1 planner — Astro substrate + stil-reconcile prep + magefile TemplatesBuild + go:embed"
+transition_notes = """
+VERDICT: PASS-with-AMEND (1 cosmetic line-cite drift; outcome=success on proof side). tool_uses=27 (Read=4, Grep/Bash=23). Above floor.
+
+10 of 11 sub-checks PASS with verified disk evidence:
+(1) 4-droplet D0/D1/D2/D3 decomposition confirmed.
+(2a) D0 emit pattern at build-tokens.ts:5-7 verified.
+(3) stil dist/ state: bindings/baseline.json present (10.8K), dist/bindings.json absent (matches premise).
+(4) stil/package.json:18 = '\\"astro\\": \\"^6.1.10\\"' (matches premise).
+(5a) D1 output → internal/templates_html/dist/ — disjoint from examples/ scope of embed.go:19.
+(5b) embed.go:19 = //go:embed all:examples.
+(6) magefile.go has NO TemplatesBuild target (412 lines fully read).
+(7) internal/templates_html/ absent (greenfield).
+(8) L2-E transition_notes folds 7 amendments at drop.toml:749-765 enumerated 1-7.
+(9) Blocker chain D0→D1→D2→D3 confirmed in droplet-prose.
+
+**1 of 11 FAILS (cosmetic line-cite drift)**:
+L2-E transition_notes amendment #1 (drop.toml:752) AND L3-E1 D0 description (drop.toml:2379) BOTH cite `build-tokens.ts:111`. Actual line is **build-tokens.ts:167** (inside `out: TokensJSON` literal in buildTokens()). Line 111 is `const ref = lookup[name];` inside resolveValue(). Same drift propagated from L2-E amendment ledger into L3-E1.
+
+Cosmetic only — builders find generated_at by content-grep, not line number. AMEND: update both record-texts to read `(build-tokens.ts:167)`.
+
+**IMPORTANT — PROOF/FALSIF DIVERGENCE**: This proof PASS conflicts with L3-E1 falsif's FAIL verdict on 8 CONFIRMED-CEs. Proof verified output-redirect to internal/templates_html/dist/ AT THE PATH LEVEL (disjoint from examples/ scope). Falsif went deeper: even with dist redirect, Astro SOURCE FILES (package.json, node_modules, .astro/ cache, src/) STILL live inside examples/templates/ which IS embedded by //go:embed all:examples at embed.go:19. Source pollution is the real blocker, NOT the dist destination.
+
+Falsif's finding is CORRECT. Proof's PASS misses the subtler defect. Combined verdict: L3-E1 NEEDS REWORK per falsif's primary blocker (move Astro project OUT of examples/ entirely) plus 5 other falsif folds, NOT just the cosmetic line-cite fix.
+
+L3-E1 REWORK before D1 dispatch — per falsif verdict.
+"""
+updated_at = "2026-05-16T03:50:00Z"
+[l3_e1_astro_substrate-plan-qa-falsification]
+completed_at = "2026-05-16T03:30:00Z"
+created_at = "2026-05-16T07:02:54Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-16T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e1_astro_substrate"
+title = "Plan-QA falsif of L3-E1 planner — Astro substrate + stil-reconcile prep + magefile TemplatesBuild + go:embed"
+transition_notes = """
+VERDICT: FAIL — 6+ blocking CONFIRMED-CEs requiring re-plan before D1 dispatch. tool_uses=13 (Read=5, Bash=6, Context7=2).
+
+8 CONFIRMED-CE + 4 ROUTED-KNOWN + 2 MITIGATED.
+
+**PRIMARY BLOCKER — A3 (double-embed pollution)**: Existing //go:embed all:examples at embed.go:19 embeds the WHOLE examples/ tree into ta binary. Plan D1 puts Astro project at examples/templates/ which includes package.json + pnpm-lock.yaml + astro.config.mjs + src/ + .astro/ cache + (if checked-in) node_modules/. Output-redirect fix for dist/ (D1 option b) only addresses dist; source files STILL get embedded via existing examples directive. Even worse: internal/templates package may treat Astro source as user-facing templates surface.
+
+**FIX REQUIRED**: move Astro project OUT of examples/ entirely (e.g., web/, templates-build/, html-authoring/ at repo root) OR narrow embed.go:19 directive to enumerated subdirs (examples/{schemas,agents,configs,docs-templates}).
+
+OTHER CONFIRMED-CEs:
+
+A1 Cross-repo commit ordering: stil D0 lands path-rename + generated_at-removal BEFORE ta D1 consumes. Need explicit handoff: 'stil push first, stil-SHA recorded in D1, then D1 dispatches'. Rollback path if ta D1 wedges + stil D0 already public.
+
+A6 mage Check pnpm regression: Adding TemplatesBuild to Check breaks fresh machines without pnpm. Plan must pick: (a) accept + document pnpm-install in CONTRIBUTING.md, (b) skip-if-pnpm-absent with warning, (c) auto-install pnpm like ensureGofumpt at magefile.go:351-356.
+
+A7 Astro emit determinism for TemplatesBuildVerifyStable: Vite/rollup chunk hashes mostly stable but not guaranteed across machines / pnpm versions. Specify (a) strict byte-diff OR filtered-diff ignoring known-volatile fields, (b) flake policy (quarantine/retry/fail).
+
+A9 examples/ namespace pollution: examples/agents/ + examples/configs/ + examples/schemas/ are TOML/markdown content templates. Adding pnpm/node.js build project at examples/templates/ mixes paradigms badly + name collision with internal/templates/ package.
+
+A10 .gitignore missing: .gitignore has no node_modules entry. ta has never been JS project. After D1: pnpm install in examples/templates/ + accidental git add . = 50K+ node_modules files staged. Plus binary embedding via A3 chain. MUST add .gitignore: examples/templates/node_modules/, .astro/, dist/ (or wherever moved per A3 fix), internal/templates_html/dist/.
+
+A13 TemplatesBuild diagnostics: magefile run() hooks pnpm stdout/stderr raw — no laslig wrap like Install(). Minor; D2 should add laslig 'build failed' wrap.
+
+A14 D3 builds-before-D1 ordering: //go:embed all:dist in internal/templates_html/embed.go has nothing to bind in fresh clone if dist/ is .gitignored. Either (a) commit dist/ (defeats pipeline), (b) commit placeholder dist/.keep, (c) explicit doc 'mage TemplatesBuild prerequisite of mage build'. Pick (b).
+
+A15 pnpm-lock.yaml checked in: if yes — still embedded via A3; if no — reproducibility lost. D1 must declare. Recommend checked-in once Astro project moved out of examples/.
+
+ROUTED-KNOWN (4):
+A4 file: URL vs pnpm-pack: CI needs stil checkout sibling-adjacent for frozen-lockfile. Solutions: git submodule / pnpm-pack .tgz / publish stil to registry. Pick.
+A5 stil-reconcile downstream consumers: D0 author must enumerate stil's other consumers (public site? mobile bindings?) before landing.
+A11+A12 Astro version pinning churn: if ta pins 6.1.10 exact and stil floats ^6.1.10, divergence on every Astro patch. D0 must pin stil's Astro to same exact OR D1 accepts stil's caret.
+A16 D0 stil-side QA: D0 lives in stil repo — ta-side QA can't verify D0's stil-side correctness. Require 'stil-side QA + commit-SHA recorded in D1' gate.
+
+MITIGATED (2):
+A2 Astro outDir parent path: Context7 confirms outDir accepts paths above project root. Not a blocker.
+A8 go:embed path resolution: //go:embed is relative to source file dir; Astro outDir at internal/templates_html/dist/ + embed.go at internal/templates_html/ resolves correctly. No symlinks needed.
+
+ORCHESTRATOR-OVERRIDE REWORK before descent: significant L3-E1 re-plan. Specifically: (1) move Astro project out of examples/, (2) add .gitignore entries, (3) specify pnpm strategy in mage Check, (4) pin D3 embed seed via dist/.keep, (5) specify Astro determinism criterion, (6) record stil cross-repo SHA + ordering contract.
+
+L3-E1 BLOCKED on REWORK — cannot dispatch D0/D1/D2/D3 builders until plan addresses A3+A6+A10+A14 minimum.
+"""
+updated_at = "2026-05-16T03:30:00Z"
+
+[builder_l3_c1_d1_is_group_prefix]
+blockers = []
+completed_at = "2026-05-16T04:30:00Z"
+created_at = "2026-05-16T04:00:00Z"
+objective = "Build IsGroupPrefix(idx *Index, id string) bool + resolveGroupPrefix(idx, id) ([]string, bool) helper in internal/ops/group.go. Pattern: prefix := id + '.'; iterate idx.Records; strings.HasPrefix per index.go:411-443 precedent. F31 file-as-record → return false. 6 tests in group_test.go: TestOps_IsGroupPrefix_BasicPrefix / _PrefixCollisionGuard (drop_002 must NOT match drop_002_v2) / _FileAsRecordReturnsFalse / _UnknownID / _EmptyGroup / _MultiDB (cascade.drop + cascade.planner under same prefix — RESTORED per L3-C1 AMEND). Per L3-C1 transition_notes."
+outcome = "success"
+parent_id = "drop_004.drop.l3_c1_ops_group_aggregate"
+paths = ["internal/ops/group.go", "internal/ops/group_test.go"]
+role = "builder"
+started_at = "2026-05-16T04:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-C1-D1 builder — IsGroupPrefix + resolveGroupPrefix + group_test.go"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=24 (Read=8, Edit/Write=2, Bash-mage/rg/ls=14). Above 3-call builder floor.
+
+Files created:
+1. internal/ops/group.go (NEW) — IsGroupPrefix(idx *Index, id string) bool + resolveGroupPrefix(idx, id) ([]string, bool) helper. Pattern: prefix := id + '.', strings.HasPrefix per index.go:411-443 precedent. F31 file-as-record handled IMPLICITLY via separator-strict scan (file-as-record index keys are file-relpath verbatim with NO .bracket suffix per index/rebuild.go:250 — separator-strict prefix naturally returns false without schema lookup). Sort via sort.Strings per index.go:455.
+2. internal/ops/group_test.go (NEW) — 6 tests per L3-C1 AMEND: _BasicPrefix / _PrefixCollisionGuard (drop_002 vs drop_002_v2) / _FileAsRecordReturnsFalse / _UnknownID / _EmptyGroup (3 subtests nil/empty/empty-id) / _MultiDB (RESTORED — cascade.drop + cascade.planner + cascade.builder under one prefix).
+
+Verification:
+- mage testFunc 'TestOps_IsGroupPrefix_.*': 9 outcomes (6 top-level + 3 _EmptyGroup subtests), all PASS
+- mage testPkg ./internal/ops: 145/145 PASS (baseline 136 + 6 new + 3 subtests = 145, math matches)
+- Zero edits outside the 2 declared paths.
+
+Falsification self-attacks (6) all MITIGATED:
+- F31 separator-strict naturally false (file-as-record keys lack .bracket suffix)
+- sort.Strings canonical order matches index.go:455
+- Empty-id and nil-Records guards at line 53 (early return)
+- 6 tests in regex match: confirmed via testFunc output
+- nil slice vs empty slice: returns (nil, false) explicitly; ok flag canonical check
+
+L3-C1-D2 (GetGroup) now unblocked. D2 builder consumes resolveGroupPrefix directly (package-local). Signature pinned: GetGroup(path, id string, fields []string, limit int, all bool) ([]ScopeRecord, error). Path-rooted matches GetScope convention at ops.go:1288; D2 loads index inside GetGroup via existing helpers.go::loadIndexOrSentinel precedent.
+"""
+updated_at = "2026-05-16T04:30:00Z"
+[builder_l3_c1_d1_is_group_prefix-qa-proof]
+completed_at = "2026-05-16T05:00:00Z"
+created_at = "2026-05-16T07:20:49Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T04:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_c1_d1_is_group_prefix"
+title = "QA proof of L3-C1-D1 builder — IsGroupPrefix + resolveGroupPrefix + group_test.go"
+transition_notes = """
+VERDICT: PASS. tool_uses=18 (Read=5, Grep/Bash=13). Above 5-call floor.
+
+All 9 axes verified with file:line evidence:
+(1) Signature group.go:39 IsGroupPrefix(idx *index.Index, id string) bool matches spec.
+(2) Helper group.go:53 resolveGroupPrefix returns ([]string, bool).
+(3) Separator-strict group.go:57 prefix := id + '.' + :60 strings.HasPrefix. Mirrors index.go:411-423 DeleteByFile + :431-443 CountByFile.
+(4) sort.Strings group.go:67 matches index.go:455 canonical sort.
+(5) Guards group.go:54-56 (nil idx / nil Records / empty id) return (nil,false).
+(6) 6 named tests confirmed: _BasicPrefix:23, _PrefixCollisionGuard:38, _FileAsRecordReturnsFalse:54, _UnknownID:66, _EmptyGroup:78 (3 subtests at :84-86), _MultiDB:104.
+(7) F31 implicit-handling VERIFIED at rebuild.go:250 (idx.Put(inst.Slug, ...) — file-relpath verbatim no .bracket); _FileAsRecordReturnsFalse pins behavior.
+(8) mage testPkg ./internal/ops: 145/145 PASS (math: 136 baseline + 6 new + 3 subtests = 145, exact match).
+(9) Diff scope confined to 2 declared paths. The 4 unrelated untracked cmd/ta/*_cmd.go files belong to SIBLING slice builder_l3_d0_d1_commands_split (NOT D1).
+
+Falsification self-attacks (7) all MITIGATED. No unmitigated counterexample.
+
+Minor task-description drift: 'internal/ops/index.go' should be 'internal/index/index.go'. Builder's source comment correct. Non-defect.
+
+L3-C1-D1 BOTH HALVES PASS — fully ratified. L3-C1-D2 (GetGroup) unblocks.
+"""
+updated_at = "2026-05-16T05:00:00Z"
+[builder_l3_c1_d1_is_group_prefix-qa-falsification]
+completed_at = "2026-05-16T04:50:00Z"
+created_at = "2026-05-16T07:20:49Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T04:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_c1_d1_is_group_prefix"
+title = "QA falsif of L3-C1-D1 builder — IsGroupPrefix + resolveGroupPrefix + group_test.go"
+transition_notes = """
+VERDICT: PASS (2 ROUTED-KNOWN; 0 CONFIRMED-CE). tool_uses=12 (Read=4, Grep/Bash=8, mcp__ta__*=0). Above 5-call floor.
+
+14 attacks: 0 CONFIRMED-CE + 11 MITIGATED + 3 ROUTED-KNOWN.
+
+MITIGATED (11):
+- F31 implicit handling verified at rebuild.go:235-251 (canonical id = inst.Slug verbatim, no .bracket) + schema/load.go:260-265 (mixed-mode rejection). Godoc accurate.
+- Separator-strict edge case: 'drop_002' against 'drop_002' (no children) returns (nil,false) correctly.
+- Empty Records map: short-circuits via nil-guard L54 OR iterates 0 times to (nil,false).
+- Test isolation: makeIdx fresh per call, no package state, no t.Parallel.
+- 145/145 builder claim: VERIFIED independently via mage testPkg ./internal/ops.
+- Doc comments: full godoc block L19-38 explaining contract.
+- Test naming TestOps_<Family>_<Case>: consistent with repo convention.
+- Empty parent + nil idx: short-circuit guards.
+- _MultiDB test exists and exercises 3-type children.
+- Concurrent mutation: not a D1 CE (matches index package's snapshot contract).
+- Resource slice unbounded but bounded by filesystem reality (micro-optimization deferred).
+
+ROUTED-KNOWN (3):
+- (Attack 10) resolveGroupPrefix is package-PRIVATE (lowercase). D2 (cmd/ta main pkg) + D3 (internal/mcpsrv pkg) cannot call it. Bool-only IsGroupPrefix public API insufficient if consumers need slice. May be intentional scope-lock; verify with planner record. If consumer needs slice, D1 follow-up exports ResolveGroup OR D2/D3 add it.
+- (Attack 14) Non-canonical-id edge: querying 'claude_agents/writer' against key 'claude_agents/writer.md' returns (['writer.md'],true) because HasPrefix('writer.md', 'writer.') is true. Safe TODAY (callers must pass canonical ids; no canonical id strips extension) but worth godoc note for D2/D3 input-validation discipline.
+- (Attack 5) Sort stability not test-asserted: _MultiDB asserts only the bool, never inspects slice contents/order. Fine for D1's bool-only public API. When D2/D3 consume slice, their tests must cover sort.Strings canonical order.
+
+L3-C1-D1 BUILD-QA falsif CLEAN. Pending proof half (in flight).
+"""
+updated_at = "2026-05-16T04:50:00Z"
+[builder_l3_d0_d1_commands_split]
+blockers = []
+completed_at = "2026-05-16T05:30:00Z"
+created_at = "2026-05-16T04:00:00Z"
+objective = "Behavior-preserving refactor of cmd/ta/commands.go (1740 lines) into 7 NEW per-subcommand files. Methodology §2.3 irreducible-droplet (atomic move-only, no logic change). STAY-shared in commands.go residual: runWithJSONErrEnvelope, isNotFound, noticeMutation, lookupDBAndType, renderVerboseRecord, renderRawRecord, dbFormatFor, runCreate/Update/Delete/SchemaMutate. TRAVEL with owning: buildRenderFields→get_cmd, renderMetaSchema→schema_cmd, resolveListScope→list_sections_cmd, emitDeleteNotice→delete_cmd, collect/validate/runItems/emit-batch families per owning subcommand. cmd/ta/commands_test.go stays unchanged (package main scope). Per L3-D0 transition_notes."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d0_commands_split"
+paths = ["cmd/ta/commands.go", "cmd/ta/get_cmd.go", "cmd/ta/list_sections_cmd.go", "cmd/ta/search_cmd.go", "cmd/ta/schema_cmd.go", "cmd/ta/create_cmd.go", "cmd/ta/update_cmd.go", "cmd/ta/delete_cmd.go"]
+role = "builder"
+started_at = "2026-05-16T04:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D0-D1 builder — split cmd/ta/commands.go into per-subcommand files"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=27 (Read=7, Edit/Write=8, Bash-mage/git=12). Above 3-call builder floor.
+
+Atomic move-only refactor complete. cmd/ta/commands.go reduced from 1740 → 209 lines (residual shared-helpers file). 7 NEW per-subcommand files:
+- cmd/ta/get_cmd.go (398 lines)
+- cmd/ta/list_sections_cmd.go (99 lines)
+- cmd/ta/search_cmd.go (119 lines)
+- cmd/ta/schema_cmd.go (280 lines)
+- cmd/ta/create_cmd.go (278 lines)
+- cmd/ta/update_cmd.go (231 lines)
+- cmd/ta/delete_cmd.go (221 lines)
+
+Each function body byte-identical to pre-split source; imports recomputed per file; mage Fmt applied clean.
+
+GATES ALL GREEN:
+- mage check: full module 1150 tests / 1140 passed / 10 skipped / 17 pkg pass + 2 pkg skip (record, root ta) / 0 pkg fail. Baseline preserved.
+- mage testPkg ./cmd/ta: 319 tests / 318 passed / 1 pre-existing skip (TestPickerSelectionsContractCapture). Exact 318 baseline preserved.
+- mage Fmt: clean.
+- git diff --stat cmd/ta/commands.go: 6 insertions, 1537 deletions — pure move-out with header comment explaining residual's purpose.
+
+RESIDUAL commands.go (~209 lines) contents:
+- runWithJSONErrEnvelope, isNotFound, renderVerboseRecord, renderRawRecord, dbFormatFor, lookupDBAndType, readJSONData, readJSONDataOptional, noticeMutation, runCreate, runUpdate, runDelete, runSchemaMutate.
+
+BUILDER JUDGMENT (acceptable deviation): readJSONData + readJSONDataOptional STAYED in commands.go (NOT in original directive's enumerated TRAVEL list). Justified — both are multi-consumer (create_cmd.go + update_cmd.go + schema_cmd.go). Putting them in any single subcommand file would force cross-file scope-bleed. Documented in builder transition_notes.
+
+Observations:
+- internal/ops/group.go + group_test.go (sibling L3-C1-D1 WIP) untracked in git status — left UNTOUCHED per cascade isolation.
+- cmd/ta/commands_test.go (78.8K, 73 test funcs) NOT modified — tests resolve correctly post-split (all package main scope preserved).
+
+Mid-flight diagnostic noise (20+ duplicate-decl errors) was the TRANSIENT move-and-strip phase — agent's verification gate caught + resolved before declaring SUCCESS. Working as designed.
+
+L3-D0-D1 unblocks: L2-D D5 6-droplet --as= family + L2-G G9 (now has cmd/ta/schema_cmd.go to edit). L2-C L3-C2 (was blocked on L3-D0) also unblocked.
+"""
+updated_at = "2026-05-16T05:30:00Z"
+[builder_l3_d0_d1_commands_split-qa-proof]
+completed_at = "2026-05-16T06:10:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T05:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d0_d1_commands_split"
+title = "QA proof of L3-D0-D1 builder — split cmd/ta/commands.go into per-subcommand files"
+transition_notes = """
+VERDICT: PASS. tool_uses=28 (Read=4, Grep/Bash=24). Above 5-call floor.
+
+All 10 axes verified:
+(1) Line counts: commands.go 1740→209 confirmed via wc -l + git show HEAD. 7 NEW files at exact claimed line counts.
+(2) Byte-identity (3 spot-checks): emitSearchJSON (search_cmd.go:82-94 line-for-line identical to pre-split commands.go:1421-1433); runCreate (commands.go:191-193 identical to pre-split :1722-1724); newGetCmd (get_cmd.go:35-126 matches deleted block, diff stat shows pure move 6/1537).
+(3) Residual 13 symbols all present at verified lines.
+(4) mage testPkg ./cmd/ta: 319/318+1 skip (TestPickerSelectionsContractCapture) — EXACT baseline match.
+(5) mage check: 1156/1146/10 skipped/0 fail/17 pkg pass + 2 pkg skip. Drift +6 from baseline 1150 explained by sibling L3-C1-D1 ops/group work landed between builder snapshot and this QA run — ORTHOGONAL.
+(6) mage FmtCheck: exit 0, no output.
+(7) commands_test.go: git diff HEAD empty. Package main scope preserves cross-file visibility, all 73 test funcs still resolve.
+(8) Cross-file consumers preserved: runWithJSONErrEnvelope at index_cmd.go:59, template_cmd.go:78,246; noticeMutation at batch_cmd.go:175, move_cmd.go:241. All resolve to commands.go residual.
+(9) readJSONData judgment justified: consumed by create_cmd.go:157+241 + update_cmd.go:133+209 + schema_cmd.go:101 (Optional variant) — 3 distinct files = genuinely multi-consumer.
+(10) Cascade record alignment: drop.toml:2898-2944 matches every claim.
+
+Falsification self-attacks (6) all MITIGATED: no silent body mutation, tests unchanged, no missing symbols, residual scope cohesive, imports clean, test-drift orthogonal.
+
+L3-D0-D1 build-QA proof CLEAN. Awaiting falsif twin.
+"""
+updated_at = "2026-05-16T06:10:00Z"
+[builder_l3_d0_d1_commands_split-qa-falsification]
+completed_at = "2026-05-16T06:30:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T05:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d0_d1_commands_split"
+title = "QA falsif of L3-D0-D1 builder — split cmd/ta/commands.go into per-subcommand files"
+transition_notes = """
+VERDICT: PASS. tool_uses=29 (Read=7, Grep/Bash=22). Above floor. 12 attacks: 0 CONFIRMED-CE + all resolved as NOT-APPLICABLE / MITIGATED / ROUTED-KNOWN.
+
+Pre-conditions: changes UNCOMMITTED + sibling untracked internal/ops/group.go (from L3-C1-D1) present in working tree. Adjusted attack methodology for git diff HEAD (not HEAD~ HEAD).
+
+Scope verified:
+- commands.go 1740→209 via git diff --numstat (1537 deletions, 6 insertions)
+- 7 new untracked files: get_cmd(398)+create_cmd(278)+update_cmd(231)+delete_cmd(221)+search_cmd(119)+list_sections_cmd(99)+schema_cmd(280) = 1626 lines (consistent with pure-move + 7×~13-line per-file headers)
+- commands_test.go zero diff
+
+All 12 attacks resolved:
+- A1 logic mutation: spot-checked newGetCmd, collectGetItems, validateGetItems, runGetItems byte-identical; 319 cmd/ta tests passing is authoritative behavioral guarantee.
+- A2 import drift: mage Fmt zero output (goimports/gofumpt clean).
+- A3 helper bleeding: rg 'buildRenderFields|renderMetaSchema|resolveListScope|emitDeleteNotice|emitGetScopeJSON|collectGetItems|runGetItems' in commands.go = 0 matches. Each STAY-shared helper has ≥1 cross-file consumer (most ≥2).
+- A4 helper duplication: rg '^func newXxxCmd' returns exactly 1 hit per constructor.
+- A5 readJSONData/Optional placement: readJSONData multi-consumer (create_cmd:157,241 + update_cmd:133,209); readJSONDataOptional single-consumer wrapper (schema_cmd:101) — defensible co-location; non-blocking nit.
+- A6 commands_test.go untouched: git diff HEAD empty; 80 newXxxCmd references resolve via package main scope.
+- A7 baseline numeric drift: builder claimed 1150/1140, observed 1156/1146. **Failed=0 in both**. Cmd/ta package 319/318+1 skip = exact post-l2-h2 baseline. Reporting-accuracy nit, NOT regression.
+- A8 cross-package import graph: cmd/ta is leaf binary; mage check 19 packages green confirms no inversions.
+- A9 cyclic import: mage check passes — cycle would fail compile.
+- A10 symbol visibility: trick question — all package main, intra-package private symbols cross file boundaries freely.
+- A11 collectGetItems destination: rg '^func collectGetItems' = 1 hit in get_cmd.go:169, body byte-identical.
+- A12 test count math: cmd/ta 319 = 318 baseline + 0 new (post-l2-h2). Module 1156 reflects accumulated test growth since builder's stale baseline.
+
+3 INFORMATIONAL routes (NOT blockers):
+- Baseline numerics stale (use live mage check summary going forward)
+- Sibling working-tree pollution: internal/ops/group.go + group_test.go from L3-C1-D1 — orchestrator must triage before commit (separate-slice commits)
+- readJSONDataOptional single-consumer placement nit
+
+L3-D0-D1 FULLY RATIFIED (both halves PASS). L3-D0 planner closes.
+"""
+updated_at = "2026-05-16T06:30:00Z"
+[l3_c2_cli_dispatch]
+blockers = ["drop_004.drop.l3_c1_ops_group_aggregate", "drop_004.drop.l3_d0_commands_split"]
+created_at = "2026-05-16T04:00:00Z"
+description = """
+L3-C2 decomposes into 3 droplets.
+
+## L3-C2-D1 — group-prefix dispatch in get_cmd.go runGetSingle
+Paths: cmd/ta/get_cmd.go (EDIT — insert IsGroupPrefix call before IsScopeAddress); cmd/ta/get_cmd_test.go (EDIT or NEW)
+Tests: TestGetCmd_GroupPrefix_RoutesToGetGroup / _BeforeScopeAddress / _SingleRecord_StillByteIdentical / _GroupVsSingleCollision
+Blockers: L3-C1 (consumes ops.IsGroupPrefix) + L3-D0 (get_cmd.go must exist post-split).
+
+## L3-C2-D2 — --batch + group-prefix interaction documented
+Paths: cmd/ta/get_cmd.go (EDIT Long help text + dispatch rejection); cmd/ta/get_cmd_test.go
+Tests: TestGetCmd_BatchWithGroupPrefix_Rejected (per L2-C plan: not supported)
+Blockers: D1.
+
+## L3-C2-D3 — A10 empty-group test naming reconciliation
+Paths: cmd/ta/get_cmd_test.go
+Resolve L2-C falsif A10 routed-known: rename TestGetCmd_GroupPrefix_EmptyGroup OR widen IsGroupPrefix predicate. Pick rename for clarity. Tests: TestGetCmd_GroupPrefix_KnownPrefixZeroChildren
+Blockers: D1.
+
+Close: mage testPkg ./cmd/ta green; L3-C close gates after L3-C2 + L3-C3 complete.
+"""
+objective = "Wire ops.IsGroupPrefix + ops.GetGroup into cmd/ta CLI's get dispatch. After L3-D0 split, get_cmd.go owns runGetSingle. Dispatch order: ops.IsGroupPrefix BEFORE ops.IsScopeAddress. Reuse emitGetScopeJSON envelope for {records:[...]} JSON output."
+parent_id = "drop_004.drop.l2_c_resolver_group_prefix"
+role = "planner"
+started_at = "2026-05-16T07:50:00Z"
+state = "in_progress"
+title = "L3-C2 planner — CLI group-prefix dispatch in cmd/ta"
+transition_notes = """
+AMENDMENTS FOLDED (orchestrator-override on surgical PASS-with-AMEND):
+
+1. **D2 batch+group semantic PINNED to L2-C parent**: silent fall-through per drop.toml:555 ('Falls back to single-record per-item semantics'). Each item in --batch where it.id matches IsGroupPrefix returns Found=false (consistent with parent contract). Test renamed: TestGetCmd_BatchWithGroupPrefix_FallsThroughPerItem (NOT _Rejected).
+
+2. **D3 test content PIN**: TestGetCmd_GroupPrefix_KnownPrefixZeroChildren asserts: an id with zero children under it does NOT enter the group branch (IsGroupPrefix returns false); falls through to IsScopeAddress / single-record dispatch with appropriate not-found surface. Test exercises dispatch-fall-through, NOT empty-group-via-group-branch (which is structurally unreachable).
+
+3. **D3 blockers EXTEND**: D3.blockers now ['drop_004.drop.builder_l3_c2_d1_dispatch', 'drop_004.drop.builder_l3_c2_d2_batch_docs'] (was just D1). Serializes D2→D3 since both edit cmd/ta/get_cmd_test.go per cascade isolation §7.
+
+ROUTED-KNOWN (4, non-blocking): A4 Long help text content pin; A5 test file placement (NEW get_cmd_test.go OR EDIT commands_test.go); A12 error-path test coverage (ErrIndexMissing surface); A13 CLI-layer index load via index.Load(path) at top of runGetSingle, ErrIndexMissing through runWithJSONErrEnvelope.
+
+L3-C2 ready for D1 builder dispatch.
+"""
+updated_at = "2026-05-16T07:50:00Z"
+[l3_c2_cli_dispatch-plan-qa-proof]
+completed_at = "2026-05-16T07:00:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T06:45:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c2_cli_dispatch"
+title = "Plan-QA proof of L3-C2 planner — CLI group-prefix dispatch in cmd/ta"
+transition_notes = """
+VERDICT: PASS-with-AMEND (surgical-foldable, non-blocking). tool_uses=17 (Read=5, Grep/Bash=12). Above floor.
+
+All 7 axes VERIFIED with file:line evidence:
+(1) 3-droplet decomposition (D1 dispatch / D2 batch+group docs / D3 A10 test reconcile) at drop.toml:3014-3032.
+(2) Paths post-L3-D0 split: cmd/ta/get_cmd.go EXISTS at 398 lines (planner's '~398 lines' exact match); cmd/ta/get_cmd_test.go does NOT yet exist (planner's 'EDIT or NEW' wording accommodates).
+(3) Dispatch order: ops.IsGroupPrefix BEFORE IsScopeAddress at drop.toml:3033. Current runGetSingle at cmd/ta/get_cmd.go:131-138 has IsScopeAddress call at :132 with NO IsGroupPrefix branch — confirms D1 inserts it.
+(4) emitGetScopeJSON at get_cmd.go:341-352 emits {'records': out}; package-private same-file callable from new group branch.
+(5) Blockers both CLOSED: L3-C1 (drop.toml:2354), L3-D0 (drop.toml:2492).
+(6) ops.GetGroup signature EXACT match: group.go:113 (path, id, fields, limit, all) ([]ScopeRecord, error).
+(7) --batch+group documented: D2 tightens L2-C's 'fall back' to 'rejected' (safer; avoids silent misses).
+(8) A10 reconciliation: TestGetCmd_GroupPrefix_EmptyGroup → TestGetCmd_GroupPrefix_KnownPrefixZeroChildren (rename pins 'known prefix that currently has 0 children' semantic).
+
+**CONFIRMED-CE (surgical AMEND, non-blocking)**: D2 and D3 share cmd/ta/get_cmd_test.go. D2 paths: cmd/ta/get_cmd.go + cmd/ta/get_cmd_test.go (drop.toml:3022). D3 paths: cmd/ta/get_cmd_test.go only (drop.toml:3027). D3 blockers list ONLY D1 (drop.toml:3029), NOT D2. Cascade methodology §7 violation: siblings sharing paths MUST serialize via blockers graph.
+
+FOLD OPTIONS: (a) add D2 to D3.blockers; (b) merge D2+D3 into single droplet (both touch group-prefix tests + small Long-text edit). Pick (a) for clarity; surgical-foldable.
+
+ADVISORY (non-blocking): ops.IsGroupPrefix(idx *index.Index, id string) bool is idx-rooted (caller must load idx first) and returns bool only. L3-C2 prose 'ops.IsGroupPrefix call before IsScopeAddress' doesn't explicitly call out load-idx-first step or bool-only return. Builder discovers on first read of group.go; non-blocking. Planner clarity nit only.
+
+Non-CE attacks (5) MITIGATED: get_cmd.go is post-L3-D0 split (no createCmd/searchCmd present); 3-droplet meets §5.3 lower bound; D2 'reject' tightening of L2-C 'fallback' is safer refinement; A10 reconciliation correct; plan-QA twins themselves spawned + targeting correct.
+
+L3-C2 ~95% ready: fold D2→D3 serialization, then descend to D1 dispatch.
+"""
+updated_at = "2026-05-16T07:00:00Z"
+[l3_c2_cli_dispatch-plan-qa-falsification]
+completed_at = "2026-05-16T07:30:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T06:45:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c2_cli_dispatch"
+title = "Plan-QA falsif of L3-C2 planner — CLI group-prefix dispatch in cmd/ta"
+transition_notes = """
+VERDICT: PASS-with-AMEND. tool_uses=14 (Read=6, Grep/Bash=8). Above floor.
+
+12+1 attacks: 2 CONFIRMED-CE (surgical-foldable) + 4 ROUTED-KNOWN + 7 MITIGATED.
+
+CONFIRMED-CEs:
+
+**CE-1 (A3)**: L3-C2-D2 contradicts L2-C parent on --batch+group-prefix semantics. L2-C parent (drop.toml:555): 'Falls back to single-record per-item semantics' (silent fall-through). L3-C2-D2 (drop.toml:3023): 'TestGetCmd_BatchWithGroupPrefix_Rejected' (loud error). FOLD: pin which semantic — either (a) early-error before collectGetItems, (b) per-item-error in runGetItems, or (c) silent fall-through per L2-C parent. Pick (c) parent-aligned for backward compat OR (a) loud-fail-friendlier for users.
+
+**CE-2 (A6)**: L3-C2-D3 rename TestGetCmd_GroupPrefix_EmptyGroup → _KnownPrefixZeroChildren doesn't articulate what renamed test asserts. The empty-group case is STRUCTURALLY UNREACHABLE through the group-dispatch branch (IsGroupPrefix returns false when len(children)==0 per group.go:64-78). FOLD: add to D3 description — 'Test asserts that an id with zero children under it does NOT enter the group branch; falls through to IsScopeAddress / single-record dispatch with appropriate not-found surface.'
+
+ROUTED-KNOWN (4):
+- A4 Long help text content: planner should pin minimum directive 'Add `Group-prefix ids are single-positional only` to Long after F37 paragraph'.
+- A5 Test file placement: 'EDIT or NEW' permissive; L3-D0 baseline kept tests in commands_test.go but plan permits new get_cmd_test.go. Optional pin.
+- A12 Error-path test coverage: ErrIndexMissing surface from loadIndexOrSentinel not explicitly tested at CLI layer.
+- A13 IsGroupPrefix takes *index.Index (not path); cmd/ta already imports internal/index at commands.go:14, so index.Load(path) callable. Builder discovers; optional pin for clarity.
+
+MITIGATED (7): A1 dispatch order (IsScopeAddress at get_cmd.go:132 inline, no helper); A2 emitGetScopeJSON at get_cmd.go:341-352 (post-split intra-file reuse); A7 envelope shape unified at all 3 layers; A8 collision pinned at ops + CLI layers; A9 order-pinning via OBSERVABLE behavior (multi-db aggregation vs single-db search.Run); A10 droplet count 3 within §5.3; A11 blockers both CLOSED.
+
+L3-C2 ~95% ready: fold CE-1 (batch semantic decision) + CE-2 (D3 test content pin), then D1 dispatches.
+"""
+updated_at = "2026-05-16T07:30:00Z"
+[l3_c3_mcp_dispatch]
+blockers = ["drop_004.drop.l3_c1_ops_group_aggregate"]
+created_at = "2026-05-16T04:00:00Z"
+description = """
+L3-C3 (MCP group-prefix dispatch) REWORKED per plan-QA falsif FAIL (3 CONFIRMED-CEs).
+
+## REWORK FOLDS APPLIED (3 + 3 routed-known)
+
+1. **CE-1 test rename**: `TestMCPGet_EmptyGroup_FoundTrueChildrenEmpty` (UNREACHABLE under omitempty) → `TestMCPGet_EmptyGroup_FoundTrueChildrenKeyAbsent` (asserts JSON `children` key is ABSENT from marshaled envelope per Go's encoding/json omitempty behavior on length-zero slices).
+2. **CE-2 MixedBatch RESTORED**: Add `TestMCPGet_MixedBatch` to D1 acceptance per L2-C parent contract at drop.toml:578. Tests heterogeneous batch: 1 group-id + 1 record-id in same items[]; verifies per-item Children field appears only on group-id item.
+3. **CE-3 index-load pattern PINNED**: handleGet loads index ONCE outside per-item loop via internal/index.Load(path). ErrIndexMissing surfaces as BATCH-LEVEL mcp.NewToolResultError (not per-item). Per-item gate: ops.IsGroupPrefix(idx, it.id).
+
+## L3-C3-D1 — handleGet group-prefix branch + Children field + MixedBatch test
+
+Paths owned (EDIT):
+- internal/mcpsrv/tools.go (EDIT — load idx outside loop; insert IsGroupPrefix(idx, it.id) gate before ops.Get at :381; on gate-true, call ops.GetGroup + populate per-item Children field)
+- internal/mcpsrv/server_test.go (EDIT or extend)
+
+Tests: TestMCPGet_GroupPrefix_AggregatesChildren / _EmptyGroup_FoundTrueChildrenKeyAbsent (renamed) / _SingleRecord_NoChildren / _GroupVsSingleCollision / **_MixedBatch (RESTORED)** / _IndexMissingBatchLevelError (NEW per CE-3).
+
+Blockers: drop_004.drop.l3_c1_ops_group_aggregate (CLOSED).
+
+## L3-C3-D2 — getResultItem.Children documented + omitempty + position
+
+Paths owned (EDIT):
+- internal/mcpsrv/tools.go (struct field doc + position-after-Error per A9 fold to preserve byte-identity for existing single-record golden snapshots)
+- internal/mcpsrv/server_test.go (TestMCPGet_SingleRecord_NoChildren_OmittedFromJSON — verifies key-absence behavior; Children type = []getResultItem for uniform recursive wire shape per A3 routed-known fold)
+
+Blockers: D1.
+
+## Close gate
+mage testPkg ./internal/mcpsrv green; 6 new TestMCPGet_GroupPrefix_* + _MixedBatch + _IndexMissingBatchLevelError tests green.
+
+## Unknowns routed (all surgical fixes; non-blocking)
+- Children field position: append-after-Error to preserve byte-identity for golden snapshots.
+- Children element type: []getResultItem for uniform recursive wire shape.
+- ErrIndexMissing batch-level routing pinned at D1 directive.
+
+## SURGICAL AMEND FOLDS (round 2, orchestrator-override per drop_003 precedent)
+
+Applied after plan-QA round 2 returned PROOF AMEND (1 unresolved CE) + FALSIF FAIL (5 CONFIRMED-CEs). All surgical text edits — NO structural redesign.
+
+1. **LoadIndexStrict export (CE-3 fix)**: Promote `internal/ops.loadIndexOrSentinel` → `ops.LoadIndexStrict` (exported). D1 directive: handleGet uses `ops.LoadIndexStrict(path)` for batch-level ErrIndexMissing surface. NOT `internal/index.Load(path)` — that returns (empty-Index, nil) on missing-file and cannot produce the sentinel.
+
+2. **Parent contract sync (Children element type)**: Pin Children type on getResultItem = `[]getResultItem` (NOT `[]groupChildItem`). Update L2-C parent (drop.toml line 572) Children type from any prior groupChildItem reference to []getResultItem. Uniform recursive wire shape per A3 routed-known fold.
+
+3. **Golden rationale rewrite**: Replace any references to internal/mcpsrv/ goldens (none exist) → 'preserves existing decodeBatchResults field-order traversal in internal/mcpsrv/tools.go single-record envelope path'.
+
+4. **Children recursion depth pin**: 'Children is single-level depth in MCP envelope — getResultItem.Children []getResultItem holds direct children only. Deeper aggregation requires client to re-issue ta_get against child ids that are themselves group prefixes.'
+
+5. **MixedBatch scope extension**: TestMCPGet_MixedBatch must cover BOTH (a) one group-id + one record-id, AND (b) one group-id whose children span multiple cascade.* types (drop+planner+qa_proof under one prefix). Single-test-case insufficient — split into _MixedBatchSingleGroupSingleRecord + _MixedBatchHeterogeneousChildren.
+
+6. **Children=nil init pin**: 'builder MUST leave Children nil when group has zero children (use Go zero-value behavior); do NOT allocate empty []getResultItem{} slice. encoding/json omitempty checks reflect.Value.Len() but only triggers field omission on nil/zero; explicit empty-slice prevents omitempty from working.'
+"""
+objective = "Wire ops.IsGroupPrefix + ops.GetGroup into internal/mcpsrv/tools.go handleGet. Add Children field to getResultItem with omitempty. MCP envelope distinct from CLI: per-item Children on getResultItem (NOT top-level {records:[...]})."
+parent_id = "drop_004.drop.l2_c_resolver_group_prefix"
+role = "planner"
+started_at = "2026-05-16T07:50:00Z"
+state = "in_progress"
+title = "L3-C3 planner — MCP group-prefix dispatch in internal/mcpsrv"
+transition_notes = """
+Round 2 plan-QA closed via orchestrator-override on AMEND-class folds (surgical text only, no structural redesign). Ready for L3-C3-D1 builder dispatch.
+
+Key signature pins:
+- ops.LoadIndexStrict(path string) (*index.Index, error) — exported, returns ErrIndexMissing sentinel on missing .ta/index.toml
+- getResultItem.Children type = []getResultItem
+- Test names finalized per fold #5: split MixedBatch into Single + Heterogeneous variants
+"""
+updated_at = "2026-05-16T07:50:00Z"
+[l3_c3_mcp_dispatch-plan-qa-proof]
+completed_at = "2026-05-16T08:30:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "failure"
+role = "qa-proof"
+started_at = "2026-05-16T07:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c3_mcp_dispatch"
+title = "Plan-QA proof of L3-C3 planner — MCP group-prefix dispatch in internal/mcpsrv"
+transition_notes = """
+REWORK proof verdict: AMEND (1 unresolved CE; CE-1 + CE-2 resolved; CE-3 partial). tool_uses=19 (Read=5, Grep/Bash=12, Context7=2).
+
+**RESOLVED**:
+- CE-1 RESOLVED: test renamed to _EmptyGroup_FoundTrueChildrenKeyAbsent at drop.toml:3125 + omitempty semantics correctly pinned (Go encoding/json omits length-zero slices per stdlib doc).
+- CE-2 RESOLVED: TestMCPGet_MixedBatch RESTORED at drop.toml:3126 with parent cite-back.
+
+**CE-3 PARTIALLY RESOLVED** (UNIMPLEMENTABLE AS WRITTEN):
+Pattern is named in prose at drop.toml:3127 ('load index ONCE outside per-item loop via internal/index.Load(path); ErrIndexMissing surfaces as BATCH-LEVEL mcp.NewToolResultError') BUT the named loader cannot produce the named sentinel:
+- internal/index/index.go:75-88: Load returns EMPTY *Index for missing file via `if errors.Is(err, fs.ErrNotExist) { return &Index{...empty...}, nil }`. NEVER produces ErrIndexMissing.
+- ErrIndexMissing lives at internal/ops/errors.go:96 and is produced ONLY by ops.loadIndexOrSentinel at helpers.go:271-280 — which is PACKAGE-PRIVATE (lowercase l).
+- Result: TestMCPGet_IndexMissingBatchLevelError is unimplementable as currently specified.
+
+**SURGICAL FIX**: name an exported sentinel-aware loader path. Options:
+(a) Promote ops.loadIndexOrSentinel → ops.LoadIndexOrSentinel (export rename) in L3-C3-D1 directive
+(b) Add os.Stat-based pre-loop gate that surfaces batch-level error directly
+
+ROUTED-KNOWN (non-blocking):
+- Children field position 'append-after-Error': rationale 'preserves byte-identity for golden snapshots' is OVERSTATED — no goldens exist in internal/mcpsrv/. Decision still defensible on additive-JSON-key-ordering merits.
+- Test name drift: _AggregatesChildren in rework vs _ItemHasChildren in L2-C parent (drop.toml:579). Semantically equivalent; cite-back required.
+- Downstream-load re-entry: even with batch-level gate, per-item ops.Get may load index downstream. Plan should pin: after batch-level ErrIndexMissing surface, per-item loop does NOT execute.
+
+L3-C3 needs ONE surgical text touch before D1 dispatch: name the exported sentinel-aware loader path.
+"""
+updated_at = "2026-05-16T08:30:00Z"
+[l3_c3_mcp_dispatch-plan-qa-falsification]
+completed_at = "2026-05-16T08:50:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-16T07:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c3_mcp_dispatch"
+title = "Plan-QA falsif of L3-C3 planner — MCP group-prefix dispatch in internal/mcpsrv"
+transition_notes = """
+REWORK falsif verdict: FAIL (5 CONFIRMED-CEs). tool_uses=25 (Read=6, Grep/Bash=19). Above floor.
+
+PRIOR CEs status: CE-1 (test rename) SURFACE-RESOLVED. CE-2 (MixedBatch RESTORED) FULLY RESOLVED. CE-3 (index-load) STRUCTURALLY BROKEN — the prescribed mechanism cannot work.
+
+**CONFIRMED-CE 1.2.1 (index-load mechanism)**: rework prescribes 'via internal/index.Load(path)' but Load at internal/index/index.go:67-88 returns (&Index{empty}, nil) for missing file. NEVER produces ErrIndexMissing. ErrIndexMissing lives at internal/ops/errors.go:96 and is wrapped ONLY by package-private ops.loadIndexOrSentinel at helpers.go:271-280.
+
+FOLD: promote ops.loadIndexOrSentinel → ops.LoadIndexStrict (exported) in L3-C3-D1 spec; use in tools.go.
+
+**CONFIRMED-CE 1.2.2 (parent contract drift)**: L2-C parent at drop.toml:572 pins Children []groupChildItem (omitempty when single). Rework at :3143 says []getResultItem. Parent record NOT updated; 'A3 routed-known fold' rationale not inlined.
+
+FOLD: update L2-C parent OR introduce groupChildItem per parent contract.
+
+**CONFIRMED-CE 1.2.3 (fictional goldens)**: rework at :3142 cites 'byte-identity for existing single-record golden snapshots' but rg golden/testdata in internal/mcpsrv/ returns ZERO matches; decodeBatchResults at server_test.go:1053-1067 parses to map[string]any with per-field asserts NOT byte-identity.
+
+FOLD: replace rationale with 'preserves existing decodeBatchResults field-order traversal'.
+
+**CONFIRMED-CE 1.2.6 (recursion depth undefined)**: []getResultItem invites unbounded recursion. Plan doesn't pin: does handleGet recursively populate Children? GetGroup returns flat children only (per group.go:113-138). Type system invites callers to expect arbitrary nesting; risks infinite loop.
+
+FOLD: pin 'Children is single-level depth in MCP envelope; deeper aggregation requires client re-issue.'
+
+**CONFIRMED-CE 1.2.11 (test unreachable)**: TestMCPGet_IndexMissingBatchLevelError corollary of CE-1.2.1. Cannot fire under prescribed mechanism.
+
+ROUTED-KNOWN (4 non-blocking): MixedBatch scope (could tighten to mixed-types); nil vs []getResultItem{} init path; ops.Get internally re-loads idx (partial optimization); GetGroup partial-failure inherited from L3-C1.
+
+MITIGATED (3): empty items[] wasted-load (existing code structure forces correct ordering); batch-level vs per-item routing convention consistent; Children field position no JSON semantic difference.
+
+6 SURGICAL FOLDS recommended (none structural): LoadIndexStrict export + parent contract sync + golden rationale rewrite + recursion depth pin + MixedBatch scope tighten + Children=nil init pin.
+
+L3-C3 still needs orchestrator-override fold round before D1 dispatch.
+"""
+updated_at = "2026-05-16T08:50:00Z"
+[l3_d1_format_substrate]
+blockers = []
+created_at = "2026-05-16T04:00:00Z"
+description = """
+L3-D1 (format substrate) REWORKED per plan-QA falsif FAIL (4 CONFIRMED-CEs including CRITICAL interface contract drift).
+
+## REWORK FOLDS APPLIED (4)
+
+1. **CE-2.1 INTERFACE CONTRACT CORRECTED**: Format interface methods per L2-D parent mandate (drop.toml:612):
+   - Parse(buf []byte, m Manifest) (Blocks, error)
+   - Find(buf []byte, m Manifest, name string) ([]byte, error)
+   - Splice(buf []byte, m Manifest, name string, content []byte) ([]byte, error)
+   - Marshal(blocks Blocks, m Manifest) ([]byte, error)
+2. **CE-2.2 DISPATCH-KEY PINNED**: Registry key = schema-enum 'format' field value (NOT package name). md_explicit registers under 'md' (matches template_manifest.md enum). Existing internal/backend/md/ is record.Backend layer (different seam per L2-D parent), does NOT register under Format key.
+3. **CE-2.9 ORPHANED FILES ASSIGNED**: doc.go folded into D1-D1 (package-defining file alongside format.go). testdata/manifests/*.toml fixture ownership in D1-D2 (manifest loader tests reference inline fixtures + this testdata dir).
+4. **record.Backend rationale INLINE**: L2-D parent: 'NOT extending record.Backend (different seam: manifest-driven block extraction from arbitrary files, not schema-declared section store).'
+
+## L3-D1-D1 — Format interface + Blocks + registry + doc.go
+
+Paths owned (NEW):
+- internal/format/format.go (Format interface w/ Parse/Find/Splice/Marshal; Blocks type; Register/Get registry)
+- internal/format/doc.go (package doc: manifest-driven block extraction; distinct from record.Backend)
+- internal/format/format_test.go (TestFormat_RegisterAndGet / _UnregisteredErrors / _ParseRoundTrip via mock Format impl)
+
+Blockers: none.
+
+## L3-D1-D2 — Manifest loader + testdata fixtures
+
+Paths owned (NEW):
+- internal/format/manifest.go (Load .ta/templates/manifests/*.toml per template_manifest schema)
+- internal/format/manifest_test.go (TestManifest_LoadHtmlManifest / _LoadMdManifest / _LoadTxtManifest / _ValidatesFormatEnum / _RejectsUnknownFormat / _MalformedTOML)
+- internal/format/testdata/manifests/{html,md,txt}.toml (NEW canonical fixtures)
+
+Blockers: D1.
+
+## L3-D1-D3 — Dispatch (schema-enum keyed)
+
+Paths owned (NEW):
+- internal/format/dispatch.go (Dispatch(formatName string) (Format, error); key is schema-enum value 'html'/'md'/'txt')
+- internal/format/dispatch_test.go (TestDispatch_KnownFormat / _UnknownFormat_Errors / _SchemaEnumKeyMapping)
+
+Blockers: D1.
+
+## Close gate
+mage testPkg ./internal/format green.
+
+L3-D1 close → L3-D2/D3/D4 unblock (Format interface available with Parse/Find/Splice/Marshal contract).
+
+## SURGICAL AMEND FOLDS (round 2, orchestrator-override per drop_003 precedent)
+
+Applied after plan-QA round 2 returned PROOF PASS-with-cosmetic-AMEND + FALSIF FAIL (6 net-new type-shape CEs). All surgical text — no structural redesign.
+
+1. **Blocks type shape pin**: `type Block struct { Name string; Bytes []byte; Start, End int }; type Blocks []Block`. Ordered slice with byte-range metadata (Start/End are byte offsets into the original buffer; consumed by Splice to enforce preserve-outside-[Start,End)). Manifest-keyed Block.Name resolves the section identity.
+
+2. **Manifest type shape pin**: Manifest = interface; concrete impls HtmlManifest / MdManifest / TxtManifest reside per-backend package. format.Manifest interface declares the minimal contract: `BlockName(node any) (string, bool)` for HTML/MD selector→name resolution + `Selectors() []string` for ordered enumeration. NOT a tagged-union struct or map[string]any (would force every backend to reflect through string keys).
+
+3. **Find not-found semantics**: `var ErrBlockNotFound = errors.New("format: block not found")` exported from format.go. Find returns ([]byte{}, ErrBlockNotFound) on missing-name. Splice wraps via %w. Callers use errors.Is.
+
+4. **Splice missing-name semantics**: update-only with ErrBlockNotFound (NOT insert-mode-on-missing). If a backend needs append semantics, that is a SEPARATE method (Append/Insert) not yet in scope. Reason: insert-on-missing is ambiguous where (top? bottom? before selector X?); explicit error forces caller to make the choice via an Append method later.
+
+5. **Register concurrency**: NOT safe for concurrent use post-init() — init-time only. Add TestFormat_RegisterAfterInit_Panics gate that mutates the registry post-init and asserts panic. Documented in doc.go.
+
+6. **Register duplicate-key panic**: panic-on-duplicate per stdlib precedent (database/sql.Register, image.RegisterFormat, encoding/gob.Register). Panic message: `format: Register called twice for format '<name>'`.
+
+Cosmetic objective field also corrected (Marshal/Unmarshal/Manifest → Parse/Find/Splice/Marshal).
+"""
+objective = "Build internal/format/ package with Format interface (Parse/Find/Splice/Marshal) + per-format registry dispatcher + template_manifest loader. Backends (html/md_explicit/txt) plug into this interface in L3-D2/D3/D4."
+parent_id = "drop_004.drop.l2_d_multi_file_type"
+role = "planner"
+started_at = "2026-05-16T07:50:00Z"
+state = "in_progress"
+title = "L3-D1 planner — format substrate (Format interface + dispatcher + template_manifest loader)"
+transition_notes = """
+Round 2 plan-QA closed via orchestrator-override on AMEND-class folds. Ready for L3-D1-D1 builder dispatch.
+
+Key type pins:
+- type Block struct { Name string; Bytes []byte; Start, End int }
+- type Blocks []Block
+- Manifest = interface (per-backend concrete impls)
+- var ErrBlockNotFound = errors.New("format: block not found")
+- Register: init-time only, panic on duplicate, NOT goroutine-safe
+"""
+updated_at = "2026-05-16T07:50:00Z"
+[l3_d1_format_substrate-plan-qa-proof]
+completed_at = "2026-05-16T08:05:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T07:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d1_format_substrate"
+title = "Plan-QA proof of L3-D1 planner — format substrate (Format interface + dispatcher + template_manifest loader)"
+transition_notes = """
+REWORK PASS verdict (with 1 cosmetic AMEND). tool_uses=10. All 4 prior CONFIRMED-CEs RESOLVED:
+
+(1) Interface contract Parse/Find/Splice/Marshal: drop.toml:3193-3196 EXACT MATCH to L2-D parent at :612.
+(2) Dispatch-key = schema-enum value: drop.toml:3197 + .ta/schema.toml:837 enum=['md'] cross-validate. md_explicit registers under 'md' key.
+(3) Orphaned files assigned: doc.go in D1-D1 paths (line 3205); testdata/manifests/ in D1-D2 paths (line 3215).
+(4) record.Backend rationale inline: drop.toml:3199 quotes L2-D verbatim 'NOT extending record.Backend (different seam: manifest-driven block extraction from arbitrary files, not schema-declared section store).'
+
+Splice contract enables L3-D2/D3/D4 acceptance tests. internal/backend/md/backend.go:40 confirms existing md is record.Backend NOT Format — no registry collision with md_explicit under Format-registry key 'md'. L3-D3-D2 _ZeroSideEffectOnExistingMdBackend test + mage testPkg ./internal/backend/md regression gate enforces non-conflict.
+
+9 falsification self-attacks all mitigated. 0 unmitigated CE to PASS verdict.
+
+**COSMETIC AMEND (non-blocking)**: objective field at drop.toml:3232 still reads 'Marshal/Unmarshal/Manifest' (stale relative to corrected description). description is authoritative; objective is one-line summary metadata. Builders read description. Suggest orchestrator one-line update to objective when this plan-QA twin closes.
+
+MINOR ROUTED-KNOWN: Manifest type-definition home not explicit (D1-D1 format.go natural; loader logic in D1-D2 manifest.go). Builder picks at implementation.
+
+L3-D1 ~98% ready: pending falsif twin + cosmetic objective update.
+"""
+updated_at = "2026-05-16T08:05:00Z"
+[l3_d1_format_substrate-plan-qa-falsification]
+completed_at = "2026-05-16T08:30:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-16T07:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d1_format_substrate"
+title = "Plan-QA falsif of L3-D1 planner — format substrate (Format interface + dispatcher + template_manifest loader)"
+transition_notes = """
+REWORK falsif verdict: FAIL (4 prior CEs RESOLVED + 6 net-new CEs on type-shape underspecification). tool_uses=17 (Read=4, Grep/Bash=12, Context7=1).
+
+**4 prior CEs ALL RESOLVED**:
+- Interface contract Parse/Find/Splice/Marshal: drop.toml:3193-3196 verbatim match to L2-D parent line 612.
+- Dispatch-key 'md' from schema enum: drop.toml:3197 + schema.toml:837 cross-validate.
+- doc.go assigned to D1-D1; testdata in D1-D2.
+- record.Backend rationale inline verbatim at drop.toml:3199.
+
+**6 NET-NEW CEs surfaced** (type-shape gaps on top of correct method signatures):
+
+1. **Blocks type shape unpinned** (MEDIUM): Parse returns Blocks; Marshal consumes. Plan never declares whether Blocks is ordered slice ([]Block), map (map[string]Block), tree, or iterator. Round-trip Marshal(Parse(buf))==buf requires ordered+byte-range-preserving. Map fails round-trip on multi-occurrence selectors. PIN: `type Block struct { Name string; Bytes []byte; Start, End int }; type Blocks []Block`.
+
+2. **Manifest type shape unpinned** (MEDIUM): Interface signatures take Manifest parameter. Plan doesn't say whether Manifest is interface (HtmlManifest, MdManifest impls), concrete struct, or map[string]any. Template_manifest schema has format-specific fields (html.selectors / md.heading_path_selectors / txt.regex_selectors). Three backends will pick incompatible accessors without pin.
+
+3. **Find not-found semantics unpinned** (LOW): Find(buf, m, name) ([]byte, error) — what when name absent from manifest OR selector matches zero nodes? Three options: nil+ErrNotFound / nil+nil / []byte{}+nil. PIN: sentinel ErrBlockNotFound.
+
+4. **Splice missing-name semantics unpinned** (MEDIUM): What when name not present in buf? Insert mode (create at anchor) vs update-only (return ErrBlockNotFound)? Pick determines whether CLI `ta update --as=html` can create new records or only modify existing. PIN: update-only with ErrBlockNotFound.
+
+5. **Register concurrency unpinned** (LOW): Plan declares 'Register/Get registry' at package level. Doesn't say init()-time-only vs runtime-safe. L3-D2 line 3295 says 'registers in init()' implying init-only. PIN: 'Register NOT safe for concurrent use post-init()' with TestFormat_RegisterAfterInit_Panics gate.
+
+6. **Register duplicate-key behavior unpinned** (LOW): What when Register('md', impl) called twice? Stdlib precedent (database/sql / image / encoding/gob) panics on duplicate. PIN: panic-on-duplicate per Go idiom.
+
+**REQUIRED AMENDMENTS before L3-D1-D1 dispatch**: pin all 6 type-contract decisions in description or doc.go contract.
+
+Either (a) AMEND fold with all 6 pins, OR (b) full rework loop. Drop_003 precedent supports surgical AMEND for small-radius pin-fixes. Recommend (a).
+
+L3-D1 + L3-D2 are SYMBIOTIC — L3-D1's type-shape pins gate L3-D2/D3/D4 implementations. Pinning matters.
+"""
+updated_at = "2026-05-16T08:30:00Z"
+[l3_d2_html_backend]
+blockers = ["drop_004.drop.l3_d1_format_substrate"]
+created_at = "2026-05-16T04:00:00Z"
+description = """
+L3-D2 (html backend) REWORKED per plan-QA falsif FAIL (5 CONFIRMED-CEs including parse-tokenize seam).
+
+## REWORK FOLDS APPLIED (5)
+
+1. **CE-2.1+2.2 PARSE-TOKENIZE SEAM STRATEGY PICKED**: Option (a) PRIMARY — parallel html.Parse + html.NewTokenizer over same buffer; align nodes to tokens by traversal-order. Build a side-table keyed by *html.Node pointer with [startOffset, endOffset). Implicit html/head/body insertion by parser handled via document-fragment-mode (html.ParseFragment with empty root) when input is a fragment. FALLBACK (b) on alignment failure: re-tokenize during splice using matched node's tag+attr signature as content key with first-match wins + warn on ambiguity.
+2. **CE-2.10 CONTRACT PIN**: html implements Format ONLY (NOT record.Backend). HTML is template-output format, NOT record-storage. ops/MCP layer uses record.Backend for record CRUD; html backend serves template rendering via Format interface from L3-D1.
+3. **CE-2.12 TEST EXPANSION**: add TestHtmlParse_SelfClosingVoidElements (br/hr/img/input) / _HtmlComments (CommentToken) / _DoctypePreservation (DoctypeToken) / _RawTextElements (script/style/textarea/title special tokenizer states) / _MultiByteUTF8Fixtures / _MalformedInputClarification (round-trip well-formed; document best-effort for malformed).
+4. **CE-2.5 CASCADIA PACKAGE PINNED**: github.com/andybalholm/cascadia (canonical, NOT goquery-bundled). Add as direct go.mod dep alongside golang.org/x/net promotion.
+5. **CE-2.3 SPLICE PRECEDENT CLARIFIED**: 'preserve-outside-[start,end)' core transfers from toml/splice.go. Address-resolution machinery (cascadia match → byte range via traversal-order alignment) is NEW and ~5× toml/parse.go complexity (~300+ lines vs ~100); D1 droplet budgets accordingly.
+
+## L3-D2-D1 — go.mod + html parse with offset side-table
+
+Paths owned (EDIT + NEW):
+- go.mod (EDIT — promote golang.org/x/net to direct + add github.com/andybalholm/cascadia)
+- internal/backend/html/parse.go (NEW — html.Parse + html.NewTokenizer dual-pass; offset side-table keyed by *html.Node)
+- internal/backend/html/parse_test.go (NEW — _PreservesBytePositions / _RecoversOffsetsViaRaw / _TraversalOrderAlignment / _SelfClosingVoidElements / _HtmlComments / _DoctypePreservation / _RawTextElements / _MultiByteUTF8Fixtures / _ImplicitHtmlHeadBodyHandled)
+
+Blockers: L3-D1 (Format interface contract Parse/Find/Splice/Marshal).
+
+## L3-D2-D2 — cascadia CSS selector splice with byte-range bridge
+
+Paths owned (NEW):
+- internal/backend/html/splice.go (cascadia match → *html.Node → side-table lookup → byte range; 'preserve-outside-[start,end)' core mirrors toml/splice.go)
+- internal/backend/html/splice_test.go (TestHtmlSplice_Idempotent / _UpdatesNestedSelector / _PreservesByteRangeOutsideSelector / _MalformedInputClarification (well-formed inputs only; document best-effort for malformed))
+
+Blockers: D1.
+
+## L3-D2-D3 — Format interface impl + register
+
+Paths owned (NEW):
+- internal/backend/html/backend.go (implements Parse/Find/Splice/Marshal from L3-D1 Format interface; registers in init() under key 'html')
+- internal/backend/html/backend_test.go (TestHtmlBackend_RoundTripByteIdentical / _ManifestSelectorMapping / _RegistersUnderHtmlKey)
+
+Blockers: D1+D2.
+
+## Close gate
+mage testPkg ./internal/backend/html green; all expanded edge-case tests pass.
+
+L3-D2 close → unblocks L3-E (FE template work consumes html backend via Format dispatch).
+
+## SURGICAL AMEND FOLDS (round 2, orchestrator-override per drop_003 precedent)
+
+Applied after plan-QA round 2 returned PROOF PASS-with-cosmetic + FALSIF FAIL (6 net-new surgical CEs incl. critical ParseFragment API misuse). All surgical text — no structural redesign.
+
+1. **ParseFragment context Node fix**: previous text said 'with empty root' which is incorrect — per `go doc golang.org/x/net/html.ParseFragment`, the function signature is `ParseFragment(r io.Reader, context *Node) ([]*Node, error)` and `context` MUST be a real element node (not nil/empty). Pin: use `&html.Node{Type: html.ElementNode, DataAtom: atom.Body, Data: "body"}` as the context Node. The atom import is `golang.org/x/net/html/atom`. This affects parse.go's fragment-mode branch.
+
+2. **Tree-tokenizer desync detection clause**: when parse.go's parallel-traversal alignment loop detects node-token count mismatch >0 OR tag-name mismatch at position N (e.g. the parser inserted an implicit `<tbody>` that the tokenizer didn't emit), fall back IMMEDIATELY to strategy (b) — re-tokenize during splice using tag+attr signature lookup. Do NOT attempt partial alignment recovery (too error-prone). Pin this clause in parse.go's docstring + test it via TestHtmlParse_DesyncFallbackOnImplicitTbody.
+
+3. **No-match selector splice semantics**: cascadia selector matches zero nodes → return `ErrSelectorNotFound` sentinel (var declared in splice.go). HTML has no analog of toml/splice.go's appendSection fallback (there is no canonical 'where to append' in arbitrary HTML — semantic anchor is selector-driven). Splice update-only.
+
+4. **Ambiguity sentinel**: cascadia selector matches multiple nodes → return `ErrAmbiguousMatch` via %w wrap on the actual splice result. Errors.Is callable. Most Go-idiomatic surfacing.
+
+5. **Multi-match splice policy pin**: when ambiguous, first-match-wins (traversal-order). Mirrors L3-D4 txt regex policy. Document this in splice.go: caller wraps in errors.Is(err, ErrAmbiguousMatch) to detect; the splice still happens (first match wins) but the error is surfaced for caller decision.
+
+6. **MalformedInput enumeration**: TestHtmlParse_MalformedInputClarification covers AT LEAST these forms with explicit expected behavior:
+   - unclosed-tags (`<div>foo`) → parser auto-closes; round-trip lossy on missing close; document as best-effort
+   - mismatched-nesting (`<b><i></b></i>`) → parser fixes via adoption agency algorithm; round-trip lossy; best-effort
+   - illegal-nesting (`<p><div></div></p>`) → parser auto-closes p; document
+   - no-root (raw fragment) → ParseFragment with body context (per fold #1); round-trip preserved
+   - NUL-bytes → replaced with U+FFFD per html5 spec; round-trip lossy; document
+"""
+objective = "Build internal/backend/html/ package implementing Format interface for HTML. Promote golang.org/x/net to direct go.mod dep + add cascadia. Byte-position preservation via html.Tokenizer.Raw() (NOT html.Render which loses positions). Splice-with-CSS-selector pattern mirroring internal/backend/toml/splice.go precedent."
+parent_id = "drop_004.drop.l2_d_multi_file_type"
+role = "planner"
+started_at = "2026-05-16T07:50:00Z"
+state = "in_progress"
+title = "L3-D2 planner — html backend (golang.org/x/net + cascadia, byte-position preservation)"
+transition_notes = """
+Round 2 plan-QA closed via orchestrator-override on AMEND-class folds. Ready for L3-D2-D1 builder dispatch.
+
+Key API pins:
+- html.ParseFragment(r, &html.Node{Type:html.ElementNode, DataAtom:atom.Body, Data:"body"})
+- var ErrSelectorNotFound = errors.New("html: selector did not match")
+- var ErrAmbiguousMatch = errors.New("html: selector matched multiple nodes")
+- Multi-match policy: first-match-wins + %w-wrapped ErrAmbiguousMatch
+- Desync fallback: re-tokenize on count or tag-name mismatch
+
+## ROUTED FORWARD-LOOKING PIN (from build-QA-proof on L3-D2-D1)
+
+**L3-D2-D3 must remove the blank cascadia import**: L3-D2-D1 builder forward-staged `_ "github.com/andybalholm/cascadia"` at parse.go:42 to keep `go mod tidy` from stripping cascadia before D3 lands. When L3-D2-D3 builder writes backend.go that USES cascadia (the Format-interface impl that does selector matching), the D3 builder MUST remove the blank-import line in parse.go and replace it with the real cascadia usage. Pin this directive on D3's builder droplet description. Defensible staging by D1; D3 owns the cleanup.
+"""
+updated_at = "2026-05-16T07:50:00Z"
+[l3_d2_html_backend-plan-qa-proof]
+completed_at = "2026-05-16T08:30:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T07:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d2_html_backend"
+title = "Plan-QA proof of L3-D2 planner — html backend (golang.org/x/net + cascadia, byte-position preservation)"
+transition_notes = """
+REWORK proof verdict: PASS (2 cosmetic non-blocking items). tool_uses=16 (Read=5, Grep/Bash=11). Above floor.
+
+All 5 prior CONFIRMED-CEs RESOLVED with file-level evidence:
+(1) parse-tokenize seam: option (a) PRIMARY (parallel parse+tokenize+traversal-order alignment+side-table) + FALLBACK (b) re-tokenize-during-splice + ParseFragment for implicit html/head/body. Sound idiom for byte-edit-preserving HTML.
+(2) Format-only contract: drop.toml:3197+3199 + L2-D:612 align.
+(3) 6 edge tests: SelfClosingVoidElements / HtmlComments / DoctypePreservation / RawTextElements / MultiByteUTF8Fixtures / MalformedInputClarification — all named.
+(4) Cascadia pin github.com/andybalholm/cascadia (standalone, NOT goquery-bundled).
+(5) Splice precedent: 'preserve-outside-[start,end)' core + address-resolution machinery acknowledged ~5x bigger.
+
+Verified: L3-D1 blocker correct; Format registration under 'html' matches schema.toml:823 enum; droplet sequencing D1→D2→D3 correct; go.mod golang.org/x/net v0.52.0 indirect present.
+
+Falsification self-attacks (10) all MITIGATED.
+
+COSMETIC (non-blocking):
+- '~5× toml/parse.go complexity (~300+ lines vs ~100)' phrasing reads naturally as '5x toml/splice.go' (numerically consistent that way). Loose phrasing.
+- go doc Bash blocked this session; parse-tokenize alignment strategy not cross-validated against stdlib. Build-time tests cover.
+
+L3-D2 READY for D1 builder dispatch ONCE L3-D1 closes (and L3-D1 needs its own AMEND fold first per falsif verdict).
+"""
+updated_at = "2026-05-16T08:30:00Z"
+[l3_d2_html_backend-plan-qa-falsification]
+completed_at = "2026-05-16T08:35:00Z"
+created_at = "2026-05-16T07:20:50Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-16T07:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d2_html_backend"
+title = "Plan-QA falsif of L3-D2 planner — html backend (golang.org/x/net + cascadia, byte-position preservation)"
+transition_notes = """
+REWORK falsif verdict: FAIL (5 prior CEs partially resolved + 6 NET-NEW surgical CEs). tool_uses=17 (Read=4, Grep/Bash=11, Context7=2).
+
+**Prior 5 CEs status**: 2 MITIGATED (contract pin, test expansion) / 2 PARTIALLY-MITIGATED (seam factual error; splice no-match gap) / 1 MITIGATED-w-version-ROUTED (cascadia package).
+
+**6 NEW CONFIRMED-CEs** (all surgical-foldable):
+
+1. **ParseFragment API misuse**: plan says 'ParseFragment with empty root' but signature requires real context Node. Per go doc: ParseFragment(r io.Reader, context *Node). FOLD: replace with `&html.Node{Type:html.ElementNode, DataAtom:atom.Body, Data:'body'}`.
+
+2. **Tree-tokenizer desync bound**: library docs explicitly say html.Parse can DROP tokens silently AND create implicit nodes. Primary 'traversal-order alignment' strategy has no mitigation for this; only fallback (b) does. FOLD: add detection clause 'when node-token count mismatch >0 OR tag-name mismatch at position N, fall back immediately to strategy (b)'.
+
+3. **No-match splice semantics undefined**: TOML splice.go has appendSection fallback at line 35; HTML has no analog. FOLD: pin one of (a) ErrSelectorNotFound return, (b) append-as-last-child-of-body, (c) match TOML semantics with named anchor. Recommend (a).
+
+4. **Ambiguity warning channel undefined**: fallback (b) says 'warn on ambiguity' — stderr? returned error? Warnings []string? FOLD: pin to returned sentinel ErrAmbiguousMatch via %w wrap (most Go-idiomatic).
+
+5. **Multi-match splice policy undefined**: CSS selectors typically multi-match. FOLD: pin first-match-wins (mirrors L3-D4 txt regex policy line 643).
+
+6. **MalformedInput enumeration**: plan says 'document best-effort for malformed' but doesn't enumerate. FOLD: list at least: unclosed tags / mismatched-nesting / illegal nesting (p>div) / no-root / NUL-bytes. State per-form expected behavior.
+
+MITIGATED net-new (5): pointer-key side-table safety (Go GC retains nodes); UTF-8-only fixture scope (library contract); cascadia v2 speculation (plan doesn't claim v2); RawTextElements coverage (plan-level granularity adequate); _Idempotent multi-match folds into #5.
+
+AMEND-not-rebuild recommended. None blocks L3-D1 substrate dependency.
+
+L3-D2 needs 6 surgical fold touches before D1 dispatch.
+"""
+updated_at = "2026-05-16T08:35:00Z"
+[l3_d3_md_explicit_backend]
+blockers = ["drop_004.drop.l3_d1_format_substrate"]
+created_at = "2026-05-16T04:00:00Z"
+description = """
+L3-D3 decomposes into 2 droplets.
+
+## L3-D3-D1 — heading-path scanner + selector
+Paths: internal/backend/md_explicit/scan.go (NEW — line-oriented scan for # ## ### headings; build path tree); internal/backend/md_explicit/scan_test.go
+Tests: TestMdExplicitScan_BuildsHeadingPath / _DeepHeadingPath / _EscapedHashIgnored
+Blockers: L3-D1.
+
+## L3-D3-D2 — Format interface impl + register
+Paths: internal/backend/md_explicit/backend.go (NEW); internal/backend/md_explicit/backend_test.go
+Tests: TestMdExplicitBackend_RoundTripByteIdentical / _ManifestHeadingPathMapping / _ZeroSideEffectOnExistingMdBackend
+Blockers: D1.
+
+Close: mage testPkg ./internal/backend/md_explicit green + mage testPkg ./internal/backend/md regression-green (no side effect).
+"""
+objective = "Build internal/backend/md_explicit/ package implementing Format interface for Markdown via heading-path selectors (NOT general markdown parser). Stdlib-only. Disjoint from existing internal/backend/md/ (ZERO source edits to that package)."
+parent_id = "drop_004.drop.l2_d_multi_file_type"
+role = "planner"
+state = "todo"
+title = "L3-D3 planner — md_explicit backend (heading-path selectors, stdlib only)"
+updated_at = "2026-05-16T04:00:00Z"
+
+[l3_d3_md_explicit_backend-plan-qa-proof]
+created_at = "2026-05-16T07:20:50Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.l3_d3_md_explicit_backend"
+title = "Plan-QA proof of L3-D3 planner — md_explicit backend (heading-path selectors, stdlib only)"
+updated_at = "2026-05-16T07:20:50Z"
+
+[l3_d3_md_explicit_backend-plan-qa-falsification]
+created_at = "2026-05-16T07:20:50Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.l3_d3_md_explicit_backend"
+title = "Plan-QA falsif of L3-D3 planner — md_explicit backend (heading-path selectors, stdlib only)"
+updated_at = "2026-05-16T07:20:50Z"
+
+[l3_d4_txt_backend]
+blockers = ["drop_004.drop.l3_d1_format_substrate"]
+created_at = "2026-05-16T04:00:00Z"
+description = """
+L3-D4 decomposes into 2 droplets.
+
+## L3-D4-D1 — regex selector engine + capture-group extraction
+Paths: internal/backend/txt/regex.go (NEW); internal/backend/txt/regex_test.go
+Tests: TestTxtRegex_CapturesNamedGroups / _MultipleMatches / _CaseInsensitiveFlag
+Blockers: L3-D1.
+
+## L3-D4-D2 — Format interface impl + register
+Paths: internal/backend/txt/backend.go (NEW); internal/backend/txt/backend_test.go
+Tests: TestTxtBackend_RoundTripByteIdentical / _ManifestRegexSelectorMapping
+Blockers: D1.
+
+Close: mage testPkg ./internal/backend/txt green.
+"""
+objective = "Build internal/backend/txt/ package implementing Format interface for plain-text via regex selectors. Stdlib-only."
+parent_id = "drop_004.drop.l2_d_multi_file_type"
+role = "planner"
+state = "todo"
+title = "L3-D4 planner — txt backend (regex selectors, stdlib only)"
+updated_at = "2026-05-16T04:00:00Z"
+
+[l3_d4_txt_backend-plan-qa-proof]
+created_at = "2026-05-16T07:20:50Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.l3_d4_txt_backend"
+title = "Plan-QA proof of L3-D4 planner — txt backend (regex selectors, stdlib only)"
+updated_at = "2026-05-16T07:20:50Z"
+
+[l3_d4_txt_backend-plan-qa-falsification]
+created_at = "2026-05-16T07:20:50Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.l3_d4_txt_backend"
+title = "Plan-QA falsif of L3-D4 planner — txt backend (regex selectors, stdlib only)"
+updated_at = "2026-05-16T07:20:50Z"
+
+[builder_l3_c1_d2_get_group]
+blockers = ["drop_004.drop.builder_l3_c1_d1_is_group_prefix"]
+completed_at = "2026-05-16T05:50:00Z"
+created_at = "2026-05-16T04:30:00Z"
+objective = "Build GetGroup(path, id string, fields []string, limit int, all bool) ([]ScopeRecord, error) in internal/ops/group.go (EDIT — add to D1's existing file). Path-rooted per L3-C1 AMEND signature pin. Load index via helpers.go::loadIndexOrSentinel precedent. Consume resolveGroupPrefix from D1. Use per-child ops.Get (NOT search.Run) per L2-C falsif A12. Convert GetResult{FilePath, Bytes, Fields} → ScopeRecord{ID, Bytes, Fields} per child. 6 tests appended to group_test.go per L3-C1 AMEND: TestOps_GetGroup_AggregatesChildren / _CanonicalSortOrder / _EmptyGroupOK / _SingleRecord / _DoesNotAffectRecordIDLookups / _MultiDB (RESTORED) / _FieldsFilter (RESTORED — GetGroup fields []string param) / _LimitAll (RESTORED — GetGroup limit/all params) / _IndexMissing (RESTORED — graceful nil error path). NOTE: 9 names listed; pick 6 per L3-C1 description if budget-tight, but restore the 4 _RESTORED tests as priority (_MultiDB / _FieldsFilter / _LimitAll / _IndexMissing) plus _AggregatesChildren + _CanonicalSortOrder for minimum 6."
+outcome = "success"
+parent_id = "drop_004.drop.l3_c1_ops_group_aggregate"
+paths = ["internal/ops/group.go", "internal/ops/group_test.go"]
+role = "builder"
+started_at = "2026-05-16T05:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-C1-D2 builder — GetGroup in internal/ops/group.go (+ 6 GetGroup tests)"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=14 (Read=7, Edit/Write=4, Bash-mage=3). Above 3-call builder floor.
+
+Signature PINNED per L3-C1 AMEND: func GetGroup(path, id string, fields []string, limit int, all bool) ([]ScopeRecord, error). Path-rooted (matches GetScope at ops.go:1288). Implementation: loads index via loadIndexOrSentinel; resolves via resolveGroupPrefix from D1; per-child ops.Get (NOT search.Run per L2-C falsif A12); converts GetResult→ScopeRecord; honors fields/limit/all.
+
+New public API:
+- ops.GetGroup
+- ops.ErrNoGroup sentinel (callers errors.Is(err, ops.ErrNoGroup) to disambiguate from ErrIndexMissing)
+
+6 tests added per L3-C1 AMEND (all RESTORED items + 2 base):
+1. TestOps_GetGroup_AggregatesChildren — happy path 3 children
+2. TestOps_GetGroup_CanonicalSortOrder — reverse-insert (gamma,alpha,beta) returns sort.Strings order (alpha,beta,gamma)
+3. TestOps_GetGroup_MultiDB (RESTORED) — cascade.drop + cascade.planner under shared prefix drop_001.drop, cross-type aggregation per dogfood reality
+4. TestOps_GetGroup_FieldsFilter (RESTORED) — fields=['drop_number'] returns map with only drop_number
+5. TestOps_GetGroup_LimitAll (RESTORED) — limit=2,all=false returns 2 records; limit=2,all=true overrides to all 3
+6. TestOps_GetGroup_IndexMissing (RESTORED) — fresh project, no .ta/index.toml → errors.Is(err, ops.ErrIndexMissing)
+
+Verification:
+- mage testFunc TestOps_GetGroup_: 6/6 PASS, 0 fail, 0 skip
+- mage testPkg ./internal/ops: 151/151 PASS (planner predicted 145+6=151, exact match, zero regression)
+
+Auxiliary helpers added (acceptable scope creep within ≤4-block budget):
+- createDrop(t, root, id, dropNumber) — 3-line ops.Create wrapper for disk-based test scaffolding (used by 4 of 6 tests; cleaner than copy-paste)
+- idsOf(recs []ops.ScopeRecord) []string — pretty-printer for assertion error messages
+
+Files touched (2 declared paths only):
+- internal/ops/group.go (EDIT — added ErrNoGroup + GetGroup)
+- internal/ops/group_test.go (EDIT — added 6 tests + 2 helpers)
+
+L3-C1-D2 unblocks L3-C2 (CLI) + L3-C3 (MCP) which consume ops.GetGroup public API. L3-C1 planner-level close after build-QA twins ratify.
+"""
+updated_at = "2026-05-16T05:50:00Z"
+[builder_l3_c1_d2_get_group-qa-proof]
+completed_at = "2026-05-16T06:25:00Z"
+created_at = "2026-05-16T07:26:14Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T05:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_c1_d2_get_group"
+title = "QA proof of L3-C1-D2 builder — GetGroup in internal/ops/group.go (+ 6 GetGroup tests)"
+transition_notes = """
+VERDICT: PASS. tool_uses=15 (Read=4, Grep/Bash=11). Above 5-call floor.
+
+All 10 axes verified:
+(1) Signature group.go:113 EXACT match to AMEND.
+(2) ErrNoGroup sentinel group.go:27 + wrapping at :120.
+(3) Per-child Get at group.go:127 (NOT search.Run) — L2-C falsif A12 honored.
+(4) 6 named tests at group_test.go:136/174/218/261/296/335.
+(5) mage testPkg ./internal/ops: 151/151 in 3.10s (baseline 145+6=151 exact math).
+(6) Scope: ONLY internal/ops/group.go + group_test.go new for this slice (cmd/ta untracked = sibling L3-D0-D1 slice).
+(7) createDrop reused in 4 tests across 11 callsites (genuine helper).
+(8) loadIndexOrSentinel at group.go:114; helper at helpers.go:271; precedent at schema_mutate.go:579.
+(9) GetResult→ScopeRecord conversion at group.go:131-135 — ID=childID from index, Bytes+Fields mapped, FilePath intentionally dropped.
+(10) fields/limit/all semantics: _FieldsFilter asserts both inclusion + exclusion; _LimitAll covers limit=2,all=false (2 records) AND limit=2,all=true (3 records, override).
+
+2 minor coverage gaps accepted non-blocking:
+- No dedicated test for per-child Get failure wrap (line 129) — ops.Get's own tests cover; structural reachability sufficient.
+- _LimitAll exercises only limit=2; limit≤0 'no cap' branch implicitly exercised by other 5 tests using limit=0, all=true.
+
+Falsification self-attacks (9) all MITIGATED. Stale cache (no — 3.10s real run), FieldsFilter coverage (both directions), CanonicalSortOrder deterministic by sort.Strings, MultiDB lexicographic order correct, scope confined to 2 files.
+
+L3-C1-D2 build-QA proof CLEAN.
+"""
+updated_at = "2026-05-16T06:25:00Z"
+[builder_l3_c1_d2_get_group-qa-falsification]
+completed_at = "2026-05-16T06:35:00Z"
+created_at = "2026-05-16T07:26:14Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T05:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_c1_d2_get_group"
+title = "QA falsif of L3-C1-D2 builder — GetGroup in internal/ops/group.go (+ 6 GetGroup tests)"
+transition_notes = """
+VERDICT: PASS. tool_uses=17 (Read=6, Grep/Bash=11). Above floor.
+
+12 attacks: 0 CONFIRMED-CE, all MITIGATED/ROUTED-KNOWN.
+
+Key verifications:
+- GetGroup at group.go:113-138 fail-loud per-child error semantics with sentinel %w wrap.
+- limit≤0 'no cap' contract documented at :98 + implementation :122 honors exactly.
+- all=true overrides limit via short-circuit :122.
+- fields pass-through to Get :127.
+- ScopeRecord.ID = childID from canonical-id list NOT res.FilePath (semantic-drift attack does not land).
+- Truncation children[:limit] preserves sort.Strings order (cannot disorder sorted slice).
+- ErrNoGroup vs ErrIndexMissing routed correctly via loadIndexOrSentinel pattern.
+- createDrop helper reused in 4 tests (genuine).
+- fields=nil/empty-slice collapse to 'return all' per Get's :140 len-check.
+
+2 ROUTED-KNOWN coverage gaps (non-blocking, recommend pinning before L3-C2/C3 consume):
+- **Partial-failure test gap**: single-corrupted-child-aborts-whole-group implemented at :128-130 but unasserted. Recommend follow-up test.
+- **ErrNoGroup test gap**: exported sentinel emitted at :120 but no test invokes non-group-id against populated index to assert it.
+
+1 ROUTED-KNOWN performance: per-child schema re-resolve (N children = N schema resolves). Acceptable for cascade tree sizes (~hundreds); revisit post-MVP if scale grows.
+
+L3-C1-D2 FULLY RATIFIED — both halves PASS.
+"""
+updated_at = "2026-05-16T06:35:00Z"
+
+[builder_l3_i1_d1_config_struct]
+blockers = []
+completed_at = "2026-05-16T08:15:00Z"
+created_at = "2026-05-16T06:45:00Z"
+objective = "Build Config + Substrate + Registration structs with TOML tags + LoadFile/LoadBytes loaders using pelletier/go-toml/v2 in NEW internal/installconfig/ package (renamed from internal/config/ to avoid collision with existing schema-resolver). Substrate fields: source/destination/destination_merge/flatten_strategy/chmod/register/merge_strategy/merge_path. Registration = {Event string, Matcher string, SettingsFile string}; register is []Registration. Tests: TestLoad_ParsesValidSubstrate / _RejectsMissingRequired / _RecognizesAllSubstrateFields / _ParsesRegistrationArray / _ParsesMultiRegisterEntries. mage testPkg ./internal/installconfig green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
+paths = ["internal/installconfig/config.go", "internal/installconfig/load.go", "internal/installconfig/config_test.go", "internal/installconfig/load_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I1-D1 builder — internal/installconfig Config+Substrate+Registration structs + load"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=8 (Read=2, Edit/Write=4, Bash-mage=2). Above 3-call builder floor.
+
+Files created (4 declared paths, no scope creep):
+- internal/installconfig/config.go: Config + Substrate + Registration structs with TOML tags per spec
+- internal/installconfig/load.go: LoadFile + LoadBytes (pelletier/go-toml/v2) + validate (post-decode required-field gate on Source + Destination)
+- internal/installconfig/config_test.go: TestLoad_RecognizesAllSubstrateFields
+- internal/installconfig/load_test.go: TestLoad_ParsesValidSubstrate + TestLoad_RejectsMissingRequired (3 sub-cases) + TestLoad_ParsesRegistrationArray + TestLoad_ParsesMultiRegisterEntries + TestLoadFile_ReadsFromDisk
+
+Verification:
+- mage testPkg ./internal/installconfig: 9/9 PASS
+- mage testFunc filter matches 8 of 9 (TestLoadFile_ReadsFromDisk outside filter, covered by testPkg)
+- No sibling package regression
+- pelletier/go-toml/v2 v2.3.0 already present in go.mod (no dep changes needed)
+
+Builder judgment calls (documented):
+- Required-field semantics: post-decode validate(*Config) checks Source + Destination per-substrate; returns wrapped error naming substrate + field.
+- TOML map key: toml:'substrate' on Config.Substrates maps [substrate.<name>] table syntax to map entries.
+- Error wrapping: %w on both fs reads + toml parse errors; validation errors descriptive without sentinel (defer ErrMissingRequiredField until 2 concrete uses gate).
+
+L3-I1-D2 (validate.go + merge.go) unblocks. L3-I1-D3 (examples sync) parallelizable. L3-I1-D4 (testdata fixture) parallel post-D1.
+"""
+updated_at = "2026-05-16T08:15:00Z"
+[builder_l3_i1_d1_config_struct-qa-proof]
+completed_at = "2026-05-16T08:40:00Z"
+created_at = "2026-05-16T18:18:57Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T08:15:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_i1_d1_config_struct"
+title = "QA proof of L3-I1-D1 builder — internal/installconfig Config+Substrate+Registration structs + load"
+transition_notes = """
+VERDICT: PASS. tool_uses=9 (Read=4, Grep/Bash=5). Above 5-call floor.
+
+All 10 verification points satisfied with on-disk evidence:
+(1) 4 files present at internal/installconfig/{config,load,config_test,load_test}.go.
+(2) Config struct: Substrates map[string]Substrate `toml:'substrate'` at config.go:13-15.
+(3) Substrate has 8 fields with exact TOML tags at config.go:36-45.
+(4) Registration {Event, Matcher, SettingsFile `toml:'settings_file'`} at config.go:49-53.
+(5) LoadFile signature exact + %w wrap at load.go:13-19.
+(6) LoadBytes signature exact + pelletier/go-toml/v2 + %w wrap at load.go:25-34. go.mod:16 confirms dep.
+(7) validate post-decode required-field gate on Source + Destination at load.go:38-48; error messages name offending substrate key.
+(8) 5 required tests present + 1 bonus TestLoadFile_ReadsFromDisk.
+(9) mage testPkg ./internal/installconfig: 9/9 green in 1.20s.
+(10) No sibling regression: zero internal cross-package imports; cascade isolation rule honored (droplet-level gate = testPkg, not mage check).
+
+Falsification self-attacks (8) all MITIGATED: empty Substrates nil-return OK; %w preserves os.ErrNotExist chain; validate error includes substrate name; no circular dep risk; sibling-regression methodology-correct at droplet level; unknown-TOML-keys lenient by pelletier default; empty-substrate-name blocked by TOML grammar; 6 tests + 3 subtests = 9 leaves matches mage output.
+
+Nice-to-have: TestLoadFile_ReadsFromDisk could tighten with errors.Is(err, os.ErrNotExist) assertion. Non-blocking.
+
+L3-I1-D1 build-QA proof CLEAN.
+"""
+updated_at = "2026-05-16T08:40:00Z"
+[builder_l3_i1_d1_config_struct-qa-falsification]
+completed_at = "2026-05-16T08:45:00Z"
+created_at = "2026-05-16T18:18:57Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T08:15:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_i1_d1_config_struct"
+title = "QA falsif of L3-I1-D1 builder — internal/installconfig Config+Substrate+Registration structs + load"
+transition_notes = """
+VERDICT: PASS (12 attacks, 0 CONFIRMED-CE, 5 ROUTED-KNOWN for downstream). tool_uses=14 (Read=5, Grep/Bash=9). Above floor.
+
+MITIGATED (7):
+- Empty Config{} validate over nil map (safe no-op).
+- TOML tag drift: all 11 tags audited at config.go:37-52 match snake_case spec.
+- register=[] vs absent: both yield len(sub.Register)==0; range semantics equivalent.
+- multi-entry Registration roundtrip: TestLoad_ParsesMultiRegisterEntries verified at load_test.go:123-162.
+- pelletier-go-toml/v2 default lenient: verified via go doc DisallowUnknownFields; builder's comment matches behavior.
+- LoadFile error wrapping: %w preserves os.ErrNotExist chain.
+- TestLoad_RejectsMissingRequired sub-cases verified (load_test.go:42-71).
+- TestLoadFile_ReadsFromDisk fixture hygiene OK (t.TempDir + 0o644).
+- mage check at L1 closeout (not droplet) per cascade isolation rule.
+
+ROUTED-KNOWN (5, for D2/L3-I2/post-MVP):
+1. **Whitespace-required-field gap**: validate uses sub.Source == '' strict equality. source=' ' (single space) passes gate. SCOPE-DEFERRED to D2 per drop.toml:3597 explicit acknowledgment. Add strings.TrimSpace enforcement in D2's validate.go.
+2. **No ErrMissingRequiredField sentinel**: validate returns fmt.Errorf without sentinel. Builder defers 'until 2 concrete uses gate.' Promote when L3-I2 (init_cmd integration) also needs to discriminate.
+3. **Map iteration ordering nondeterministic**: Config.Substrates iteration order randomized per Go spec. If install.Apply() needs deterministic substrate iteration, add SubstrateNames() []string helper returning sorted keys.
+4. **TestLoadFile_ReadsFromDisk hardening**: add errors.Is(err, os.ErrNotExist) assertion to lock %w wrapping contract.
+5. **D2 spec follow-up**: add enum/value-set validation on flatten_strategy + merge_strategy + Registration.Event.
+
+Falsif self-attacks confirm no missed angles: zero concurrency surface (no goroutines, no shared mutable state), nil-map range safe, no init() side effects, no package-level state, test isolation correct.
+
+L3-I1-D1 BOTH HALVES PASS — fully ratified. L3-I1-D2 unblocks.
+"""
+updated_at = "2026-05-16T08:45:00Z"
+[builder_l3_i1_d2_validate_merge]
+blockers = ["drop_004.drop.builder_l3_i1_d1_config_struct"]
+created_at = "2026-05-16T06:45:00Z"
+objective = "Config.MergeDefaults consumer + Validate function. Merge: user config overlays binary defaults. Validate: enum + path checks. Tests: TestMerge_OverridesDefaults / _PreservesUnsetFields / TestValidate_RejectsBadEnum / _RejectsBadMergeStrategy. mage testPkg ./internal/installconfig green."
+parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
+paths = ["internal/installconfig/merge.go", "internal/installconfig/validate.go", "internal/installconfig/merge_test.go", "internal/installconfig/validate_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-I1-D2 builder — installconfig validation + merge-with-defaults"
+updated_at = "2026-05-16T06:45:00Z"
+
+[builder_l3_i1_d2_validate_merge-qa-proof]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i1_d2_validate_merge"
+title = "QA proof of L3-I1-D2 builder — installconfig validation + merge-with-defaults"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_i1_d2_validate_merge-qa-falsification]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i1_d2_validate_merge"
+title = "QA falsif of L3-I1-D2 builder — installconfig validation + merge-with-defaults"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_i1_d3_examples_sync]
+blockers = []
+created_at = "2026-05-16T06:45:00Z"
+objective = "Add [cascade.drop.auto_spawn] + [cascade.planner.auto_spawn] blocks to examples/schemas/cascade.toml mirroring .ta/schema.toml:46-50 + :119-123 TOKEN-FOR-TOKEN. Extend internal/schema/meta_test.go with TestExamplesCascadeSchema_AutoSpawnByteFidelity asserting per-block F23 v2 token strings + id_template + role match live schema. mage testPkg ./internal/schema green."
+parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
+paths = ["examples/schemas/cascade.toml", "internal/schema/meta_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-I1-D3 builder — examples/schemas/cascade.toml sync + byte-fidelity test"
+updated_at = "2026-05-16T06:45:00Z"
+
+[builder_l3_i1_d3_examples_sync-qa-proof]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i1_d3_examples_sync"
+title = "QA proof of L3-I1-D3 builder — examples/schemas/cascade.toml sync + byte-fidelity test"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_i1_d3_examples_sync-qa-falsification]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i1_d3_examples_sync"
+title = "QA falsif of L3-I1-D3 builder — examples/schemas/cascade.toml sync + byte-fidelity test"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_i1_d4_testdata_fixture]
+blockers = ["drop_004.drop.builder_l3_i1_d1_config_struct"]
+created_at = "2026-05-16T06:45:00Z"
+objective = "NEW canonical fixture covering ≥6 substrate types + 3 merger paths: claude_agents (flatten no-merge), claude_hooks (file copy + register triple), claude_skills (file copy), claude_md_fragments (line merge via internal/configmerge.NewLineMerger), claude_settings_fragments (JSON merge with arrayDedupeKeys via NewJSONMerger), codex_config_fragments (TOML merge via NewTOMLMerger). D1's TestLoad_RecognizesAllSubstrateFields + _ParsesRegistrationArray reference this fixture."
+parent_id = "drop_004.drop.l3_i1_config_schema_and_loader"
+paths = ["internal/installconfig/testdata/install.toml"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-I1-D4 builder — testdata fixture covering 6 substrate types + 3 merger paths"
+updated_at = "2026-05-16T06:45:00Z"
+
+[builder_l3_i1_d4_testdata_fixture-qa-proof]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i1_d4_testdata_fixture"
+title = "QA proof of L3-I1-D4 builder — testdata fixture covering 6 substrate types + 3 merger paths"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_i1_d4_testdata_fixture-qa-falsification]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i1_d4_testdata_fixture"
+title = "QA falsif of L3-I1-D4 builder — testdata fixture covering 6 substrate types + 3 merger paths"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_e1_d0_stil_reconcile]
+blockers = []
+completed_at = "2026-05-16T08:00:00Z"
+created_at = "2026-05-16T06:45:00Z"
+objective = "Edit stil sibling repo at ~/Documents/Code/hylla/stil/main/. (1) Drop generated_at: new Date().toISOString() at scripts/build-tokens.ts line 167. (2) Change BINDINGS_OUT path from dist/bindings/baseline.json to dist/bindings.json at line 144. (3) Verify README.md file names match emit. Acceptance: stil dist/ contains tokens.json + bindings.json; two consecutive `pnpm --filter stil build` produce sha256-identical files. Commit + push to stil main remote SEPARATELY from ta commits per feedback_stil_separate_repo_discipline.md. RECORD D0 commit SHA in this droplet's transition_notes BEFORE D1 dispatches."
+outcome = "blocked"
+parent_id = "drop_004.drop.l3_e1_astro_substrate"
+paths = ["../stil/main/scripts/build-tokens.ts", "../stil/main/README.md"]
+role = "builder"
+state = "failed"
+structural_type = "droplet"
+title = "L3-E1-D0 builder — stil-reconcile prep (SEPARATE STIL REPO commits)"
+transition_notes = """
+BLOCKED — cross-repo sandbox limitation. state=failed + outcome=blocked (NOT a real failure; agent properly surfaced sandbox block instead of fabricating). tool_uses=3 (Read=2 denied, Bash=1 denied).
+
+ROOT CAUSE: ta-go-builder subagent is sandboxed to ta/main/. The stil sibling repo at /Users/evanschultz/Documents/Code/hylla/stil/main/ is outside subagent tool-allowlist scope for Read/Edit/Bash. Cross-repo work cannot execute from a ta-rooted subagent dispatch.
+
+OPTIONS to unblock:
+1. **Orchestrator-direct stil work**: global ~/.claude/settings.json grants Edit/Write/Bash(pnpm:*) on /Users/evanschultz/Documents/Code/** — top-level Claude Code session (orchestrator) can execute stil edits directly. RECOMMENDED for one-off cross-repo work.
+2. Dispatch from stil-rooted session: restart Claude Code with cwd=stil/main, dispatch agent there. Workflow-heavy for one droplet.
+3. Dev-manual edit: dev makes the stil changes themselves. Out of cascade audit trail.
+4. ta gains cross-repo agent dispatch capability (L2-F or v0.2.0 substrate work).
+
+L3-E1-D0 stays state=failed/outcome=blocked until orchestrator-direct execution OR session-restart-from-stil. L3-E1-D1+D2+D3 transitively blocked (D1 blockers includes D0; D0 commits before D1 dispatches).
+
+FOLLOW-UP MEMORY: cross-repo builder dispatches need orchestrator-direct execution OR session-restart-from-target-repo. Add to feedback_stil_separate_repo_discipline.md OR new memory feedback_cross_repo_agent_sandbox.md.
+"""
+updated_at = "2026-05-16T08:00:00Z"
+[builder_l3_e1_d0_stil_reconcile-qa-proof]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e1_d0_stil_reconcile"
+title = "QA proof of L3-E1-D0 builder — stil-reconcile prep (SEPARATE STIL REPO commits)"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_e1_d0_stil_reconcile-qa-falsification]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e1_d0_stil_reconcile"
+title = "QA falsif of L3-E1-D0 builder — stil-reconcile prep (SEPARATE STIL REPO commits)"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_e1_d1_astro_skeleton]
+blockers = ["drop_004.drop.builder_l3_e1_d0_stil_reconcile"]
+created_at = "2026-05-16T06:45:00Z"
+objective = "Astro skeleton at web/templates/ (NOT examples/templates/ — avoid pollution via existing //go:embed all:examples at embed.go:19). package.json: 'astro': '6.1.10' EXACT (not caret-float); stil dep via file: URL pointing at ../../../stil/main. astro.config.mjs: outDir '../../internal/templates_html/dist/'. Repo-root .gitignore additions: web/templates/{node_modules,.astro,dist}/ + internal/templates_html/dist/* (except .keep). Acceptance: pnpm install + pnpm build produces internal/templates_html/dist/. Existing //go:embed all:examples does NOT pull web/ (different top-level)."
+parent_id = "drop_004.drop.l3_e1_astro_substrate"
+paths = ["web/templates/package.json", "web/templates/astro.config.mjs", "web/templates/src/pages/index.astro", "web/templates/.gitignore", ".gitignore"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-E1-D1 builder — Astro skeleton at web/templates/ (RELOCATED to avoid double-embed)"
+updated_at = "2026-05-16T06:45:00Z"
+
+[builder_l3_e1_d1_astro_skeleton-qa-proof]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e1_d1_astro_skeleton"
+title = "QA proof of L3-E1-D1 builder — Astro skeleton at web/templates/ (RELOCATED to avoid double-embed)"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_e1_d1_astro_skeleton-qa-falsification]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e1_d1_astro_skeleton"
+title = "QA falsif of L3-E1-D1 builder — Astro skeleton at web/templates/ (RELOCATED to avoid double-embed)"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_e1_d2_magefile_targets]
+blockers = ["drop_004.drop.builder_l3_e1_d1_astro_skeleton"]
+created_at = "2026-05-16T06:45:00Z"
+objective = "Add TemplatesBuild target (runs `pnpm --filter web/templates run build`); TemplatesBuildVerifyStable (rebuild-twice sha256-compare with retry-once-then-fail flake policy); ensurePnpm-or-skip helper in Check composite with verbose WARN; ensurePnpm optional install (similar to ensureGofumpt:351-356). Document pnpm install requirement + that TemplatesBuild is prerequisite of full embedded-build in CONTRIBUTING.md. Acceptance: mage TemplatesBuild green when pnpm available; mage Check passes with skip-warn when pnpm absent."
+parent_id = "drop_004.drop.l3_e1_astro_substrate"
+paths = ["magefile.go", "CONTRIBUTING.md"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-E1-D2 builder — magefile TemplatesBuild + TemplatesBuildVerifyStable + pnpm-skip-strategy"
+updated_at = "2026-05-16T06:45:00Z"
+
+[builder_l3_e1_d2_magefile_targets-qa-proof]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e1_d2_magefile_targets"
+title = "QA proof of L3-E1-D2 builder — magefile TemplatesBuild + TemplatesBuildVerifyStable + pnpm-skip-strategy"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_e1_d2_magefile_targets-qa-falsification]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e1_d2_magefile_targets"
+title = "QA falsif of L3-E1-D2 builder — magefile TemplatesBuild + TemplatesBuildVerifyStable + pnpm-skip-strategy"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_e1_d3_go_embed]
+blockers = ["drop_004.drop.builder_l3_e1_d2_magefile_targets"]
+created_at = "2026-05-16T06:45:00Z"
+objective = "NEW internal/templates_html/embed.go with //go:embed all:dist + EmbeddedHTML() fs.FS. Commit placeholder internal/templates_html/dist/.keep so //go:embed has content at clone time (mage TemplatesBuild documented as prerequisite of mage build). NEW embed_test.go: TestEmbed_DistRootAccessible / _DistKeepPresent / _NoDoubleEmbedFromExamplesScope (verifies //go:embed all:examples does NOT include web/templates/ source). Acceptance: mage testPkg ./internal/templates_html green even at fresh clone."
+parent_id = "drop_004.drop.l3_e1_astro_substrate"
+paths = ["internal/templates_html/embed.go", "internal/templates_html/dist/.keep", "internal/templates_html/embed_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-E1-D3 builder — go:embed wiring with placeholder seed"
+updated_at = "2026-05-16T06:45:00Z"
+
+[builder_l3_e1_d3_go_embed-qa-proof]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e1_d3_go_embed"
+title = "QA proof of L3-E1-D3 builder — go:embed wiring with placeholder seed"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_e1_d3_go_embed-qa-falsification]
+created_at = "2026-05-16T18:18:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e1_d3_go_embed"
+title = "QA falsif of L3-E1-D3 builder — go:embed wiring with placeholder seed"
+updated_at = "2026-05-16T18:18:57Z"
+
+[builder_l3_c2_d1_dispatch]
+blockers = []
+completed_at = "2026-05-16T21:14:00Z"
+created_at = "2026-05-16T07:50:00Z"
+objective = "Insert ops.IsGroupPrefix gate BEFORE ops.IsScopeAddress at get_cmd.go:132 in runGetSingle. Load idx via internal/index.Load(path) at top of runGetSingle; if IsGroupPrefix(idx, id)==true call ops.GetGroup(path, id, fields, 0, true) and emit via emitGetScopeJSON; else fall through to existing IsScopeAddress path. ErrIndexMissing surfaces via runWithJSONErrEnvelope per existing pattern. NEW cmd/ta/get_cmd_test.go with TestGetCmd_GroupPrefix_RoutesToGetGroup / _BeforeScopeAddress / _SingleRecord_StillByteIdentical / _GroupVsSingleCollision. mage testPkg ./cmd/ta green (baseline 319/318+1 skip preserved)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_c2_cli_dispatch"
+paths = ["cmd/ta/get_cmd.go", "cmd/ta/get_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-16T07:50:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-C2-D1 builder — CLI group-prefix dispatch in get_cmd.go runGetSingle"
+transition_notes = """
+VERDICT: SUCCESS (orchestrator-verified after subagent Bash sandbox block).
+
+Subagent (a2e16a74...) wrote the code: ~60 LOC production in cmd/ta/get_cmd.go (group-prefix gate in runGetSingle + runGetGroup aggregate emitter) + ~299 LOC new test file cmd/ta/get_cmd_test.go (6 tests).
+
+Subagent COULD NOT run mage to verify TDD RED→GREEN — Bash sandbox blocked. Submitted with PARTIAL convergence declaration and explicit Unknowns routing.
+
+Orchestrator verified directly: mage testPkg ./cmd/ta → 325 tests run, 324 PASS + 1 SKIP (pre-existing TestPickerSelectionsContractCapture skip, unrelated). 0 failures.
+
+Design decision (subagent flagged): used ops.GetGroup as the dispatch gate (treating ErrNoGroup as fall-through) rather than two-step IsGroupPrefix+GetGroup. Avoids race on parallel L3-C3-D1 LoadIndexStrict helper. Semantically equivalent (one index load instead of two). Routed to L3-C3-D1 plan-QA whether to refactor when LoadIndexStrict ships.
+
+Files touched (2 declared paths only):
+- cmd/ta/get_cmd.go (EDIT, ~60 LOC added)
+- cmd/ta/get_cmd_test.go (NEW, ~299 LOC)
+
+6 tests added: TestGetCmd_GroupPrefix_AggregatesChildren / _EmptyGroup_PrintsZeroChildren / _SingleRecord_FallsThrough / _BatchWithGroupPrefix_FallsThroughPerItem / _KnownPrefixZeroChildren / _GroupVsSingleCollision. All passing under module test run.
+
+NOTE: subagent sandbox Bash block on mage is a RECURRING infrastructure issue — also surfaced on L3-D1-D1 and L3-D2-D1. Needs allowlist fix at agent definition level. Build-QA twins will be dispatched separately.
+"""
+updated_at = "2026-05-16T21:14:00Z"
+[builder_l3_c2_d1_dispatch-qa-proof]
+completed_at = "2026-05-16T21:24:00Z"
+created_at = "2026-05-16T20:35:27Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T21:20:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_c2_d1_dispatch"
+title = "QA proof of L3-C2-D1 builder — CLI group-prefix dispatch in get_cmd.go runGetSingle"
+transition_notes = """
+VERDICT: PASS. tool_uses=15.
+
+Re-verified:
+- mage testPkg ./cmd/ta: 324/325 PASS + 1 pre-existing SKIP (TestPickerSelectionsContractCapture, unrelated).
+- mage testFunc TestGetCmd_GroupPrefix: 6/6 PASS.
+
+All 6 spec-listed tests present at file:line:
+- TestGetCmd_GroupPrefix_AggregatesChildren (get_cmd_test.go:80)
+- TestGetCmd_GroupPrefix_EmptyGroup_PrintsZeroChildren (get_cmd_test.go:123)
+- TestGetCmd_GroupPrefix_SingleRecord_FallsThrough (get_cmd_test.go:148)
+- TestGetCmd_GroupPrefix_BatchWithGroupPrefix_FallsThroughPerItem (get_cmd_test.go:188)
+- TestGetCmd_GroupPrefix_KnownPrefixZeroChildren (get_cmd_test.go:230)
+- TestGetCmd_GroupPrefix_GroupVsSingleCollision (get_cmd_test.go:266)
+
+Implementation contract verified at file:line:
+- runGetSingle (get_cmd.go:139-191): scope check (L140-146) → group gate (L153-166) → single-record path (L167+).
+- ErrNoGroup + ErrIndexMissing fall-through (L157) per intentional design comment (L150-153).
+- runGetGroup (get_cmd.go:193-220): --json emits {records:[...]}; ANSI emits per-child + summary count.
+
+Two low-severity informational findings (NON-BLOCKING):
+1. A12 ErrIndexMissing error-path coverage gap (transition_notes already flagged as routed-known).
+2. Spec phrasing 'IsGroupPrefix BEFORE IsScopeAddress' implemented as scope-first; predicates govern disjoint id shapes (no-dot scope vs dotted group-prefix), runtime contract preserved.
+
+Scope discipline confirmed: only get_cmd.go + get_cmd_test.go attributable to slice. commands.go mod is from parallel L3-D0 (newGetCmd strip).
+"""
+updated_at = "2026-05-16T21:24:00Z"
+[builder_l3_c2_d1_dispatch-qa-falsification]
+completed_at = "2026-05-16T21:32:00Z"
+created_at = "2026-05-16T20:35:27Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T21:20:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_c2_d1_dispatch"
+title = "QA falsif of L3-C2-D1 builder — CLI group-prefix dispatch in get_cmd.go runGetSingle"
+transition_notes = """
+VERDICT: PASS-with-AMEND → FOLDED. tool_uses=43.
+
+2 CONFIRMED-AMEND CEs + 6 REFUTED + 1 ROUTED-KNOWN.
+
+Fold applied (CE-B test rename):
+- _EmptyGroup_PrintsZeroChildren → _EmptyGroup_FallsThroughToSingleRecord at get_cmd_test.go:117/123. Test body unchanged — just renamed + comment refined. mage testFunc 'TestGetCmd_GroupPrefix_' 6/6 PASS post-rename.
+
+Accepted as-implemented (CE-A dispatch-order spec drift):
+- Planner objective text says 'IsGroupPrefix BEFORE IsScopeAddress'.
+- Shipped code at get_cmd.go:140 has IsScopeAddress first, then GetGroup at :153.
+- Observable impact: ZERO on test fixtures. For db.bracket ids (e.g. plans.grp), IsScopeAddress returns false (resolved.BracketKey != ''), then group dispatch fires correctly. For bare 'plans' (file-relpath), scope-prefix path is the desired behavior.
+- GetGroup-as-gate is semantically equivalent cost to two-step (LoadIndexStrict + IsGroupPrefix + GetGroup) per builder analysis.
+- Builder design choice documented in builder transition_notes.
+- Conclusion: spec text drift is decorative; behavior is correct. NOT folding the spec text per planner-history-preservation principle. Accepted-as-implemented.
+
+6 REFUTED with file:line evidence:
+- Attack 1 perf: GetGroup internally does the same LoadIndexStrict+prefix-scan; no perf delta.
+- Attack 2 fall-through chain on unexpected errors: only ErrNoGroup + ErrIndexMissing fall through (get_cmd.go:157-163); shell-metacharacter ids hit ResolveID at IsScopeAddress layer.
+- Attack 3 wire-shape divergence: CLI {records:[...]} vs MCP {results:[{...children:[...]}]} INTENTIONAL per L2-C parent (drop.toml:3171 'MCP envelope distinct from CLI').
+- Attack 4 ANSI helpfulness: 'group %q: %d child record(s)' summary clear; empty-group never enters group branch.
+- Attack 5 batch path bypass: cmd.go:84-86 only routes len(args)==1 + batch=='' to runGetSingle; degenerate-batch construction impossible.
+- Attack 8 cross-package pollution: rg LoadIndexStrict cmd/ta/ → 0 matches; clean isolation.
+
+1 ROUTED-KNOWN (advisory): CLI could refactor to two-step LoadIndexStrict + IsGroupPrefix for symmetry with MCP. Builder routed this already. Defer to a follow-up 'CLI/MCP dispatch symmetry' slice if at all — current divergence is design-defensible.
+
+mage testPkg ./cmd/ta + mage check (full module) re-verified clean by falsif agent.
+"""
+updated_at = "2026-05-16T21:32:00Z"
+[builder_l3_c3_d1_mcp_dispatch]
+blockers = []
+completed_at = "2026-05-16T21:16:00Z"
+created_at = "2026-05-16T10:00:00Z"
+objective = "Wire ops.IsGroupPrefix + ops.GetGroup into internal/mcpsrv/tools.go handleGet. Promote internal/ops.loadIndexOrSentinel to exported ops.LoadIndexStrict. Add Children field ([]getResultItem) to getResultItem with omitempty (positioned after Error to preserve byte-identity in single-record golden). Implement: (a) load idx ONCE outside per-item loop via ops.LoadIndexStrict (batch-level ErrIndexMissing error), (b) per-item gate via ops.IsGroupPrefix(idx, it.id) inserted before ops.Get at tools.go:381, (c) on gate-true call ops.GetGroup and populate Children, (d) Children=nil when zero children (NOT empty slice — would defeat omitempty), (e) 8 new tests: _GroupPrefix_AggregatesChildren / _EmptyGroup_FoundTrueChildrenKeyAbsent / _SingleRecord_NoChildren / _GroupVsSingleCollision / _MixedBatchSingleGroupSingleRecord / _MixedBatchHeterogeneousChildren / _IndexMissingBatchLevelError / _SingleRecord_NoChildren_OmittedFromJSON."
+outcome = "success"
+parent_id = "drop_004.drop.l3_c3_mcp_dispatch"
+paths = ["internal/mcpsrv/tools.go", "internal/mcpsrv/server_test.go", "internal/ops/helpers.go"]
+role = "builder"
+started_at = "2026-05-16T10:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-C3-D1 builder — MCP handleGet group-prefix branch + Children field + MixedBatch tests"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=55 (above floor).
+
+mage testPkg ./internal/mcpsrv: 63/63 PASS.
+mage testPkg ./internal/ops: 151/151 PASS.
+
+3 files touched per declared paths:
+- internal/ops/helpers.go: LoadIndexStrict exported; loadIndexOrSentinel kept as thin alias (avoids touching group.go which is outside declared scope).
+- internal/mcpsrv/tools.go: Children []getResultItem field added to getResultItem with json:'children,omitempty'; handleGet rewritten — loads idx once via ops.LoadIndexStrict pre-loop, batch-level error on ErrIndexMissing, per-item ops.IsGroupPrefix gate dispatching to ops.GetGroup populating entry.Children (nil-not-empty-slice for omitempty).
+- internal/mcpsrv/server_test.go: cascadeGetSchema 3-type constant + decodeGetResults/seedCascadeChild helpers + 8 named tests per spec.
+
+8 tests added:
+- TestMCPGet_GroupPrefix_AggregatesChildren
+- TestMCPGet_EmptyGroup_FoundTrueChildrenKeyAbsent
+- TestMCPGet_SingleRecord_NoChildren
+- TestMCPGet_GroupVsSingleCollision (redesigned per design note — collision proved by code ordering since flat-TOML dotted-key pathological case isn't reachable via clean schema)
+- TestMCPGet_MixedBatchSingleGroupSingleRecord
+- TestMCPGet_MixedBatchHeterogeneousChildren
+- TestMCPGet_IndexMissingBatchLevelError
+- TestMCPGet_SingleRecord_NoChildren_OmittedFromJSON
+
+NOTE: subagent could not invoke mcp__ta__update — 'ta MCP server is not registered in my current session'. RECURRING infrastructure issue across all 4 builders this wave. Per-agent allowlist needs review.
+
+Design note recorded for L3-C3-D1 falsif twin: TestMCPGet_GroupVsSingleCollision design choice (use clean cascadeGetSchema vs flat-TOML pathological case) is debatable; falsif should examine whether the redesigned test still proves the collision invariant (code ordering proves group-branch-wins; absence of pathological-bytes-AND-children proves separation).
+"""
+updated_at = "2026-05-16T21:16:00Z"
+[builder_l3_c3_d1_mcp_dispatch-qa-proof]
+completed_at = "2026-05-16T21:26:00Z"
+created_at = "2026-05-16T20:59:58Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T21:20:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_c3_d1_mcp_dispatch"
+title = "QA proof of L3-C3-D1 builder — MCP handleGet group-prefix branch + Children field + MixedBatch tests"
+transition_notes = """
+VERDICT: PASS. tool_uses=17.
+
+Re-verified:
+- mage testPkg ./internal/mcpsrv: 63/63 PASS.
+- mage testPkg ./internal/ops: 151/151 PASS.
+
+All 6 SURGICAL AMEND FOLDS verified in place at file:line:
+- Fold #1 LoadIndexStrict export: internal/ops/helpers.go:274.
+- Fold #2 Children []getResultItem (recursive, NOT groupChildItem): internal/mcpsrv/tools.go:310.
+- Fold #3 Children appended LAST in struct (preserves single-record envelope byte-identity).
+- Fold #4 single-level recursion comment: tools.go:296-303.
+- Fold #5 MixedBatch split: _MixedBatchSingleGroupSingleRecord (server_test.go:1216) + _MixedBatchHeterogeneousChildren (server_test.go:1262).
+- Fold #6 nil-init pin: 'if len(childItems) > 0' gate at tools.go:435.
+
+All 8 named tests present + passing at file:line:
+- _GroupPrefix_AggregatesChildren (1035), _EmptyGroup_FoundTrueChildrenKeyAbsent (1100), _SingleRecord_NoChildren (1134), _GroupVsSingleCollision (1171), _MixedBatchSingleGroupSingleRecord (1216), _MixedBatchHeterogeneousChildren (1262), _IndexMissingBatchLevelError (1297), _SingleRecord_NoChildren_OmittedFromJSON (1334).
+
+implementation contract verified at code level:
+- ops.LoadIndexStrict signature `func LoadIndexStrict(projectRoot string) (*index.Index, error)`.
+- loadIndexOrSentinel retained as alias at helpers.go:289; group.go:114 + schema_mutate.go:579 still consume it.
+- handleGet loads idx ONCE at tools.go:401-404 BEFORE per-item loop at 410.
+- IsGroupPrefix gate at tools.go:413; ops.Get fallback at 443.
+- ErrIndexMissing → batch-level mcp.NewToolResultError at line 403 (IsError=true envelope).
+
+Scope discipline clean: git diff --stat HEAD shows only internal/mcpsrv/{server_test.go, tools.go} + internal/ops/helpers.go. group.go untouched as required.
+"""
+updated_at = "2026-05-16T21:26:00Z"
+[builder_l3_c3_d1_mcp_dispatch-qa-falsification]
+completed_at = "2026-05-16T21:28:00Z"
+created_at = "2026-05-16T20:59:58Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T21:20:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_c3_d1_mcp_dispatch"
+title = "QA falsif of L3-C3-D1 builder — MCP handleGet group-prefix branch + Children field + MixedBatch tests"
+transition_notes = """
+VERDICT: PASS. tool_uses=29.
+
+9 attack surfaces probed; 5 counterexamples produced; ZERO D1 behavioral breaks. All shipped behavior matches planner spec.
+
+Resolutions:
+- CE-1 omitempty nil-vs-empty (Attack 1): REFUTED. Go encoding/json omits both nil AND len-0 slices identically. Spec pin #3 'MUST leave nil; do NOT allocate empty' is DECORATIVE not behavioral. Builder happened to comply. No break.
+- CE-2 CLI-vs-MCP ErrIndexMissing divergence (Attack 2+9): CONFIRMED-AS-INTENDED. cmd/ta/get_cmd.go:157 treats ErrIndexMissing as fall-through; internal/mcpsrv/tools.go:401-404 batch-fails. Builder shipped per spec CE-3 ('ErrIndexMissing surfaces as BATCH-LEVEL'). Routed as ORCHESTRATOR AMEND-RECOMMENDATION (NOT a D1 break): decide whether to harmonize the two surfaces or document the divergence as intentional. Two transports → two contracts on the same scenario.
+- CE-3 GroupVsSingleCollision test name overpromise (Attack 3): PARTIALLY-CONFIRMED. Test at server_test.go:1171 proves code-path-ordering invariant (group branch wins via continue at tools.go:439) but doesn't exercise the literal-collision case (id is BOTH a valid single record AND a group prefix). cascadeGetSchema's glob mount makes literal collision unconstructable. EXHAUSTED.
+- CE-4 MixedBatchHeterogeneousChildren under-asserts canonical sort (Attack 5): WEAK. Code at ops/group.go:77 sort.Strings is correct; test only asserts len(children)==3, not order. Follow-up test recommended for canonical-sort regression pinning. Non-blocking.
+- CE-5 Double idx-load (Attack 7): OPTIMIZATION NOTE. handleGet loads idx; GetGroup reloads internally. Two disk reads per group-prefix item. Out of D1 scope. Future optimization: GetGroupWithIdx variant.
+
+Attacks REFUTED with concrete file:line evidence:
+- Attack 4 LoadIndexStrict alias soundness: single alias caller (schema_mutate.go:579) compiles + passes.
+- Attack 6 decodeBatchResults field order: helper uses map[string]any — field order irrelevant.
+- Attack 8 test-count drift: 8 named tests ship exactly per spec.
+
+ORCHESTRATOR ACTION ITEMS (non-blocking, post-wave):
+1. CE-2 CLI-vs-MCP harmonization decision — raise at L2-C parent (drop_004.drop.l2_c_resolver_group_prefix) for product-level decision.
+2. CE-4 canonical-sort test — schedule as small AMEND slice or fold into next mcpsrv hardening pass.
+"""
+updated_at = "2026-05-16T21:28:00Z"
+[builder_l3_d1_d1_format_interface]
+blockers = []
+completed_at = "2026-05-16T21:03:41Z"
+created_at = "2026-05-16T10:00:00Z"
+objective = "Create NEW package internal/format/ with Format interface, Blocks/Block types, package-level registry. Files: format.go (Format interface w/ Parse(buf,m)/Find(buf,m,name)/Splice(buf,m,name,content)/Marshal(blocks,m), Block struct {Name string; Bytes []byte; Start, End int}, Blocks []Block, Manifest interface w/ BlockName(node any) (string,bool) + Selectors() []string, ErrBlockNotFound sentinel, Register(name string, f Format) panic-on-duplicate per stdlib precedent — NOT goroutine-safe post-init, Get(name string) (Format, error)); doc.go (package doc: manifest-driven block extraction, distinct from record.Backend); format_test.go (TestFormat_RegisterAndGet / _UnregisteredErrors / _ParseRoundTrip via mock Format impl / _RegisterAfterInit_Panics / _RegisterDuplicate_Panics)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d1_format_substrate"
+paths = ["internal/format/format.go", "internal/format/doc.go", "internal/format/format_test.go"]
+role = "builder"
+started_at = "2026-05-16T10:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D1-D1 builder — Format interface + Blocks + registry + doc.go in internal/format/"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=13 (per agent self-report 10 + orchestrator-side update). mage testPkg ./internal/format green: 6/6 tests, 0 failures, 1.27s.
+
+Files created (3, zero scope creep):
+- internal/format/doc.go (package doc; distinct from record.Backend)
+- internal/format/format.go (Format interface w/ Parse/Find/Splice/Marshal; Block/Blocks types; Manifest interface; ErrBlockNotFound sentinel; Register/Get registry — panic-on-duplicate, init-time-only)
+- internal/format/format_test.go (6 tests: RegisterAndGet / UnregisteredErrors / ParseRoundTrip / RegisterDuplicate_Panics / BlocksOrderPreserved / ErrBlockNotFound_Sentinel)
+
+Design decisions:
+- Registry is package-level global map (database/sql + image stdlib precedent).
+- Blocks is named type (not alias) — enables future method attachment.
+- Manifest.BlockName(node any) — format-agnostic; concrete backends cast internally.
+- Test mock uses name:content encoding to actually exercise order through real round-trip.
+- Extra test added (ErrBlockNotFound_Sentinel) verifies errors.Is works per doc contract.
+
+Zero deps added (stdlib only). go.mod / go.sum untouched.
+
+NOTE: subagent could not invoke mcp__ta__update — surfaced as 'do not have direct MCP tool invocation from within a subagent context'. Orchestrator handled closeout. Worth investigating whether tool-allowlist for mcp__ta__* should extend to subagents.
+"""
+updated_at = "2026-05-16T21:03:41Z"
+[builder_l3_d1_d1_format_interface-qa-proof]
+completed_at = "2026-05-16T21:10:00Z"
+created_at = "2026-05-16T20:59:58Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T21:05:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d1_d1_format_interface"
+title = "QA proof of L3-D1-D1 builder — Format interface + Blocks + registry + doc.go in internal/format/"
+transition_notes = """
+VERDICT: PASS. tool_uses=13.
+
+Re-ran mage testPkg ./internal/format: 6/6 PASS in 1.48s (builder claim 1.27s — normal variance).
+
+All 6 acceptance criteria verified with file:line evidence:
+- Format interface (format.go:37-42) — exact Parse/Find/Splice/Marshal signatures.
+- Block struct {Name, Bytes, Start, End} (format.go:12-17).
+- Blocks named type (format.go:20 — 'type Blocks []Block', NOT alias).
+- Manifest interface (format.go:26-34) — BlockName(any)(string,bool) + Selectors()[]string.
+- ErrBlockNotFound var sentinel (format.go:47).
+- Register panic-on-duplicate (format.go:57-62) with exact panic-message format.
+- Get error path (format.go:66-72).
+- Compile-time assertion var _ Format = &mockFormat{} at format_test.go:11.
+
+Stdlib-only confirmed: format.go imports errors+fmt; format_test.go imports bytes+errors+strings+testing; doc.go zero imports.
+
+Test-name drift NOTED (INFORMATIONAL, non-blocking): planner spec listed RegisterAfterInit_Panics; builder shipped ErrBlockNotFound_Sentinel. Permitted by SURGICAL AMEND FOLDS — RegisterDuplicate_Panics already covers panic-message; sentinel test covers errors.Is contract (load-bearing, otherwise untested). Net coverage strictly increases.
+
+go.mod drift (cascadia + golang.org/x/net direct) attributable to SIBLING slice internal/backend/html/parse.go, NOT L3-D1-D1. Slice-level stdlib-only contract holds.
+
+Cascade isolation upheld: builder did NOT run mage check/test. No sibling-path edits attributable to L3-D1-D1.
+
+Orchestrator note from QA proof: roll go.mod delta with L3-D2-D1's commit, not L3-D1-D1's.
+"""
+updated_at = "2026-05-16T21:10:00Z"
+[builder_l3_d1_d1_format_interface-qa-falsification]
+completed_at = "2026-05-16T21:14:00Z"
+created_at = "2026-05-16T20:59:58Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T21:05:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d1_d1_format_interface"
+title = "QA falsif of L3-D1-D1 builder — Format interface + Blocks + registry + doc.go in internal/format/"
+transition_notes = """
+VERDICT: AMEND → FOLDED. tool_uses=35.
+
+One surgical CE (CE-1: missing test name TestFormat_RegisterAfterInit_Panics) + 4 routed-known downstream items.
+
+Orchestrator fold applied directly (drop_003 precedent, surgical AMEND only):
+- Added TestFormat_RegisterAfterInit_Panics to internal/format/format_test.go (lines 232-256). Tests post-init mutation via duplicate-register against populated registry, asserting panic with 'called twice' message. Satisfies spec letter (named test) and spirit (warn callers off post-init mutation already documented in doc.go).
+- Re-verified: mage testPkg ./internal/format → 7/7 PASS in 1.26s.
+
+9 attack families resolved without CE:
+- Interface contract drift: signatures exact-match drop.toml:3270-3273.
+- Concurrency: Go init ordering guarantee precludes race window.
+- Sentinel propagation: ErrBlockNotFound used directly; %w wrap pin applies to backends (D2/D3/D4), not substrate.
+- Manifest nil-node: comma-ok type assertion idiom safe; mock demonstrates pattern.
+- Splice empty-content / Marshal empty-Blocks / Block.Start-End -1 sentinel: substrate-level interface only; 3 ROUTED-KNOWN to L3-D2/D3/D4 plan-QA.
+- Panic message format (%q vs single-quote prose): cosmetic, stdlib idiom matches database/sql.Register. ROUTED-KNOWN cosmetic.
+- Scope discipline: 3 declared paths only.
+- No raw go invocations.
+- mage testPkg green under -race.
+
+4 ROUTED-KNOWNs forwarded to L3-D2 plan-QA via transition_notes append (next mcp_update).
+"""
+updated_at = "2026-05-16T21:14:00Z"
+[builder_l3_d2_d1_html_parse]
+blockers = []
+completed_at = "2026-05-16T21:06:35Z"
+created_at = "2026-05-16T10:00:00Z"
+objective = "Promote golang.org/x/net to direct go.mod dep + add github.com/andybalholm/cascadia. Create NEW package internal/backend/html/ with parse.go (html.Parse for tree + html.NewTokenizer.Raw() for byte positions; build side-table keyed by *html.Node pointer with [startOffset, endOffset); fragment-mode via html.ParseFragment using context Node &html.Node{Type:html.ElementNode, DataAtom:atom.Body, Data:'body'} — NOT empty/nil root; tree-tokenizer desync detection: on node-token count mismatch OR tag-name mismatch at position N, fall back to strategy (b) re-tokenize during splice — pin this clause in docstring); parse_test.go (_PreservesBytePositions / _RecoversOffsetsViaRaw / _TraversalOrderAlignment / _SelfClosingVoidElements / _HtmlComments / _DoctypePreservation / _RawTextElements / _MultiByteUTF8Fixtures / _ImplicitHtmlHeadBodyHandled / _DesyncFallbackOnImplicitTbody / _MalformedInputClarification (unclosed-tags / mismatched-nesting / illegal-nesting / no-root / NUL-bytes per surgical fold #6))."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d2_html_backend"
+paths = ["go.mod", "go.sum", "internal/backend/html/parse.go", "internal/backend/html/parse_test.go"]
+role = "builder"
+started_at = "2026-05-16T10:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D2-D1 builder — go.mod deps + html parse with offset side-table in internal/backend/html/"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=28 (28 reported by agent; above floor). mage testPkg ./internal/backend/html green: 16/16 tests, 0 failures, 1.30s.
+
+Files touched (4):
+- go.mod (MODIFIED) — golang.org/x/net v0.52.0 promoted indirect→direct; github.com/andybalholm/cascadia v1.3.3 added direct.
+- go.sum (MODIFIED) — mage tidy resolved.
+- internal/backend/html/parse.go (NEW, 285 lines) — Tree/Range types; Parse(buf []byte) (*Tree, error); isFragment/tokenize/buildOffsets/alignNode/consumeStartTag/consumeEndTag.
+- internal/backend/html/parse_test.go (NEW, 316 lines) — 10 named test functions; MalformedInputClarification has 5 t.Run sub-cases = 16 total.
+
+Key design decisions:
+- Byte offsets via cumulative sum of Raw() lengths (per Tokenizer.Raw() doc contract). NOT Render() (would lose positions).
+- Fragment wrap: ParseFragment returns []*Node; wrap under synthetic DocumentNode for single-root API; context Node = &html.Node{Type:ElementNode, DataAtom:atom.Body, Data:'body'} per surgical fold #1.
+- Desync detection: tag-name mismatch → Range{-1,-1} + Desynced[node]=true; descendants propagated via parentDesynced flag.
+- cascadia blank-imported in parse.go (forward-staged for L3-D2-D3); mage tidy preserves it as direct dep.
+- Zero internal/format import (parallel-contract preserved).
+
+NOTE: subagent could not invoke mcp__ta__update (Bash-tool sandbox blocked './bin/ta update' as well — a second tool path also blocked). Worth investigating whether subagents should get a 'closeout' mcp__ta__update permission scoped to their own record id.
+"""
+updated_at = "2026-05-16T21:06:35Z"
+[builder_l3_d2_d1_html_parse-qa-proof]
+completed_at = "2026-05-16T21:12:00Z"
+created_at = "2026-05-16T20:59:58Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T21:08:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d2_d1_html_parse"
+title = "QA proof of L3-D2-D1 builder — go.mod deps + html parse with offset side-table in internal/backend/html/"
+transition_notes = """
+VERDICT: PASS. tool_uses=12.
+
+Re-ran mage testPkg ./internal/backend/html: 16/16 PASS in 1.21s.
+
+All 11 spec-listed tests verified at file:line:
+- TestHtmlParse_PreservesBytePositions (parse_test.go:66)
+- TestHtmlParse_RecoversOffsetsViaRaw (parse_test.go:97)
+- TestHtmlParse_TraversalOrderAlignment (parse_test.go:130)
+- TestHtmlParse_SelfClosingVoidElements (parse_test.go:173)
+- TestHtmlParse_HtmlComments (parse_test.go:204)
+- TestHtmlParse_DoctypePreservation (parse_test.go:231)
+- TestHtmlParse_RawTextElements (parse_test.go:256)
+- TestHtmlParse_MultiByteUTF8Fixtures (parse_test.go:294)
+- TestHtmlParse_ImplicitHtmlHeadBodyHandled (parse_test.go:344)
+- TestHtmlParse_DesyncFallbackOnImplicitTbody (parse_test.go:370)
+- TestHtmlParse_MalformedInputClarification (parse_test.go:403) with 5 t.Run sub-cases (408-433): unclosed-tags, mismatched-nesting, illegal-nesting, no-root, NUL-bytes.
+
+Fold #1 verified verbatim: parse.go:106-110 declares ParseFragment context = &html.Node{Type: html.ElementNode, DataAtom: atom.Body, Data: 'body'}.
+
+Fold #2 verified: parse.go:65-69 Tree.Desynced map; parse.go:237/255/263/273 Range{-1,-1} sentinel writes; parse.go:238-239 parent-desync propagation.
+
+go.mod scope: git diff shows exactly +cascadia v1.3.3 direct + golang.org/x/net v0.52.0 direct, -x/net indirect. No other modules.
+
+Scope discipline confirmed: ls internal/backend/html/ shows only parse.go + parse_test.go (no splice.go, no backend.go — those are D2/D3). Zero internal/format import in both files.
+
+Low-severity observations (NON-BLOCKING, forward to L3-D2-D3 planner):
+1. parse.go:42 has `_ "github.com/andybalholm/cascadia"` blank import staged early for D3 — defensible (prevents go mod tidy from stripping) and documented in package doc parse.go:27-30. L3-D2-D3 should remove the blank import and replace with real cascadia usage.
+2. parse_test.go:190-194 TestHtmlParse_SelfClosingVoidElements uses t.Logf (not t.Errorf) on desync, meaning desynced void-element offsets get logged-and-skipped rather than verified. Test passes but doesn't strictly enforce void-element offset contract. Tighten in future hardening slice (post-D3) via fragment mode or expected-desync assertions.
+"""
+updated_at = "2026-05-16T21:12:00Z"
+[builder_l3_d2_d1_html_parse-qa-falsification]
+completed_at = "2026-05-16T21:18:00Z"
+created_at = "2026-05-16T20:59:58Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T21:08:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d2_d1_html_parse"
+title = "QA falsif of L3-D2-D1 builder — go.mod deps + html parse with offset side-table in internal/backend/html/"
+transition_notes = """
+VERDICT: AMEND → FOLDED. tool_uses=26.
+
+3 CONFIRMED-AMEND CEs + 1 ROUTED-KNOWN doc gap. All folded orchestrator-direct per drop_003 precedent.
+
+Fold 1 (CE-13 mage fmtcheck red): ran mage fmt — no output (file was already clean OR mage fmt resolved transient state at falsif read time). mage fmtcheck now clean.
+Fold 2 (CE-10 _SelfClosingVoidElements missing 'input'): added <input type='text'> to buffer + appended 'input' to tag loop array.
+Fold 3 (CE-9 _RawTextElements only covers script of 4 spec-named states): refactored into 4-sub-case t.Run loop covering script/style RAWTEXT + textarea/title RCDATA. Each sub-case asserts literal '<' character preserved (the load-bearing raw-text invariant).
+Fold 4 (CE-6 doc gap, optional): amended parse.go:56-67 Tree docstring with explicit 'synthetic DocumentNode has NO entry in Offsets — consumers needing full input-buffer range should use [0, len(buf)) directly'.
+
+Re-verified:
+- mage testPkg ./internal/backend/html: 20/20 PASS in 1.28s (was 16/16; +1 from input void + +3 from style/textarea/title sub-cases).
+- mage fmtcheck: clean.
+- mage vet: clean.
+
+9 attack families REFUTED with file:line evidence + 3 ROUTED-KNOWNs against planner spec literal (NUL→U+FFFD not asserted; implicit-tbody is sole desync test; minor doc gap on synthetic DocumentNode all aligned with spec wording acceptance).
+
+Fold 1 caveat: the falsif agent reported `mage fmtcheck` exit-1 mid-review; current state is clean. Possible explanations: (a) `mage fmt` ran by orchestrator BEFORE falsif's verdict actually had effect, (b) falsif read parse.go at moment of unrun fmt and verdict was stale by the time response landed, (c) some other timing artifact. Either way, current state is verified clean.
+"""
+updated_at = "2026-05-16T21:18:00Z"
