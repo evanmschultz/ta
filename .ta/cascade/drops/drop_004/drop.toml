@@ -598,13 +598,19 @@ title = "L2-C planner — resolver_group_prefix (3 L3 sub-planners)"
 transition_notes = """
 L2-C planner complete. tool_uses=26. 3 L3 sub-planners (C1 ops, C2 CLI, C3 MCP); C2+C3 blocked by C1. Group-vs-single canonical-id collision rule: GROUP WINS when bare id has children under id+'.' (dev goal). JSON shape pinned: scope-shape {records:[...]} for CLI; MCP per-item {Children:[...]} omitempty. 7 falsification attacks all mitigated. Routed unknowns: JSON envelope contract pinned at C2+C3 plan-QA; MCP limit/all deferred to L2-G3.
 
-## ROUTED POST-WAVE FOLLOW-UPS (from build-QA falsif on L3-C2-D1 + L3-C3-D1)
+## ROUTED POST-WAVE FOLLOW-UPS (from build-QA falsif on L3-C2-D1 + L3-C3-D1 + L3-C2/L3-C3 planner-level)
 
-1. **CLI vs MCP ErrIndexMissing divergence** (build-QA-falsif on L3-C3-D1 CE-2): cmd/ta/get_cmd.go:157 treats ErrIndexMissing as graceful FALL-THROUGH to single-record path (allows ta get on freshly-initialized projects with no records yet); internal/mcpsrv/tools.go:401-404 treats it as BATCH-LEVEL fatal error. Two transports → two contracts on the same scenario. NOT a defect of either D1 — both implemented their respective planner specs (L3-C2 spec says fall-through; L3-C3 spec CE-3 explicitly says batch-level error). PRODUCT-LEVEL DECISION required: harmonize behavior across transports OR document the divergence as intentional UX (CLI tolerant for dev convenience; MCP strict for agent correctness). Non-blocking; raise before drop_004 close OR carry forward as a separate post-MVP slice.
+1. **CLI vs MCP ErrIndexMissing divergence** (build-QA-falsif on L3-C3-D1 CE-2): cmd/ta/get_cmd.go:157 treats ErrIndexMissing as graceful FALL-THROUGH; internal/mcpsrv/tools.go:401-404 treats it as BATCH-LEVEL fatal error. Two transports → two contracts. NOT a defect; both per spec. PRODUCT-LEVEL DECISION required.
 
-2. **LoadIndexStrict CLI refactor symmetry** (build-QA-falsif on L3-C2-D1 ROUTED-KNOWN advisory): L3-C2-D1 uses ops.GetGroup-as-gate (treating ErrNoGroup as fall-through); L3-C3-D1 uses the cleaner two-step ops.LoadIndexStrict + ops.IsGroupPrefix gate. The C2 design is semantically equivalent in cost (GetGroup internally calls LoadIndexStrict) and was a deliberate choice during the parallel-dispatch wave when LoadIndexStrict wasn't yet ratified. ACCEPT AS DESIGN-DEFENSIBLE DIVERGENCE: CLI hides the index check inside GetGroup; MCP exposes it for per-item branching efficiency. NOT a defect. Documented for future maintainers.
+2. **LoadIndexStrict CLI refactor symmetry** (build-QA-falsif on L3-C2-D1): C2 uses GetGroup-as-gate; C3 uses cleaner two-step LoadIndexStrict+IsGroupPrefix. Semantically equivalent cost. ACCEPT AS DESIGN-DEFENSIBLE DIVERGENCE.
 
-Both items are post-wave routing only — no code changes required at this level.
+3. **CLI bare-scope vs MCP group-prefix dispatch-order asymmetry** (build-QA-falsif on L3-C2 planner-level CE-1): for an id that is BOTH a valid bare-scope AND a group prefix in the index, CLI's IsScopeAddress-first → file-walk via runGetScope; MCP's IsGroupPrefix-first → index-walk via GetGroup. Divergence only under index-stale conditions. Both well-defined. Fold into #1 — same product-level question.
+
+4. **Children-recursion doc drift** (build-QA-falsif on L3-C3 planner-level CE-1): tools.go:295-298 doc-comment says 'single-level depth — direct children only', but ops/group.go:67-73 implements strings.HasPrefix(k, id+'.') which flat-aggregates ALL DESCENDANTS. Currently benign at cascade tree depth ≤2 segments past 'drop_NNN.drop.'; future deeper trees would mislead callers. Fix options: (a) restrict resolveGroupPrefix to 'no further dots after the prefix' semantics, OR (b) update doc comment to 'all descendants flattened'. Either small. Non-blocking.
+
+5. **Canonical-sort test depth** (build-QA-falsif on L3-C3 planner-level CE-2): server_test.go:1297-1311 asserts canonical sort with one insert permutation [root, planner, qa-proof]. Strengthen to N=6 (all permutations) via table-driven sub-test for full sort-stability coverage. Non-blocking advisory.
+
+All five items are post-wave routing only — no code changes required at this level. Items 1+3 share a single product-level decision; items 2+4+5 are independent advisories.
 """
 updated_at = "2026-05-15T11:35:00Z"
 [l2_d_multi_file_type]
@@ -3019,6 +3025,7 @@ L3-D0-D1 FULLY RATIFIED (both halves PASS). L3-D0 planner closes.
 updated_at = "2026-05-16T06:30:00Z"
 [l3_c2_cli_dispatch]
 blockers = ["drop_004.drop.l3_c1_ops_group_aggregate", "drop_004.drop.l3_d0_commands_split"]
+completed_at = "2026-05-16T22:40:00Z"
 created_at = "2026-05-16T04:00:00Z"
 description = """
 L3-C2 decomposes into 3 droplets.
@@ -3039,27 +3046,38 @@ Resolve L2-C falsif A10 routed-known: rename TestGetCmd_GroupPrefix_EmptyGroup O
 Blockers: D1.
 
 Close: mage testPkg ./cmd/ta green; L3-C close gates after L3-C2 + L3-C3 complete.
+
+## DECOMPOSITION FOLD APPLIED AT BUILD TIME (post-fact audit-trail amend per build-QA-falsif CE-2)
+
+The 3-droplet decomposition above was the ORIGINAL plan. At build time, D2+D3 were FOLDED into D1 because both reduced to test-only additions on the same file D1 already touched (cmd/ta/get_cmd_test.go). The fold is documented in transition_notes (AMENDMENTS section).
+
+**Actual emitted shape (post-fold)**:
+- D1: shipped as `drop_004.drop.builder_l3_c2_d1_dispatch` with 6 tests covering D1 + D2 + D3 scope:
+  - D1 scope: TestGetCmd_GroupPrefix_AggregatesChildren / _GroupVsSingleCollision / _SingleRecord_FallsThrough
+  - D2 fold: TestGetCmd_GroupPrefix_BatchWithGroupPrefix_FallsThroughPerItem (semantic pinned to 'silent fall-through per item' per L2-C amendment, NOT 'rejected')
+  - D3 fold: TestGetCmd_GroupPrefix_KnownPrefixZeroChildren + _EmptyGroup_FallsThroughToSingleRecord (renamed orchestrator-direct from _EmptyGroup_PrintsZeroChildren per CE-B fold)
+- D2 record: NOT CREATED — folded into D1 per methodology §5.3 (sub-droplet absorbed when scope reduces to test-only adds on same file the parent droplet already owns).
+- D3 record: NOT CREATED — same reason.
+
+Fold legitimacy: methodology accepts this when fold is documented + content-equivalent. Both conditions met. Build-QA-falsif (L3-C2-D1-qa-falsification + L3-C2-cli_dispatch-build-qa-falsification) ratified the fold.
 """
 objective = "Wire ops.IsGroupPrefix + ops.GetGroup into cmd/ta CLI's get dispatch. After L3-D0 split, get_cmd.go owns runGetSingle. Dispatch order: ops.IsGroupPrefix BEFORE ops.IsScopeAddress. Reuse emitGetScopeJSON envelope for {records:[...]} JSON output."
+outcome = "success"
 parent_id = "drop_004.drop.l2_c_resolver_group_prefix"
 role = "planner"
 started_at = "2026-05-16T07:50:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-C2 planner — CLI group-prefix dispatch in cmd/ta"
 transition_notes = """
-AMENDMENTS FOLDED (orchestrator-override on surgical PASS-with-AMEND):
+L3-C2 planner CLOSED. Both build-QA twins PASS:
+- l3_c2_cli_dispatch-build-qa-proof: PASS (orchestrator-closed at 22:11:00Z; all 5 proof-focus items satisfied; decomposition fold to single-droplet documented).
+- l3_c2_cli_dispatch-build-qa-falsification: PASS-with-AMEND (orchestrator-closed at 22:36:00Z; 2 LOW-FOLDED CEs — CE-1 dispatch-order asymmetry routed as L2-C followup #3; CE-2 decomposition record drift folded back into this description's amendments section).
 
-1. **D2 batch+group semantic PINNED to L2-C parent**: silent fall-through per drop.toml:555 ('Falls back to single-record per-item semantics'). Each item in --batch where it.id matches IsGroupPrefix returns Found=false (consistent with parent contract). Test renamed: TestGetCmd_BatchWithGroupPrefix_FallsThroughPerItem (NOT _Rejected).
+Sole emitted child: builder_l3_c2_d1_dispatch (complete + success, with D2+D3 scope absorbed into D1's test file). All 6 named tests under TestGetCmd_GroupPrefix_* passing.
 
-2. **D3 test content PIN**: TestGetCmd_GroupPrefix_KnownPrefixZeroChildren asserts: an id with zero children under it does NOT enter the group branch (IsGroupPrefix returns false); falls through to IsScopeAddress / single-record dispatch with appropriate not-found surface. Test exercises dispatch-fall-through, NOT empty-group-via-group-branch (which is structurally unreachable).
-
-3. **D3 blockers EXTEND**: D3.blockers now ['drop_004.drop.builder_l3_c2_d1_dispatch', 'drop_004.drop.builder_l3_c2_d2_batch_docs'] (was just D1). Serializes D2→D3 since both edit cmd/ta/get_cmd_test.go per cascade isolation §7.
-
-ROUTED-KNOWN (4, non-blocking): A4 Long help text content pin; A5 test file placement (NEW get_cmd_test.go OR EDIT commands_test.go); A12 error-path test coverage (ErrIndexMissing surface); A13 CLI-layer index load via index.Load(path) at top of runGetSingle, ErrIndexMissing through runWithJSONErrEnvelope.
-
-L3-C2 ready for D1 builder dispatch.
+L3-C2 cleared to roll up to L2-C parent.
 """
-updated_at = "2026-05-16T07:50:00Z"
+updated_at = "2026-05-16T22:40:00Z"
 [l3_c2_cli_dispatch-plan-qa-proof]
 completed_at = "2026-05-16T07:00:00Z"
 created_at = "2026-05-16T07:20:50Z"
@@ -3126,6 +3144,7 @@ L3-C2 ~95% ready: fold CE-1 (batch semantic decision) + CE-2 (D3 test content pi
 updated_at = "2026-05-16T07:30:00Z"
 [l3_c3_mcp_dispatch]
 blockers = ["drop_004.drop.l3_c1_ops_group_aggregate"]
+completed_at = "2026-05-16T22:40:00Z"
 created_at = "2026-05-16T04:00:00Z"
 description = """
 L3-C3 (MCP group-prefix dispatch) REWORKED per plan-QA falsif FAIL (3 CONFIRMED-CEs).
@@ -3179,20 +3198,22 @@ Applied after plan-QA round 2 returned PROOF AMEND (1 unresolved CE) + FALSIF FA
 6. **Children=nil init pin**: 'builder MUST leave Children nil when group has zero children (use Go zero-value behavior); do NOT allocate empty []getResultItem{} slice. encoding/json omitempty checks reflect.Value.Len() but only triggers field omission on nil/zero; explicit empty-slice prevents omitempty from working.'
 """
 objective = "Wire ops.IsGroupPrefix + ops.GetGroup into internal/mcpsrv/tools.go handleGet. Add Children field to getResultItem with omitempty. MCP envelope distinct from CLI: per-item Children on getResultItem (NOT top-level {records:[...]})."
+outcome = "success"
 parent_id = "drop_004.drop.l2_c_resolver_group_prefix"
 role = "planner"
 started_at = "2026-05-16T07:50:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-C3 planner — MCP group-prefix dispatch in internal/mcpsrv"
 transition_notes = """
-Round 2 plan-QA closed via orchestrator-override on AMEND-class folds (surgical text only, no structural redesign). Ready for L3-C3-D1 builder dispatch.
+L3-C3 planner CLOSED. Both build-QA twins PASS:
+- l3_c3_mcp_dispatch-build-qa-proof: PASS (orchestrator-closed at 22:08:00Z; all 6 surgical amend folds verified at file:line; canonical-sort assertion present in commit b8c861b).
+- l3_c3_mcp_dispatch-build-qa-falsification: PASS (orchestrator-closed at 22:40:00Z; 4 REFUTED + 2 LOW non-blocking advisories routed as L2-C followups #4 (Children-recursion doc drift) + #5 (canonical-sort test depth)).
 
-Key signature pins:
-- ops.LoadIndexStrict(path string) (*index.Index, error) — exported, returns ErrIndexMissing sentinel on missing .ta/index.toml
-- getResultItem.Children type = []getResultItem
-- Test names finalized per fold #5: split MixedBatch into Single + Heterogeneous variants
+Sole emitted child: builder_l3_c3_d1_mcp_dispatch (complete + success). All 8 named TestMCPGet_* tests passing. 6 surgical AMEND folds landed atomically in commit db78da7.
+
+L3-C3 cleared to roll up to L2-C parent.
 """
-updated_at = "2026-05-16T07:50:00Z"
+updated_at = "2026-05-16T22:40:00Z"
 [l3_c3_mcp_dispatch-plan-qa-proof]
 completed_at = "2026-05-16T08:30:00Z"
 created_at = "2026-05-16T07:20:50Z"
@@ -3270,6 +3291,7 @@ L3-C3 still needs orchestrator-override fold round before D1 dispatch.
 updated_at = "2026-05-16T08:50:00Z"
 [l3_d1_format_substrate]
 blockers = []
+completed_at = "2026-05-16T23:20:00Z"
 created_at = "2026-05-16T04:00:00Z"
 description = """
 L3-D1 (format substrate) REWORKED per plan-QA falsif FAIL (4 CONFIRMED-CEs including CRITICAL interface contract drift).
@@ -3335,22 +3357,24 @@ Applied after plan-QA round 2 returned PROOF PASS-with-cosmetic-AMEND + FALSIF F
 Cosmetic objective field also corrected (Marshal/Unmarshal/Manifest → Parse/Find/Splice/Marshal).
 """
 objective = "Build internal/format/ package with Format interface (Parse/Find/Splice/Marshal) + per-format registry dispatcher + template_manifest loader. Backends (html/md_explicit/txt) plug into this interface in L3-D2/D3/D4."
+outcome = "success"
 parent_id = "drop_004.drop.l2_d_multi_file_type"
 role = "planner"
 started_at = "2026-05-16T07:50:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-D1 planner — format substrate (Format interface + dispatcher + template_manifest loader)"
 transition_notes = """
-Round 2 plan-QA closed via orchestrator-override on AMEND-class folds. Ready for L3-D1-D1 builder dispatch.
+L3-D1 planner CLOSED. Both build-QA twins PASS:
+- l3_d1_format_substrate-build-qa-proof: PASS (8 attacks evaluated all MITIGATED/ACCEPTED; all 9 records terminal complete+success; mage testPkg ./internal/format 20/20 + cross-slice ./internal/backend/html 32/32 green; planner decomposition sound).
+- l3_d1_format_substrate-build-qa-falsification: AMEND-FOLDED + 2 routed (CE-1 Get-vs-Dispatch duplication + CE-2 error-prefix scope creep → Pre-MVP tracker; doc gap → orchestrator-folded at format.go:31-38).
 
-Key type pins:
-- type Block struct { Name string; Bytes []byte; Start, End int }
-- type Blocks []Block
-- Manifest = interface (per-backend concrete impls)
-- var ErrBlockNotFound = errors.New("format: block not found")
-- Register: init-time only, panic on duplicate, NOT goroutine-safe
+3 emitted children: D1-D1 (Format interface + Block/Blocks/Manifest/ErrBlockNotFound/Register/Get), D1-D2 (Manifest loader + HtmlManifest/MdManifest/TxtManifest + 3 testdata fixtures), D1-D3 (Format dispatcher with schema-enum-key contract gate). All complete+success.
+
+Substrate ready for L3-D2/D3/D4 backend consumption. L3-D2-D3 (html) already consumes it (32/32 cross-slice integration green).
+
+L3-D1 cleared to roll up to L2-D parent.
 """
-updated_at = "2026-05-16T07:50:00Z"
+updated_at = "2026-05-16T23:20:00Z"
 [l3_d1_format_substrate-plan-qa-proof]
 completed_at = "2026-05-16T08:05:00Z"
 created_at = "2026-05-16T07:20:50Z"
@@ -3420,6 +3444,7 @@ L3-D1 + L3-D2 are SYMBIOTIC — L3-D1's type-shape pins gate L3-D2/D3/D4 impleme
 updated_at = "2026-05-16T08:30:00Z"
 [l3_d2_html_backend]
 blockers = ["drop_004.drop.l3_d1_format_substrate"]
+completed_at = "2026-05-16T23:32:00Z"
 created_at = "2026-05-16T04:00:00Z"
 description = """
 L3-D2 (html backend) REWORKED per plan-QA falsif FAIL (5 CONFIRMED-CEs including parse-tokenize seam).
@@ -3484,26 +3509,24 @@ Applied after plan-QA round 2 returned PROOF PASS-with-cosmetic + FALSIF FAIL (6
    - NUL-bytes → replaced with U+FFFD per html5 spec; round-trip lossy; document
 """
 objective = "Build internal/backend/html/ package implementing Format interface for HTML. Promote golang.org/x/net to direct go.mod dep + add cascadia. Byte-position preservation via html.Tokenizer.Raw() (NOT html.Render which loses positions). Splice-with-CSS-selector pattern mirroring internal/backend/toml/splice.go precedent."
+outcome = "success"
 parent_id = "drop_004.drop.l2_d_multi_file_type"
 role = "planner"
 started_at = "2026-05-16T07:50:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-D2 planner — html backend (golang.org/x/net + cascadia, byte-position preservation)"
 transition_notes = """
-Round 2 plan-QA closed via orchestrator-override on AMEND-class folds. Ready for L3-D2-D1 builder dispatch.
+L3-D2 planner CLOSED. Both build-QA twins PASS:
+- l3_d2_html_backend-build-qa-proof: PASS (all 9 sub-records terminal complete+success; live mage gates 33/33 html + 20/20 format green; contract chain D1→D2→D3 intact; 4 AMEND folds + ROUTED pin closure verified at file:line; scope discipline clean).
+- l3_d2_html_backend-build-qa-falsification: PASS (ZERO unmitigated CEs; A3 cascadia order MITIGATED IN CODE via explicit insertion sort backend.go:136-140 — not just test-pinned; A2 closeTag prefix scan + A5 lossy translation both documented best-effort design choices).
 
-Key API pins:
-- html.ParseFragment(r, &html.Node{Type:html.ElementNode, DataAtom:atom.Body, Data:"body"})
-- var ErrSelectorNotFound = errors.New("html: selector did not match")
-- var ErrAmbiguousMatch = errors.New("html: selector matched multiple nodes")
-- Multi-match policy: first-match-wins + %w-wrapped ErrAmbiguousMatch
-- Desync fallback: re-tokenize on count or tag-name mismatch
+3 emitted children: D1 parse layer + byte-offset side-table; D2 cascadia splice + ErrSelectorNotFound + ErrAmbiguousMatch + outerRange helper; D3 backend.go Format-impl + 'html' init register + parse.go blank-import cleanup. All complete+success.
 
-## ROUTED FORWARD-LOOKING PIN (from build-QA-proof on L3-D2-D1)
+HtmlBackend consumes the L3-D1 substrate (format.Format/Manifest/Register/ErrBlockNotFound). Cross-slice integration verified green.
 
-**L3-D2-D3 must remove the blank cascadia import**: L3-D2-D1 builder forward-staged `_ "github.com/andybalholm/cascadia"` at parse.go:42 to keep `go mod tidy` from stripping cascadia before D3 lands. When L3-D2-D3 builder writes backend.go that USES cascadia (the Format-interface impl that does selector matching), the D3 builder MUST remove the blank-import line in parse.go and replace it with the real cascadia usage. Pin this directive on D3's builder droplet description. Defensible staging by D1; D3 owns the cleanup.
+L3-D2 cleared to roll up to L2-D parent.
 """
-updated_at = "2026-05-16T07:50:00Z"
+updated_at = "2026-05-16T23:32:00Z"
 [l3_d2_html_backend-plan-qa-proof]
 completed_at = "2026-05-16T08:30:00Z"
 created_at = "2026-05-16T07:20:50Z"
@@ -4492,3 +4515,663 @@ Re-verified:
 Fold 1 caveat: the falsif agent reported `mage fmtcheck` exit-1 mid-review; current state is clean. Possible explanations: (a) `mage fmt` ran by orchestrator BEFORE falsif's verdict actually had effect, (b) falsif read parse.go at moment of unrun fmt and verdict was stale by the time response landed, (c) some other timing artifact. Either way, current state is verified clean.
 """
 updated_at = "2026-05-16T21:18:00Z"
+
+[l3_c2_cli_dispatch-build-qa-proof]
+completed_at = "2026-05-16T22:11:00Z"
+created_at = "2026-05-16T22:00:00Z"
+objective = "Planner-level build-QA proof. Verify (a) all L3-C2 child builders complete (currently just L3-C2-D1, already PASS); (b) per-child build-QA pairs both PASS (L3-C2-D1-qa-proof PASS, L3-C2-D1-qa-falsification PASS-with-amend folded); (c) package-level mage testPkg ./cmd/ta green at orchestrator wave-close (verified 324/325 + 1 unrelated skip); (d) decomposition rationale per L3-C2 planner description was followed (group gate before single-record, fall-through on ErrNoGroup+ErrIndexMissing, runGetGroup emits scope-shape {records:[]} per L2-C parent contract); (e) no scope drift across the slice's commits (cmd/ta/get_cmd.go + get_cmd_test.go only). Verdict PASS / AMEND / FAIL."
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T22:05:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c2_cli_dispatch"
+title = "Build-QA proof of L3-C2 sub-tree (cli group-prefix dispatch)"
+transition_notes = """
+VERDICT: PASS. tool_uses=28.
+
+All 3 L3-C2 child records terminal/success: D1 builder + D1 qa-proof + D1 qa-falsification (with amend-fold). Planner itself in_progress, gates on this proof + paired falsif.
+
+Live re-verification:
+- mage testPkg ./cmd/ta: 324/325 PASS + 1 SKIP (TestPickerSelectionsContractCapture, pre-existing F38d huh-removal artifact, unrelated).
+
+Decomposition fold verified (defensible micro-collapse):
+- Planner description enumerated D1+D2+D3 droplets; only D1 was created as a record.
+- The 6 test functions in get_cmd_test.go deliver D1+D2+D3 scope as test-only additions on the same file D1 already touched.
+- Fold is explicitly documented in planner transition_notes amendments section.
+- Acceptable per methodology since absorbed work is documented + content-equivalent. ROUTED to closeout for cascade-methodology learnings.
+
+Dispatch contract verified in source at get_cmd.go:139-220 — IsScopeAddress(:140-146) → GetGroup gate(:153-166, ErrNoGroup+ErrIndexMissing fall-through) → single-record(:167+). runGetGroup(:193-220) emits {records:[...]} JSON / per-child ANSI + summary.
+
+Scope discipline clean: commit 2abcfdf is cmd/ta-only (9 files, -1537 +1987). Sibling L3 commits each isolated to their package (db78da7 mcpsrv; a530176 format; fa6cf61 html; f68ce8c installconfig). Cascade isolation upheld at L3 wave level.
+
+5 falsification attacks attempted, 5 refuted with file:line/methodology citations. Zero unmitigated CEs.
+
+L3-C2 planner cleared for in_progress→complete transition pending paired falsif PASS.
+"""
+updated_at = "2026-05-16T22:11:00Z"
+[l3_c2_cli_dispatch-build-qa-falsification]
+completed_at = "2026-05-16T22:36:00Z"
+created_at = "2026-05-16T22:00:00Z"
+objective = "Planner-level build-QA falsification. Attack the L3-C2 sub-tree as a whole. Surfaces: (1) does the dispatch-order spec drift (L2-C planner said 'IsGroupPrefix before IsScopeAddress' but shipped code reverses) introduce ANY observable user-facing regression beyond the two test fixtures? (2) does the routed CLI-vs-MCP ErrIndexMissing divergence break agent-author-expected behavior under any realistic invocation? (3) is the planner's decomposition actually minimal (D1 only) or should there have been D2/D3 sub-droplets for, e.g. fields filter / limit-all / batch-aware group output that current D1 doesn't cover? (4) are there scope-leak concerns from commit 2abcfdf (combines L3-D0 split + L3-C2-D1 dispatch in one commit by necessity of get_cmd.go being a file created BY L3-D0 then modified BY L3-C2)? Construct ≥3 attack scenarios with concrete repro paths. Verdict PASS / AMEND / FAIL with each CE classified MITIGATION/CONFIRMED-AMEND/ROUTED-KNOWN."
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T22:05:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c2_cli_dispatch"
+title = "Build-QA falsification of L3-C2 sub-tree (cli group-prefix dispatch)"
+transition_notes = """
+VERDICT: PASS-with-AMEND. tool_uses=39.
+
+5 attacks: 2 CONFIRMED-LOW + 3 REFUTED + 1 INFORMATIONAL.
+
+CE-1 (LOW, FOLDED): CLI-vs-MCP dispatch-order asymmetry for bare-scope ids that are ALSO group prefixes. CLI's IsScopeAddress fires first → file-walk via runGetScope; MCP's IsGroupPrefix fires first → index-walk via GetGroup. Divergence only surfaces under index-stale conditions (dev edits .toml directly, runs ta get before ta index rebuild). Both paths produce well-defined output; output shapes differ ({records:[...]} vs {Children:[...]}). FOLD APPLIED: appended as THIRD routed followup to L2-C parent transition_notes alongside ErrIndexMissing harmonization + LoadIndexStrict symmetry.
+
+CE-2 (LOW, FOLDED): L3-C2 planner description enumerated 3 droplets (D1 dispatch / D2 batch docs / D3 test naming reconciliation); only D1 emitted. D2+D3 folded into D1's test file at build time — documented in planner transition_notes amendments. The planner description was NOT updated to reflect the fold. Future cascade-archaeology will see 3-droplet plan with 1 droplet record. FOLD APPLIED: appended note to L3-C2 description noting D2+D3 fold-into-D1 with link to transition_notes.
+
+CE-3 (REFUTED): combined L3-D0+L3-C2-D1 commit doesn't harm bisection — file-split is mechanical refactor visible in diff; group-prefix gate is localized addition in get_cmd.go:139-191. git show focused view available.
+
+CE-4 (REFUTED): runGetGroup + emitGetScopeJSON 'duplication' is 6 lines of trivial map construction with divergent ANSI/JSON branches. YAGNI — DRY would add indirection for marginal gain.
+
+CE-5 (INFORMATIONAL): planner state in_progress awaiting this QA pair to close. Now both proof + falsif PASS — planner cleared for in_progress→complete transition.
+
+L3-C2 sub-tree functionally correct; 6/6 group-prefix tests green; both CONFIRMED-LOW CEs folded orchestrator-direct.
+"""
+updated_at = "2026-05-16T22:36:00Z"
+[l3_c3_mcp_dispatch-build-qa-proof]
+completed_at = "2026-05-16T22:08:00Z"
+created_at = "2026-05-16T22:00:00Z"
+objective = "Planner-level build-QA proof. Verify (a) all L3-C3 child builders complete (just L3-C3-D1, PASS); (b) per-child build-QA pairs both PASS (L3-C3-D1-qa-proof PASS, L3-C3-D1-qa-falsification PASS with 2 orchestrator amend-recs routed forward); (c) package-level mage testPkg ./internal/mcpsrv 63/63 + ./internal/ops 151/151 green; (d) all 6 SURGICAL AMEND FOLDS from L3-C3 planner description landed in code (LoadIndexStrict export at helpers.go:274; Children []getResultItem element type at tools.go:310; Children appended LAST; single-level recursion comment; MixedBatch split into Single + Heterogeneous; nil-init pin via 'if len(childItems) > 0' at tools.go:435); (e) scope discipline clean across commit db78da7 (only the 3 declared paths touched; group.go untouched). Verdict PASS / AMEND / FAIL."
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T22:05:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c3_mcp_dispatch"
+title = "Build-QA proof of L3-C3 sub-tree (mcp group-prefix dispatch)"
+transition_notes = """
+VERDICT: PASS. tool_uses=12.
+
+All 6 surgical amend folds verified at file:line:
+- Fold #1 LoadIndexStrict export at helpers.go:274 (returns ErrIndexMissing wrap on missing index; alias loadIndexOrSentinel retained at :285-291).
+- Fold #2 Children []getResultItem recursive same-type at tools.go:310 with omitempty.
+- Fold #3 Children appended LAST in struct (field order: ID, Found, Bytes, Fields, Error, Children at tools.go:304-311).
+- Fold #4 single-level recursion comment at tools.go:295-303.
+- Fold #5 split tests verified: _MixedBatchSingleGroupSingleRecord (server_test.go:1216) + _MixedBatchHeterogeneousChildren (:1262), distinct fixtures + assertions.
+- Fold #6 nil-init pin via 'if len(childItems) > 0' at tools.go:434-437 with intent comment.
+
+Canonical-sort assertion (commit b8c861b) verified at server_test.go:1292-1311 with documented insert-vs-canonical order, lexicographic wantIDs slice, and live falsifiability (seed order differs from expected).
+
+Live re-verification:
+- mage testPkg ./internal/mcpsrv: 63/63 PASS (2.18s).
+- mage testPkg ./internal/ops: 151/151 PASS (2.88s).
+
+Commit db78da7 scope held to exactly 3 files (helpers.go +17, tools.go +72, server_test.go +417). internal/ops/group.go untouched (last touched in L3-C1 commit 427e4d2).
+
+D1 QA-falsification's 2 routed amend-recs noted as accepted at D1 close (CLI-vs-MCP ErrIndexMissing harmonization decision, LoadIndexStrict refactor symmetry). Both routed to L2-C parent transition_notes; not blocking L3-C3 close.
+
+L3-C3 sub-tree ready to roll up to L2-C parent upon falsif completion.
+"""
+updated_at = "2026-05-16T22:08:00Z"
+[l3_c3_mcp_dispatch-build-qa-falsification]
+completed_at = "2026-05-16T22:40:00Z"
+created_at = "2026-05-16T22:00:00Z"
+objective = "Planner-level build-QA falsification. Attack the L3-C3 sub-tree. Specific surfaces: (1) does the routed CLI-vs-MCP ErrIndexMissing divergence cause a real agent-author UX regression — construct an MCP-agent workflow that BREAKS on a fresh project that would succeed via CLI; (2) verify TestMCPGet_MixedBatchHeterogeneousChildren now has canonical-sort assertion (added in commit b8c861b) and the assertion is correct; (3) is single-level Children recursion the right contract, or should deep group prefixes pre-flatten? Try a 3-deep nested cascade.drop and verify the agent must re-issue ta_get for descendants; (4) decodeBatchResults field-order assumption — does Go's encoding/json actually preserve struct-field order in marshal output, and does any test rely on it? (5) per the L3-C3 planner's spec, the dispatch-key is the SCHEMA-ENUM value ('html'/'md'/'txt'), NOT the package name — is this contract honored by what L3-D1-D1 shipped (which doesn't yet have backends registering)? Construct ≥3 attacks. Verdict PASS / AMEND / FAIL."
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T22:05:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_c3_mcp_dispatch"
+title = "Build-QA falsification of L3-C3 sub-tree (mcp group-prefix dispatch)"
+transition_notes = """
+VERDICT: PASS. tool_uses=51. 6 attacks: 4 REFUTED with file:line + 2 LOW non-blocking advisories.
+
+4 REFUTED:
+- #4 atomicity: commit db78da7 atomic export+consumer.
+- #2 decodeBatchResults golden-pin: no goldens exist; helper uses map[string]any (field order irrelevant).
+- #3 schema-enum vs package-name: contract pinned in format.go:54-56 AND doc.go:13-14.
+- #6 idx goroutine safety: per-call LoadIndexStrict gives fresh local snapshot; no shared mutation.
+
+2 LOW NON-BLOCKING ADVISORIES (routed to L2-C parent transition_notes as #4 + #5):
+- CE-1 Children-recursion doc drift: tools.go:295-298 says 'single-level deep' but ops/group.go:67-73 implements strings.HasPrefix which flat-aggregates ALL descendants. Currently benign at cascade tree depth ≤2 segments; would mislead at deeper trees. Fix: either tighten resolveGroupPrefix to one-segment-deeper OR update doc to say 'all descendants flattened'.
+- CE-2 canonical-sort test depth: assertion present at server_test.go:1297-1311 with one permutation [root, planner, qa-proof] → canonical [planner, qa-proof, root]. Would catch insert-order-leak + reverse-sort regression but not all 6 permutations. Strengthen via table-driven N=6 sub-test.
+
+Neither blocks L3-C3 close. Both routed to L2-C parent.
+"""
+updated_at = "2026-05-16T22:40:00Z"
+[builder_l3_d1_d2_manifest_loader]
+blockers = []
+completed_at = "2026-05-16T22:34:16Z"
+created_at = "2026-05-16T22:00:00Z"
+objective = "Build manifest loader for internal/format/ package. Files: manifest.go (NEW — LoadManifestFile(path string) (Manifest, error) that reads .ta/templates/manifests/*.toml per template_manifest schema; format-enum dispatch to HtmlManifest/MdManifest/TxtManifest concrete impls); manifest_test.go (NEW — 6 tests: TestManifest_LoadHtmlManifest / _LoadMdManifest / _LoadTxtManifest / _ValidatesFormatEnum / _RejectsUnknownFormat / _MalformedTOML); testdata/manifests/{html,md,txt}.toml (NEW canonical fixtures matching template_manifest schema). The Manifest interface (BlockName + Selectors) already exists in internal/format/format.go from L3-D1-D1. This slice creates the LOADER + the per-backend Manifest concrete impls (3 small structs implementing the interface)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d1_format_substrate"
+paths = ["internal/format/manifest.go", "internal/format/manifest_test.go", "internal/format/testdata/manifests/html.toml", "internal/format/testdata/manifests/md.toml", "internal/format/testdata/manifests/txt.toml"]
+role = "builder"
+started_at = "2026-05-16T22:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D1-D2 builder — Manifest loader + testdata fixtures in internal/format/"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=23.
+
+Files shipped (5):
+- internal/format/manifest.go (NEW, 167 lines): Manifest loader + 3 concrete impls (HtmlManifest, MdManifest, TxtManifest) + LoadManifestFile(path) (Manifest, error) dispatching on format enum.
+- internal/format/manifest_test.go (NEW, 8 tests): TestManifest_LoadHtmlManifest / _LoadMdManifest / _LoadTxtManifest / _ValidatesFormatEnum / _RejectsUnknownFormat / _MalformedTOML / _MissingFileReturnsError / _NonStringSelectorRejected.
+- internal/format/testdata/manifests/{html,md,txt}.toml (NEW, 3 canonical fixtures).
+
+Verification: mage testPkg ./internal/format → 18 tests pass (10 pre-existing format suite + 8 new TestManifest_*). Sibling builders' paths untouched.
+
+Loader uses pelletier/go-toml/v2 (direct dep). Selector ordering deterministic (block-name sorted) for reproducible output.
+
+NOTE: subagent could not invoke mcp__ta__update (Claude Code cached agent definition pre-session-start; project-local ta-go-builder.md UPDATE didn't propagate to subagent toolset). Orchestrator-side closeout used.
+"""
+updated_at = "2026-05-16T22:34:16Z"
+[builder_l3_d1_d2_manifest_loader-qa-proof]
+completed_at = "2026-05-16T22:52:00Z"
+created_at = "2026-05-16T22:30:27Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T22:38:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d1_d2_manifest_loader"
+title = "QA proof of L3-D1-D2 builder — Manifest loader + testdata fixtures in internal/format/"
+transition_notes = """
+VERDICT: PASS. tool_uses=13.
+
+mage testPkg ./internal/format: 18/18 PASS (1.21s). All 8 spec-listed tests present at exact names (6 from planner + 2 builder-added).
+
+All 7 proof points verified:
+- Tests green at exact names (manifest_test.go:22/49/73/93/114/137/159/172).
+- Concrete impls (HtmlManifest/MdManifest/TxtManifest) satisfy Manifest interface via compile-time assertions at manifest_test.go:12-16.
+- Schema-enum dispatch correct: switch on raw.Format with default-case error (manifest.go:113-122).
+- Fixtures match template_manifest schema for each enum (html/md/txt format values + correct table shapes).
+- Scope clean for D1-D2 paths; format.go unmodified; sibling-slice files (dispatch.go etc.) explained.
+- pelletier/go-toml/v2 v2.3.0 already direct dep (go.mod:17); no churn.
+- Error wrapping: %w on ReadFile enables errors.Is(err, os.ErrNotExist); normalizeSelectors sorts for deterministic output.
+
+Missing-evidence column empty for D1-D2 scope: full-module mage check, race flag, coverage % are L1 closeout concerns.
+"""
+updated_at = "2026-05-16T22:52:00Z"
+[builder_l3_d1_d2_manifest_loader-qa-falsification]
+completed_at = "2026-05-16T23:04:00Z"
+created_at = "2026-05-16T22:30:27Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T22:38:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d1_d2_manifest_loader"
+title = "QA falsif of L3-D1-D2 builder — Manifest loader + testdata fixtures in internal/format/"
+transition_notes = """
+VERDICT: AMEND → FOLDED. tool_uses=40.
+
+2 CONFIRMED silent-failure CEs folded orchestrator-direct (drop_003 precedent):
+
+CE-2.1: Empty [selectors] table accepted silently → *HtmlManifest{Selectors_:[]} no error. Schema permits (only 'format' required). Folded: doc comment on LoadManifestFile + TestManifest_SilentlyAcceptsEmptySelectors regression test.
+
+CE-2.2: Cross-format table mis-naming (format='html' + [heading_path_selectors] table) silently produces empty *HtmlManifest. Realistic typo/copy-paste failure mode. Folded: same doc comment + TestManifest_SilentlyAcceptsCrossFormatTable regression test.
+
+Fold contents:
+- manifest.go LoadManifestFile godoc: added '# Schema-permissive selector tables' section documenting the schema-permissive design choice + that downstream callers must handle zero-selector Manifests defensively + that the behavior is INTENTIONAL (lets manifest authors stage drafts + lets schema evolve without breaking loaders).
+- manifest_test.go: added 2 regression tests pinning current behavior so future strictness change is deliberate, not accidental.
+
+Verification: mage testPkg ./internal/format → 20/20 PASS (10 format + 10 manifest = 20; up from 18 with the 2 new regression gates).
+
+6 other attacks (#1, #3, #4, #5, #7, #8) all PASS with file:line evidence. #2 selector-ordering coverage marginal but acceptable (existing tests pin sorted output; explicit shuffled-input test would be nicer but not blocking).
+
+If strictness is wanted in a future hardening slice (option: pelletier toml v2's DisallowUnknownFields or post-parse 'non-empty wrong-format table for declared format' check), the regression tests must be updated alongside. The doc comment explicitly notes this gate.
+"""
+updated_at = "2026-05-16T23:04:00Z"
+[builder_l3_d1_d3_dispatch]
+blockers = []
+completed_at = "2026-05-16T22:33:16Z"
+created_at = "2026-05-16T22:00:00Z"
+objective = "Build Format dispatcher for internal/format/ package. Files: dispatch.go (NEW — Dispatch(formatName string) (Format, error) that returns the registered Format for a schema-enum value 'html'/'md'/'txt'; thin wrapper over the registry from L3-D1-D1's format.go::Get); dispatch_test.go (NEW — 3 tests: TestDispatch_KnownFormat (mock-register format under 'html', assert Dispatch('html') returns it) / _UnknownFormat_Errors (assert Dispatch('nonexistent') returns wrapped error with format-name in message) / _SchemaEnumKeyMapping (assert dispatch keys exactly match the template_manifest 'format' enum values; this is the schema-vs-code contract gate)). NOTE: this slice does NOT register any actual backends — those are L3-D2-D3 (html), L3-D3-D1 (md), L3-D4-D1 (txt). Just the dispatcher + tests using mock Format implementations."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d1_format_substrate"
+paths = ["internal/format/dispatch.go", "internal/format/dispatch_test.go"]
+role = "builder"
+started_at = "2026-05-16T22:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D1-D3 builder — Format dispatch in internal/format/"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=11.
+
+Files shipped:
+- internal/format/dispatch.go (NEW): Dispatch(formatName string) (Format, error) wraps Get with 'format dispatch: %w' prefix.
+- internal/format/dispatch_test.go (NEW): 3 tests — TestDispatch_KnownFormat (registers 'dispatch_known', pointer-equal return), TestDispatch_UnknownFormat_Errors (non-nil error + nil Format + scope prefix in message), TestDispatch_SchemaEnumKeyMapping (canonical {html, md, txt} contract gate).
+
+Verification: mage testPkg ./internal/format → 10/10 PASS (7 pre-existing + 3 new). Zero scope creep.
+
+Design decisions:
+- Slice-unique registry names (dispatch_known, dispatch_nonexistent_xyzzy, dispatch_enum_*) prevent collision with format_test.go mocks under shared package-level registry. Important pattern for sibling slices adding tests to same package.
+- Sibling slice L3-D1-D2 manifest.go was NOT on disk at build time — no compile-coupling encountered.
+
+NOTE: subagent could not call mcp__ta__update despite the ta-go-builder.md agent definition having the tool in its allowlist. Claude Code likely cached the older agent definition from session start. Orchestrator-side closeout used.
+"""
+updated_at = "2026-05-16T22:33:16Z"
+[builder_l3_d1_d3_dispatch-qa-proof]
+completed_at = "2026-05-16T22:40:00Z"
+created_at = "2026-05-16T22:30:27Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T22:35:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d1_d3_dispatch"
+title = "QA proof of L3-D1-D3 builder — Format dispatch in internal/format/"
+transition_notes = """
+VERDICT: PASS. tool_uses=9.
+
+All 9 findings verify:
+- dispatch.go:15 signature exact: func Dispatch(formatName string) (Format, error).
+- dispatch.go:18 error wrap: fmt.Errorf('format dispatch: %w', err) — scope prefix + %w preserves errors.Is.
+- All 3 spec tests present at exact names (dispatch_test.go:12/28/53).
+- Canonical enum pin at dispatch_test.go:57: {'html', 'md', 'txt'} NOT package names.
+- mage testPkg ./internal/format: 18/18 PASS (10 pre-existing format + 8 manifest from sibling D1-D2 + 3 dispatch). Reconciled with builder's 10-count claim per spec brief anticipation of parallel sibling landing.
+- Scope discipline: only dispatch.go + dispatch_test.go are slice's NEW contribution.
+- Cascade isolation: only mage testPkg ./internal/format, no module-wide.
+- Registry-collision avoidance: slice-unique names (dispatch_known, dispatch_nonexistent_xyzzy, dispatch_enum_*) prevent panic-on-duplicate.
+- Error-path 4-way assertions: non-nil err + nil Format + name in msg + scope prefix in msg.
+
+Cosmetic: enum test exercises Dispatch with 'dispatch_enum_<key>' (prefixed for collision safety) rather than directly with '<key>'. Schema-drift detection still works (adding to enumKeys forces test update). Accepted as designed.
+"""
+updated_at = "2026-05-16T22:40:00Z"
+[builder_l3_d1_d3_dispatch-qa-falsification]
+completed_at = "2026-05-16T22:48:00Z"
+created_at = "2026-05-16T22:30:27Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T22:35:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d1_d3_dispatch"
+title = "QA falsif of L3-D1-D3 builder — Format dispatch in internal/format/"
+transition_notes = """
+VERDICT: PASS. tool_uses=36. All 6 attack surfaces REFUTED.
+
+- Attack 1 (Dispatch redundancy): REFUTED — 'format dispatch: %w' error-prefix scope is intentional infrastructure for multi-layer error traces; direct format.Get from a backend writer would lose that scope.
+- Attack 2 (hardcoded enum drift): REFUTED-BY-DESIGN — the test gate deliberately hardcodes the schema-enum union to create lockstep friction. If .ta/schema.toml adds 'json' or removes 'txt', test fails forcing code update. Auditability win over runtime schema-read. CE-2.2 in planner record endorsed.
+- Attack 3 (registry test isolation): REFUTED — zero t.Parallel() calls in internal/format/. Each Go test binary has its own var registry process-local. Slice-unique mock names defend in-binary collision.
+- Attack 4 (errors.Is across wrap): REFUTED via constructed reproducer (TestDispatch_AttackErrorsIsNoSentinel) that confirmed %w preserves chain. Reproducer removed pre-exit. NOTE: no exported sentinel for 'format-not-registered' — design observation, not a defect (at this substrate layer there's only one error mode).
+- Attack 5 (parallel sibling-package tests): REFUTED — each Go test binary is separate process with its own var registry; sibling packages cannot collide.
+- Attack 6 (missing backend-registration E2E test): REFUTED-BY-SCOPE — planner spec explicitly states this slice does NOT register actual backends; those are L3-D2-D3/D3-D1/D4-D1. Mock-only by design.
+
+Routed Unknowns (post-D1-D3, non-blocking):
+- Real-backend integration test belongs at L3-D2-D3 first-register callsite. When that lands, integration test should assert Dispatch('html') returns *HtmlFormat not mock.
+- No-sentinel-for-not-registered design note for whenever caller needs to distinguish error modes — moot currently.
+"""
+updated_at = "2026-05-16T22:48:00Z"
+[builder_l3_d2_d2_splice]
+blockers = []
+completed_at = "2026-05-16T22:36:01Z"
+created_at = "2026-05-16T22:00:00Z"
+objective = "Build the splice layer for internal/backend/html/ package. Files: splice.go (NEW — Splice(tree *Tree, buf []byte, selector string, content []byte) ([]byte, error) that runs cascadia selector match → *html.Node → tree.Offsets lookup → byte range → preserve-outside-[start,end) core mirroring toml/splice.go. Returns ErrSelectorNotFound (var declared in splice.go) on no-match per surgical fold #3. Returns ErrAmbiguousMatch wrapped via %w on multi-match per surgical fold #4. Multi-match policy: first-match-wins (traversal-order) per surgical fold #5. Desync fallback: when tree.Desynced[node] is true, re-tokenize during splice using tag+attr signature lookup per L3-D2-D1 contract); splice_test.go (NEW — 4 tests: TestHtmlSplice_Idempotent (splice then splice with same content returns identical bytes) / _UpdatesNestedSelector (selector matches a nested element, content replaces just that element's children) / _PreservesByteRangeOutsideSelector (bytes before [start,end) and after match exactly) / _MalformedInputClarification (well-formed inputs round-trip preserved; malformed inputs documented as best-effort)). Uses Tree from L3-D2-D1 (parse.go) + cascadia.Compile from github.com/andybalholm/cascadia (already direct dep). DOES NOT import internal/format yet — that wiring is L3-D2-D3."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d2_html_backend"
+paths = ["internal/backend/html/splice.go", "internal/backend/html/splice_test.go"]
+role = "builder"
+started_at = "2026-05-16T22:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D2-D2 builder — cascadia CSS selector splice with byte-range bridge"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=22.
+
+mage testPkg ./internal/backend/html: 28/28 PASS (22 pre-existing parse + 6 new splice).
+
+Files shipped (2):
+- internal/backend/html/splice.go (NEW): public Splice + ErrSelectorNotFound + ErrAmbiguousMatch sentinels + private outerRange helper.
+- internal/backend/html/splice_test.go (NEW, 6 tests): _Idempotent / _UpdatesNestedSelector / _PreservesByteRangeOutsideSelector / _MalformedInputClarification (2 t.Run sub-cases) / _NoMatchReturnsErrSelectorNotFound / _MultiMatchFirstWinsAmbiguousError.
+
+KEY DESIGN CALL (load-bearing insight):
+parse.go's Tree.Offsets stores PER-TOKEN byte ranges, NOT full element outer spans. For an ElementNode, Offsets[node] is the start-tag range only (e.g. <p>), not <p>...</p>. Confirmed by TestHtmlParse_PreservesBytePositions asserting bytes.HasPrefix(slice, []byte('<p')).
+
+Splice MUST operate on full outer span to avoid garbage like <p>new</p>old</p>. Private outerRange(tree, buf, node) (Range, bool) helper composes it:
+- Non-element nodes: Offsets[node] as-is.
+- Void elements (br/hr/img/etc.): start-tag range as-is (no end tag).
+- Element with descendants: walk descendant Offsets → max(End) → bytes.Index(buf[maxEnd:], '</tag') + scan to '>' for close-tag boundary.
+
+First implementation used raw Offsets directly → idempotence + multi-match tests revealed visible garbage. outerRange added in second pass — both bugs vanished atomically. Builder self-caught via TDD.
+
+Surgical folds honored:
+- Fold #2 desync fallback: returns clear-error 'matched node is desynced; signature-based recovery not yet supported' (deferred to future hardening slice per scope).
+- Fold #3 zero-match: returns (nil, ErrSelectorNotFound).
+- Fold #4 ambiguous wrap: returns (spliced-bytes, fmt.Errorf('...: %w', ErrAmbiguousMatch)) — errors.Is callable, caller has best-effort buffer.
+- Fold #5 first-match-wins: matches[0] is splice target regardless of len.
+
+Scope clean: only splice.go + splice_test.go. parse.go untouched. cascadia blank-import retained per L3-D2-D3 cleanup ownership rule. No internal/format imports.
+
+NOTE: subagent could not invoke mcp__ta__update (Claude Code agent-definition cache from session start). Orchestrator-side closeout.
+"""
+updated_at = "2026-05-16T22:36:01Z"
+[builder_l3_d2_d2_splice-qa-proof]
+completed_at = "2026-05-16T22:58:00Z"
+created_at = "2026-05-16T22:30:27Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T22:42:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d2_d2_splice"
+title = "QA proof of L3-D2-D2 builder — cascadia CSS selector splice with byte-range bridge"
+transition_notes = """
+VERDICT: PASS. tool_uses=17.
+
+mage testPkg ./internal/backend/html: 28/28 PASS. mage check (full module) also green.
+
+All 6 spec tests at exact names:
+- _Idempotent (splice_test.go:13)
+- _UpdatesNestedSelector (:42)
+- _PreservesByteRangeOutsideSelector (:77)
+- _MalformedInputClarification (:121) with 2 t.Run sub-cases (well-formed, unclosed-tag-best-effort)
+- _NoMatchReturnsErrSelectorNotFound (:166)
+- _MultiMatchFirstWinsAmbiguousError (:189)
+
+Splice signature exact: func Splice(tree *Tree, buf []byte, selector string, content []byte) ([]byte, error).
+
+All 4 surgical folds honored at file:line:
+- Fold #2 desync fallback (splice.go:76-78): clear-error 'matched node is desynced; signature-based recovery not yet supported'.
+- Fold #3 zero-match (splice.go:67-69): returns (nil, ErrSelectorNotFound) sentinel; test asserts errors.Is.
+- Fold #4 ambiguous %w (splice.go:88-89): fmt.Errorf('...: %w', ErrAmbiguousMatch); test asserts errors.Is.
+- Fold #5 first-match-wins (splice.go:71): matches[0]; test asserts winner replaced first <p>, others survive.
+
+outerRange algorithm verified:
+- Non-element nodes (Text/Comment/Doctype): use Offsets as-is (splice.go:124-126).
+- Void elements: start-tag range from voidElements map in parse.go (splice.go:129-131).
+- Element with descendants: walk + maxEnd + scan-for-close-tag (splice.go:135-162).
+- Lossy-recovery fallback: maxEnd as right boundary (splice.go:163-165, tested via 'unclosed-tag-best-effort' sub-case).
+
+cascadia non-blank in splice.go (:8 import + :61 Compile + :66 QueryAll).
+parse.go UNTOUCHED (git diff empty).
+
+Two non-blocking nits routed:
+- Nit 1 (2.1): redundant blank import `_ "github.com/andybalholm/cascadia"` in parse.go now stale (cascadia genuinely used in splice.go). L3-D2-D3 OWNS the cleanup per the planner's ROUTED forward-looking pin.
+- Nit 2 (2.2): builder didn't pre-run `mage fmt`; orchestrator should ensure mage fmt is part of closeout gate. Post-fmt mage check is green, no semantic risk. Process improvement, not correctness.
+"""
+updated_at = "2026-05-16T22:58:00Z"
+[builder_l3_d2_d2_splice-qa-falsification]
+completed_at = "2026-05-16T23:00:00Z"
+created_at = "2026-05-16T22:30:27Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T22:42:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d2_d2_splice"
+title = "QA falsif of L3-D2-D2 builder — cascadia CSS selector splice with byte-range bridge"
+transition_notes = """
+VERDICT: PASS. tool_uses=29.
+
+8 attacks dispatched, 8 NOT FALSIFIED:
+- Attack 1 (raw-text close-tag literal): walk() aggregates maxEnd over all descendants; tokenizer keeps script body in single TextNode offset range. Reproducer <div><script>var x='</div>';</script></div> splices cleanly.
+- Attack 2 (recursive content idempotence): re-splice on parsed result is byte-identical; cascadia first-match-wins traversal hits new <p> at original position.
+- Attack 3 (empty content = node-deletion): []byte{} acts as deletion. Undocumented behavior. ROUTED 2.3.
+- Attack 4 (invalid CSS selector): cascadia.Compile returns error not panic; Splice wraps via %w in 'html splice: compile selector %q: %w'.
+- Attack 5 (root <html> selector): real ElementNode (not synthetic DocumentNode), has Offsets entry; outerRange composes full document body span. Splice succeeds.
+- Attack 6 (nested same-tag): inner div's maxEnd extends past inner </div>; outer div's maxEnd-scan finds OUTER </div> not inner. Critical real-world surface protected.
+- Attack 7 (comment with literal close-tag): CommentNode offset range covers entire <!-- ... -->; maxEnd sits past it.
+- Attack 8 (close-tag prefix collision): </p vs </para>. Reproducer works because real </p> appears before <para>. FRAGILE under malformed input — see 2.1.
+
+L3-D2-D3 wrapper readiness verified: Format.Splice signature requires (buf, m Manifest, name, content); thin Parse + name→selector resolution wraps cleanly.
+
+Concurrent Splice safe (stateless; tree.Offsets read-only post-Parse).
+
+Error-handling discipline: every error path returns non-nil; 2 sentinels (ErrSelectorNotFound, ErrAmbiguousMatch) exposed for errors.Is; compile-error wrapped via %w. No swallowing.
+
+3 ROUTED CONCERNS (non-blocking, all post-MVP hardening):
+- 2.1 Close-tag prefix scan fragility: closeTag := []byte('</' + node.Data) is prefix match. Under malformed input where parser fails to auto-close, prefix collision with siblings (</p vs </para>) could surface. Current 'lossy parser recovery' fallback acknowledges. Hardening: anchor to '</tag>' or '</tag\\s' boundary.
+- 2.2 cascadia QueryAll traversal-order documentation gap: implementation does pre-order DFS but upstream docs say 'descendants of n' without explicit order guarantee. Test-pin sufficient until cascadia documents.
+- 2.3 Empty content acts as node-deletion (undocumented): add doc-comment ('content may be empty; this deletes the matched node') in follow-up.
+
+mage testPkg ./internal/backend/html: 28/28 baseline + 8/8 attack reproducers = 36/36 PASS during attack run. Working tree restored after attacks.
+"""
+updated_at = "2026-05-16T23:00:00Z"
+[builder_l3_d2_d3_backend_register]
+blockers = []
+completed_at = "2026-05-16T23:04:00Z"
+created_at = "2026-05-16T22:50:00Z"
+objective = """
+Build the Format-interface implementation for internal/backend/html/ package. L3-D2-D1 shipped parse.go; L3-D2-D2 shipped splice.go. This slice wires both into the Format contract from L3-D1-D1.
+
+Files (NEW):
+- internal/backend/html/backend.go: implements format.Format interface (Parse/Find/Splice/Marshal) wrapping the internal Tree-based parse + splice operations. Registers under schema-enum key 'html' in init().
+- internal/backend/html/backend_test.go: TestHtmlBackend_RoundTripByteIdentical / _ManifestSelectorMapping / _RegistersUnderHtmlKey / _FormatInterfaceSatisfied (compile-time `var _ format.Format = (*HtmlBackend)(nil)`).
+
+File (EDIT):
+- internal/backend/html/parse.go: REMOVE the blank `_ "github.com/andybalholm/cascadia"` import at parse.go:42 (forward-staged by L3-D2-D1; you OWN the cleanup per L3-D2 planner transition_notes). cascadia is now genuinely used by splice.go, so the blank-import is redundant. Just remove that one line.
+
+Format interface contract (from internal/format/format.go from L3-D1-D1):
+- Parse(buf []byte, m Manifest) (Blocks, error)
+- Find(buf []byte, m Manifest, name string) ([]byte, error)
+- Splice(buf []byte, m Manifest, name string, content []byte) ([]byte, error)
+- Marshal(blocks Blocks, m Manifest) ([]byte, error)
+
+Manifest is from format.go: BlockName(node any) (string, bool) + Selectors() []string.
+
+Implementation notes:
+- backend.go's Parse wraps parse.Parse(buf) → walks tree using Manifest.BlockName to identify named blocks → returns format.Blocks.
+- backend.go's Find uses parse + Manifest.Selectors to find a named block, returns bytes.
+- backend.go's Splice uses your splice.Splice wrapped to fit the format.Format signature (selector comes from Manifest.Selectors() lookup by name).
+- backend.go's Marshal: TBD — either round-trip via re-emit OR best-effort. Simplest: assemble buf from Blocks in order. For html-as-record-output use case, deterministic Marshal matters; for html-as-template-replace it doesn't. Pick a sensible default + document.
+- init() calls format.Register('html', &HtmlBackend{}).
+
+Manifest impl: HtmlManifest from L3-D1-D2 (sibling slice) is what callers PASS to your backend. Don't redefine.
+"""
+outcome = "success"
+parent_id = "drop_004.drop.l3_d2_html_backend"
+paths = ["internal/backend/html/backend.go", "internal/backend/html/backend_test.go", "internal/backend/html/parse.go"]
+role = "builder"
+started_at = "2026-05-16T22:55:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D2-D3 builder — html backend Format-interface impl + register + remove blank cascadia import"
+transition_notes = """
+VERDICT: SUCCESS. tool_uses=17.
+
+mage testPkg ./internal/backend/html: 32/32 PASS (28 pre-existing + 4 new).
+mage testPkg ./internal/format: 20/20 PASS (registry registration verified non-disruptive).
+
+Files touched (3):
+- internal/backend/html/backend.go (NEW, ~240 lines): HtmlBackend implements format.Format (Parse/Find/Splice/Marshal); init() calls format.Register('html', &HtmlBackend{}); compile-time var _ format.Format = (*HtmlBackend)(nil).
+- internal/backend/html/backend_test.go (NEW, 4 tests): _FormatInterfaceSatisfied / _RegistersUnderHtmlKey / _ManifestSelectorMapping / _RoundTripByteIdentical.
+- internal/backend/html/parse.go (EDIT): removed forward-staged blank `_ "github.com/andybalholm/cascadia"` import per L3-D2 ROUTED pin. cascadia genuinely imported now by splice.go + backend.go.
+
+Key design decisions:
+- Private nameToSelectorer interface (NameToSelectorString) + concrete adapter for *format.HtmlManifest — manifest decoupling; future Manifest impls plug in without backend changes.
+- format.ErrBlockNotFound is the unified not-found sentinel collapsing 3 sources: (a) name unknown to manifest, (b) compile-success zero-match (translated from ErrSelectorNotFound), (c) nil manifest. Callers use one errors.Is check.
+- ErrAmbiguousMatch propagation: Find/Splice forward the first-match-wins-with-detectable-ambiguity contract from L3-D2-D2 up through format-level API.
+- Marshal documented as round-trip-only (concat block.Bytes joined by '\\n'). Identity holds only for inputs of manifest-named adjacent blocks. Doc steers callers needing arbitrary HTML synthesis to template engines.
+- Parse uses cascadia per-selector + node dedup + insertion-sort by Start byte for source order.
+"""
+updated_at = "2026-05-16T23:04:00Z"
+[builder_l3_d2_d3_backend_register-qa-proof]
+completed_at = "2026-05-16T23:14:00Z"
+created_at = "2026-05-16T22:39:23Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T23:06:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d2_d3_backend_register"
+title = "QA proof of L3-D2-D3 builder — html backend Format-interface impl + register + remove blank cascadia import"
+transition_notes = """
+VERDICT: PASS. tool_uses=16.
+
+All 9 proof-focus items pass with file:line evidence:
+- mage testPkg ./internal/backend/html: 32/32 PASS (1.27s).
+- mage testPkg ./internal/format: 20/20 PASS (1.21s).
+- All 4 named tests at exact names (backend_test.go:36/80/105/169).
+- Compile-time assertion DOUBLY-pinned: backend.go:28 + backend_test.go:14, both `var _ format.Format = (*HtmlBackend)(nil)`. Compile success + mage pass = dispositive interface-conformance proof.
+- init() registration: backend.go:30-32 calls format.Register('html', &HtmlBackend{}). Single init, single Register.
+- TestHtmlBackend_RegistersUnderHtmlKey load-bearing: calls format.Get('html') AND format.Dispatch('html'); asserts non-nil + correct *HtmlBackend concrete type. If init didn't run, Get returns registry-miss; test PASS means init ran.
+- Cascadia blank-import REMOVED from parse.go (10-line diff includes both `_ "cascadia"` import block AND the # Forward dependency doc-comment). L3-D2 ROUTED forward-looking pin CLOSED.
+- Cascadia GENUINELY USED at 6 sites: backend.go (import + 4 call sites: Compile/QueryAll in Parse + Find), splice.go (import + Compile + QueryAll).
+- Format interface signature exact-match per format.go:37-42.
+- Scope: exactly 3 declared paths touched.
+
+Test-quality observations (proof bonus):
+- Round-trip test verifies bytes.Equal(out, want) AND per-block bytes.Equal(blk.Bytes, buf[blk.Start:blk.End]) invariant.
+- Manifest selector test uses DISSIMILAR-from-name selectors (page_title→title, page_paragraph→p) so accidental literal-match can't mask broken name resolution.
+- Error path coverage: 3 ErrBlockNotFound paths (unknown name in Find, unknown name in Splice, resolved-selector-zero-matches in Splice); all assert errors.Is.
+"""
+updated_at = "2026-05-16T23:14:00Z"
+[builder_l3_d2_d3_backend_register-qa-falsification]
+completed_at = "2026-05-16T23:24:00Z"
+created_at = "2026-05-16T22:39:23Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T23:06:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d2_d3_backend_register"
+title = "QA falsif of L3-D2-D3 builder — html backend Format-interface impl + register + remove blank cascadia import"
+transition_notes = """
+VERDICT: PASS-with-AMEND → FOLDED. tool_uses=27.
+
+8 attack surfaces probed: 5 REFUTED + 4 CONFIRMED-AMEND-class (all surgical text-only, zero code-behavior defects).
+
+All 4 AMEND folds applied orchestrator-direct:
+- CE-A test name conflation: SPLIT TestHtmlBackend_RoundTripByteIdentical into 2 clearly-named tests: TestHtmlBackend_BlockSpansByteIdenticalToInputBuf (per-block byte-identity gate — the load-bearing invariant) + TestHtmlBackend_MarshalConcatenatesBlocksWithNewlineSeparator (Marshal's actual contract: concat with \\n injection, NOT byte-identical round-trip).
+- CE-B Splice docstring: updated backend.go:195-204 to say 'INTENTIONALLY TRANSLATED to format.ErrBlockNotFound (the unified not-found sentinel)' with explicit note that errors.Is(err, html.ErrSelectorNotFound) returns false post-translation BY DESIGN per L3-D1 substrate unification.
+- CE-C selector overlap docstring: updated backend.go:99 inline comment to explicitly state name-alphabetic-order wins on overlapping selectors via format.HtmlManifest.Selectors() sort by block-name. Deterministic but name-driven not selector-precedence-driven.
+- CE-D nameToSelectorer docstring: corrected backend.go:34-41 to say '*format.HtmlManifest is handled separately via htmlManifestAdapter (it does NOT implement NameToSelectorString on its own — the adapter bridges its NameToSelector map field)'.
+
+Re-verified: mage testPkg ./internal/backend/html: 33/33 PASS (32 baseline + 1 from test split = 33).
+
+5 REFUTED with file:line evidence:
+- #2 init() registration follows stdlib precedent (database/sql.Register).
+- #5 Format signature alignment guaranteed by compile-time var _ at backend.go:28 + backend_test.go:14.
+- #7 ROUTED pin closure verified clean (git diff shows 10-line removal of blank import + forward-staging doc-comment).
+- #9-12 edge cases REFUTED (empty Blocks, nil manifest, init-only races, wrong-type manifest in Marshal).
+- Attack 1 (hidden coupling): architectural shortcoming inherited from L3-D1-D1's format.Manifest interface (lacks symmetric Selector(name) method); NOT a defect introduced by this slice. Already routed to Pre-MVP tracker.
+
+Unknown carried forward: live mage re-verification (planner-level proof did the re-run; this falsif accepted builder's claim).
+"""
+updated_at = "2026-05-16T23:24:00Z"
+[l3_d1_format_substrate-build-qa-proof]
+completed_at = "2026-05-16T23:20:00Z"
+created_at = "2026-05-16T23:08:00Z"
+objective = "Planner-level build-QA proof. Verify all 3 L3-D1 child builders complete (D1-D1 Format interface + D1-D2 Manifest loader + D1-D3 Dispatch); per-child build-QA pairs all PASS (D1-D1 PASS-with-AMEND-folded, D1-D2 PASS-with-AMEND-folded for silent-failure-pinning regression tests, D1-D3 PASS); package-level mage testPkg ./internal/format green at 20/20; planner spec decomposition was sound (no D1-D2/D3 fold-up like L3-C2 — each L3-D1-D* is a discrete record); scope discipline clean per commit a530176 (internal/format only). Verdict PASS / AMEND / FAIL."
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T23:08:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d1_format_substrate"
+title = "Build-QA proof of L3-D1 sub-tree (format substrate)"
+transition_notes = """
+VERDICT: PASS. tool_uses=45. 8 attack vectors evaluated, all MITIGATED or ACCEPTED.
+
+All 9 records terminal complete+success:
+- 3 builders: D1-D1 / D1-D2 / D1-D3.
+- 6 build-QA twins (3 proof, 3 falsif): D1-D1 proof PASS + falsif AMEND-folded (RegisterAfterInit_Panics added); D1-D2 proof PASS + falsif AMEND-folded (2 silent-failure regression tests + doc); D1-D3 proof PASS + falsif PASS.
+
+Live verification:
+- mage testPkg ./internal/format: 20/20 PASS in 1.21s (7 format + 10 manifest + 3 dispatch).
+- mage testPkg ./internal/backend/html: 32/32 PASS in 1.21s (cross-slice integration, exercises Format/Register/Get/Dispatch/ErrBlockNotFound/Block/Blocks/Manifest contracts).
+
+Contract coherence:
+- Format interface at format.go:37-42 (Parse/Find/Splice/Marshal).
+- Manifest interface at format.go:26-34 (BlockName + Selectors).
+- HtmlManifest/MdManifest/TxtManifest concrete impls at manifest.go:15/41/62 (compile-time-asserted at manifest_test.go:12-16).
+- Dispatch wraps Get with 'format dispatch: %w' at dispatch.go:15-21.
+- ErrBlockNotFound sentinel at format.go:47.
+- Cross-package: backend.go:28 compile-time assertion var _ format.Format = (*HtmlBackend)(nil); backend.go:31 init() registers 'html'; backend_test.go:81-95 directly tests Get + Dispatch resolution.
+
+Scope: commit a530176 ships 3 files internal/format/ only. L3-D1-D2/D3 files untracked but confined to internal/format/. parse.go diff is L3-D2-D1 territory (committed in fa6cf61).
+
+Planner decomposition sound: 3 droplets (API surface / data plane / lookup adapter) with disjoint paths, single package, methodology §5.3 satisfied.
+
+Missing evidence: full-module mage check + coverage % deferred to drop closeout (not sub-tree close gate).
+"""
+updated_at = "2026-05-16T23:20:00Z"
+[l3_d1_format_substrate-build-qa-falsification]
+completed_at = "2026-05-16T23:20:00Z"
+created_at = "2026-05-16T23:08:00Z"
+objective = "Planner-level build-QA falsification. Attack the L3-D1 sub-tree as a whole. Surfaces: (1) is the package's public API minimal-and-sufficient — are Format/Manifest/Dispatch/Get/Register all load-bearing or is there redundancy? (2) are the schema-permissive manifest loader semantics (folded as silent-failure-with-regression-tests) actually the right call, or should the orchestrator-direct fold be reverted in favor of strict-mode loading? (3) cross-package interface contract: now that L3-D2-D3 implements format.Format and registers as 'html', is the cross-package contract (parameter types, error semantics) actually stable, or are there latent integration bugs the per-package unit tests miss? (4) deterministic Selector ordering: D1-D2 sorts by block-name; is this the RIGHT ordering for downstream Format.Marshal output, or should it be input-order (source-position)? (5) registry lifecycle: package-level globals + panic-on-duplicate is documented but does ANY runtime path violate the init-only contract? (6) error wrapping consistency across the 3 sub-slices — all use %w but the prefix scopes differ ('format: ...', 'format dispatch: ...', 'html splice: ...'). Construct ≥3 attack scenarios. Verdict PASS / AMEND / FAIL with each CE classified MITIGATION/CONFIRMED-AMEND/ROUTED-KNOWN."
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T23:08:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d1_format_substrate"
+title = "Build-QA falsification of L3-D1 sub-tree (format substrate)"
+transition_notes = """
+VERDICT: AMEND → PARTIALLY FOLDED + 2 routed to Pre-MVP tracker. tool_uses=21.
+
+6 attack surfaces probed: 3 PASS (Attacks 2 schema-permissive-folded, 3 interface-strictness, 5 single-binary-init), 3 AMEND-class findings.
+
+AMEND-class findings:
+1. **Get-vs-Dispatch public API duplication** (CE-1, CONFIRMED double-stutter): both publicly exported; Dispatch wraps Get's already-prefixed error → 'format dispatch: format: no implementation registered' on miss. ROUTED to CLAUDE.md Pre-MVP cleanup tracker as 'internal/format Get-vs-Dispatch API duplication'. Non-blocking; resolved before v0.1.0 tag.
+2. **Error-prefix scope creep** (CE-2, CONFIRMED double-stutter on html splice internals): 3 prefix conventions coexist; same html package uses 2 conventions internally producing 'html backend: splice: html splice: ...' stutter. ROUTED to CLAUDE.md Pre-MVP cleanup tracker as 'Error-prefix unification across format + backend/html'. Non-blocking.
+3. **Manifest selector ordering contract doc gap** (Attack 4, documentation only): Selectors() sorted by block-name alphabetic but downstream backends re-sort by source-byte position. ORCHESTRATOR-FOLDED at format.go:31-38 with explicit doc-comment on Manifest.Selectors() noting alphabetic iteration order is overridden by backends' source-position sort.
+
+Working tree clean.
+
+L3-D1 substrate functionally correct + ready to unblock L3-D2/D3/D4. Two non-blocking design-cleanliness items tracked in Pre-MVP list; one surgical doc fold applied directly.
+"""
+updated_at = "2026-05-16T23:20:00Z"
+
+[l3_d2_html_backend-build-qa-proof]
+completed_at = "2026-05-16T23:32:00Z"
+created_at = "2026-05-16T23:24:00Z"
+objective = "Planner-level build-QA proof for L3-D2 sub-tree. Verify all 3 L3-D2 child builders complete (D1 parse layer + D2 splice + D3 backend register); per-child build-QA pairs all PASS (D1 PASS-with-AMEND-folded for input void + raw text states + doc gap; D2 PASS-with-AMEND-folded for outerRange + close-tag scan; D3 PASS-with-AMEND-folded for 4 docstring/test-rename fixes); package-level mage testPkg ./internal/backend/html 33/33 green; cross-slice integration mage testPkg ./internal/format 20/20 green; ROUTED forward-looking pin from planner record (blank cascadia import cleanup) CLOSED by L3-D2-D3; scope discipline clean across the 3 commits fa6cf61 (D1) + uncommitted (D2+D3). Verdict PASS / AMEND / FAIL."
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-16T23:24:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d2_html_backend"
+title = "Build-QA proof of L3-D2 sub-tree (html backend)"
+transition_notes = """
+VERDICT: PASS. tool_uses=47.
+
+All 9 L3-D2 sub-records terminal complete+success (3 builders + 6 build-QA twins).
+
+Live verification:
+- mage testPkg ./internal/backend/html: 33/33 PASS (1.20s).
+- mage testPkg ./internal/format: 20/20 PASS (1.28s) — cross-slice integration.
+
+Contract chain D1→D2→D3 verified at file:line:
+- parse.go:41 Range / :58 Tree / :92 Parse → consumed by splice.go (Tree+Offsets at :64-65) + backend.go (Parse at :86).
+- splice.go:19 ErrSelectorNotFound / :32 ErrAmbiguousMatch / :53 Splice → consumed by backend.go Splice (:205).
+- backend.go:24 HtmlBackend / :28 compile-time var _ format.Format / :30 init() register.
+
+All 4 D3 AMEND folds landed at exact file:line:
+- CE-A test split: TestHtmlBackend_BlockSpansByteIdenticalToInputBuf (backend_test.go:169) + TestHtmlBackend_MarshalConcatenatesBlocksWithNewlineSeparator (:203).
+- CE-B Splice docstring 'INTENTIONALLY TRANSLATED' at backend.go:199.
+- CE-C selector overlap docstring at backend.go:101.
+- CE-D nameToSelectorer docstring at backend.go:38.
+
+ROUTED forward-looking pin CLOSED: parse.go blank cascadia import + doc-comment cleanly removed (git diff shows 10-line removal). cascadia genuinely imported by splice.go:8 + backend.go:13.
+
+Scope discipline: D1 commit fa6cf61 + D2+D3 untracked confined to internal/backend/html/. format.go 8-line docstring-only clarification (Selectors() iteration order note) is doc-only L3-D1 cleanup. Zero behavioral cross-package leakage.
+
+Missing evidence: module-level mage check deferred to L1 orchestrator closeout per cascade methodology §4 (correct — not a planner-level gate).
+"""
+updated_at = "2026-05-16T23:32:00Z"
+[l3_d2_html_backend-build-qa-falsification]
+completed_at = "2026-05-16T23:30:00Z"
+created_at = "2026-05-16T23:24:00Z"
+objective = "Planner-level build-QA falsification for L3-D2 sub-tree. Attack the html backend AS A WHOLE: (1) is the parse/splice/backend three-slice decomposition sound, or should there have been a D4 for Marshal hardening since current Marshal injects newlines? (2) the routed concerns from per-droplet falsifs — closeTag prefix-scan fragility under malformed input, cascadia QueryAll doc-order guarantee gap, empty-content node-deletion undocumented — are these adequately tracked for post-MVP hardening, or do any actually block dogfood? (3) cross-package error sentinel coverage — the Pre-MVP cleanup item 'Get-vs-Dispatch API duplication' surfaces inside this sub-tree's consumer test (backend_test.go calls both); does this affect L3-D2's verdict? (4) raw-text element handling in splice (literal </script> bytes inside <div>): falsif on D2-D2 said tokenizer keeps script body in one TextNode covering literal close-tag bytes; verify this claim. (5) selector overlap behavior: backend.go now documents name-alphabetic-order winning on duplicates; is this the desired UX for the dogfood, or should multiple-selector-match be a hard error instead? Construct ≥3 attack scenarios. Verdict PASS / AMEND / FAIL."
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-16T23:24:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d2_html_backend"
+title = "Build-QA falsification of L3-D2 sub-tree (html backend)"
+transition_notes = """
+VERDICT: PASS. tool_uses=22. ZERO unmitigated counterexamples.
+
+Key defensive-design discoveries:
+- A3 cascadia traversal-order concern (D2 falsif 2.2 routed-known): MITIGATED IN CODE, not merely test-pinned. backend.go:136-140 performs explicit insertion sort by start byte AFTER cascadia.QueryAll returns. Future cascadia version change CANNOT break output — the explicit sort canonicalizes by source byte position. D2-routed concern overstated risk.
+- A2 closeTag prefix-scan fragility (D2 falsif 2.1 routed-known): confirmed latent under ADVERSARIAL malformed input only; requires the HTML5 parser to be in recovery mode. For ta dogfood (author-controlled cascade record HTML) non-blocking. Properly documented as best-effort + tracked.
+- A5 lossy sentinel translation (D3 CE-B folded as docstring update): INTENTIONAL design choice per L3-D1's three-source unification. Trade-off consciously documented. Adding %w-chain later remains non-breaking.
+
+Attack survey:
+- A1 YAGNI on 3-droplet split: REFUTED. D1 (parse+offsets) has independent reuse value; D2 (splice) depends on D1; D3 (backend adapter) depends on both D1+D2+format.Format. DAG real, split justified.
+- A4 Marshal contract docstring: backend.go:232-239 explicitly says 'best-effort concat with \\n; NOT a general HTML emitter' + companion test pin with load-bearing comment.
+- A6 cross-package coupling: rg 'backend/html' internal/format/ → 0 matches. Format is true leaf; backend/html depends on format. Direction correct.
+- A7 cascade isolation: working tree all confined to internal/backend/html/ + internal/format/ + cascade records + CLAUDE.md. Zero cross-contamination across 3 concurrent D2 waves.
+
+Live verification:
+- mage testPkg ./internal/backend/html: 33/33 PASS.
+- mage testPkg ./internal/format: 20/20 PASS.
+
+Open items for pre-MVP tracker (carried over from L3-D1, NOT new this slice):
+- Get-vs-Dispatch API duplication
+- Error-prefix unification
+- closeTag prefix-scan word-boundary tightening (dogfood-safe today)
+"""
+updated_at = "2026-05-16T23:30:00Z"
