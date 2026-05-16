@@ -1,0 +1,8 @@
+# Markdown manifest fixture — minimal valid shape per template_manifest.md schema.
+format = "md"
+description = "Markdown manifest fixture for loader tests."
+
+[heading_path_selectors]
+title    = "#"
+overview = "## > Overview"
+details  = "## > Details > ###"

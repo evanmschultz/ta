@@ -1,0 +1,8 @@
+# HTML manifest fixture — minimal valid shape per template_manifest.html schema.
+format = "html"
+description = "HTML manifest fixture for loader tests."
+
+[selectors]
+title = "h1"
+intro = "div.intro"
+body  = "main > p"

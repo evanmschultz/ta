@@ -1,0 +1,8 @@
+# Plain-text manifest fixture — minimal valid shape per template_manifest.txt schema.
+format = "txt"
+description = "Plain-text manifest fixture for loader tests."
+
+[regex_selectors]
+header  = "^HEADER:.*$"
+section = "^## .*$"
+footer  = "^FOOTER:.*$"
