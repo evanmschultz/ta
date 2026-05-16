@@ -72,6 +72,12 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) registerTools() {
+	// H4 (drop_004): stash the project root once so the package-
+	// level guardPath helper in path_guard.go can confine every
+	// handler's `path` arg to this server's project. See
+	// docs/security/mcp_path_arg.md for the threat surface.
+	setProjectRootForGuard(s.cfg.ProjectPath)
+
 	s.srv.AddTool(getTool(), handleGet)
 	s.srv.AddTool(listSectionsTool(), handleListSections)
 	s.srv.AddTool(createTool(), handleCreate)

@@ -53,9 +53,9 @@ func initTool() mcp.Tool {
 
 func handleInit(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	target := req.GetString("target", "")
 	if target == "" {

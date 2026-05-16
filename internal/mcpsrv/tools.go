@@ -352,9 +352,9 @@ func decodeGetItems(arr []any) ([]getInputItem, string) {
 // only batch-level failure (no work to do).
 func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	args := req.GetArguments()
 	rawItems, ok := args["items"]
@@ -419,9 +419,9 @@ func isMCPNotFound(err error) bool {
 
 func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	scope := req.GetString("scope", "")
 	// limit/all per docs/PLAN.md §3.2 / §12.17.5 [A2.1]. Mutex is
@@ -518,9 +518,9 @@ func detectDuplicateIDs(ids []string, action string) string {
 
 func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	args := req.GetArguments()
 	rawItems, ok := args["items"]
@@ -611,9 +611,9 @@ func decodeUpdateItems(arr []any) ([]updateInputItem, string) {
 
 func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	args := req.GetArguments()
 	rawItems, ok := args["items"]
@@ -697,9 +697,9 @@ func decodeDeleteItems(arr []any) ([]deleteInputItem, string) {
 
 func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	args := req.GetArguments()
 	rawItems, ok := args["items"]
@@ -781,9 +781,9 @@ type moveResult struct {
 // failures (no records touched) per Decision 1.
 func handleMove(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	args := req.GetArguments()
 	rawItems, ok := args["items"]
@@ -907,9 +907,9 @@ type searchResult struct {
 
 func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	scope := req.GetString("scope", "")
 	queryStr := req.GetString("query", "")
@@ -951,9 +951,9 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 
 func handleSchema(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	_ = ctx
-	path, err := req.RequireString("path")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid path arg: %v", err)), nil
+	path, errRes := guardedPathArg(req)
+	if errRes != nil {
+		return errRes, nil
 	}
 	action := req.GetString("action", "get")
 	switch action {
