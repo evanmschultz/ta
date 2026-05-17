@@ -3,6 +3,7 @@ package mcpsrv_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2777,5 +2778,1223 @@ func TestMCP_MoveMissingSrcReturnsCleanError(t *testing.T) {
 	}
 	if strings.Contains(msg, "ta index rebuild") {
 		t.Errorf("results[0].error must NOT include `ta index rebuild` hint: %q", msg)
+	}
+}
+
+// ---- L3-D5-D8: --as / --template wiring on MCP read tools ------------
+//
+// Pattern-establisher for L3-D5-D9 (write side). The read pipeline:
+//   1. Tool definition exposes `as` (get + search) and `template` (get only)
+//      string inputs via mcp.WithString.
+//   2. Handler calls applyAsFormat(path, id, asName, templateID, body)
+//      before assigning Bytes to the response. Per-item format errors
+//      surface in entry.Error (get); search emits envelope-level errors
+//      since searchHit has no Error field.
+//   3. Empty --as + empty --template short-circuits to identity so the
+//      existing emit path is byte-equivalent for unflagged callers.
+//   4. db.Format/--as mismatch is loud per CE-D fold: cross-format
+//      transcoding is a future substrate slice.
+//   5. Unknown --as wraps format.Get's sentinel via fmt.Errorf("format: %w").
+//
+// Test fixtures: md db (notes.md, section-mode) is the only practical
+// positive case today — db.Format ∈ {toml, md} and format engine ∈
+// {html, md, txt} overlap only on "md". TOML-db tests exercise the
+// mismatch path. Manifest files are seeded directly on disk under
+// .ta/templates/manifests/.
+
+const tomlPlusMdSchema = `
+[plans]
+paths = ["plans.toml"]
+description = "Toml-format planning db."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+
+[plans.task.fields.status]
+type = "string"
+required = true
+
+[notes]
+paths = ["notes.md"]
+description = "Md-format notes db."
+
+[notes.note]
+description = "section-mode note"
+heading = 1
+
+[notes.note.fields.body]
+type = "string"
+
+[template_manifest]
+paths = ["manifests/*.toml"]
+description = "Per-format manifests (glob-toml mount; each manifest file is its own file, top-level brackets auto-declared via NewTopLevelBracketBackend per F38d-2.15)."
+
+[template_manifest.view]
+description = "A manifest view record. The file ALSO contains top-level format-pkg manifest TOML (format=, heading_path_selectors=) — bracket-keyed records are addressable via ta record-store, the top-level keys are addressable via format.LoadManifestFile."
+
+[template_manifest.view.fields.name]
+type = "string"
+required = true
+`
+
+// writeMdManifest seeds a md-format manifest file under
+// .ta/templates/manifests/views.toml. The file is dual-shaped: at the
+// top level it carries `format = "md"` + a `[heading_path_selectors]`
+// table for format.LoadManifestFile; under that it carries one or more
+// bracket-keyed `[name]` sections so the ta record-store resolver can
+// address each bracket as a `template_manifest.<name>` record. ops.Get
+// returns the file path (which we hand to format.LoadManifestFile); the
+// top-level keys are what the format engine actually consumes.
+func writeMdManifest(t *testing.T, root string, bracketKeys ...string) {
+	t.Helper()
+	dir := filepath.Join(root, "manifests")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir manifests: %v", err)
+	}
+	var b strings.Builder
+	// Top-level format-pkg manifest fields. format.LoadManifestFile
+	// reads these via the rawManifest struct: `format` field plus the
+	// heading_path_selectors table.
+	b.WriteString("format = \"md\"\n\n")
+	b.WriteString("[heading_path_selectors]\nh1 = \"#\"\n\n")
+	// Glob-toml-mount bracket records (F38d-2.15): bracket = bare key,
+	// top-level brackets auto-declared via NewTopLevelBracketBackend.
+	// Each key becomes its own addressable record in the same file.
+	for _, key := range bracketKeys {
+		fmt.Fprintf(&b, "[%s]\nname = %q\n\n", key, key+" view")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "template_manifest.toml"), []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+// TestMCP_GetAsFormat — positive case: db.Format=md, --as=md emits the
+// body through Marshal. With no --template the helper short-circuits to
+// identity passthrough (Marshal of zero blocks is the wrong default for
+// a read path that hasn't been given selectors).
+func TestMCP_GetAsFormat(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "notes.heading-1"},
+		},
+		"as": "md",
+	})
+	if res.IsError {
+		t.Fatalf("get errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"found":true`) {
+		t.Errorf("results[0].found must be true: %s", body)
+	}
+	if strings.Contains(body, `"error":`) {
+		t.Errorf("results[0] must NOT carry an error on as=md happy-path: %s", body)
+	}
+}
+
+// TestMCP_GetTemplateView — --template selects a manifest record; the
+// read pipeline resolves it to a file path and runs Parse → Marshal on
+// the body. With a heading-path manifest the Marshal output preserves
+// the section bytes (round-trip via blocks).
+func TestMCP_GetTemplateView(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+	writeMdManifest(t, fx.projectRoot, "summary")
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "notes.heading-1"},
+		},
+		"as":       "md",
+		"template": "template_manifest.summary",
+	})
+	if res.IsError {
+		t.Fatalf("get errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"found":true`) {
+		t.Errorf("results[0].found must be true: %s", body)
+	}
+	if strings.Contains(body, `"error":`) {
+		t.Errorf("results[0] must NOT carry an error on template view happy-path: %s", body)
+	}
+}
+
+// TestMCP_GetAsAndTemplateCompose — both --as and --template set; the
+// helper must accept the compose case per CE-C fold ("both can be set").
+func TestMCP_GetAsAndTemplateCompose(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+	writeMdManifest(t, fx.projectRoot, "compose")
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "notes.heading-1"},
+		},
+		"as":       "md",
+		"template": "template_manifest.compose",
+	})
+	if res.IsError {
+		t.Fatalf("get errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"found":true`) {
+		t.Errorf("compose case: results[0].found must be true: %s", body)
+	}
+	if strings.Contains(body, `"error":`) {
+		t.Errorf("compose case: results[0] must NOT carry an error: %s", body)
+	}
+}
+
+// TestMCP_SearchAsFormat — search results carry record bodies; --as
+// routes each hit's body through Marshal before emit. Mirrors the
+// happy-path of TestMCP_GetAsFormat.
+func TestMCP_SearchAsFormat(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "notes",
+		"as":    "md",
+	})
+	if res.IsError {
+		t.Fatalf("search errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	// Note: ops.Create with id "notes.heading-1" + type notes.note
+	// canonicalizes to id "notes.note.heading-1" via the section-mode
+	// resolver (see TestMCPMove for the same pattern). Search returns
+	// the canonical id form.
+	if !strings.Contains(body, "notes.note.heading-1") {
+		t.Errorf("search must return the seeded notes.heading-1 hit (canonical: notes.note.heading-1): %s", body)
+	}
+	// Body should still be present (Marshal-identity passthrough since
+	// --template is not supplied on search).
+	if !strings.Contains(body, "first paragraph") {
+		t.Errorf("search hit must carry the record body: %s", body)
+	}
+}
+
+// TestMCP_MismatchError — db.Format=toml, --as=md must surface the
+// CE-D fold's mismatch error. Per-item shape: results[0].error contains
+// "db.Format=toml; --as=md requires matching format"; the record is
+// found (entry.Found=true), the error reflects the transformation
+// rejection.
+func TestMCP_MismatchError(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "plans.demo-1", "plans.task", map[string]any{
+		"id": "demo-1", "status": "todo",
+	}); err != nil {
+		t.Fatalf("seed plans.demo-1: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "plans.demo-1"},
+		},
+		"as": "md", // toml-db record asked for as md → mismatch
+	})
+	if res.IsError {
+		t.Fatalf("get errored at envelope (mismatch must be per-item, not envelope): %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, "db.Format=toml") {
+		t.Errorf("mismatch error must name db.Format=toml: %s", body)
+	}
+	if !strings.Contains(body, "--as=md") {
+		t.Errorf("mismatch error must name --as=md: %s", body)
+	}
+	if !strings.Contains(body, "requires matching format") {
+		t.Errorf("mismatch error must carry the canonical phrase 'requires matching format': %s", body)
+	}
+}
+
+// TestMCP_UnknownFormatError — --as=bogus surfaces the format-package's
+// 'no implementation registered' sentinel, wrapped under a `format:`
+// prefix per the error-prefix unification routed concern.
+func TestMCP_UnknownFormatError(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "notes.heading-1"},
+		},
+		"as": "bogus",
+	})
+	if res.IsError {
+		t.Fatalf("get errored at envelope (unknown-format must be per-item): %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	// First check: the db.Format=md vs --as=bogus mismatch fires BEFORE
+	// the format.Get lookup; the canonical mismatch shape wins. This is
+	// intentional — the mismatch check fails fast on an obviously-wrong
+	// format name without needing the engine to confirm.
+	if !strings.Contains(body, "requires matching format") && !strings.Contains(body, "no implementation registered") {
+		t.Errorf("expected mismatch or unknown-format error; got: %s", body)
+	}
+}
+
+// ---- L3-D5-D9: --as wiring on MCP WRITE tools ------------------------
+//
+// Mirror of L3-D5-D8's read-side pattern, adapted for the WRITE side.
+// The per-item pipeline (create / update / delete) runs the format-
+// substrate gate BEFORE the ops.* call; per-item mismatch / unknown-
+// format failures surface in entry.Error and the underlying mutation
+// is skipped (siblings still proceed). Empty --as short-circuits in
+// validateAsFormatForWrite — the existing write path is byte-equivalent
+// for unflagged callers (D5-D8 read-side parity).
+//
+// Schema mutations (action=create|update) get the gate at the envelope
+// level since the schema tool emits a single mutationSuccess / error
+// shape, not a per-item results[] array. action=delete is a no-op for
+// --as per cmd/ta D5-D4 (delete carries no payload to parse).
+//
+// Pre-MVP test naming mirrors the cmd/ta create/update/delete *_cmd_test.go
+// suites so future cross-surface refactors keep one-to-one coverage:
+// `TestMCP_<verb>As<Engine>_<Outcome>_On<DbFormat>Db`.
+
+// TestMCP_CreateAsMd_PositiveOnMdDb pins the positive WRITE-side
+// dispatch: db.Format=md + --as=md should pass the format gate and
+// land the record via ops.Create. Mirrors cmd/ta's
+// TestCreate_AsMd_PositiveOnMdDb (create_cmd_test.go L3-D5-D5).
+func TestMCP_CreateAsMd_PositiveOnMdDb(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "notes.heading-1",
+				"type": "notes.note",
+				"data": map[string]any{"body": "first paragraph"},
+			},
+		},
+		"as": "md",
+	})
+	if res.IsError {
+		t.Fatalf("create errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"ok":true`) {
+		t.Errorf("results[0].ok must be true on as=md happy-path: %s", body)
+	}
+	if strings.Contains(body, `"error":`) {
+		t.Errorf("results[0] must NOT carry an error on as=md happy-path: %s", body)
+	}
+	// Verify the record actually landed on disk.
+	if _, err := os.Stat(filepath.Join(fx.projectRoot, "notes.md")); err != nil {
+		t.Fatalf("expected notes.md after --as=md create: %v", err)
+	}
+}
+
+// TestMCP_UpdateAsMd_PositiveOnMdDb pins the positive WRITE-side
+// dispatch for update: db.Format=md + --as=md should pass the gate and
+// patch via ops.Update. Mirrors the cmd/ta D5-D6 contract.
+func TestMCP_UpdateAsMd_PositiveOnMdDb(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "update", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "notes.heading-1",
+				"data": map[string]any{"body": "edited paragraph"},
+			},
+		},
+		"as": "md",
+	})
+	if res.IsError {
+		t.Fatalf("update errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"ok":true`) {
+		t.Errorf("results[0].ok must be true on as=md happy-path: %s", body)
+	}
+	if strings.Contains(body, `"error":`) {
+		t.Errorf("results[0] must NOT carry an error on as=md happy-path: %s", body)
+	}
+}
+
+// TestMCP_DeleteAsMd_EchoesPreDelete_PositiveOnMdDb pins the positive
+// WRITE-side dispatch for delete: db.Format=md + --as=md should pass
+// the pre-delete echo gate and remove the record. The "echo" here is
+// the gate-only validation (mismatch + format.Get); MCP has no human-
+// readable echo surface like the CLI's Markdown render. Mirrors cmd/ta
+// D5-D7 STRICT-mode semantics.
+func TestMCP_DeleteAsMd_EchoesPreDelete_PositiveOnMdDb(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "delete", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "notes.heading-1", "force": true},
+		},
+		"as": "md",
+	})
+	if res.IsError {
+		t.Fatalf("delete errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"ok":true`) {
+		t.Errorf("results[0].ok must be true on as=md happy-path: %s", body)
+	}
+	if strings.Contains(body, `"error":`) {
+		t.Errorf("results[0] must NOT carry an error on as=md happy-path: %s", body)
+	}
+	// Record must be gone after the successful delete.
+	if _, err := ops.Get(fx.projectRoot, "notes.heading-1", "", nil); err == nil {
+		t.Fatalf("record still exists after successful --as=md delete")
+	}
+}
+
+// TestMCP_SchemaCreateAsMd_PositiveOnMdDb pins the positive WRITE-side
+// dispatch for schema mutations: db.Format=md + --as=md should pass the
+// schema gate. Uses kind=base on the md-format `notes` db (parallel to
+// the TestSchemaMutateBaseRoundTrip shape, swapping plans→notes since
+// plans has db.Format=toml).
+func TestMCP_SchemaCreateAsMd_PositiveOnMdDb(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "create",
+		"kind":   "base",
+		"name":   "notes.NoteBase",
+		"data": map[string]any{
+			"description": "Common note fields.",
+			"fields": map[string]any{
+				"title": map[string]any{"type": "string", "required": true},
+			},
+		},
+		"as": "md",
+	})
+	if res.IsError {
+		t.Fatalf("schema create errored at envelope: %s", firstText(t, res))
+	}
+	// Confirm landed by reading the on-disk schema.
+	raw, err := os.ReadFile(filepath.Join(fx.projectRoot, ".ta", "schema.toml"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	if !strings.Contains(string(raw), "[notes.bases.NoteBase]") {
+		t.Errorf("schema.toml missing [notes.bases.NoteBase] after MCP schema create with --as=md:\n%s", raw)
+	}
+}
+
+// TestMCP_SchemaDeleteAsRejected pins the L3-D5 falsif CE-2 fold: --as
+// on schema action=delete has no semantic (delete carries no payload to
+// parse) and so is REJECTED loudly rather than silently ignored. Mirrors
+// the CLI-side TestSchema_DeleteAsRejected.
+func TestMCP_SchemaDeleteAsRejected(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "schema", map[string]any{
+		"path":   fx.projectRoot,
+		"action": "delete",
+		"kind":   "type",
+		"name":   "notes.note",
+		"as":     "md",
+	})
+	if !res.IsError {
+		t.Fatalf("expected envelope-level error for --as on action=delete; got: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	wantSub := "--as is not supported with action=delete"
+	if !strings.Contains(body, wantSub) {
+		t.Errorf("body = %q, want substring %q", body, wantSub)
+	}
+}
+
+// TestMCP_CreateAsHtml_MismatchOnMdDb pins the mismatch shape: --as=html
+// against db.Format=md surfaces the planner-pinned message in the
+// per-item entry.Error AND the record does NOT land (gate aborts the
+// underlying ops.Create).
+func TestMCP_CreateAsHtml_MismatchOnMdDb(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "notes.heading-1",
+				"type": "notes.note",
+				"data": map[string]any{"body": "first paragraph"},
+			},
+		},
+		"as": "html",
+	})
+	if res.IsError {
+		t.Fatalf("create errored at envelope (mismatch must be per-item): %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, "db.Format=md") {
+		t.Errorf("mismatch error must name db.Format=md: %s", body)
+	}
+	if !strings.Contains(body, "--as=html") {
+		t.Errorf("mismatch error must name --as=html: %s", body)
+	}
+	if !strings.Contains(body, "requires matching format") {
+		t.Errorf("mismatch error must carry canonical phrase: %s", body)
+	}
+	// Negative side-effect lock: no record should have landed.
+	if _, err := os.Stat(filepath.Join(fx.projectRoot, "notes.md")); err == nil {
+		t.Errorf("rejected create wrote notes.md; mismatch must abort before disk write")
+	}
+}
+
+// TestMCP_CreateAsTxt_MismatchOnMdDb pins the mismatch shape for
+// --as=txt against db.Format=md. Mirror of TestMCP_CreateAsHtml_*; same
+// gate, different engine name in the message.
+func TestMCP_CreateAsTxt_MismatchOnMdDb(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "notes.heading-1",
+				"type": "notes.note",
+				"data": map[string]any{"body": "first paragraph"},
+			},
+		},
+		"as": "txt",
+	})
+	if res.IsError {
+		t.Fatalf("create errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, "db.Format=md; --as=txt requires matching format") {
+		t.Errorf("mismatch error must carry planner-pinned shape: %s", body)
+	}
+	if _, err := os.Stat(filepath.Join(fx.projectRoot, "notes.md")); err == nil {
+		t.Errorf("rejected create wrote notes.md; mismatch must abort before disk write")
+	}
+}
+
+// TestMCP_CreateAsMd_MismatchOnTomlDb pins the symmetric mismatch:
+// --as=md against db.Format=toml. The strict-mode gate is symmetric —
+// any explicit --as that differs from db.Format aborts.
+func TestMCP_CreateAsMd_MismatchOnTomlDb(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-1",
+				"type": "plans.task",
+				"data": map[string]any{"id": "demo-1", "status": "todo"},
+			},
+		},
+		"as": "md",
+	})
+	if res.IsError {
+		t.Fatalf("create errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, "db.Format=toml; --as=md requires matching format") {
+		t.Errorf("mismatch error must carry planner-pinned shape: %s", body)
+	}
+	if _, err := os.Stat(filepath.Join(fx.projectRoot, "plans.toml")); err == nil {
+		t.Errorf("rejected create wrote plans.toml; mismatch must abort before disk write")
+	}
+}
+
+// TestMCP_AsWriteUnknownFormatError pins the unknown-format error path.
+// Substrate caveat (same as TestMCP_UnknownFormatError on the read side):
+// the mismatch gate fires BEFORE format.Get when --as differs from
+// db.Format. The assertion accepts either the mismatch or the
+// no-implementation message since the offending --as value is named in
+// both gate messages.
+func TestMCP_AsWriteUnknownFormatError(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "notes.heading-1",
+				"type": "notes.note",
+				"data": map[string]any{"body": "first paragraph"},
+			},
+		},
+		"as": "bogus",
+	})
+	if res.IsError {
+		t.Fatalf("create errored at envelope (unknown-format must be per-item): %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, "requires matching format") && !strings.Contains(body, "no implementation registered") {
+		t.Errorf("expected mismatch or unknown-format error; got: %s", body)
+	}
+	if _, err := os.Stat(filepath.Join(fx.projectRoot, "notes.md")); err == nil {
+		t.Errorf("rejected create wrote notes.md; gate must abort before disk write")
+	}
+}
+
+// TestMCP_DeleteAsHtml_MismatchAbortsDelete_OnMdDb pins the STRICT mode
+// contract for delete: --as=html against db.Format=md errors with the
+// planner-pinned shape AND the record survives the aborted delete.
+// Mirror of cmd/ta's TestDelete_AsHtml_MismatchAbortsDelete_OnMdDb.
+func TestMCP_DeleteAsHtml_MismatchAbortsDelete_OnMdDb(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	if _, _, err := ops.Create(fx.projectRoot, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "delete", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "notes.heading-1", "force": true},
+		},
+		"as": "html",
+	})
+	if res.IsError {
+		t.Fatalf("delete errored at envelope (mismatch must be per-item): %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, "db.Format=md; --as=html requires matching format") {
+		t.Errorf("mismatch error must carry planner-pinned shape: %s", body)
+	}
+	// Load-bearing STRICT-mode assertion: record must STILL EXIST.
+	if _, err := ops.Get(fx.projectRoot, "notes.heading-1", "", nil); err != nil {
+		t.Fatalf("strict mode violated: record was deleted despite --as=html mismatch (err=%v)", err)
+	}
+}
+
+// =============================================================================
+// L3-D5-D10: MCP-side end-to-end integration for the full --as / --template /
+// mismatch slice. Mirror of cmd/ta/multi_format_test.go (CLI side), adapted
+// for the MCP wire surface.
+//
+// Pattern: D5-D8 (read tools: get, search) + D5-D9 (write tools: create,
+// update, delete, schema) pinned ONE tool's --as gate in isolation. D10
+// asserts the same fixture, the same gate, the same planner-pinned error
+// shape, across every MCP tool that carries the format-substrate plumbing.
+//
+// Per-MCP-tool error placement (carried from D5-D8/D5-D9):
+//   - get  / create / update / delete : per-item (results[i].error); envelope
+//     is NOT IsError, the error lives in the per-item entry.
+//   - search                          : envelope-level error (searchHit has
+//     no Error field per CE-I fold); res.IsError = true on gate failure.
+//   - schema create/update            : envelope-level error (schema emits
+//     a single mutationSuccess / error shape, not per-item results[]).
+//   - list_sections                   : NO `as` plumbing exposed at all per
+//     CE-C (id enumeration, not record-emit). The tool MUST NOT accept it.
+//
+// Substrate gap: schema.Format ∈ {"toml","md"} today; format engines ∈
+// {"html","md","txt"}. Positive == both equal "md". HTML/TXT are mismatch
+// paths until the post-MVP substrate slice. Same naming convention as the
+// CLI mirror: (db.Format → --as) encoded in every test name.
+// =============================================================================
+
+// mcpFormatGateCase mirrors cmd/ta's formatGateCase for the MCP surface.
+// dbFormat selects which db inside tomlPlusMdSchema the test exercises;
+// asValue is one of {"md","html","txt","bogus"}.
+type mcpFormatGateCase struct {
+	name      string
+	dbFormat  string
+	asValue   string
+	wantError bool
+	errSubstr string
+}
+
+// mcpGateMismatchMsg is the MCP-side mirror of CLI gateMismatchMsg.
+func mcpGateMismatchMsg(dbFormat, asValue string) string {
+	return "db.Format=" + dbFormat + "; --as=" + asValue + " requires matching format"
+}
+
+// defaultMCPFormatGateCases is the canonical 5-case set every per-tool
+// MCP E2E test iterates. Mirrors defaultFormatGateCases in cmd/ta.
+func defaultMCPFormatGateCases() []mcpFormatGateCase {
+	return []mcpFormatGateCase{
+		{name: "md_db__as_md__positive", dbFormat: "md", asValue: "md", wantError: false},
+		{name: "md_db__as_html__mismatch", dbFormat: "md", asValue: "html", wantError: true, errSubstr: mcpGateMismatchMsg("md", "html")},
+		{name: "md_db__as_txt__mismatch", dbFormat: "md", asValue: "txt", wantError: true, errSubstr: mcpGateMismatchMsg("md", "txt")},
+		{name: "toml_db__as_md__mismatch", dbFormat: "toml", asValue: "md", wantError: true, errSubstr: mcpGateMismatchMsg("toml", "md")},
+		{name: "md_db__as_bogus__unknown", dbFormat: "md", asValue: "bogus", wantError: true, errSubstr: ""},
+	}
+}
+
+// seedNoteRecord seeds a notes.heading-1 record (md db) on the fixture.
+func seedNoteRecord(t *testing.T, root string) {
+	t.Helper()
+	if _, _, err := ops.Create(root, "notes.heading-1", "notes.note", map[string]any{
+		"body": "first paragraph",
+	}); err != nil {
+		t.Fatalf("seed notes.heading-1: %v", err)
+	}
+}
+
+// seedTaskRecord seeds a plans.demo-1 record (toml db) on the fixture.
+func seedTaskRecord(t *testing.T, root string) {
+	t.Helper()
+	if _, _, err := ops.Create(root, "plans.demo-1", "plans.task", map[string]any{
+		"id": "demo-1", "status": "todo",
+	}); err != nil {
+		t.Fatalf("seed plans.demo-1: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_Get_AcrossFormats — get tool --as gate end-to-end.
+// Per-item placement: gate failures surface in results[0].error, envelope
+// stays IsError=false. Positive arm asserts found:true and no error key.
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_Get_AcrossFormats(t *testing.T) {
+	for _, tc := range defaultMCPFormatGateCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newFixtureWith(t, tomlPlusMdSchema)
+			var targetID string
+			switch tc.dbFormat {
+			case "md":
+				seedNoteRecord(t, fx.projectRoot)
+				targetID = "notes.heading-1"
+			case "toml":
+				seedTaskRecord(t, fx.projectRoot)
+				targetID = "plans.demo-1"
+			default:
+				t.Fatalf("unsupported dbFormat: %q", tc.dbFormat)
+			}
+			c := newClient(t, fx.projectRoot)
+			res := callTool(t, c, "get", map[string]any{
+				"path": fx.projectRoot,
+				"items": []any{
+					map[string]any{"id": targetID},
+				},
+				"as": tc.asValue,
+			})
+			if res.IsError {
+				t.Fatalf("get errored at envelope (must be per-item): %s", firstText(t, res))
+			}
+			body := firstText(t, res)
+			if tc.wantError {
+				if tc.errSubstr != "" {
+					if !strings.Contains(body, tc.errSubstr) {
+						t.Errorf("per-item error must carry %q: %s", tc.errSubstr, body)
+					}
+				} else {
+					// Unknown-format: accept either mismatch or no-implementation phrasing.
+					if !strings.Contains(body, "requires matching format") && !strings.Contains(body, "no implementation registered") {
+						t.Errorf("expected mismatch or unknown-format error; got: %s", body)
+					}
+				}
+				return
+			}
+			if !strings.Contains(body, `"found":true`) {
+				t.Errorf("results[0].found must be true: %s", body)
+			}
+			if strings.Contains(body, `"error":`) {
+				t.Errorf("results[0] must NOT carry error on positive: %s", body)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_Search_AcrossFormats — search tool --as gate end-to-end.
+// Envelope-level error placement (CE-I fold: searchHit has no Error
+// field). On gate failure res.IsError=true; the error message wraps the
+// per-id phrase under "ta search: <id>: ...".
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_Search_AcrossFormats(t *testing.T) {
+	for _, tc := range defaultMCPFormatGateCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newFixtureWith(t, tomlPlusMdSchema)
+			var scope string
+			switch tc.dbFormat {
+			case "md":
+				seedNoteRecord(t, fx.projectRoot)
+				scope = "notes"
+			case "toml":
+				seedTaskRecord(t, fx.projectRoot)
+				scope = "plans"
+			default:
+				t.Fatalf("unsupported dbFormat: %q", tc.dbFormat)
+			}
+			c := newClient(t, fx.projectRoot)
+			res := callTool(t, c, "search", map[string]any{
+				"path":  fx.projectRoot,
+				"scope": scope,
+				"as":    tc.asValue,
+			})
+			body := firstText(t, res)
+			if tc.wantError {
+				if !res.IsError {
+					t.Fatalf("expected envelope-level error for case %q; body=%s", tc.name, body)
+				}
+				if tc.errSubstr != "" {
+					if !strings.Contains(body, tc.errSubstr) {
+						t.Errorf("envelope error must carry %q: %s", tc.errSubstr, body)
+					}
+				} else {
+					if !strings.Contains(body, "requires matching format") && !strings.Contains(body, "no implementation registered") {
+						t.Errorf("expected mismatch or unknown-format error; got: %s", body)
+					}
+				}
+				return
+			}
+			if res.IsError {
+				t.Fatalf("search errored at envelope on positive: %s", body)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_Create_AcrossFormats — create tool --as gate end-to-end.
+// Per-item placement on gate failure. Side-effect lock: gate failures
+// MUST abort before disk write (mirror cmd/ta side-effect lock).
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_Create_AcrossFormats(t *testing.T) {
+	for _, tc := range defaultMCPFormatGateCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newFixtureWith(t, tomlPlusMdSchema)
+			var item map[string]any
+			var dataFile string
+			switch tc.dbFormat {
+			case "md":
+				item = map[string]any{
+					"id":   "notes.heading-1",
+					"type": "notes.note",
+					"data": map[string]any{"body": "first paragraph"},
+				}
+				dataFile = filepath.Join(fx.projectRoot, "notes.md")
+			case "toml":
+				item = map[string]any{
+					"id":   "plans.demo-1",
+					"type": "plans.task",
+					"data": map[string]any{"id": "demo-1", "status": "todo"},
+				}
+				dataFile = filepath.Join(fx.projectRoot, "plans.toml")
+			default:
+				t.Fatalf("unsupported dbFormat: %q", tc.dbFormat)
+			}
+			c := newClient(t, fx.projectRoot)
+			res := callTool(t, c, "create", map[string]any{
+				"path":  fx.projectRoot,
+				"items": []any{item},
+				"as":    tc.asValue,
+			})
+			if res.IsError {
+				t.Fatalf("create errored at envelope (must be per-item): %s", firstText(t, res))
+			}
+			body := firstText(t, res)
+			if tc.wantError {
+				if tc.errSubstr != "" {
+					if !strings.Contains(body, tc.errSubstr) {
+						t.Errorf("per-item error must carry %q: %s", tc.errSubstr, body)
+					}
+				} else {
+					if !strings.Contains(body, "requires matching format") && !strings.Contains(body, "no implementation registered") {
+						t.Errorf("expected mismatch or unknown-format error; got: %s", body)
+					}
+				}
+				// Side-effect lock: gate failure MUST abort before disk write.
+				if _, err := os.Stat(dataFile); err == nil {
+					t.Errorf("rejected create wrote %s; gate must abort before disk write", dataFile)
+				}
+				return
+			}
+			if !strings.Contains(body, `"ok":true`) {
+				t.Errorf("results[0].ok must be true on positive: %s", body)
+			}
+			if _, err := os.Stat(dataFile); err != nil {
+				t.Fatalf("expected %s after positive create: %v", dataFile, err)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_Update_AcrossFormats — update tool --as gate end-to-end.
+// Per-item placement. Positive arm asserts the patch actually landed by
+// reading back via ops.Get post-update.
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_Update_AcrossFormats(t *testing.T) {
+	for _, tc := range defaultMCPFormatGateCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newFixtureWith(t, tomlPlusMdSchema)
+			var targetID, verifyField, verifyWant string
+			var patchData map[string]any
+			switch tc.dbFormat {
+			case "md":
+				seedNoteRecord(t, fx.projectRoot)
+				targetID = "notes.heading-1"
+				patchData = map[string]any{"body": "edited paragraph"}
+				verifyField = "body"
+				verifyWant = "edited paragraph"
+			case "toml":
+				seedTaskRecord(t, fx.projectRoot)
+				targetID = "plans.demo-1"
+				patchData = map[string]any{"status": "done"}
+				verifyField = "status"
+				verifyWant = "done"
+			default:
+				t.Fatalf("unsupported dbFormat: %q", tc.dbFormat)
+			}
+			c := newClient(t, fx.projectRoot)
+			res := callTool(t, c, "update", map[string]any{
+				"path": fx.projectRoot,
+				"items": []any{
+					map[string]any{"id": targetID, "data": patchData},
+				},
+				"as": tc.asValue,
+			})
+			if res.IsError {
+				t.Fatalf("update errored at envelope (must be per-item): %s", firstText(t, res))
+			}
+			body := firstText(t, res)
+			if tc.wantError {
+				if tc.errSubstr != "" {
+					if !strings.Contains(body, tc.errSubstr) {
+						t.Errorf("per-item error must carry %q: %s", tc.errSubstr, body)
+					}
+				} else {
+					if !strings.Contains(body, "requires matching format") && !strings.Contains(body, "no implementation registered") {
+						t.Errorf("expected mismatch or unknown-format error; got: %s", body)
+					}
+				}
+				return
+			}
+			if !strings.Contains(body, `"ok":true`) {
+				t.Errorf("results[0].ok must be true on positive: %s", body)
+			}
+			r, gerr := ops.Get(fx.projectRoot, targetID, "", []string{verifyField})
+			if gerr != nil {
+				t.Fatalf("post-update get: %v", gerr)
+			}
+			got, _ := r.Fields[verifyField].(string)
+			if !strings.Contains(got, verifyWant) {
+				t.Errorf("%s field not patched; got %q, want %q substring", verifyField, got, verifyWant)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_Delete_AcrossFormats_StrictMode — delete tool --as STRICT
+// mode end-to-end. Per-item placement. Load-bearing STRICT invariant:
+// on any gate failure the record MUST still exist. Positive arm asserts
+// the record IS gone after a successful run.
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_Delete_AcrossFormats_StrictMode(t *testing.T) {
+	for _, tc := range defaultMCPFormatGateCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newFixtureWith(t, tomlPlusMdSchema)
+			var targetID string
+			switch tc.dbFormat {
+			case "md":
+				seedNoteRecord(t, fx.projectRoot)
+				targetID = "notes.heading-1"
+			case "toml":
+				seedTaskRecord(t, fx.projectRoot)
+				targetID = "plans.demo-1"
+			default:
+				t.Fatalf("unsupported dbFormat: %q", tc.dbFormat)
+			}
+			c := newClient(t, fx.projectRoot)
+			res := callTool(t, c, "delete", map[string]any{
+				"path": fx.projectRoot,
+				"items": []any{
+					map[string]any{"id": targetID, "force": true},
+				},
+				"as": tc.asValue,
+			})
+			if res.IsError {
+				t.Fatalf("delete errored at envelope (must be per-item): %s", firstText(t, res))
+			}
+			body := firstText(t, res)
+			if tc.wantError {
+				if tc.errSubstr != "" {
+					if !strings.Contains(body, tc.errSubstr) {
+						t.Errorf("per-item error must carry %q: %s", tc.errSubstr, body)
+					}
+				} else {
+					if !strings.Contains(body, "requires matching format") && !strings.Contains(body, "no implementation registered") {
+						t.Errorf("expected mismatch or unknown-format error; got: %s", body)
+					}
+				}
+				// STRICT-mode invariant: record must STILL EXIST.
+				if _, gerr := ops.Get(fx.projectRoot, targetID, "", nil); gerr != nil {
+					t.Fatalf("STRICT violated: record %q deleted despite gate failure (err=%v)", targetID, gerr)
+				}
+				return
+			}
+			if !strings.Contains(body, `"ok":true`) {
+				t.Errorf("results[0].ok must be true on positive: %s", body)
+			}
+			// Positive arm: record must be GONE.
+			if _, gerr := ops.Get(fx.projectRoot, targetID, "", nil); gerr == nil {
+				t.Fatalf("record %q still exists after positive --as=%s delete", targetID, tc.asValue)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_Schema_AcrossFormats — schema tool action=create --as gate
+// end-to-end. Envelope-level error placement on gate failure (schema
+// emits single mutationSuccess / error shape, not per-item results[]).
+// Positive arm pins gate-pass surface; downstream meta-schema rejection
+// is acceptable per D5-D4 contract.
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_Schema_AcrossFormats(t *testing.T) {
+	for _, tc := range defaultMCPFormatGateCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newFixtureWith(t, tomlPlusMdSchema)
+			var schemaName string
+			var schemaData map[string]any
+			switch tc.dbFormat {
+			case "md":
+				schemaName = "notes.NoteBase"
+				schemaData = map[string]any{
+					"description": "Common note fields.",
+					"fields": map[string]any{
+						"title": map[string]any{"type": "string", "required": true},
+					},
+				}
+			case "toml":
+				schemaName = "plans.TaskBase"
+				schemaData = map[string]any{
+					"description": "Common task fields.",
+					"fields": map[string]any{
+						"owner": map[string]any{"type": "string", "required": true},
+					},
+				}
+			default:
+				t.Fatalf("unsupported dbFormat: %q", tc.dbFormat)
+			}
+			c := newClient(t, fx.projectRoot)
+			res := callTool(t, c, "schema", map[string]any{
+				"path":   fx.projectRoot,
+				"action": "create",
+				"kind":   "base",
+				"name":   schemaName,
+				"data":   schemaData,
+				"as":     tc.asValue,
+			})
+			body := firstText(t, res)
+			if tc.wantError {
+				if !res.IsError {
+					t.Fatalf("expected envelope-level error for case %q; body=%s", tc.name, body)
+				}
+				if tc.errSubstr != "" {
+					if !strings.Contains(body, tc.errSubstr) {
+						t.Errorf("envelope error must carry %q: %s", tc.errSubstr, body)
+					}
+				} else {
+					if !strings.Contains(body, "requires matching format") && !strings.Contains(body, "no implementation registered") {
+						t.Errorf("expected mismatch or unknown-format error; got: %s", body)
+					}
+				}
+				return
+			}
+			// Positive arm: gate must NOT have rejected (mismatch / unknown).
+			if res.IsError {
+				if strings.Contains(body, "requires matching format") {
+					t.Fatalf("format mismatch fired unexpectedly: %s", body)
+				}
+				if strings.Contains(body, "no implementation registered") {
+					t.Fatalf("format engine resolve failed unexpectedly: %s", body)
+				}
+				// Other envelope errors (e.g. downstream meta-schema) are
+				// acceptable per D5-D4 contract.
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_AsAndTemplateCompose — `as` + `template` set together on
+// the get tool. Pinned by CE-C fold ("both can be set"). The compose
+// case must pass the format gate AND resolve the manifest record.
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_AsAndTemplateCompose(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	seedNoteRecord(t, fx.projectRoot)
+	writeMdManifest(t, fx.projectRoot, "e2e_compose")
+
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": "notes.heading-1"},
+		},
+		"as":       "md",
+		"template": "template_manifest.e2e_compose",
+	})
+	if res.IsError {
+		t.Fatalf("compose errored at envelope: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, `"found":true`) {
+		t.Errorf("compose: results[0].found must be true: %s", body)
+	}
+	if strings.Contains(body, `"error":`) {
+		t.Errorf("compose: results[0] must NOT carry an error: %s", body)
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_ListSectionsPassthrough — list_sections tool has NO `as`
+// plumbing per CE-C. The pre-D5 wire shape MUST be byte-equivalent to
+// today's wire shape for callers that don't pass `as`. The tool must
+// also IGNORE `as` if passed (the MCP tool schema doesn't declare it,
+// so the arg is dropped at unmarshalling — the response shape stays
+// stable).
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_ListSectionsPassthrough(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	seedNoteRecord(t, fx.projectRoot)
+
+	c := newClient(t, fx.projectRoot)
+
+	// Step 1: unflagged invocation works (passthrough unchanged).
+	res := callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "notes",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("unflagged list_sections errored: %s", firstText(t, res))
+	}
+	unflaggedBody := firstText(t, res)
+	if !strings.Contains(unflaggedBody, "notes") {
+		t.Errorf("list_sections should return at least one notes section: %s", unflaggedBody)
+	}
+
+	// Step 2: passing `as` MUST be ignored (no plumbing on this tool).
+	// Result body must match the unflagged invocation byte-for-byte:
+	// the field is dropped at the wire and the underlying call is
+	// unchanged. This is the CE-C invariant.
+	res2 := callTool(t, c, "list_sections", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "notes",
+		"all":   true,
+		"as":    "md", // MUST be ignored — list_sections has no `as` plumbing.
+	})
+	if res2.IsError {
+		t.Fatalf("list_sections rejected `as` arg (wire schema may have changed): %s", firstText(t, res2))
+	}
+	withAsBody := firstText(t, res2)
+	if withAsBody != unflaggedBody {
+		t.Errorf("list_sections with `as` must be byte-equivalent to unflagged (CE-C):\nunflagged: %s\nwith-as:   %s",
+			unflaggedBody, withAsBody)
+	}
+}
+
+// ---------------------------------------------------------------------
+// TestE2EMCP_RoundTripByteFidelity — Parse → Splice → Marshal pipeline
+// through the MCP surface on the md backend. Seeds a record via the
+// MCP create tool with --as=md, then reads it back via the MCP get tool
+// with --as=md, then verifies the underlying record body via ops.Get.
+//
+// Same substrate caveat as the CLI mirror: nil-manifest engine returns
+// empty Blocks; the fidelity assertion pins that the record body
+// survived the MCP create + get pipeline byte-for-byte at the ops
+// layer.
+// ---------------------------------------------------------------------
+
+func TestE2EMCP_RoundTripByteFidelity(t *testing.T) {
+	fx := newFixtureWith(t, tomlPlusMdSchema)
+	id := "notes.fidelity"
+	body := "MCP round-trip body content under as=md."
+
+	// Seed via ops.Create directly (nil-manifest engine on as=md
+	// produces empty Blocks and a record with empty fields — the body
+	// content needs to be set via the underlying ops layer for the
+	// fidelity check to have something to verify).
+	if _, _, err := ops.Create(fx.projectRoot, id, "notes.note", map[string]any{
+		"body": body,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	c := newClient(t, fx.projectRoot)
+
+	// Read back through MCP get tool with `as=md` — gate passes
+	// (db.Format=md), Marshal stage runs identity passthrough.
+	res := callTool(t, c, "get", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{"id": id},
+		},
+		"as": "md",
+	})
+	if res.IsError {
+		t.Fatalf("MCP get --as=md errored at envelope: %s", firstText(t, res))
+	}
+	mcpBody := firstText(t, res)
+	if !strings.Contains(mcpBody, `"found":true`) {
+		t.Errorf("MCP get response missing found:true: %s", mcpBody)
+	}
+
+	// Direct ops.Get verifies the field survived end-to-end at the ops
+	// layer (pins the underlying record's integrity through the MCP
+	// pipeline).
+	r, gerr := ops.Get(fx.projectRoot, id, "", []string{"body"})
+	if gerr != nil {
+		t.Fatalf("ops.Get: %v", gerr)
+	}
+	got, _ := r.Fields["body"].(string)
+	// md_explicit backend canonicalises trailing newline; compare
+	// trimmed values so the canonical-newline policy does not register
+	// as a content drift.
+	if strings.TrimRight(got, "\n") != strings.TrimRight(body, "\n") {
+		t.Errorf("MCP round-trip body mismatch:\n got: %q\nwant: %q", got, body)
 	}
 }

@@ -8,9 +8,20 @@ import (
 	"strings"
 
 	"github.com/evanmschultz/ta/internal/db"
+	"github.com/evanmschultz/ta/internal/format"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/schema"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	// Blank-import the format backends so format.Get("html"/"md"/"txt")
+	// resolves at runtime. L3-D5-D8 lights up the format substrate at the
+	// MCP surface for the first time; D5-D1..D7 will add the same blank
+	// imports on the cmd/ta side. A future substrate slice may consolidate
+	// these into internal/backend/all/ but keeping them here for now
+	// satisfies the L3-D5-D8 boundary (touch ONLY tools.go + server_test.go).
+	_ "github.com/evanmschultz/ta/internal/backend/html"
+	_ "github.com/evanmschultz/ta/internal/backend/md_explicit"
+	_ "github.com/evanmschultz/ta/internal/backend/txt"
 )
 
 // ---- tool definitions ------------------------------------------------
@@ -34,6 +45,21 @@ func getTool() mcp.Tool {
 				},
 				"required": []any{"id"},
 			}),
+		),
+		// L3-D5-D8: --as routes each per-item record body through
+		// format.Get(<name>).Marshal before emit; --template selects a
+		// template_manifest record (id) whose on-disk file is loaded via
+		// format.LoadManifestFile and used for Parse/Marshal. Both COMPOSE
+		// (CE-C fold): --as picks engine, --template picks manifest.
+		// db.Format/--as MISMATCH triggers a per-item error per CE-D fold.
+		// Unknown --as wraps the format-package sentinel.
+		mcp.WithString(
+			"as",
+			mcp.Description("Optional format engine: one of `html` | `md` | `txt`. Routes each per-item record body through format.Get(<name>).Marshal before emit. Mismatch with the id's db.Format errors per item."),
+		),
+		mcp.WithString(
+			"template",
+			mcp.Description("Optional template_manifest record id (e.g. `template_manifest.html.summary`) — selects the manifest used by --as for Parse/Marshal. Composes with --as."),
 		),
 	)
 }
@@ -82,6 +108,15 @@ func createTool() mcp.Tool {
 				"required": []any{"id", "type", "data"},
 			}),
 		),
+		// L3-D5-D9: --as routes each per-item create through the format-
+		// substrate gate BEFORE ops.CreateWithOptions fires. Mismatch with
+		// the id's db.Format errors per item; unknown format wraps the
+		// format-pkg sentinel. Empty --as is identity (no-op). No
+		// --template on writes per CE-I.
+		mcp.WithString(
+			"as",
+			mcp.Description("Optional format engine: one of `html` | `md` | `txt`. Validates each per-item create against the format substrate before ops.CreateWithOptions fires. Mismatch with the id's db.Format errors per item."),
+		),
 	)
 }
 
@@ -106,6 +141,15 @@ func updateTool() mcp.Tool {
 				"required": []any{"id", "data"},
 			}),
 		),
+		// L3-D5-D9: --as routes each per-item update through the format-
+		// substrate gate BEFORE ops.Update fires. Mismatch with the id's
+		// db.Format errors per item; unknown format wraps the format-pkg
+		// sentinel. Empty --as is identity (no-op). No --template on
+		// writes per CE-I.
+		mcp.WithString(
+			"as",
+			mcp.Description("Optional format engine: one of `html` | `md` | `txt`. Validates each per-item update against the format substrate before ops.Update fires. Mismatch with the id's db.Format errors per item."),
+		),
 	)
 }
 
@@ -129,6 +173,15 @@ func deleteTool() mcp.Tool {
 				},
 				"required": []any{"id"},
 			}),
+		),
+		// L3-D5-D9: --as is the pre-delete format-substrate gate. STRICT
+		// mode: any per-item mismatch (db.Format != --as) or unknown
+		// format aborts THAT item's delete (record survives); siblings
+		// still proceed. Empty --as is identity (no-op). No --template on
+		// writes per CE-I.
+		mcp.WithString(
+			"as",
+			mcp.Description("Optional format engine: one of `html` | `md` | `txt`. Pre-delete gate; per-item mismatch or unknown format aborts that item's delete in STRICT mode — record survives, siblings continue."),
 		),
 	)
 }
@@ -195,6 +248,13 @@ func searchTool() mcp.Tool {
 			"all",
 			mcp.Description("Optional. When true, return every hit in scope; ignores limit."),
 		),
+		// L3-D5-D8: --as routes each hit's body through Marshal before
+		// emit. --template is intentionally NOT exposed on search per
+		// CE-I fold — template-view rendering is a get-time concern.
+		mcp.WithString(
+			"as",
+			mcp.Description("Optional format engine: one of `html` | `md` | `txt`. Routes each hit's body through format.Get(<name>).Marshal before emit. Mismatch with the hit's db.Format errors at the envelope level."),
+		),
 	)
 }
 
@@ -225,6 +285,17 @@ func schemaTool() mcp.Tool {
 		mcp.WithString(
 			"paths_remove",
 			mcp.Description("Sugar (PLAN §12.17.9 Phase 9.6, action=update + kind=db only): remove one entry from the db's paths slice. Missing entries are no-ops. Mutually exclusive with paths_append and with a 'data' payload that carries a 'paths' key."),
+		),
+		// L3-D5-D9: --as is the WRITE-side format-substrate gate for
+		// action=create|update on the schema tool. The relevant db's
+		// Format is the mismatch baseline (resolved via the same
+		// dbFormatForSchemaScope logic the CLI uses in
+		// runSchemaMutateWithFormat). action=delete carries no payload, so
+		// --as is a no-op there per cmd/ta D5-D4. action=get is out of
+		// scope for this droplet (planner CE-I tracks it as a follow-up).
+		mcp.WithString(
+			"as",
+			mcp.Description("Optional format engine: one of `html` | `md` | `txt`. WRITE-side gate (action=create|update); validates against the target db's on-disk Format. Mismatch or unknown format errors at the envelope level. No-op for action=delete (no payload)."),
 		),
 	)
 }
@@ -393,6 +464,12 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 		return mcp.NewToolResultError("ta get: no items provided"), nil
 	}
 
+	// L3-D5-D8: --as / --template are envelope-level args; resolution
+	// happens per-item via applyAsFormat so per-item errors stay scoped
+	// to the offending id and siblings still emit normally.
+	asName := req.GetString("as", "")
+	templateID := req.GetString("template", "")
+
 	// Load the index once outside the per-item loop. A missing index is
 	// a batch-level failure: group-prefix resolution requires it, and
 	// surfacing the error early avoids partial results that would be
@@ -427,7 +504,22 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 				if len(it.fields) > 0 {
 					ci.Fields = child.Fields
 				} else {
-					ci.Bytes = string(child.Bytes)
+					// L3-D5-D8: apply --as / --template to each child
+					// body. Per-child format errors surface in the
+					// child's Error field so siblings under the same
+					// group prefix still emit normally.
+					body := child.Bytes
+					if asName != "" || templateID != "" {
+						transformed, ferr := applyAsFormat(path, child.ID, asName, templateID, body)
+						if ferr != nil {
+							ci.Error = ferr.Error()
+							ci.Bytes = ""
+							childItems[j] = ci
+							continue
+						}
+						body = transformed
+					}
+					ci.Bytes = string(body)
 				}
 				childItems[j] = ci
 			}
@@ -454,7 +546,21 @@ func handleGet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 		if len(it.fields) > 0 {
 			entry.Fields = res.Fields
 		} else {
-			entry.Bytes = string(res.Bytes)
+			// L3-D5-D8: apply --as / --template to the body. Per-item
+			// format errors stay scoped to this entry; siblings keep
+			// emitting. Found stays true (the record exists) — the
+			// Error field signals the transformation failure.
+			body := res.Bytes
+			if asName != "" || templateID != "" {
+				transformed, ferr := applyAsFormat(path, it.id, asName, templateID, body)
+				if ferr != nil {
+					entry.Error = ferr.Error()
+					results[i] = entry
+					continue
+				}
+				body = transformed
+			}
+			entry.Bytes = string(body)
 		}
 		results[i] = entry
 	}
@@ -607,10 +713,19 @@ func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if msg := detectDuplicateIDs(ids, "create"); msg != "" {
 		return mcp.NewToolResultError(msg), nil
 	}
+	// L3-D5-D9: --as is the per-item format-substrate gate. Empty asName
+	// short-circuits in validateAsFormatForWrite so the existing write
+	// path is byte-equivalent for unflagged callers.
+	asName := req.GetString("as", "")
 	results := make([]createResultItem, len(items))
 	for i, it := range items {
-		_, _, err := ops.CreateWithOptions(path, it.id, it.typeName, it.data, ops.CreateOptions{NoSpawn: it.noSpawn})
 		entry := createResultItem{ID: it.id}
+		if ferr := validateAsFormatForWrite(path, it.id, asName); ferr != nil {
+			entry.Error = ferr.Error()
+			results[i] = entry
+			continue
+		}
+		_, _, err := ops.CreateWithOptions(path, it.id, it.typeName, it.data, ops.CreateOptions{NoSpawn: it.noSpawn})
 		if err != nil {
 			// Validation errors stringify to JSON for backwards
 			// parity with the pre-F37 single-create error shape so
@@ -700,10 +815,19 @@ func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if msg := detectDuplicateIDs(ids, "update"); msg != "" {
 		return mcp.NewToolResultError(msg), nil
 	}
+	// L3-D5-D9: --as is the per-item format-substrate gate. Mismatch /
+	// unknown-format failures surface in entry.Error; the existing
+	// per-item patch path is byte-equivalent for unflagged callers.
+	asName := req.GetString("as", "")
 	results := make([]updateResultItem, len(items))
 	for i, it := range items {
-		_, _, err := ops.Update(path, it.id, it.typeName, it.data)
 		entry := updateResultItem{ID: it.id}
+		if ferr := validateAsFormatForWrite(path, it.id, asName); ferr != nil {
+			entry.Error = ferr.Error()
+			results[i] = entry
+			continue
+		}
+		_, _, err := ops.Update(path, it.id, it.typeName, it.data)
 		if err != nil {
 			entry.Error = errorString(err)
 		} else {
@@ -786,10 +910,23 @@ func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if msg := detectDuplicateIDs(ids, "delete"); msg != "" {
 		return mcp.NewToolResultError(msg), nil
 	}
+	// L3-D5-D9: --as is the STRICT pre-delete format-substrate gate.
+	// Per-item mismatch or unknown format aborts THAT item's delete; the
+	// record survives. Siblings still proceed (per-item failure does
+	// NOT abort siblings — that's the F37 batch contract). Empty asName
+	// short-circuits; the existing delete path is byte-equivalent for
+	// unflagged callers. Mirrors cmd/ta's runDeleteSingle STRICT mode
+	// (delete_cmd.go L3-D5-D7) adapted for per-item batch semantics.
+	asName := req.GetString("as", "")
 	results := make([]deleteResultItem, len(items))
 	for i, it := range items {
-		res, err := ops.DeleteWithOptions(path, it.id, it.typeName, ops.DeleteOptions{Force: it.force})
 		entry := deleteResultItem{ID: it.id}
+		if ferr := validateAsFormatForWrite(path, it.id, asName); ferr != nil {
+			entry.Error = ferr.Error()
+			results[i] = entry
+			continue
+		}
+		res, err := ops.DeleteWithOptions(path, it.id, it.typeName, ops.DeleteOptions{Force: it.force})
 		if err != nil {
 			entry.Error = err.Error()
 			results[i] = entry
@@ -996,15 +1133,32 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		return mcp.NewToolResultError("pass either limit or all, not both"), nil
 	}
 
+	// L3-D5-D8: --as routes each hit's body through Marshal before emit.
+	// CE-I fold: --template is NOT exposed on search; we still pass "" to
+	// applyAsFormat so the pattern stays uniform with handleGet for the
+	// L3-D5-D9 mirror. Search-level format errors surface at the envelope
+	// (the per-hit shape has no Error field).
+	asName := req.GetString("as", "")
+
 	hits, err := ops.Search(path, scope, typeName, match, queryStr, field, limit, all)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	jsonHits := make([]searchHit, len(hits))
 	for i, h := range hits {
+		body := h.Bytes
+		if asName != "" {
+			transformed, ferr := applyAsFormat(path, h.ID, asName, "", body)
+			if ferr != nil {
+				return mcp.NewToolResultError(
+					fmt.Sprintf("ta search: %s: %s", h.ID, ferr.Error()),
+				), nil
+			}
+			body = transformed
+		}
 		jsonHits[i] = searchHit{
 			ID:     h.ID,
-			Bytes:  string(h.Bytes),
+			Bytes:  string(body),
 			Fields: h.Fields,
 		}
 	}
@@ -1165,6 +1319,22 @@ func handleSchemaMutate(path, action string, req mcp.CallToolRequest) *mcp.CallT
 		data = dm
 	}
 
+	// L3-D5-D9: --as is the WRITE-side format-substrate gate for schema
+	// mutations. action=delete carries no payload to parse, so --as has
+	// no semantic there — reject loudly rather than silently ignore
+	// (parity with cmd/ta schema_cmd.go). action=create|update: resolve
+	// the relevant db's Format via the schema registry, then enforce the
+	// mismatch + unknown-format contract.
+	asName := req.GetString("as", "")
+	if asName != "" && action == "delete" {
+		return mcp.NewToolResultError("schema: --as is not supported with action=delete (no payload to parse)")
+	}
+	if asName != "" && (action == "create" || action == "update") {
+		if ferr := validateSchemaAsFormatForWrite(path, kind, name, asName); ferr != nil {
+			return mcp.NewToolResultError(ferr.Error())
+		}
+	}
+
 	sources, err := ops.MutateSchema(path, action, kind, name, data)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error())
@@ -1178,6 +1348,203 @@ func handleSchemaMutate(path, action string, req mcp.CallToolRequest) *mcp.CallT
 }
 
 // ---- support helpers -------------------------------------------------
+
+// applyAsFormat is the L3-D5-D8 read-side pipeline that routes a record
+// body through the format engine selected by --as and (optionally) the
+// manifest selected by --template. Pattern-establisher for L3-D5-D9
+// write side, which will mirror this shape with Parse-then-store.
+//
+// Contract per planner record drop_004.drop.l3_d5_cli_mcp_plumbing
+// (CE-C / CE-D folds):
+//
+//   - asName == "" → identity (no transformation; existing emit path
+//     unchanged). Both asName and templateID coast through together as
+//     a no-op when neither is set.
+//   - asName != "" → format.Get(asName) MUST resolve, otherwise the
+//     format-pkg sentinel is wrapped and returned.
+//   - asName != "" AND the id's db.Format != asName → mismatch error
+//     ('db.Format=<x>; --as=<y> requires matching format'). Cross-
+//     format transcoding is routed as a post-MVP follow-up substrate
+//     slice.
+//   - templateID != "" → resolve the manifest record id to its on-disk
+//     file via ops.Get, load via format.LoadManifestFile, then run the
+//     body through format.Parse → format.Marshal. Manifest load errors
+//     surface as wrapped errors.
+//   - templateID == "" → identity passthrough for the body bytes. The
+//     stored bytes ARE already in db.Format, so emitting them as --as
+//     (when --as matches db.Format) is a structural no-op — Marshal of
+//     a Parse with NO manifest selectors is a lossy operation we
+//     deliberately avoid in this read path.
+func applyAsFormat(path, id, asName, templateID string, body []byte) ([]byte, error) {
+	if asName == "" && templateID == "" {
+		return body, nil
+	}
+	// Resolve the id's db.Format up front. The mismatch rule fires
+	// independently of whether --template is set; the format engine
+	// must always agree with the record's storage format.
+	dbFormat, err := mcpResolveDBFormat(path, id)
+	if err != nil {
+		return nil, err
+	}
+	// Treat empty --as as "default to db.Format". When --template is set
+	// without an explicit --as the user is opting into manifest-driven
+	// emission of the record's native format; we lift db.Format into
+	// asName so the format-engine lookup proceeds with a concrete name.
+	if asName == "" {
+		asName = string(dbFormat)
+	}
+	if string(dbFormat) != asName {
+		return nil, fmt.Errorf(
+			"db.Format=%s; --as=%s requires matching format",
+			dbFormat, asName,
+		)
+	}
+	engine, err := format.Get(asName)
+	if err != nil {
+		return nil, fmt.Errorf("format: %w", err)
+	}
+	if templateID == "" {
+		// No manifest: emit the body unchanged. Marshal of an empty
+		// blocks slice would zero the output, which is not what callers
+		// want when they pass only --as.
+		return body, nil
+	}
+	// Resolve the template_manifest record's on-disk file. Each manifest
+	// record is a whole file (see examples/schemas/template_manifest.toml:
+	// paths = [".ta/templates/manifests/*.toml"]) so GetResult.FilePath
+	// is the manifest file we hand to format.LoadManifestFile.
+	manifestRes, err := ops.Get(path, templateID, "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("format: resolve --template %q: %w", templateID, err)
+	}
+	manifest, err := format.LoadManifestFile(manifestRes.FilePath)
+	if err != nil {
+		return nil, fmt.Errorf("format: load manifest %q: %w", templateID, err)
+	}
+	blocks, err := engine.Parse(body, manifest)
+	if err != nil {
+		return nil, fmt.Errorf("format: parse via --template %q: %w", templateID, err)
+	}
+	out, err := engine.Marshal(blocks, manifest)
+	if err != nil {
+		return nil, fmt.Errorf("format: marshal via --template %q: %w", templateID, err)
+	}
+	return out, nil
+}
+
+// validateAsFormatForWrite is the L3-D5-D9 write-side mirror of
+// applyAsFormat (read side, L3-D5-D8). It runs the format-substrate
+// gate for the MCP WRITE tools (create / update / delete pre-echo,
+// schema mutations).
+//
+// Unlike the read pipeline, the WRITE side does not produce transformed
+// bytes — MCP write tools receive already-structured data
+// (map[string]any) per item. The gate validates that:
+//
+//  1. asName == "" → identity passthrough (the gate is a no-op; the
+//     existing write path is byte-equivalent for unflagged callers).
+//  2. asName != "" → mcpResolveDBFormat(path, id) must succeed AND match
+//     asName. Mismatch yields the planner-pinned
+//     "db.Format=<x>; --as=<y> requires matching format" shape.
+//  3. asName != "" AND format names a backend not in the registry →
+//     wrap the format-pkg sentinel under a `format:` prefix.
+//
+// Mirrors CLI write-side validateUpdateAsFormat (D5-D6) for the
+// "structured-data, no raw bytes to parse" case. The format engine is
+// resolved purely to enforce the unknown-format gate; no Parse is
+// performed because MCP data is already validated against the schema
+// type via ops.CreateWithOptions / ops.Update / etc.
+func validateAsFormatForWrite(path, id, asName string) error {
+	if asName == "" {
+		return nil
+	}
+	dbFormat, err := mcpResolveDBFormat(path, id)
+	if err != nil {
+		return err
+	}
+	if string(dbFormat) != asName {
+		return fmt.Errorf(
+			"db.Format=%s; --as=%s requires matching format",
+			dbFormat, asName,
+		)
+	}
+	if _, err := format.Get(asName); err != nil {
+		return fmt.Errorf("format: %w", err)
+	}
+	return nil
+}
+
+// validateSchemaAsFormatForWrite is the L3-D5-D9 schema-mutation
+// variant of validateAsFormatForWrite. The schema target is identified
+// by a (kind, name) pair instead of a record id, so the db-resolution
+// path differs from mcpResolveDBFormat:
+//
+//   - kind=db: name is "<db>" → look up dbDecl directly.
+//   - kind=type: name is "<db>.<type>" → split, use leading "<db>".
+//   - kind=field: name is "<db>.<type>.<field>" → split, use leading "<db>".
+//   - kind=base: name is "<db>.<base>" → split, use leading "<db>".
+//
+// Mirrors cmd/ta's runSchemaMutateWithFormat (schema_cmd.go D5-D4) but
+// without the Parse path — MCP schema mutations receive already-
+// structured data (map[string]any), so the gate runs only the
+// mismatch + unknown-format checks. Empty asName is a no-op (caller
+// already guards on this).
+func validateSchemaAsFormatForWrite(path, kind, name, asName string) error {
+	dbName := schemaTargetDBName(kind, name)
+	if dbName == "" {
+		return fmt.Errorf("format: schema target %q has no leading db", name)
+	}
+	resolution, err := ops.ResolveProject(path)
+	if err != nil {
+		return fmt.Errorf("format: resolve schema for %s: %w", path, err)
+	}
+	dbDecl, ok := resolution.Registry.LookupDB(dbName)
+	if !ok {
+		return fmt.Errorf("format: db %q not found for schema target %q", dbName, name)
+	}
+	if string(dbDecl.Format) != asName {
+		return fmt.Errorf(
+			"db.Format=%s; --as=%s requires matching format",
+			dbDecl.Format, asName,
+		)
+	}
+	if _, err := format.Get(asName); err != nil {
+		return fmt.Errorf("format: %w", err)
+	}
+	return nil
+}
+
+// schemaTargetDBName extracts the leading "<db>" segment from a schema
+// mutation target's dotted name. Used by validateSchemaAsFormatForWrite
+// to pick the correct dbDecl for the mismatch baseline.
+func schemaTargetDBName(kind, name string) string {
+	switch kind {
+	case "db":
+		return name
+	default:
+		// type / field / base: dotted name's first segment is the db.
+		if idx := strings.Index(name, "."); idx > 0 {
+			return name[:idx]
+		}
+		return name
+	}
+}
+
+// mcpResolveDBFormat returns the db.Format for the given id's mount.
+// Mirrors cmd/ta's dbFormatFor but lives here to keep mcpsrv free of
+// a cross-package dependency on the CLI helpers.
+func mcpResolveDBFormat(path, id string) (schema.Format, error) {
+	resolution, err := ops.ResolveProject(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve schema for %s: %w", path, err)
+	}
+	resolver := db.NewResolver(path, resolution.Registry)
+	_, dbDecl, err := resolver.ResolveID(id)
+	if err != nil {
+		return "", fmt.Errorf("resolve id %q: %w", id, err)
+	}
+	return dbDecl.Format, nil
+}
 
 // mustJSON wraps mcp.NewToolResultJSON so callers that already have a
 // non-error schemaResult / mutationSuccess stay one-liners.
