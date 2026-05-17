@@ -8,6 +8,17 @@ import (
 
 	"github.com/spf13/cobra"
 
+	// Blank imports register the html / md / txt Format engines with the
+	// format substrate. L3-D5-D6 (write side) mirrors the L3-D5-D1 read-
+	// side pattern from get_cmd.go: each command that consumes format.Get
+	// anchors the engine registrations at the call-site file. This makes
+	// the dependency explicit per-command and keeps each subcommand
+	// independently teasable without breaking the format dispatch contract.
+	_ "github.com/evanmschultz/ta/internal/backend/html"
+	_ "github.com/evanmschultz/ta/internal/backend/md_explicit"
+	_ "github.com/evanmschultz/ta/internal/backend/txt"
+
+	"github.com/evanmschultz/ta/internal/format"
 	"github.com/evanmschultz/ta/internal/ops"
 )
 
@@ -17,6 +28,7 @@ func newUpdateCmd() *cobra.Command {
 	var typeName string
 	var verbose bool
 	var batch string
+	var asFormat string
 	cmd := &cobra.Command{
 		Use:   "update <id> [<id>...]",
 		Short: "PATCH one or more existing records; mirrors MCP tool `update`.",
@@ -50,7 +62,16 @@ func newUpdateCmd() *cobra.Command {
 				return errors.New("ta update: use either positional ids or --batch, not both")
 			}
 			if batch == "" && len(args) == 1 {
-				return runUpdateSingle(c, path, args[0], typeName, dataInline, dataFile, verbose)
+				return runUpdateSingle(c, path, args[0], typeName, dataInline, dataFile, asFormat, verbose)
+			}
+			// L3-D5-D6: --as is a write-side render-and-validate hint
+			// scoped to single-record updates. Forbidding it in batch and
+			// multi-positional modes mirrors the read-side D5-D1 rule and
+			// keeps the per-item format ambiguity off the table (each
+			// item could declare its own type / dbFormat). Single-id is
+			// the only place a single --as has unambiguous semantics.
+			if asFormat != "" {
+				return errors.New("ta update: --as is only supported for single-record updates (not --batch or multi-positional)")
 			}
 			items, err := collectUpdateItems(c.InOrStdin(), batch, args, typeName, dataInline, dataFile)
 			if err != nil {
@@ -70,6 +91,14 @@ func newUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the updated record after the success notice (single-id form only)")
 	cmd.Flags().StringVar(&batch, "batch", "", "read {\"items\":[{id, data, type?}, ...]} JSON from FILE (or `-` for stdin); mutually exclusive with positional ids")
+	// L3-D5-D6: format-substrate validation hint (write side).
+	// --as picks the format engine name (html | md | txt). The --data
+	// bytes are routed through format.Get(<name>).Parse(buf, nil) as a
+	// validation gate before the ops.Update patch runs. When --as is set
+	// AND differs from the resolved db's on-disk Format, the call errors
+	// with the planner-pinned mismatch message shape. No --template per
+	// CE-I (write side does not consume manifest record views).
+	cmd.Flags().StringVar(&asFormat, "as", "", "format engine name (html | md | txt); validates --data bytes via format.Get(name).Parse before patch (default: db's on-disk format)")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	cmd.MarkFlagsMutuallyExclusive("data", "batch")
 	cmd.MarkFlagsMutuallyExclusive("data-file", "batch")
@@ -81,7 +110,19 @@ func newUpdateCmd() *cobra.Command {
 // runUpdateSingle preserves the pre-F37 single-positional flow (TTY
 // form support, --verbose echo) so existing tests + interactive
 // patterns keep working unchanged.
-func runUpdateSingle(c *cobra.Command, path, id, typeName, dataInline, dataFile string, verbose bool) error {
+//
+// L3-D5-D6: when --as is set, the --data bytes are routed through the
+// format substrate as a validation gate before the patch runs. The
+// helper enforces the planner mismatch rule (--as vs db.Format) and
+// surfaces unknown-engine names with a clearly-labelled error. The
+// existing patch flow (data collection + ops.Update + notice +
+// --verbose echo) runs unchanged after the gate.
+func runUpdateSingle(c *cobra.Command, path, id, typeName, dataInline, dataFile, asFormat string, verbose bool) error {
+	if asFormat != "" {
+		if err := validateUpdateAsFormat(path, id, dataInline, dataFile, asFormat, c.InOrStdin()); err != nil {
+			return err
+		}
+	}
 	data, err := collectUpdateData(c, path, id, dataInline, dataFile)
 	if err != nil {
 		return err
@@ -95,6 +136,65 @@ func runUpdateSingle(c *cobra.Command, path, id, typeName, dataInline, dataFile 
 	}
 	if verbose {
 		return renderVerboseRecord(c.OutOrStdout(), path, id)
+	}
+	return nil
+}
+
+// validateUpdateAsFormat is the L3-D5-D6 write-side format-substrate
+// gate. Mirrors the L3-D5-D1 read-side runGetSingleWithFormat 4-step
+// shape, adapted for WRITE:
+//
+//  1. Receive --data bytes (inline or --data-file).
+//  2. Resolve effectiveAs (defaults to db's on-disk Format).
+//  3. Mismatch check: explicit --as != string(dbFormat) errors with the
+//     planner-pinned message shape; defaulted --as never errors.
+//  4. format.Get(effectiveAs).Parse(buf, nil) — engine.Parse with nil
+//     manifest is the documented validation arm (engines return empty
+//     Blocks for nil manifest per their backend contract); a non-nil
+//     error here means the supplied bytes are not parseable in the
+//     declared format, which is exactly what --as is asserting.
+//
+// The function returns the validation outcome only — it does NOT
+// patch the record. The caller continues into the existing data
+// collection + ops.Update flow after the gate passes. Empty --data
+// (neither --data nor --data-file set) is a no-op for the gate: there
+// are no bytes to validate, so the patch flow's own no-op handling
+// applies. TTY-interactive form-driven updates likewise bypass the
+// gate because no --data bytes exist to validate.
+func validateUpdateAsFormat(path, id, dataInline, dataFile, asFormat string, stdin io.Reader) error {
+	dbFormat, err := dbFormatFor(path, id)
+	if err != nil {
+		return err
+	}
+	// Mismatch rule per planner contract: explicit --as != db.Format is
+	// an error with the planner-pinned message shape. When --as defaults
+	// to db.Format (caller did not pass --as), no mismatch is possible.
+	if asFormat != string(dbFormat) {
+		return fmt.Errorf("db.Format=%s; --as=%s requires matching format", string(dbFormat), asFormat)
+	}
+	engine, err := format.Get(asFormat)
+	if err != nil {
+		return fmt.Errorf("ta update: --as=%s: %w", asFormat, err)
+	}
+	// No --data bytes to validate: gate is a no-op. The existing patch
+	// flow handles the empty-data PATCH semantics (no-op success).
+	if dataInline == "" && dataFile == "" {
+		return nil
+	}
+	// Stdin-sourced --data-file - is a single-read stream: validating
+	// here would consume the bytes the downstream patch flow needs. Skip
+	// the Parse gate in that case; the downstream JSON parse still
+	// fires. (Symmetric with the create-side D5-D5 mirror: stdin pipes
+	// are validated through their consumer, not pre-parsed twice.)
+	if dataFile == "-" {
+		return nil
+	}
+	raw, err := readJSONData(dataInline, dataFile, stdin)
+	if err != nil {
+		return err
+	}
+	if _, err := engine.Parse(raw, nil); err != nil {
+		return fmt.Errorf("ta update: parse --data as %s: %w", asFormat, err)
 	}
 	return nil
 }

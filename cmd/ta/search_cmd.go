@@ -8,6 +8,15 @@ import (
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
+	// Blank imports register the html / md / txt Format engines with the
+	// format substrate. L3-D5-D2 mirrors D5-D1's pattern (see get_cmd.go):
+	// each read-side command file anchors its own backend registration so
+	// the dependency stays explicit per-callsite.
+	_ "github.com/evanmschultz/ta/internal/backend/html"
+	_ "github.com/evanmschultz/ta/internal/backend/md_explicit"
+	_ "github.com/evanmschultz/ta/internal/backend/txt"
+
+	"github.com/evanmschultz/ta/internal/format"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/render"
 )
@@ -25,6 +34,7 @@ func newSearchCmd() *cobra.Command {
 	var asJSON bool
 	var limit int
 	var all bool
+	var asFormat string
 	cmd := &cobra.Command{
 		Use:   "search",
 		Short: "Structured + regex search across records; mirrors MCP tool `search`.",
@@ -57,6 +67,13 @@ func newSearchCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				// L3-D5-D2: when --as is set, route every hit's body
+				// through format.Get(<name>).Marshal before emit. The
+				// dispatch fires for both ANSI and JSON output surfaces
+				// so the rendered/encoded bytes per hit are consistent.
+				if asFormat != "" {
+					return runSearchWithFormat(c.OutOrStdout(), path, hits, asFormat, asJSON)
+				}
 				if asJSON {
 					return emitSearchJSON(c.OutOrStdout(), hits)
 				}
@@ -72,9 +89,95 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered output")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "cap the hit count at N (default 10)")
 	cmd.Flags().BoolVar(&all, "all", false, "return every match (disables --limit)")
+	// L3-D5-D2: --as mirrors L3-D5-D1's flag on `ta get`. NO --template
+	// per planner routed concern #6 (search-hit scope makes manifest
+	// selection per-hit ambiguous in the same way batch get rejects it).
+	cmd.Flags().StringVar(&asFormat, "as", "", "format engine name (html | md | txt); routes each hit body through format.Get(name).Marshal before emit (default: db's on-disk format)")
 	cmd.MarkFlagsMutuallyExclusive("limit", "all")
 	addPathFlag(cmd)
 	return cmd
+}
+
+// runSearchWithFormat is the L3-D5-D2 sibling of get_cmd.go's
+// runGetSingleWithFormat. For each search hit, the steps mirror D5-D1:
+//  1. Resolve the hit's db.Format via dbFormatFor(path, hit.ID).
+//  2. Compute effectiveAs: explicit asFormat, or default to string(db.Format).
+//  3. Mismatch check: if asFormat != "" && asFormat != string(db.Format)
+//     → planner-pinned "db.Format=<x>; --as=<y> requires matching format".
+//     The check fires per-hit because a single search can span multiple
+//     dbs with heterogeneous formats; one mismatch fails fast for the
+//     whole call (rather than partial output).
+//  4. Resolve the format engine via format.Get(<name>); unknown name
+//     wraps the registry error.
+//  5. Parse(hit.Bytes, nil) → Marshal(blocks, nil) → outBytes. No
+//     manifest is loaded — --template is not supported for search per
+//     the planner routed concern.
+//
+// Hit order is preserved: hits are iterated in the order ops.Search
+// returned them, and emitted in that order to stdout. The JSON path
+// emits a {"hits": [{id, bytes, fields}]} envelope mirroring
+// emitSearchJSON; ANSI path emits one laslig record block per hit's
+// formatted body.
+func runSearchWithFormat(w io.Writer, path string, hits []ops.SearchHit, asFormat string, asJSON bool) error {
+	type outHit struct {
+		ID     string         `json:"id"`
+		Bytes  string         `json:"bytes"`
+		Fields map[string]any `json:"fields,omitempty"`
+	}
+	out := make([]outHit, 0, len(hits))
+	for _, hit := range hits {
+		dbFormat, err := dbFormatFor(path, hit.ID)
+		if err != nil {
+			return err
+		}
+		effectiveAs := asFormat
+		if effectiveAs == "" {
+			effectiveAs = string(dbFormat)
+		}
+		if asFormat != "" && asFormat != string(dbFormat) {
+			return fmt.Errorf("db.Format=%s; --as=%s requires matching format", string(dbFormat), asFormat)
+		}
+		engine, err := format.Get(effectiveAs)
+		if err != nil {
+			return fmt.Errorf("ta search: --as: %w", err)
+		}
+		blocks, err := engine.Parse(hit.Bytes, nil)
+		if err != nil {
+			return fmt.Errorf("ta search: parse: %w", err)
+		}
+		marshaled, err := engine.Marshal(blocks, nil)
+		if err != nil {
+			return fmt.Errorf("ta search: marshal: %w", err)
+		}
+		out = append(out, outHit{
+			ID:     hit.ID,
+			Bytes:  string(marshaled),
+			Fields: hit.Fields,
+		})
+	}
+	if asJSON {
+		shaped := make([]map[string]any, len(out))
+		for i, h := range out {
+			shaped[i] = map[string]any{
+				"id":     h.ID,
+				"bytes":  h.Bytes,
+				"fields": h.Fields,
+			}
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]any{"hits": shaped})
+	}
+	r := render.New(w)
+	if len(out) == 0 {
+		return r.Notice(laslig.NoticeInfoLevel, "search", "no hits", nil)
+	}
+	for _, h := range out {
+		if err := r.Markdown(h.Bytes); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // emitSearchJSON writes the --json form of `search`. Shape:

@@ -7,7 +7,19 @@ import (
 
 	"github.com/spf13/cobra"
 
+	// Blank imports register the html / md / txt Format engines with the
+	// format substrate. L3-D5-D7 mirrors the read-side PATTERN-ESTABLISHER
+	// from get_cmd.go (L3-D5-D1) so the --as flag on `ta delete` reaches
+	// the same registry. Keeping registration anchored at the call-site
+	// file (rather than a shared init) makes the dependency explicit
+	// per-command and lets each subcommand be teased apart later without
+	// breaking the format dispatch contract.
+	_ "github.com/evanmschultz/ta/internal/backend/html"
+	_ "github.com/evanmschultz/ta/internal/backend/md_explicit"
+	_ "github.com/evanmschultz/ta/internal/backend/txt"
+
 	"github.com/evanmschultz/ta/internal/db"
+	"github.com/evanmschultz/ta/internal/format"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/render"
 )
@@ -17,6 +29,7 @@ func newDeleteCmd() *cobra.Command {
 	var force bool
 	var verbose bool
 	var batch string
+	var asFormat string
 	cmd := &cobra.Command{
 		Use:   "delete <id> [<id>...]",
 		Short: "Remove one or more records or files; mirrors MCP tool `delete`.",
@@ -52,7 +65,14 @@ func newDeleteCmd() *cobra.Command {
 				return errors.New("ta delete: use either positional ids or --batch, not both")
 			}
 			if batch == "" && len(args) == 1 {
-				return runDeleteSingle(c, path, args[0], typeName, force, verbose)
+				return runDeleteSingle(c, path, args[0], typeName, force, verbose, asFormat)
+			}
+			// L3-D5-D7: --as is a single-record render hint. Multi-positional
+			// and --batch modes have per-item db.Format that may differ; one
+			// outer --as has ambiguous per-item semantics. Mirror the get
+			// cmd's same-shape restriction (get_cmd.go L3-D5-D1).
+			if asFormat != "" {
+				return errors.New("ta delete: --as is only supported for single-id deletes (not --batch or multi-positional)")
 			}
 			items, err := collectDeleteItems(c.InOrStdin(), batch, args, typeName, force)
 			if err != nil {
@@ -71,8 +91,18 @@ func newDeleteCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "skip the interactive confirmation prompt on file-level delete (applied to every positional id; ignored with --batch)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo the deleted id, its file path, and the count of records remaining in that file (single-id form only)")
 	cmd.Flags().StringVar(&batch, "batch", "", "read {\"items\":[{id, type?, force?}, ...]} JSON from FILE (or `-` for stdin); mutually exclusive with positional ids")
+	// L3-D5-D7: --as routes the pre-delete record echo through the format
+	// substrate (mirrors L3-D5-D1 read-side pattern in get_cmd.go).
+	// STRICT mode: if --as is set and the echo path fails (db.Format
+	// mismatch, unknown engine, Parse / Marshal error), the deletion is
+	// aborted before ops.Delete fires. This is the deliberate default —
+	// when the operator asks for a formatted preview of what they're
+	// about to delete, silently dropping the preview and proceeding with
+	// the destructive op is the wrong trade.
+	cmd.Flags().StringVar(&asFormat, "as", "", "format engine name (html | md | txt); emits pre-delete echo through format.Get(name).Marshal; failure aborts the delete (single-id form only)")
 	cmd.MarkFlagsMutuallyExclusive("type", "batch")
 	cmd.MarkFlagsMutuallyExclusive("force", "batch")
+	cmd.MarkFlagsMutuallyExclusive("as", "batch")
 	addPathFlag(cmd)
 	return cmd
 }
@@ -82,7 +112,20 @@ func newDeleteCmd() *cobra.Command {
 // in-file output. F37 batch mode does NOT inherit the TTY confirm —
 // batch deletes refuse file-level removal without an explicit per-item
 // force=true (mirroring MCP semantics where there is no TTY to prompt).
-func runDeleteSingle(c *cobra.Command, path, id, typeName string, force, verbose bool) error {
+//
+// L3-D5-D7: when --as is set, the pre-delete echo is routed through
+// the format substrate BEFORE ops.Delete fires. STRICT mode: any
+// failure in the echo path (fetch, mismatch check, engine resolve,
+// Parse, Marshal) aborts the delete. The intent is: when the operator
+// asks for a formatted preview of the doomed record, deletion must
+// not proceed silently if the preview cannot be produced. The plain
+// (no --as) path is unchanged.
+func runDeleteSingle(c *cobra.Command, path, id, typeName string, force, verbose bool, asFormat string) error {
+	if asFormat != "" {
+		if err := emitDeletePreEchoFormatted(c.OutOrStdout(), path, id, typeName, asFormat); err != nil {
+			return err
+		}
+	}
 	res, err := runDelete(path, id, typeName, ops.DeleteOptions{Force: force, Verbose: verbose})
 	if err == nil || !errors.Is(err, ops.ErrFileDeleteRequiresForce) {
 		if err != nil {
@@ -218,4 +261,52 @@ func emitDeleteNotice(w io.Writer, id string, res ops.DeleteResult, verbose bool
 	}
 	body := fmt.Sprintf("%s\n%s\nremaining in file: %d", id, res.FilePath, res.RemainingInFile)
 	return render.New(w).Success("deleted", body, res.Sources)
+}
+
+// emitDeletePreEchoFormatted is the L3-D5-D7 strict-mode pre-delete
+// echo path. It mirrors runGetSingleWithFormat (L3-D5-D1 read-side
+// PATTERN-ESTABLISHER in get_cmd.go) but applies only to the echo —
+// the actual deletion is the caller's responsibility. Any error
+// returned from this helper aborts the delete.
+//
+// Steps (mirror of read-side 4-step pattern):
+//  1. Fetch the raw record bytes via ops.Get.
+//  2. Resolve db.Format and check the mismatch contract — explicit
+//     --as that differs from db.Format errors with the planner-pinned
+//     "db.Format=<x>; --as=<y> requires matching format" shape.
+//  3. Resolve the format engine via format.Get(asFormat); unknown
+//     names wrap-and-return the underlying registry error.
+//  4. Parse(rawBytes, nil) → Marshal(blocks, nil) → emit via render.Markdown.
+//
+// --template is intentionally NOT supported on delete: the read-side
+// PATTERN-ESTABLISHER carries the full --as / --template composition,
+// but on delete the echo is advisory and per-file manifest selection
+// adds operational surface (which manifest format applies to the
+// doomed record?) for negligible value. If a future need emerges, the
+// helper extends along the same shape as runGetSingleWithFormat.
+func emitDeletePreEchoFormatted(w io.Writer, path, id, typeName, asFormat string) error {
+	res, err := ops.Get(path, id, typeName, nil)
+	if err != nil {
+		return fmt.Errorf("ta delete: --as: %w", err)
+	}
+	dbFormat, err := dbFormatFor(path, id)
+	if err != nil {
+		return fmt.Errorf("ta delete: --as: %w", err)
+	}
+	if asFormat != string(dbFormat) {
+		return fmt.Errorf("db.Format=%s; --as=%s requires matching format", string(dbFormat), asFormat)
+	}
+	engine, err := format.Get(asFormat)
+	if err != nil {
+		return fmt.Errorf("ta delete: --as=%s: %w", asFormat, err)
+	}
+	blocks, err := engine.Parse(res.Bytes, nil)
+	if err != nil {
+		return fmt.Errorf("ta delete: --as: parse: %w", err)
+	}
+	out, err := engine.Marshal(blocks, nil)
+	if err != nil {
+		return fmt.Errorf("ta delete: --as: marshal: %w", err)
+	}
+	return render.New(w).Markdown(string(out))
 }

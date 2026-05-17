@@ -5,10 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 
 	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
+	// Blank imports register the html / md / txt Format engines with the
+	// format substrate. get_cmd.go is the first consumer of format.Get
+	// for record-body rendering (L3-D5-D1); sibling read-side droplets
+	// (search, schema-read) mirror this PATTERN by adding the same blank
+	// imports to their _cmd.go file. Keeping the registration anchored at
+	// the call-site files (rather than a shared cmd/ta/main.go init)
+	// makes the dependency explicit per-command and lets each subcommand
+	// be teased apart later without breaking the format dispatch contract.
+	_ "github.com/evanmschultz/ta/internal/backend/html"
+	_ "github.com/evanmschultz/ta/internal/backend/md_explicit"
+	_ "github.com/evanmschultz/ta/internal/backend/txt"
+
+	"github.com/evanmschultz/ta/internal/format"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/render"
 )
@@ -39,6 +54,8 @@ func newGetCmd() *cobra.Command {
 	var all bool
 	var typeName string
 	var batch string
+	var asFormat string
+	var templateView string
 	cmd := &cobra.Command{
 		Use:   "get <id> [<id>...]",
 		Short: "Read one or more records by id, or every record under an id prefix; optionally extract declared field values",
@@ -82,7 +99,18 @@ func newGetCmd() *cobra.Command {
 				// for `ta get plans` and friends. F37 batch semantics only
 				// kick in when the user opts into multi-id or --batch.
 				if batch == "" && len(args) == 1 {
-					return runGetSingle(c, path, args[0], typeName, fields, limit, all, asJSON)
+					return runGetSingle(c, path, args[0], typeName, fields, limit, all, asJSON, asFormat, templateView)
+				}
+				// L3-D5-D1: --as / --template are read-side render hints
+				// scoped to single-record gets. Forbidding them in batch and
+				// scope modes keeps the pattern small for D5-D2 (search) and
+				// D5-D3 (schema-read) to mirror cleanly: each mirror site
+				// applies the flags only where a single record body is being
+				// rendered. Batch is structured per-item; --as on the outer
+				// batch would have ambiguous per-item semantics (every item
+				// has its own db.Format).
+				if asFormat != "" || templateView != "" {
+					return errors.New("ta get: --as / --template are only supported for single-record gets (not --batch or multi-positional)")
 				}
 				items, err := collectGetItems(c.InOrStdin(), batch, args, fields)
 				if err != nil {
@@ -120,6 +148,18 @@ func newGetCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "return every record when <id> is a prefix (ignored for full ids; mutually exclusive with --limit)")
 	cmd.Flags().StringVar(&typeName, "type", "", "optional db-qualified type (`<db>.<type>`); cross-checked against the index entry for the id")
 	cmd.Flags().StringVar(&batch, "batch", "", "read {\"items\":[{id, fields?}, ...]} JSON from FILE (or `-` for stdin); mutually exclusive with positional ids")
+	// L3-D5-D1: format-substrate render hints (read side).
+	// --as picks the format engine name (html | md | txt). Routes record
+	// body through format.Get(<name>).Marshal(blocks, manifest) before
+	// emit. When unset, --as defaults to the db's on-disk Format.
+	// --template selects a manifest record id (e.g.
+	// `template_manifest.html.summary`). The manifest's TOML file is
+	// loaded via format.LoadManifestFile and threaded into the engine's
+	// Parse / Marshal calls. Composes with --as: --as picks engine,
+	// --template picks manifest record. When --template is unset, Parse
+	// runs with a nil manifest (engine emits raw bytes by default).
+	cmd.Flags().StringVar(&asFormat, "as", "", "format engine name (html | md | txt); routes record body through format.Get(name).Marshal before emit (default: db's on-disk format)")
+	cmd.Flags().StringVar(&templateView, "template", "", "manifest record id (e.g. template_manifest.html.summary); selects which manifest record drives Parse / Marshal")
 	cmd.MarkFlagsMutuallyExclusive("limit", "all")
 	addPathFlag(cmd)
 	return cmd
@@ -136,12 +176,18 @@ func newGetCmd() *cobra.Command {
 // ops.ErrIndexMissing (no index present), the gate falls through to
 // the existing single-record path. Any other error from GetGroup
 // surfaces immediately.
-func runGetSingle(c *cobra.Command, path, id, typeName string, fields []string, limit int, all bool, asJSON bool) error {
+func runGetSingle(c *cobra.Command, path, id, typeName string, fields []string, limit int, all bool, asJSON bool, asFormat, templateView string) error {
 	isScope, err := ops.IsScopeAddress(path, id)
 	if err != nil {
 		return err
 	}
 	if isScope {
+		// L3-D5-D1: --as / --template apply only to single-record gets;
+		// scope expansion still uses the pre-existing scope renderer.
+		// Mirrors are expected to honor the same single-record-only rule.
+		if asFormat != "" || templateView != "" {
+			return errors.New("ta get: --as / --template are not supported on scope-prefix gets")
+		}
 		return runGetScope(c, path, id, fields, limit, all, asJSON)
 	}
 
@@ -152,6 +198,9 @@ func runGetSingle(c *cobra.Command, path, id, typeName string, fields []string, 
 	// work even when the index has not been initialised.
 	records, groupErr := ops.GetGroup(path, id, fields, limit, all)
 	if groupErr == nil {
+		if asFormat != "" || templateView != "" {
+			return errors.New("ta get: --as / --template are not supported on group-prefix gets")
+		}
 		return runGetGroup(c, records, id, asJSON)
 	}
 	if !errors.Is(groupErr, ops.ErrNoGroup) && !errors.Is(groupErr, ops.ErrIndexMissing) {
@@ -163,6 +212,19 @@ func runGetSingle(c *cobra.Command, path, id, typeName string, fields []string, 
 	}
 	// ErrNoGroup or ErrIndexMissing: id is not a group prefix (or index
 	// absent) — continue to the existing single-record path below.
+
+	// L3-D5-D1: when --as or --template is set, the record body is routed
+	// through the format substrate before emit. This is the
+	// PATTERN-ESTABLISHER call for sibling read-side mirrors (D5-D2
+	// search, D5-D3 schema-read): each mirror obtains the raw record
+	// bytes, then calls applyFormatRender to apply --as / --template
+	// before emit. The helper is intentionally local to get_cmd.go for
+	// this slice; if a third consumer adopts it (D5-D2 + D5-D3 are sibling
+	// builders touching different files), the helper is a candidate to
+	// move to commands.go in a follow-up consolidation pass.
+	if asFormat != "" || templateView != "" {
+		return runGetSingleWithFormat(c, path, id, typeName, fields, asJSON, asFormat, templateView)
+	}
 
 	if asJSON {
 		res, err := ops.Get(path, id, typeName, fields)
@@ -188,6 +250,114 @@ func runGetSingle(c *cobra.Command, path, id, typeName string, fields []string, 
 		return err
 	}
 	return r.Record(id, rf)
+}
+
+// runGetSingleWithFormat is the L3-D5-D1 PATTERN-ESTABLISHER for read-side
+// format-substrate dispatch.
+//
+// Steps:
+//  1. Fetch the raw record bytes via ops.Get (no field filter — Marshal
+//     operates on the whole record body).
+//  2. Resolve effective --as (defaults to db's on-disk Format string).
+//  3. Validate db.Format / --as match per planner contract: when --as is
+//     set explicitly AND differs from string(db.Format), error with the
+//     planner-pinned message shape. The check fires only against the
+//     EXPLICIT --as the caller supplied — defaulted --as never errors.
+//  4. Resolve the format engine via format.Get(<name>); unknown names
+//     wrap-and-return the underlying registry error.
+//  5. When --template is set, load the manifest file off the manifest
+//     record's FilePath via format.LoadManifestFile. When unset, the
+//     manifest is nil — Parse / Marshal handle nil gracefully (engines
+//     interpret nil as "no manifest, no blocks").
+//  6. Parse(rawBytes, manifest) → Marshal(blocks, manifest) → outBytes.
+//  7. Emit through render.Markdown (laslig path) or as a {"id","bytes"}
+//     JSON envelope when --json is set.
+//
+// Sibling mirrors (D5-D2 search, D5-D3 schema-read) follow the same step
+// sequence: fetch raw bytes → mismatch check → engine resolve → manifest
+// load → Parse/Marshal → emit. Each mirror substitutes its own
+// rawBytes / id-resolution and emit calls but keeps the core 4-step
+// (resolve → check → load → marshal) shape.
+func runGetSingleWithFormat(c *cobra.Command, path, id, typeName string, fields []string, asJSON bool, asFormat, templateView string) error {
+	// --fields is conceptually orthogonal to --as / --template (one
+	// extracts typed JSON values, the other marshals the record body).
+	// Combining them needs a downstream contract decision (fields filter
+	// before or after Marshal?) and tests neither side currently
+	// specifies. Reject early with a clear error so the mirrors don't
+	// have to re-derive the same rule.
+	if len(fields) > 0 {
+		return errors.New("ta get: --as / --template are not compatible with --fields")
+	}
+	res, err := ops.Get(path, id, typeName, nil)
+	if err != nil {
+		return err
+	}
+	dbFormat, err := dbFormatFor(path, id)
+	if err != nil {
+		return err
+	}
+	effectiveAs := asFormat
+	if effectiveAs == "" {
+		effectiveAs = string(dbFormat)
+	}
+	// Mismatch rule per planner contract: explicit --as != db.Format is
+	// an error with the planner-pinned message shape. When --as defaults
+	// to db.Format (caller did not pass --as), no mismatch is possible.
+	if asFormat != "" && asFormat != string(dbFormat) {
+		return fmt.Errorf("db.Format=%s; --as=%s requires matching format", string(dbFormat), asFormat)
+	}
+	engine, err := format.Get(effectiveAs)
+	if err != nil {
+		return fmt.Errorf("ta get: --as: %w", err)
+	}
+	var manifest format.Manifest
+	if templateView != "" {
+		// L3-D5-D1 substrate limitation: --template's full vision is a
+		// ta record id (e.g. `template_manifest.html.summary`) whose
+		// backing TOML file IS the manifest source for
+		// format.LoadManifestFile. That requires a "whole-file-as-record"
+		// db mode for TOML mounts that the current substrate doesn't
+		// expose (record_per = "file" is MD-only per F31). Until the
+		// substrate slice lands, --template accepts EITHER:
+		//   - a ta record id (resolved via ops.Get; works only when the
+		//     record's backing file is a top-level manifest TOML with no
+		//     bracket-section wrapping — rare today);
+		//   - OR a literal file path (relative or absolute) to a
+		//     manifest TOML on disk (works today, no substrate
+		//     dependency).
+		// Heuristic: if templateView contains a path separator OR ends
+		// in .toml, treat as file path; else treat as record id.
+		manifestFilePath := templateView
+		looksLikePath := strings.ContainsRune(templateView, filepath.Separator) ||
+			strings.HasSuffix(templateView, ".toml")
+		if !looksLikePath {
+			manifestRes, mErr := ops.Get(path, templateView, "", nil)
+			if mErr != nil {
+				return fmt.Errorf("ta get: --template %q: %w", templateView, mErr)
+			}
+			manifestFilePath = manifestRes.FilePath
+		} else if !filepath.IsAbs(manifestFilePath) {
+			manifestFilePath = filepath.Join(path, manifestFilePath)
+		}
+		m, lErr := format.LoadManifestFile(manifestFilePath)
+		if lErr != nil {
+			return fmt.Errorf("ta get: --template %q: %w", templateView, lErr)
+		}
+		manifest = m
+	}
+	blocks, err := engine.Parse(res.Bytes, manifest)
+	if err != nil {
+		return fmt.Errorf("ta get: parse: %w", err)
+	}
+	out, err := engine.Marshal(blocks, manifest)
+	if err != nil {
+		return fmt.Errorf("ta get: marshal: %w", err)
+	}
+	if asJSON {
+		return emitGetJSON(c.OutOrStdout(), id, out, nil, false)
+	}
+	r := render.New(c.OutOrStdout())
+	return r.Markdown(string(out))
 }
 
 // runGetGroup emits the aggregate output for a group-prefix get.

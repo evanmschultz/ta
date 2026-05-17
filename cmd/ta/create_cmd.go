@@ -8,6 +8,16 @@ import (
 
 	"github.com/spf13/cobra"
 
+	// Blank imports register the html / md / txt Format engines with the
+	// format substrate. create_cmd.go is the WRITE-side pattern establisher
+	// (L3-D5-D5): mirrors the READ-side blank-import block in get_cmd.go
+	// (D5-D1). Keeping registration anchored at the call-site file makes the
+	// dependency explicit per-command, parallel to how get_cmd.go did it.
+	_ "github.com/evanmschultz/ta/internal/backend/html"
+	_ "github.com/evanmschultz/ta/internal/backend/md_explicit"
+	_ "github.com/evanmschultz/ta/internal/backend/txt"
+
+	"github.com/evanmschultz/ta/internal/format"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/schema"
 )
@@ -19,6 +29,7 @@ func newCreateCmd() *cobra.Command {
 	var verbose bool
 	var noSpawn bool
 	var batch string
+	var asFormat string
 	cmd := &cobra.Command{
 		Use:   "create <id> [<id>...]",
 		Short: "Create one or more records (fails if any exists); mirrors MCP tool `create`.",
@@ -58,7 +69,15 @@ func newCreateCmd() *cobra.Command {
 			// without per-batch routing changes. Length ≥ 2 and --batch
 			// take the new aggregated path.
 			if batch == "" && len(args) == 1 {
-				return runCreateSingle(c, path, args[0], typeName, dataInline, dataFile, ops.CreateOptions{NoSpawn: noSpawn}, verbose)
+				return runCreateSingle(c, path, args[0], typeName, dataInline, dataFile, asFormat, ops.CreateOptions{NoSpawn: noSpawn}, verbose)
+			}
+			// L3-D5-D5: --as is single-id-only on the WRITE path (parallel
+			// to --as being single-record-only on the READ path in
+			// get_cmd.go). Batch / multi-positional ids are explicitly
+			// rejected so per-item Parse semantics don't have to be
+			// re-derived here.
+			if asFormat != "" {
+				return errors.New("ta create: --as is only supported on single-id creates (no --batch, no N≥2 positional ids)")
 			}
 			items, err := collectCreateItems(c.InOrStdin(), batch, args, typeName, dataInline, dataFile, noSpawn)
 			if err != nil {
@@ -79,10 +98,12 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "echo each newly-created record after its success notice")
 	cmd.Flags().BoolVar(&noSpawn, "no-spawn", false, "suppress any [<db>.<type>.auto_spawn] rules declared on the target type (F23); only the parent record is written")
 	cmd.Flags().StringVar(&batch, "batch", "", "read {\"items\":[{id, type, data, no_spawn?}, ...]} JSON from FILE (or `-` for stdin); mutually exclusive with positional ids")
+	cmd.Flags().StringVar(&asFormat, "as", "", "format engine name (html | md | txt); routes --data/--data-file bytes through format.Get(name).Parse before record creation (default: db's on-disk format)")
 	cmd.MarkFlagsMutuallyExclusive("data", "data-file")
 	cmd.MarkFlagsMutuallyExclusive("data", "batch")
 	cmd.MarkFlagsMutuallyExclusive("data-file", "batch")
 	cmd.MarkFlagsMutuallyExclusive("type", "batch")
+	cmd.MarkFlagsMutuallyExclusive("as", "batch")
 	addPathFlag(cmd)
 	return cmd
 }
@@ -91,10 +112,97 @@ func newCreateCmd() *cobra.Command {
 // interactive form path, ops.CreateWithOptions auto_spawn fan-out, and
 // --verbose echo all keep their existing semantics without batch
 // routing changes. F37 batch mode lives in runCreateItems.
-func runCreateSingle(c *cobra.Command, path, id, typeName, dataInline, dataFile string, opts ops.CreateOptions, verbose bool) error {
+//
+// L3-D5-D5: when --as is set, the data path is routed through the format
+// substrate before the record-creation call. See runCreateSingleWithFormat
+// for the WRITE-side mirror of get_cmd.go's runGetSingleWithFormat
+// (L3-D5-D1 READ-side pattern establisher).
+func runCreateSingle(c *cobra.Command, path, id, typeName, dataInline, dataFile, asFormat string, opts ops.CreateOptions, verbose bool) error {
+	if asFormat != "" {
+		return runCreateSingleWithFormat(c, path, id, typeName, dataInline, dataFile, asFormat, opts, verbose)
+	}
 	data, err := collectCreateData(c, path, id, dataInline, dataFile)
 	if err != nil {
 		return err
+	}
+	targetPath, sources, err := runCreate(path, id, typeName, data, opts)
+	if err != nil {
+		return err
+	}
+	if err := noticeMutation(c.OutOrStdout(), "created", id, targetPath, sources); err != nil {
+		return err
+	}
+	if verbose {
+		return renderVerboseRecord(c.OutOrStdout(), path, id)
+	}
+	return nil
+}
+
+// runCreateSingleWithFormat is the L3-D5-D5 PATTERN-ESTABLISHER for
+// write-side format-substrate dispatch — the WRITE mirror of
+// runGetSingleWithFormat (L3-D5-D1 READ-side pattern).
+//
+// Steps mirror the READ pattern, swapping Marshal for Parse:
+//  1. Require --data or --data-file (TTY interactive form has its own
+//     non-Parse contract — using --as without raw bytes is meaningless).
+//  2. Read the raw bytes via readJSONData (despite the name, the helper
+//     just streams --data / --data-file / stdin bytes; the JSON Unmarshal
+//     happens in collectCreateData, NOT here).
+//  3. Resolve effective --as (defaults to db's on-disk Format string).
+//  4. Mismatch check: when --as is set explicitly AND differs from
+//     string(db.Format), error with the planner-pinned message shape.
+//  5. Resolve the format engine via format.Get(<name>); unknown names
+//     wrap-and-return the underlying registry error.
+//  6. Parse(rawBytes, nil) → blocks. Nil manifest is acceptable: the
+//     engine returns an empty Blocks slice and the contract holds (this
+//     mirrors the READ-side nil-manifest contract documented on
+//     get_cmd.go runGetSingleWithFormat). When a --template counterpart
+//     for WRITE lands (post-MVP), the manifest will be threaded here.
+//  7. Map blocks → data map[string]any (block.Name → string(block.Bytes))
+//     and feed into runCreate. The mapping IS the WRITE-side decision:
+//     READ side Marshals blocks back to bytes for emit; WRITE side
+//     projects blocks into the field-data map ops.Create expects.
+func runCreateSingleWithFormat(c *cobra.Command, path, id, typeName, dataInline, dataFile, asFormat string, opts ops.CreateOptions, verbose bool) error {
+	if dataInline == "" && dataFile == "" {
+		return errors.New("ta create: --as requires --data or --data-file (no interactive form on the format path)")
+	}
+	dbFormat, err := dbFormatFor(path, id)
+	if err != nil {
+		return err
+	}
+	effectiveAs := asFormat
+	if effectiveAs == "" {
+		effectiveAs = string(dbFormat)
+	}
+	// Mismatch rule per planner contract: explicit --as != db.Format is
+	// an error with the planner-pinned message shape. Mirrors the READ
+	// side in get_cmd.go::runGetSingleWithFormat.
+	if asFormat != "" && asFormat != string(dbFormat) {
+		return fmt.Errorf("db.Format=%s; --as=%s requires matching format", string(dbFormat), asFormat)
+	}
+	engine, err := format.Get(effectiveAs)
+	if err != nil {
+		return fmt.Errorf("ta create: --as: %w", err)
+	}
+	raw, err := readJSONData(dataInline, dataFile, c.InOrStdin())
+	if err != nil {
+		return err
+	}
+	blocks, err := engine.Parse(raw, nil)
+	if err != nil {
+		return fmt.Errorf("ta create: parse: %w", err)
+	}
+	// Block.Name → field key, string(Block.Bytes) → field value.
+	// This is the WRITE-side projection from the format substrate's
+	// Blocks shape into ops.CreateWithOptions's data map[string]any.
+	// Nil manifest yields an empty Blocks slice (engine contract); the
+	// resulting data map is also empty, which ops.Create rejects against
+	// any type that declares required fields — that's a correct
+	// validation surface, not a bug. A post-MVP --template counterpart
+	// will fill blocks under a real manifest.
+	data := make(map[string]any, len(blocks))
+	for _, b := range blocks {
+		data[b.Name] = string(b.Bytes)
 	}
 	targetPath, sources, err := runCreate(path, id, typeName, data, opts)
 	if err != nil {
