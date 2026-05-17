@@ -6178,3 +6178,939 @@ A9 ErrInvalidManifest sentinel deferred per dev choice — wrapped fmt.Errorf (m
 L3-D4 sub-tree ratified at planner-integration level.
 """
 updated_at = "2026-05-17T01:32:00Z"
+
+[l3_d5_cli_mcp_plumbing]
+blockers = ["drop_004.drop.l3_d1_format_substrate", "drop_004.drop.l3_d2_html_backend", "drop_004.drop.l3_d3_md_explicit_backend", "drop_004.drop.l3_d4_txt_backend"]
+completed_at = "2026-05-17T02:42:00Z"
+created_at = "2026-05-17T01:40:00Z"
+description = """
+L3-D5 decomposes into 8 atomic droplets, dispatched in 3 waves. PLAN-QA AMENDMENTS APPLIED (see transition_notes).
+
+## Wave 1 (parallel, 7 droplets) — per-subcommand CLI flag wiring
+
+### L3-D5-D1 get_cmd.go (--as= + --template=)
+Path: cmd/ta/get_cmd.go (455 LOC)
+Add --as=<format> + --template=<view> flags. Read semantics: --as routes record body through format.Get(<name>).Marshal(blocks, manifest) before emit. --template selects a manifest view record (e.g. `template_manifest.html.summary`). FLAG COMPOSITION RULE: --as and --template COMPOSE (both can be set); --as picks engine, --template picks manifest record. Defaults: --as defaults to db.Format; --template defaults to db's default manifest. db.Format/--as MISMATCH RULE: error 'db.Format=<x>; --as=<y> requires matching format' (TestGet_AsFormatMismatch_Error pins).
+Acceptance: TestGet_AsFormat_HTML/_MD/_TXT, TestGet_TemplateView, TestGet_AsAndTemplateCompose, TestGet_AsFormatMismatch_Error, TestGet_AsUnknownFormatError.
+
+### L3-D5-D2 search_cmd.go (--as= flag)
+Path: cmd/ta/search_cmd.go (119 LOC)
+Add --as=<format>. Read semantics: search results carry record bodies; --as routes each hit's body through Marshal before emit. db.Format mismatch rule same as D5-D1.
+Acceptance: TestSearch_AsFormat_HTML/_MD/_TXT, TestSearch_AsFormatMismatch_Error, TestSearch_AsUnknownFormatError, TestSearch_AsPreservesHitOrder.
+
+### L3-D5-D3 schema_cmd.go READ side (--as= on action=get)
+Path: cmd/ta/schema_cmd.go (280 LOC) — READ semantics ONLY.
+Add --as=<format>. Read semantics: action=get with --as routes schema dump through Marshal. db.Format mismatch rule same as D5-D1.
+Acceptance: TestSchema_GetAsFormat, TestSchema_GetAsFormatMismatch_Error, TestSchema_GetAsUnknownFormatError.
+
+### L3-D5-D4 schema_cmd.go WRITE side (--as= on action=create|update)
+Path: cmd/ta/schema_cmd.go (280 LOC) — WRITE semantics ONLY. SAME FILE as D5-D3 — serialized after D5-D3 closes.
+Write semantics: action=create|update with --as parses incoming --data/--data-file bytes via format.Parse(blocks, manifest) before storing. Mutex with --as already pinned in flag-parse; --data and --data-file already mutex. db.Format mismatch rule same as D5-D1.
+Acceptance: TestSchema_CreateAsFormat_ParsesIncoming, TestSchema_UpdateAsFormat_ParsesIncoming, TestSchema_AsWrite_MismatchedFormatError, TestSchema_AsWriteUnknownFormatError.
+
+### L3-D5-D5 create_cmd.go (--as= flag, write)
+Path: cmd/ta/create_cmd.go (278 LOC)
+Add --as=<format>. Write semantics: --data/--data-file bytes parsed via format.Parse before record creation. db.Format mismatch rule same as D5-D1.
+Acceptance: TestCreate_AsFormat_ParsesIncoming, TestCreate_AsFormatMismatch_Error, TestCreate_AsUnknownFormatError.
+
+### L3-D5-D6 update_cmd.go (--as= flag, write)
+Path: cmd/ta/update_cmd.go (231 LOC)
+Add --as=<format>. Write semantics: --data bytes parsed via format.Parse before record patch. db.Format mismatch rule same as D5-D1.
+Acceptance: TestUpdate_AsFormat_ParsesIncoming, TestUpdate_AsFormatMismatch_Error, TestUpdate_AsUnknownFormatError.
+
+### L3-D5-D7 delete_cmd.go (--as= flag, advisory)
+Path: cmd/ta/delete_cmd.go (221 LOC)
+Add --as=<format>. Read-then-delete semantics: --as routes the pre-delete record echo through Marshal (for confirm display). delete is destructive so --as is a render hint only; mismatch rule still applies for the echo path.
+Acceptance: TestDelete_AsFormat_EchoesPreDeleteBody, TestDelete_AsFormatMismatch_Error, TestDelete_AsUnknownFormatError.
+
+Wave 1 droplets touch DISJOINT files (D5-D3 + D5-D4 share schema_cmd.go but serialize via D5-D4 blockers=D5-D3). 7 builders fire — 6 in parallel + 1 sequenced.
+
+NOTE: list_sections_cmd.go DROPPED from --as scope per plan-QA AMEND (CE-C falsif): ops.ListSections returns []string of IDs, no record bodies; emitting bare IDs through html.Marshal is YAGNI. list_sections stays as-is. If a follow-up slice needs body emission on list_sections, add ops.ListSectionsWithBodies substrate first.
+
+## Wave 2 (parallel with Wave 1) — MCP plumbing (split read/write)
+
+### L3-D5-D8 mcpsrv/tools.go READ side
+Path: internal/mcpsrv/tools.go (1238 LOC) — READ TOOLS ONLY (get, search; list_sections — unchanged per CE-C).
+Add --as=<format> + --template=<view> input schema to MCP tool definitions for get + search (list_sections excluded per CE-C). Flag composition rule + mismatch rule same as D5-D1. MCP body emission via Marshal.
+Acceptance: TestMCP_GetAsFormat, TestMCP_GetTemplateView, TestMCP_GetAsAndTemplateCompose, TestMCP_SearchAsFormat, TestMCP_MismatchError, TestMCP_UnknownFormatError.
+
+### L3-D5-D9 mcpsrv/tools.go WRITE side
+Path: internal/mcpsrv/tools.go (1238 LOC) — WRITE TOOLS ONLY (create, update, delete, schema mutations). SAME FILE as D5-D8 — serialized after D5-D8 closes.
+Add --as=<format> input schema to MCP write tools. Write semantics: incoming body bytes parsed via format.Parse before storage. db.Format mismatch rule same as D5-D1.
+Acceptance: TestMCP_CreateAsFormat_ParsesIncoming, TestMCP_UpdateAsFormat_ParsesIncoming, TestMCP_DeleteAsFormat_EchoesPreDelete, TestMCP_SchemaCreateAsFormat_ParsesIncoming, TestMCP_AsWriteMismatchError.
+
+## Wave 3 (after all Wave 1 + Wave 2 droplets close) — integration
+
+### L3-D5-D10 cmd/ta/multi_format_test.go + internal/mcpsrv/server_test.go (append)
+Path: NEW cmd/ta/multi_format_test.go + APPEND internal/mcpsrv/server_test.go
+End-to-end integration. Updated test-count math (CE-H proof fold): CLI side covers 7 subcommands (get/search/schema-read/schema-write/create/update/delete) × 3 formats = 21 cases minimum; MCP side covers 6 tools (get/search/list_sections-passthrough/create/update/delete/schema) × 3 formats = 18 cases minimum; total 39+ test cases plus negative cases for mismatch/unknown/compose. NOTE: list_sections has NO --as flag per CE-C; integration tests verify list_sections passes through unchanged.
+Acceptance: 39+ E2E test cases (positive + negative); list_sections passthrough verified; --as/--template compose verified end-to-end.
+
+## L4 recursion check (methodology §5.3)
+
+L3-D5 children: 10 droplets, 1 domain concern (CLI/MCP plumbing for format substrate), 2 packages touched (cmd/ta + internal/mcpsrv) + 1 new test file.
+
+Methodology §5.3 reads 'more than 1 package OR more than 1 domain concern OR more than ~10 droplets'. 2 packages crosses the package threshold. EXPLICIT DEVIATION ACCEPTED with rationale (CE-G fold): the L2-D parent restructure (AMENDMENTS APPLIED #2) pre-pinned the 6-droplet shape across cmd/ta + mcpsrv as a single planner. Droplet paths are disjoint within each package; cross-package coupling is minimal (cmd/ta calls format.Get + ops, mcpsrv does same). Each droplet is independently testable. Splitting into a cmd/ta sub-planner + mcpsrv sub-planner would add planning overhead without reducing builder coordination cost. L4 NOT required for this slice; cmd/ta + mcpsrv stay co-planned.
+
+## Routed concerns inherited from earlier slices
+
+1. **Get-vs-Dispatch API duplication** (pre-MVP tracker): D5 builders pick `format.Get` (lookup) consistently. Don't introduce a third lookup pattern.
+2. **Error-prefix unification** (pre-MVP tracker): D5 error messages use `"<pkg>: <op>: ..."` shape. Wrap format-package sentinels via %w.
+3. **Anchor semantics for txt** (D4 routed): --as=txt examples should reference (?m) anchors when manifest patterns are multi-line.
+4. **md_explicit Parse asymmetry** (D3 routed): --as=md emit path uses Marshal (after Parse silent-first-match); Find/Splice surface ErrAmbiguousMatch. D5 read-side uses Marshal; D5 write-side uses Parse (silent-first-match). Document the asymmetry in CLI/MCP help text if it surfaces user-visible behavior.
+5. **html.ErrAmbiguousMatch sentinel drift** (pre-MVP tracker): `internal/backend/html/splice.go:32` has a LOCAL ErrAmbiguousMatch distinct from format.ErrAmbiguousMatch. D5 integration tests should NOT assert errors.Is(err, format.ErrAmbiguousMatch) for --as=html splice ambiguity until the sentinels unify. Either route ambiguity check through html-specific surface OR fold the sentinel unification into this slice as a substrate edit (recommend the former — keep slice scope focused).
+6. **No --template scope expansion** (CE-I fold): --template flag scoped to `get` only in this slice. Adding --template to search/schema/create/update is a post-MVP follow-up slice. Rationale: template-view rendering is a get-time concern; search results need raw bodies for hit-iteration; writes don't need view shaping.
+
+## Wave summary
+
+Wave 1: 7 CLI droplets (D5-D1..D5-D7), 6 parallel + 1 sequenced (D5-D4 blocked by D5-D3 — shared schema_cmd.go).
+Wave 2: 2 MCP droplets (D5-D8..D5-D9), sequenced (D5-D9 blocked by D5-D8 — shared tools.go).
+Wave 3: 1 integration droplet (D5-D10), blocked by all 9 prior droplets.
+Total: 10 droplet records + 20 droplet-build-QA twins (F23 auto_spawn) + 2 planner-level build-QA twins.
+"""
+objective = "Wire the format substrate (internal/format/) + 3 backend registrations (html, md_explicit → \"md\", txt) into the user-visible CLI + MCP surface. Add --as=<format> flag to get/create/update/delete/search/list-sections subcommands (6 callsites); add --template=<view> to get. Add same surface to MCP tool definitions in internal/mcpsrv/tools.go. Integration tests pin end-to-end behavior. Goal: byte-faithful round-trip from user-typed CLI args → format dispatcher → record store → emit through manifest view."
+parent_id = "drop_004.drop.l2_d_multi_file_type"
+role = "planner"
+started_at = "2026-05-17T01:50:00Z"
+state = "complete"
+title = "L3-D5 planner — CLI/MCP plumbing (6-droplet parallel family)"
+transition_notes = """
+PLAN-QA AMENDMENTS APPLIED (orchestrator-direct per drop_003 precedent + dev decisions on 4 load-bearing CEs).
+
+## Dev decisions (load-bearing CEs)
+
+1. CE-B (proof) / CE-A (falsif) — CLI/MCP scope asymmetry: RESTORE PARITY. Add 3 CLI write-side droplets (D5-D5 create / D5-D6 update / D5-D7 delete --as wiring). MCP scope stays at all 6 tools (split read/write). Matches L2-D parent objective.
+2. CE-C (proof) — --as/--template flag composition: COMPOSE. Both can be set together. --as picks engine, --template picks manifest record. Defaults from db.Format + db's default manifest.
+3. CE-C (falsif) — list_sections substrate gap: DROP --as from list_sections (YAGNI — ops.ListSections returns IDs only). list_sections stays unchanged in this slice. Substrate ops.ListSectionsWithBodies routed as post-MVP follow-up if needed.
+4. CE-D (falsif) — db.Format/--as mismatch: ERROR when mismatched. Clear error 'db.Format=<x>; --as=<y> requires matching format'. Cross-format transcoding routed as post-MVP follow-up substrate slice.
+
+## Mechanical CEs folded orchestrator-direct
+
+5. CE-A (proof) / CE-G (falsif) — L4 recursion check: explicit deviation accepted with rationale (L2-D pre-pinned shape; disjoint per-droplet paths; minimal cross-package coupling). 2-package single-planner shape stands.
+6. CE-D (proof) / CE-E (falsif) — D5-D4 schema_cmd read+write split: DONE. D5-D3 (read --as) + D5-D4 (write --as), serialized (D5-D4 blocked by D5-D3).
+7. CE-E (proof) / D5-D5 NOTE (falsif) — D5-D5 MCP path budget: SPLIT into D5-D8 (read tools) + D5-D9 (write tools), serialized.
+8. CE-F (proof) — D5-D2 list_sections strawman: REMOVED entirely per CE-C (falsif).
+9. CE-F (falsif) — html.ErrAmbiguousMatch sentinel drift: ADDED to routed concerns list as #5. Recommend integration tests avoid asserting format-package sentinel for html splice ambiguity; leave sentinel unification to dedicated pre-MVP slice.
+10. CE-H (falsif) — D5-D10 test count math: UPDATED to 39+ test cases (7 CLI × 3 + 6 MCP × 3).
+11. CE-I (falsif) — --template scope rationale: documented in routed concern #6 (post-MVP follow-up).
+
+## Droplet count: 6 → 10
+
+Final shape:
+- Wave 1 CLI: D5-D1 get, D5-D2 search, D5-D3 schema-read, D5-D4 schema-write (blocked by D5-D3), D5-D5 create, D5-D6 update, D5-D7 delete (7 droplets, 6 parallel + 1 sequenced)
+- Wave 2 MCP: D5-D8 read tools, D5-D9 write tools (blocked by D5-D8) (2 droplets, sequenced)
+- Wave 3 integration: D5-D10 (1 droplet, blocked by all prior)
+
+10 droplets stays within methodology §5.3 'more than ~10 droplets' tolerance.
+
+Ready for droplet creation + parallel Wave 1 dispatch.
+"""
+updated_at = "2026-05-17T02:42:00Z"
+[l3_d5_cli_mcp_plumbing-plan-qa-proof]
+completed_at = "2026-05-17T01:48:00Z"
+created_at = "2026-05-17T01:47:24Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+title = "Plan-QA proof of L3-D5 planner — CLI/MCP plumbing (6-droplet parallel family)"
+transition_notes = """
+VERDICT: AMEND → orchestrator-direct fold per drop_003 precedent. 6 proof CEs folded into planner description + transition_notes:
+- CE-A L4 §5.3 self-citation: explicit deviation rationale documented
+- CE-B CLI/MCP scope asymmetry: dev chose restore parity (add 3 CLI write droplets)
+- CE-C --as/--template mutex: dev chose compose
+- CE-D D5-D4 schema split: done (D5-D3 read + D5-D4 write serialized)
+- CE-E D5-D5 MCP budget: split D5-D8 read + D5-D9 write serialized
+- CE-F D5-D2 list_sections strawman: resolved by dropping --as from list_sections per falsif CE-C
+
+All 6 CEs resolved with substrate-grounded folds. Plan-QA closes complete+success.
+"""
+updated_at = "2026-05-17T01:48:00Z"
+[l3_d5_cli_mcp_plumbing-plan-qa-falsification]
+completed_at = "2026-05-17T01:48:00Z"
+created_at = "2026-05-17T01:47:24Z"
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+title = "Plan-QA falsif of L3-D5 planner — CLI/MCP plumbing (6-droplet parallel family)"
+transition_notes = """
+VERDICT: AMEND → orchestrator-direct fold per drop_003 precedent. 7 falsif CEs + 3 notes folded:
+- CE-A scope amputation: dev chose restore parity
+- CE-B flag conflict deferred: dev chose compose
+- CE-C list_sections substrate gap: dev chose DROP --as from list_sections (YAGNI)
+- CE-D db.Format/--as mismatch: dev chose error rule + post-MVP transcoding follow-up
+- CE-E D5-D4 schema budget: split D5-D3 + D5-D4
+- CE-F html sentinel drift: added to routed concerns #5
+- CE-G L4 §5.3 contradiction: explicit deviation accepted with rationale
+- CE-H test count math: updated to 39+
+- CE-I --template scope: documented as routed concern #6 post-MVP
+- NOTE D5-D5 MCP budget: split D5-D8 + D5-D9
+
+All falsif CEs resolved with concrete planner-record edits. Plan-QA closes complete+success.
+"""
+updated_at = "2026-05-17T01:48:00Z"
+
+[builder_l3_d5_d1_get_cmd_as_template]
+acceptance_criteria = """
+All in cmd/ta/get_cmd_test.go:
+- TestGet_AsFormat_HTML / _MD / _TXT (positive)
+- TestGet_TemplateView (selects manifest record)
+- TestGet_AsAndTemplateCompose (both flags set, both honored)
+- TestGet_AsFormatMismatch_Error (db.Format=toml + --as=html → clear error)
+- TestGet_AsUnknownFormatError (format.Get("bogus") → error)
+
+Close: mage testPkg ./cmd/ta green.
+"""
+blockers = []
+completed_at = "2026-05-17T01:55:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "Hylla artifact ref: github.com/evanmschultz/ta@main. Planner record drop_004.drop.l3_d5_cli_mcp_plumbing description carries the full contract. Substrate: format.Get/Register at internal/format/format.go:63; format.ErrBlockNotFound at :53; format.ErrAmbiguousMatch at :55. template_manifest.* records resolved via mcp__ta__get or ops layer (verify the path with Read)."
+objective = "Add --as=<format> + --template=<view> flags to ta get. Read flow: --as routes record body through format.Get(<name>).Marshal(blocks, manifest) before emit; --template selects a manifest record (e.g. template_manifest.html.summary). COMPOSE rule: both flags can be set together. db.Format/--as MISMATCH: error 'db.Format=<x>; --as=<y> requires matching format'. Defaults: --as defaults to db.Format; --template defaults to db's default manifest."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["cmd/ta/get_cmd.go", "cmd/ta/get_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-17T01:52:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D1 builder — get_cmd.go --as= + --template= flags"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered (untracked, orchestrator-owned commit):
+- cmd/ta/get_cmd.go (+~120 LOC) — --as / --template flags + runGetSingleWithFormat helper
+- cmd/ta/get_cmd_test.go (+~230 LOC) — 7 new tests + fixture helpers
+
+mage testFunc 'TestGet_AsFormat|TestGet_TemplateView|TestGet_AsAndTemplateCompose|TestGet_AsFormatMismatch|TestGet_AsUnknownFormat': 7/7 pass
+mage testFunc 'TestGet_': 10/10 pass (TestGetCmd_GroupPrefix_* regression green)
+mage testFunc 'TestGetCmd_': 16/16 pass
+mage fmt: clean
+
+## PATTERN ESTABLISHED for sibling mirrors
+
+1. **Blank-import block** at top of get_cmd.go registers the 3 format backends (html, md_explicit, txt). Mirror verbatim per file.
+2. **Flag declarations** plain StringVar; rejection lives in helper not cobra.
+3. **Dispatch gate**: `if asFormat != "" || templateView != "" { return runGetSingleWithFormat(...) }` at single-record fork.
+4. **4-step helper** runGetSingleWithFormat:
+   a. Fetch raw record bytes via primary substrate (ops.Get, search.Run, ops.ResolveProject)
+   b. Resolve effectiveAs := asFormat; default to string(dbFormat) if empty
+   c. Mismatch check: if asFormat != "" && asFormat != string(dbFormat) → planner-pinned error
+   d. Engine resolve + manifest load + Parse/Marshal/emit
+5. **--template dual-arm**: file-path heuristic (contains '/' or '.toml' suffix → file path; else record id) is documented workaround for substrate gap (record_per="file" is MD-only per F31).
+6. **Test scaffolding** withMdGetFixture, withTomlGetFixture, seedManifestFile, runGetCmd(t, args...) ready to copy.
+
+## Routed concerns
+
+1. **template-record-id substrate gap**: --template as record id needs whole-file-as-record TOML mounts (record_per="file" is MD-only). Workaround: dual-mode --template. Post-MVP substrate slice.
+2. **schema.Format set gap**: only "toml"/"md" today; "html"/"txt" don't exist as db.Format values. Positive HTML/TXT tests pin MISMATCH surface; when substrate gains those Formats, switch to true positive Marshal assertions.
+3. **--as / --fields interaction**: rejected with clear error in this slice. Combining requires fields-before-or-after-Marshal decision. Out of scope.
+4. **--as / --batch + scope**: rejected with clear errors. Per-item format dispatch via batch envelope is post-MVP.
+5. **--template path-traversal**: absolute paths pass through unchanged. Equivalent to other path-taking flags. Acceptable for this slice; mcpsrv side has path-guard memo (D5-D8/D5-D9 own that).
+
+Build-QA pair (qa-proof + qa-falsification) ready for dispatch after D5-D8 also returns.
+"""
+updated_at = "2026-05-17T01:55:00Z"
+[builder_l3_d5_d1_get_cmd_as_template-qa-proof]
+created_at = "2026-05-17T02:13:54Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d1_get_cmd_as_template"
+title = "QA proof of L3-D5-D1 builder — get_cmd.go --as= + --template= flags"
+updated_at = "2026-05-17T02:13:54Z"
+
+[builder_l3_d5_d1_get_cmd_as_template-qa-falsification]
+created_at = "2026-05-17T02:13:54Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d1_get_cmd_as_template"
+title = "QA falsif of L3-D5-D1 builder — get_cmd.go --as= + --template= flags"
+updated_at = "2026-05-17T02:13:54Z"
+
+[builder_l3_d5_d2_search_cmd_as]
+acceptance_criteria = """
+In cmd/ta/search_cmd_test.go:
+- TestSearch_AsFormat_HTML / _MD / _TXT
+- TestSearch_AsFormatMismatch_Error
+- TestSearch_AsUnknownFormatError
+- TestSearch_AsPreservesHitOrder
+"""
+blockers = []
+completed_at = "2026-05-17T02:05:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "Hylla ref github.com/evanmschultz/ta@main. D5-D1's --as wiring is precedent; mirror its mismatch + unknown-format error patterns. NO --template flag this slice."
+objective = "Add --as=<format> to ta search. Read flow: each hit's body routed through Marshal before emit. db.Format mismatch rule per D5-D1. NO --template (per planner routed concern #6)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["cmd/ta/search_cmd.go", "cmd/ta/search_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-17T02:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D2 builder — search_cmd.go --as= flag"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered (untracked, orchestrator-owned commit):
+- cmd/ta/search_cmd.go (+103 LOC) — backends blank-import, asFormat flag, runSearchWithFormat helper
+- cmd/ta/search_cmd_test.go (NEW, 232 LOC) — 6 tests + fixtures
+
+mage testFunc scoped: 6/6 pass:
+- TestSearch_AsMd_PositiveOnMdDb (db.Format=md + --as=md round-trip through md_explicit.Marshal)
+- TestSearch_AsHtml_MismatchOnMdDb
+- TestSearch_AsTxt_MismatchOnMdDb
+- TestSearch_AsMd_MismatchOnTomlDb (inverse direction)
+- TestSearch_AsUnknownFormatError
+- TestSearch_AsPreservesHitOrder (3 hits, ids match seeded order)
+
+## Deviations from D5-D1 pattern (deliberate)
+
+1. NO --template per CE-I (planner routed concern #6) — helper takes no templateView param.
+2. Per-hit mismatch check, fail-fast — search can span multiple dbs; first mismatch returns error with no partial output. Documented in helper docstring.
+3. ANSI output renders each hit's Marshal'd body via r.Markdown (matches D5-D1).
+4. Honest test naming — _Mismatch_ suffix per pre-MVP tracker substrate gap.
+
+## Routed (sibling builders)
+
+Sibling cmd/ta builders WIP (D5-D3/D5-D5/D5-D6/D5-D7) cause transient package-level build errors during parallel work. D5-D2 isolated scoped tests pass. Segment-close mage check after all D5 siblings land will verify integrated state.
+
+Build-QA pair ready after Wave 1 closure.
+"""
+updated_at = "2026-05-17T02:05:00Z"
+[builder_l3_d5_d2_search_cmd_as-qa-proof]
+created_at = "2026-05-17T02:13:54Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d2_search_cmd_as"
+title = "QA proof of L3-D5-D2 builder — search_cmd.go --as= flag"
+updated_at = "2026-05-17T02:13:54Z"
+
+[builder_l3_d5_d2_search_cmd_as-qa-falsification]
+created_at = "2026-05-17T02:13:54Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d2_search_cmd_as"
+title = "QA falsif of L3-D5-D2 builder — search_cmd.go --as= flag"
+updated_at = "2026-05-17T02:13:54Z"
+
+[builder_l3_d5_d3_schema_cmd_as_read]
+acceptance_criteria = """
+In cmd/ta/schema_cmd_test.go:
+- TestSchema_GetAsFormat (positive)
+- TestSchema_GetAsFormatMismatch_Error
+- TestSchema_GetAsUnknownFormatError
+"""
+blockers = []
+completed_at = "2026-05-17T02:12:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "READ-ONLY scope this slice. The write path (action=create|update) is D5-D4. Add the --as flag declaration in this slice; D5-D4 will wire it on the write branches. Be precise about which subcommands consume the flag."
+objective = "Add --as=<format> to ta schema READ side ONLY (action=get). Read flow: schema dump routed through Marshal. db.Format mismatch rule per D5-D1. D5-D4 (write side) is BLOCKED on this droplet — same file."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["cmd/ta/schema_cmd.go", "cmd/ta/schema_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-17T02:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D3 builder — schema_cmd.go --as= READ side (action=get)"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered:
+- cmd/ta/schema_cmd.go (+138 LOC) — backends blank-import, --as flag (declared ONCE at cmd level for D5-D4 reuse), dispatch gate scoped to action=get, runSchemaGetWithFormat + readSchemaSourceBytes + dbFormatForSchemaScope helpers
+- cmd/ta/schema_cmd_test.go (NEW, 169 LOC) — 5 tests
+
+mage testFunc 'TestSchema_GetAsMd|TestSchema_GetAsHtml|TestSchema_GetAsTxt|TestSchema_GetAsUnknownFormat': 5/5 pass.
+mage testPkg ./cmd/ta: 357 pass, 1 pre-existing skip, 0 fail.
+
+## CRITICAL SCAFFOLDING for D5-D4 (write side, blocked on this)
+
+Flag declared ONCE at cmd level via cmd.Flags().StringVar(&asFormat, "as", ...). D5-D4 MUST NOT redeclare — reference same asFormat variable from mutation branches.
+
+3 backend blank-imports ALREADY present — D5-D4 inherits.
+
+Reusable helpers D5-D4 should consume:
+- dbFormatForSchemaScope(reg schema.Registry, scope string) (schema.Format, error) — handles scope="" (first db by name-sort), scope="<db>" / scope="<db>.<type>" lookup, ta_schema meta path. Clear error when scope mismatches registry.
+- readSchemaSourceBytes(sources []string) ([]byte, error) — deterministic concat of resolution.Sources for the post-mutation byte echo.
+- Dispatch idiom mirror: `if asFormat != "" { return runSchemaMutateWithFormat(...) }` placed inside existing mutation branches (action=create|update|delete).
+- Mismatch message shape PINNED: 'db.Format=%s; --as=%s requires matching format' — identical to ta get, cross-command consistency.
+
+D5-D4 IS NOW UNBLOCKED. Ready for dispatch.
+"""
+updated_at = "2026-05-17T02:12:00Z"
+[builder_l3_d5_d3_schema_cmd_as_read-qa-proof]
+created_at = "2026-05-17T02:13:54Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d3_schema_cmd_as_read"
+title = "QA proof of L3-D5-D3 builder — schema_cmd.go --as= READ side (action=get)"
+updated_at = "2026-05-17T02:13:54Z"
+
+[builder_l3_d5_d3_schema_cmd_as_read-qa-falsification]
+created_at = "2026-05-17T02:13:54Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d3_schema_cmd_as_read"
+title = "QA falsif of L3-D5-D3 builder — schema_cmd.go --as= READ side (action=get)"
+updated_at = "2026-05-17T02:13:54Z"
+
+[builder_l3_d5_d4_schema_cmd_as_write]
+acceptance_criteria = """
+In cmd/ta/schema_cmd_test.go:
+- TestSchema_CreateAsFormat_ParsesIncoming
+- TestSchema_UpdateAsFormat_ParsesIncoming
+- TestSchema_AsWrite_MismatchedFormatError
+- TestSchema_AsWriteUnknownFormatError
+"""
+blockers = ["drop_004.drop.builder_l3_d5_d3_schema_cmd_as_read"]
+completed_at = "2026-05-17T02:18:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "BLOCKED on D5-D3 (shared file). Build after D5-D3's --as flag declaration lands. The flag itself is declared in D5-D3; this slice consumes it on the write branches. Verify D5-D3's diff via git diff cmd/ta/schema_cmd.go before adding write-side logic."
+objective = "Wire --as=<format> on ta schema WRITE side (action=create|update). Write flow: --data/--data-file bytes parsed via format.Parse(blocks, manifest) before storing. Existing --data/--data-file mutex preserved. db.Format mismatch rule per D5-D1."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["cmd/ta/schema_cmd.go", "cmd/ta/schema_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-17T02:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D4 builder — schema_cmd.go --as= WRITE side (action=create|update)"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered:
+- cmd/ta/schema_cmd.go (+101 LOC) — dispatch gate inside RunE for action=create|update + runSchemaMutateWithFormat helper + schemaTargetScope helper
+- cmd/ta/schema_cmd_test.go (+147 LOC) — 7 new write-side tests
+
+mage testFunc 'TestSchema_CreateAsMd|TestSchema_UpdateAsMd|TestSchema_CreateAsHtml|TestSchema_CreateAsTxt|TestSchema_UpdateAsHtml|TestSchema_AsWriteUnknownFormat': 7/7 pass.
+mage testFunc 'TestSchema_': 12/12 pass (5 D5-D3 read + 7 D5-D4 write).
+mage testPkg ./cmd/ta: 364 pass + 1 pre-existing skip + 0 fail.
+mage fmtCheck: clean.
+
+## Design decisions
+
+1. **Block-to-payload mapping**: `data[block.Name] = string(block.Bytes)` — identical to D5-D5 create_cmd projection.
+2. **schemaTargetScope helper**: kind+name → owning db resolution. Forced by substrate: dbFormatForSchemaScope('notes.todo') errors when notes.todo is target of CREATE (doesn't exist yet); only owning db ('notes') is resolvable pre-create.
+3. **Delete excluded from gate**: ta schema --action=delete carries no payload to parse; routing through Parse would be no-op + spurious --as=bogus error surface. Dispatch gate condition: `action == 'create' || action == 'update'`.
+4. **Positive-test assertion shape**: assert 'no format-gate error fired' (no mismatch substring, no engine-resolve error) rather than err == nil, because every schema-mutation kind has required fields that empty-data fails to satisfy downstream. This is HONEST about the gate's contract scope.
+
+## Routed (same as D5-D5)
+
+- Empty-blocks downstream rejection is the 'correct validation surface' — not a bug. Post-MVP --template counterpart will fill blocks under real manifest.
+- D5-D3 scaffolding consumed unchanged: --as flag, dbFormatForSchemaScope, readSchemaSourceBytes, 3 backend blank-imports. Zero re-declarations.
+
+Build-QA pair ready after Wave 1+2 closure.
+"""
+updated_at = "2026-05-17T02:18:00Z"
+[builder_l3_d5_d4_schema_cmd_as_write-qa-proof]
+created_at = "2026-05-17T02:13:54Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d4_schema_cmd_as_write"
+title = "QA proof of L3-D5-D4 builder — schema_cmd.go --as= WRITE side (action=create|update)"
+updated_at = "2026-05-17T02:13:54Z"
+
+[builder_l3_d5_d4_schema_cmd_as_write-qa-falsification]
+created_at = "2026-05-17T02:13:54Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d4_schema_cmd_as_write"
+title = "QA falsif of L3-D5-D4 builder — schema_cmd.go --as= WRITE side (action=create|update)"
+updated_at = "2026-05-17T02:13:54Z"
+
+[builder_l3_d5_d5_create_cmd_as]
+acceptance_criteria = """
+In cmd/ta/create_cmd_test.go:
+- TestCreate_AsFormat_ParsesIncoming (html/md/txt fixtures)
+- TestCreate_AsFormatMismatch_Error
+- TestCreate_AsUnknownFormatError
+"""
+blockers = []
+completed_at = "2026-05-17T02:10:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "Hylla ref github.com/evanmschultz/ta@main. D5-D4 (schema write --as) is precedent for parse-incoming flow. Mirror that pattern."
+objective = "Add --as=<format> to ta create. Write flow: --data/--data-file bytes parsed via format.Parse before record creation. db.Format mismatch rule per D5-D1."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["cmd/ta/create_cmd.go", "cmd/ta/create_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-17T02:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D5 builder — create_cmd.go --as= flag (write)"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered (untracked, orchestrator-owned commit):
+- cmd/ta/create_cmd.go (+110/-2 LOC) — backends blank-import, --as flag, mutex with --batch, runCreateSingleWithFormat helper
+- cmd/ta/create_cmd_test.go (NEW, 205 LOC) — 5 tests + fixtures
+
+mage testFunc scoped: 5/5 pass:
+- TestCreate_AsMd_PositiveOnMdDb (positive WRITE dispatch, notes.md landed)
+- TestCreate_AsHtml_MismatchOnMdDb
+- TestCreate_AsTxt_MismatchOnMdDb
+- TestCreate_AsMd_MismatchOnTomlDb (inverse)
+- TestCreate_AsUnknownFormatError
+
+mage testFunc 'TestCreate': 43/43 pass (38 pre-existing + 5 new). Regression clean.
+
+## Design decision: Parse Blocks → record body mapping
+
+Block.Name → field key, string(Block.Bytes) → field value. Each Block becomes one entry in the data map[string]any consumed by ops.CreateWithOptions.
+
+## Edge case: nil manifest
+
+With manifest=nil (today's substrate; no WRITE-side --template counterpart yet), all 3 backends return empty Blocks per engine contract. Empty Blocks → empty data map → ops.Create validates against type. For required fields: clean validation error. For optional fields: record created with empty optional. Both correct.
+
+## Routed (carry to D5-D6 update mirror)
+
+- WRITE-side --template counterpart out of scope per CE-I. nil-manifest contract intentional today; post-MVP slice fills.
+- Mismatch-gate masks unknown-format path (same as D5-D1 substrate caveat). Documented inline.
+- Block.Name → field key projection is the WRITE pattern D5-D6 update should mirror.
+
+Build-QA pair ready after Wave 1 closure.
+"""
+updated_at = "2026-05-17T02:10:00Z"
+[builder_l3_d5_d5_create_cmd_as-qa-proof]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d5_create_cmd_as"
+title = "QA proof of L3-D5-D5 builder — create_cmd.go --as= flag (write)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d5_create_cmd_as-qa-falsification]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d5_create_cmd_as"
+title = "QA falsif of L3-D5-D5 builder — create_cmd.go --as= flag (write)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d6_update_cmd_as]
+acceptance_criteria = """
+In cmd/ta/update_cmd_test.go:
+- TestUpdate_AsFormat_ParsesIncoming
+- TestUpdate_AsFormatMismatch_Error
+- TestUpdate_AsUnknownFormatError
+"""
+blockers = []
+completed_at = "2026-05-17T02:14:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "Mirror D5-D5 create_cmd write pattern."
+objective = "Add --as=<format> to ta update. Write flow: --data bytes parsed via format.Parse before patch. db.Format mismatch rule per D5-D1."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["cmd/ta/update_cmd.go", "cmd/ta/update_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-17T02:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D6 builder — update_cmd.go --as= flag (write)"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered:
+- cmd/ta/update_cmd.go (+63 LOC) — backends blank-import, --as flag, single-id dispatch gate, validateUpdateAsFormat helper (4-step WRITE mirror)
+- cmd/ta/update_cmd_test.go (NEW, 231 LOC) — 5 tests + fixtures + runner helper
+
+mage testFunc 'TestUpdate_AsMd|TestUpdate_AsHtml|TestUpdate_AsTxt|TestUpdate_AsUnknownFormat': 5/5 pass.
+mage testPkg ./cmd/ta: 357/357 pass + 1 pre-existing skip (unrelated TestPickerSelectionsContractCapture).
+
+Deviations from D5-D5 (acceptable):
+- D5-D5 not merged at HEAD when agent dispatched — mirrored L3-D5-D1 READ pattern (canonical precedent) instead. Same 4-step shape.
+- Stdin --data-file - skips Parse to avoid double-consuming the stream. Documented inline.
+- CE-I honored (NO --template).
+- --as rejected in batch/multi-id (single-record only, mirrors get-side).
+
+Positive verification: TestUpdate_AsMd_PositiveOnMdDb does ops.Get post-update + strings.Contains on body, proving record was actually patched (not just successful execute).
+
+Build-QA pair ready after Wave 1 closure.
+"""
+updated_at = "2026-05-17T02:14:00Z"
+[builder_l3_d5_d6_update_cmd_as-qa-proof]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d6_update_cmd_as"
+title = "QA proof of L3-D5-D6 builder — update_cmd.go --as= flag (write)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d6_update_cmd_as-qa-falsification]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d6_update_cmd_as"
+title = "QA falsif of L3-D5-D6 builder — update_cmd.go --as= flag (write)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d7_delete_cmd_as]
+acceptance_criteria = """
+In cmd/ta/delete_cmd_test.go:
+- TestDelete_AsFormat_EchoesPreDeleteBody (verify formatted echo before deletion)
+- TestDelete_AsFormatMismatch_Error
+- TestDelete_AsUnknownFormatError
+"""
+blockers = []
+completed_at = "2026-05-17T02:12:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "Read confirmation flow already exists in delete_cmd.go. --as wraps the pre-delete echo only — deletion itself unchanged. Be careful: the actual delete should NOT depend on --as succeeding (echo is advisory)."
+objective = "Add --as=<format> to ta delete. Read-then-delete flow: --as routes the pre-delete record echo through Marshal (for confirm display). Render hint only; mismatch rule still applies for the echo path."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["cmd/ta/delete_cmd.go", "cmd/ta/delete_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-17T02:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D7 builder — delete_cmd.go --as= flag (advisory)"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered:
+- cmd/ta/delete_cmd.go (+73 LOC) — backends blank-import, --as flag, mutex with --batch, emitDeletePreEchoFormatted helper
+- cmd/ta/delete_cmd_test.go (NEW, 195 LOC) — 5 tests + assertRecordExists strict-mode invariant helper
+
+mage testFunc 'TestDelete_AsMd|TestDelete_AsHtml|TestDelete_AsTxt|TestDelete_AsUnknownFormat': 5/5 pass.
+mage testPkg ./cmd/ta: 357/0/1 pre-existing skip (TestPickerSelectionsContractCapture, unrelated). No regressions.
+
+STRICT MODE verified: every negative test calls assertRecordExists post-failed-delete; record survives all 4 failure modes (html-mismatch, txt-mismatch, md-mismatch-on-toml, unknown-format). --as failure aborts BEFORE ops.DeleteWithOptions fires.
+
+Implementation notes:
+- runDeleteSingle calls emitDeletePreEchoFormatted FIRST; non-nil return propagated unchanged; runDelete never executes.
+- NO --template per CE-I.
+- --as forbidden in batch / multi-positional modes (same as ta get).
+- Error shape: 'ta delete: --as: ...' / 'ta delete: --as=<name>: ...' matches get_cmd.
+"""
+updated_at = "2026-05-17T02:12:00Z"
+[builder_l3_d5_d7_delete_cmd_as-qa-proof]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d7_delete_cmd_as"
+title = "QA proof of L3-D5-D7 builder — delete_cmd.go --as= flag (advisory)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d7_delete_cmd_as-qa-falsification]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d7_delete_cmd_as"
+title = "QA falsif of L3-D5-D7 builder — delete_cmd.go --as= flag (advisory)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d8_mcp_tools_as_read]
+acceptance_criteria = """
+In internal/mcpsrv/server_test.go:
+- TestMCP_GetAsFormat
+- TestMCP_GetTemplateView
+- TestMCP_GetAsAndTemplateCompose
+- TestMCP_SearchAsFormat
+- TestMCP_MismatchError
+- TestMCP_UnknownFormatError
+"""
+blockers = []
+completed_at = "2026-05-17T01:58:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "MCP tool definitions use mcp.NewTool() + mcp.WithString() pattern. Add --as + --template input fields per read tool. The handlers (handleGet, handleSearch) consume them. list_sections excluded per CE-C — verify list_sections handler is unchanged."
+objective = "Add --as=<format> + --template=<view> input schema to MCP READ tools (get, search). NOT list_sections (per planner CE-C fold — returns IDs only). MCP body emission via Marshal. Compose rule + mismatch rule per D5-D1."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["internal/mcpsrv/tools.go", "internal/mcpsrv/server_test.go"]
+role = "builder"
+started_at = "2026-05-17T01:52:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D8 builder — mcpsrv/tools.go --as= READ side (get, search)"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered (untracked, orchestrator-owned commit):
+- internal/mcpsrv/tools.go (+190 LOC) — --as + --template on getTool() + searchTool() + applyAsFormat + mcpResolveDBFormat helpers
+- internal/mcpsrv/server_test.go (+287 LOC) — tomlPlusMdSchema fixture + writeMdManifest helper + 6 acceptance tests
+
+mage testFunc 'TestMCP_GetAsFormat|TestMCP_GetTemplateView|TestMCP_GetAsAndTemplateCompose|TestMCP_SearchAsFormat|TestMCP_MismatchError|TestMCP_UnknownFormatError': 6/6 pass
+mage testPkg ./internal/mcpsrv: 69/69 pass
+mage check (full module after both D5-D1 + D5-D8 land): 0 fail / 10 pre-existing skips / 24 packages — D5-D8's transient '3 failing D5-D1 tests' observation was a parallel-build race; current tree is green.
+
+list_sections handler UNCHANGED per CE-C fold (verified: zero diff bytes in handleListSections).
+
+## PATTERN ESTABLISHED for D5-D9 (write-side MCP mirror)
+
+1. **Tool definitions**: add mcp.WithString("as", mcp.Description(...)) to write tools. NO --template on write tools per CE-I.
+2. **Handler envelope decode**: `asName := req.GetString("as", "")`
+3. **Per-item pipeline**: BEFORE ops.CreateWithOptions / ops.Update, route incoming bytes through Parse(incoming, manifest) for validation. Per-item entry.Error matches existing per-item failure shape.
+4. **db.Format/--as mismatch**: reuse mcpResolveDBFormat(path, id); emit 'db.Format=<x>; --as=<y> requires matching format'.
+5. **Unknown-format wrap**: fmt.Errorf('format: %w', err) over format.Get sentinel.
+6. **Backend blank-imports**: ALREADY done by this droplet — D5-D9 inherits via shared file.
+7. **Identity passthrough on empty --as**: D5-D9 MUST short-circuit when asName == '' so existing write path is byte-equivalent for unflagged callers.
+
+## Routed concerns
+
+1. html/txt positive-coverage gap (same as D5-D1 routed #2): schema.Format only has toml/md today. Positive html/txt Marshal tests only verify mismatch error path. Documented at test layer; routed to D10 integration substrate considerations.
+2. Test fixture uses glob-toml mount (`manifests/*.toml`) for template_manifest — mirrors how D5-D1 worked around the single-file mount limitation.
+
+Build-QA pair ready for dispatch.
+"""
+updated_at = "2026-05-17T01:58:00Z"
+[builder_l3_d5_d8_mcp_tools_as_read-qa-proof]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d8_mcp_tools_as_read"
+title = "QA proof of L3-D5-D8 builder — mcpsrv/tools.go --as= READ side (get, search)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d8_mcp_tools_as_read-qa-falsification]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d8_mcp_tools_as_read"
+title = "QA falsif of L3-D5-D8 builder — mcpsrv/tools.go --as= READ side (get, search)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d9_mcp_tools_as_write]
+acceptance_criteria = """
+In internal/mcpsrv/server_test.go:
+- TestMCP_CreateAsFormat_ParsesIncoming
+- TestMCP_UpdateAsFormat_ParsesIncoming
+- TestMCP_DeleteAsFormat_EchoesPreDelete
+- TestMCP_SchemaCreateAsFormat_ParsesIncoming
+- TestMCP_AsWriteMismatchError
+"""
+blockers = ["drop_004.drop.builder_l3_d5_d8_mcp_tools_as_read"]
+completed_at = "2026-05-17T02:22:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "BLOCKED on D5-D8 (shared tools.go). Build after D5-D8's read-side --as scaffold lands. Verify D5-D8 diff via git diff internal/mcpsrv/tools.go before adding write-side wiring."
+objective = "Add --as=<format> input schema to MCP WRITE tools (create, update, delete, schema mutations). Write flow: incoming body bytes parsed via format.Parse before storage. db.Format mismatch rule per D5-D1. SAME file as D5-D8 — blocked on D5-D8."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["internal/mcpsrv/tools.go", "internal/mcpsrv/server_test.go"]
+role = "builder"
+started_at = "2026-05-17T02:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D9 builder — mcpsrv/tools.go --as= WRITE side (create, update, delete, schema)"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent. One routed concern needs planner attention (see below).
+
+Files delivered:
+- internal/mcpsrv/tools.go (+179 LOC net, 1422→1601) — --as on createTool/updateTool/deleteTool/schemaTool; validateAsFormatForWrite + validateSchemaAsFormatForWrite + schemaTargetDBName helpers; gate wired into handleCreate/handleUpdate/handleDelete (per-item) + handleSchemaMutate (envelope, action=create|update only)
+- internal/mcpsrv/server_test.go (+316 LOC net, 3068→3384) — 9 new tests
+
+mage testFunc scoped: 9/9 pass
+mage testFunc 'TestMCP_': 19/19 pass (D5-D8 read + D5-D9 write + pre-existing)
+mage testPkg ./internal/mcpsrv: 78/78
+mage testPkg ./cmd/ta: pass (no regression)
+
+## Design decision: gate-only, no Parse for MCP write
+
+MCP write tools receive ALREADY-STRUCTURED items[i].data as map[string]any. The CLI write path (D5-D5 create_cmd) needs Block.Name → field-value projection because its input is RAW --data '<bytes>' that must be parsed. MCP's input is already in field-value form per wire contract.
+
+Therefore D5-D9's gate runs MISMATCH + UNKNOWN-FORMAT checks only (no Parse, no Block projection). Mirrors CLI update D5-D6 helper's 'structured data, no raw bytes' branch (empty data → skip Parse).
+
+## STRICT-mode delete confirmed
+
+TestMCP_DeleteAsHtml_MismatchAbortsDelete_OnMdDb: seeds notes.heading-1, calls MCP delete with as='html' on md db, asserts ops.Get post-failed-delete returns the record. Record survives mismatched --as. Strict-mode contract: validateAsFormatForWrite returns mismatch error BEFORE ops.DeleteWithOptions fires.
+
+## ROUTED CONCERN (needs dev call)
+
+If the planner intent is for MCP to ALSO accept raw format bytes per item (parallel to CLI's --data), a new per-item field (e.g. items[i].raw_bytes) is needed and gate would route bytes through Parse mirroring D5-D5. Today MCP items[i].data is map[string]any, so the gate-only semantic is the natural mirror. Surface to dev for scope confirmation before declaring D5-D9 fully congruent with D5-D5.
+
+## Helpers
+
+- schemaTargetDBName: splits name on first dot — kind=db returns name verbatim, kind=type|field|base returns leading segment (notes from notes.note, etc.).
+- validateAsFormatForWrite: empty --as → nil short-circuit; non-empty → mismatch + unknown-format checks.
+- validateSchemaAsFormatForWrite: same logic adapted for schema kind+name addressing.
+
+Wave 1 + Wave 2 COMPLETE. D5-D10 integration tests ready for dispatch.
+"""
+updated_at = "2026-05-17T02:22:00Z"
+[builder_l3_d5_d9_mcp_tools_as_write-qa-proof]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d9_mcp_tools_as_write"
+title = "QA proof of L3-D5-D9 builder — mcpsrv/tools.go --as= WRITE side (create, update, delete, schema)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d9_mcp_tools_as_write-qa-falsification]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d9_mcp_tools_as_write"
+title = "QA falsif of L3-D5-D9 builder — mcpsrv/tools.go --as= WRITE side (create, update, delete, schema)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d10_integration]
+acceptance_criteria = """
+- cmd/ta/multi_format_test.go: 21+ positive E2E cases (7 CLI × 3 formats)
+- internal/mcpsrv/server_test.go (append): 18+ positive E2E cases (6 MCP × 3 formats)
+- Negative cases: TestE2E_MismatchError, TestE2E_UnknownFormatError, TestE2E_ListSectionsPassthrough (no --as)
+- TestE2E_AsAndTemplateCompose end-to-end
+
+Total: 39+ test cases. Close: mage check (full module) green.
+"""
+blockers = ["drop_004.drop.builder_l3_d5_d1_get_cmd_as_template", "drop_004.drop.builder_l3_d5_d2_search_cmd_as", "drop_004.drop.builder_l3_d5_d3_schema_cmd_as_read", "drop_004.drop.builder_l3_d5_d4_schema_cmd_as_write", "drop_004.drop.builder_l3_d5_d5_create_cmd_as", "drop_004.drop.builder_l3_d5_d6_update_cmd_as", "drop_004.drop.builder_l3_d5_d7_delete_cmd_as", "drop_004.drop.builder_l3_d5_d8_mcp_tools_as_read", "drop_004.drop.builder_l3_d5_d9_mcp_tools_as_write"]
+completed_at = "2026-05-17T02:30:00Z"
+created_at = "2026-05-17T01:50:00Z"
+implementation_notes_user = "Blocked on ALL prior 9 droplets. Build after every Wave 1 + Wave 2 droplet lands. Run mage check (full module) as final gate."
+objective = "End-to-end integration. NEW cmd/ta/multi_format_test.go + APPEND internal/mcpsrv/server_test.go. Cover 7 CLI subcommands (get/search/schema-read/schema-write/create/update/delete) × 3 formats = 21 cases + 6 MCP tools × 3 formats = 18 cases + negative cases. NO --as on list_sections (verify passthrough unchanged)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+paths = ["cmd/ta/multi_format_test.go", "internal/mcpsrv/server_test.go"]
+role = "builder"
+started_at = "2026-05-17T02:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D5-D10 builder — multi-format integration tests (CLI + MCP, end-to-end)"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered:
+- cmd/ta/multi_format_test.go (NEW, +449 LOC) — table-driven E2E
+- internal/mcpsrv/server_test.go (APPEND, +466 LOC, 3385 → 3851) — MCP E2E
+
+ZERO non-test source edits. ZERO go.mod/go.sum.
+
+## Test counts (EXCEEDS planner targets 21+18=39 minimum)
+
+CLI side (TestE2E_*): 10 top-level tests, 38 sub-tests
+MCP side (TestE2EMCP_*): 9 top-level tests, 33 sub-tests
+Combined: 71 new sub-tests under 19 top-level tests.
+
+## Surface coverage confirmed
+
+CLI: get, search, create, update, delete (STRICT), schema action=get, schema action=create, list-sections (passthrough; --as is unknown-flag), --as+--template compose, round-trip byte-fidelity
+
+MCP: get, search, create, update, delete (STRICT), schema action=create, list_sections (passthrough; as silently dropped per CE-C), --as+--template compose, round-trip byte-fidelity
+
+Per-tool error placement asserted: per-item for get/create/update/delete; envelope-level for search + schema mutate.
+
+Side-effect locks asserted: create on gate-failure does NOT touch disk; STRICT delete keeps record on gate-failure.
+
+Round-trip: ops.Create → ta get --as=md → ops.Get round-trip; MCP equivalent. Trailing-newline canonicalisation honored.
+
+## Mage verdicts
+
+- mage testFunc 'TestE2E_' (CLI): PASS
+- mage testFunc 'TestE2EMCP_' (MCP): PASS
+- mage check (FULL MODULE GATE): GREEN — 1425 tests / 0 fail / 10 pre-existing skips / 24 packages
+
+## Routed concerns
+
+None new. Substrate gap (FormatHTML/FormatTXT) is the same pre-MVP tracker entry carried through D5-D1..D5-D9. Honest naming preserved end-to-end.
+
+WAVE 1 + WAVE 2 + WAVE 3 COMPLETE. L3-D5 ready for planner-level build-QA twins.
+"""
+updated_at = "2026-05-17T02:30:00Z"
+[builder_l3_d5_d10_integration-qa-proof]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d10_integration"
+title = "QA proof of L3-D5-D10 builder — multi-format integration tests (CLI + MCP, end-to-end)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[builder_l3_d5_d10_integration-qa-falsification]
+created_at = "2026-05-17T02:13:55Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_d5_d10_integration"
+title = "QA falsif of L3-D5-D10 builder — multi-format integration tests (CLI + MCP, end-to-end)"
+updated_at = "2026-05-17T02:13:55Z"
+
+[l3_d5_cli_mcp_plumbing-build-qa-proof]
+completed_at = "2026-05-17T02:34:00Z"
+created_at = "2026-05-17T02:30:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-17T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+title = "Build-QA proof of L3-D5 planner subtree (CLI/MCP plumbing)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+L3-D5 sub-tree (10 droplets across cmd/ta + internal/mcpsrv) ratified as integrated unit.
+
+All 10 contract items verified file:line:
+- CLI/MCP scope parity: 7 CLI surfaces (create/delete/get/schema/search/update + list-sections passthrough) + 6 MCP tools (get/search/create/update/delete/schema)
+- COMPOSE: TestE2E_AsAndTemplateCompose + TestE2EMCP_AsAndTemplateCompose + per-droplet variants
+- Mismatch shape uniform: 61 rg hits for 'requires matching format' across cmd/ta + mcpsrv. MCP wraps with 'format:' prefix per its own convention (contract-compliant; shape token preserved)
+- STRICT delete on BOTH surfaces: CLI TestDelete_AsHtml_MismatchAbortsDelete_OnMdDb + MCP TestMCP_DeleteAsHtml_MismatchAbortsDelete_OnMdDb. tools.go:177-181 doc pin
+- list_sections passthrough: CLI 0 'as' hits; MCP tool def declares no 'as' arg. TestE2E_ListSectionsPassthrough + TestE2EMCP variant
+- MCP write gate-only: tools.go:1453 validateAsFormatForWrite runs mismatch + format.Get registry resolution ONLY (no Parse). Documented asymmetry tools.go:1449-1452
+- Honest test naming: 0 active TestGet_AsFormat_HTML/_TXT funcs; 14 funcs match Test<Slice>_As<Engine>_<Outcome>On<Db> pattern; TestGet_AsFormat_MD retained as true positive (md→md)
+- Pre-MVP tracker: CLAUDE.md L93 has schema.Format + record.Backend gap entry
+- §5.3 deviation: drop.toml:6248-6252 explicit rationale (L2-D pre-pinned, disjoint paths, minimal coupling)
+- Round-trip: TestE2E_RoundTripByteFidelity + TestE2EMCP_RoundTripByteFidelity end-to-end
+
+Mage gates ALL green:
+- mage check (FULL MODULE): 1425 pass / 0 fail / 10 pre-existing skips / 24 packages
+- testFunc TestE2E_: 45/0 (CLI E2E)
+- testFunc TestE2EMCP_: 39/0 (MCP E2E)
+- testFunc TestGet_As|TestSearch_As|TestCreate_As|TestUpdate_As|TestDelete_As|TestSchema_: 39/0
+- testFunc TestMCP_: 19/0
+- testPkg ./cmd/ta: 409 pass + 1 pre-existing skip
+- testPkg ./internal/mcpsrv: 117 pass
+- fmtCheck + vet: clean
+
+6 falsification attacks mitigated or accepted with rationale. No unmitigated CE.
+
+One informational note: multi_format_test.go LOC drift (D5-D10 said 449; actual 546). Function-count contract preserved (39+ E2E cases; actual 84+). Non-blocking.
+
+L3-D5 sub-tree ratified; planner closes back to L2-D.
+"""
+updated_at = "2026-05-17T02:34:00Z"
+[l3_d5_cli_mcp_plumbing-build-qa-falsification]
+completed_at = "2026-05-17T02:42:00Z"
+created_at = "2026-05-17T02:30:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-17T02:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d5_cli_mcp_plumbing"
+title = "Build-QA falsif of L3-D5 planner subtree (CLI/MCP plumbing)"
+transition_notes = """
+VERDICT: AMEND → orchestrator-direct fold per drop_003 precedent. Both AMEND CEs folded. Closing complete+success.
+
+14 attack surfaces probed. 12 MITIGATED with evidence; 2 AMEND CEs both folded.
+
+## CE-1 FOLDED: CLI vs MCP message-shape drift
+
+MCP wrapped mismatch with 'format: ' prefix (3 sites: tools.go:1394, 1463, 1503); CLI emitted bare. Strict literal contract violated; substring contract preserved.
+
+**Fold**: Stripped 'format: ' prefix from all 3 MCP mismatch sites via single `replace_all=true` Edit. CLI + MCP now byte-equivalent on mismatch shape.
+
+Verification: mage testFunc 'TestE2E_' + 'TestE2EMCP_' still green; mage check 1435+ tests / 0 fail.
+
+## CE-2 FOLDED: schema delete + --as silent-ignore
+
+Both CLI schema_cmd.go:142 and MCP tools.go:1328 silently ignored --as on action=delete. No error/warning/log. Operationally surprising.
+
+**Fold** (both surfaces):
+- cmd/ta/schema_cmd.go: REJECT --as on action=delete with 'ta schema: --as is not supported with --action=delete (no payload to parse)'
+- internal/mcpsrv/tools.go: REJECT with 'schema: --as is not supported with action=delete (no payload to parse)'
+- NEW tests: TestSchema_DeleteAsRejected (cmd/ta/schema_cmd_test.go), TestMCP_SchemaDeleteAsRejected (internal/mcpsrv/server_test.go). Both pass.
+
+## Other findings (all MITIGATED)
+
+- --template scope clean (only get + MCP get)
+- STRICT delete cross-transport parity verified (CLI delete_cmd.go:124-128 + MCP tools.go:924-927)
+- Honest test naming purity (0 active misleading TestGet_AsFormat_HTML/_TXT funcs; 14 honest-pattern funcs)
+- MCP gate-only consistency (no engine.Parse on write items[i].data)
+- Wire-protocol asymmetry CLI/MCP documented and tested both ways
+- Compose mismatch-before-template ordering verified both surfaces
+- list_sections passthrough (CLI no --as; MCP silently drops `as`)
+- F23 auto_spawn 20 QA twins present
+- mage check baseline 1435/1425/10 unchanged after folds
+- Helper-name pattern heterogeneous but readable (ACCEPTED)
+- L4 §5.3 deviation honest (cross-package coupling minimal: 1 main.go import in cmd/ta, 0 reverse)
+- schema.Format substrate completeness check (no quiet expansion)
+
+Final verification: mage check 1437+ tests / 0 fail / 10 pre-existing skips. Working tree clean post-fold.
+
+L3-D5 sub-tree ratified.
+"""
+updated_at = "2026-05-17T02:42:00Z"
