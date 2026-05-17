@@ -52,6 +52,11 @@ type Format interface {
 // use errors.Is to detect this case.
 var ErrBlockNotFound = errors.New("format: block not found")
 
+// ErrAmbiguousMatch is the sentinel returned when a selector matches more than
+// one block (multi-match must be tightened by the caller — txt backend's
+// regex selector surfaces this when manifest pattern is too broad).
+var ErrAmbiguousMatch = errors.New("format: ambiguous match")
+
 // registry holds the per-format implementations. NOT goroutine-safe —
 // Register MUST be called during package init() only. Panics on duplicate
 // names per stdlib precedent (database/sql.Register, image.RegisterFormat).

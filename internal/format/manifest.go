@@ -3,6 +3,7 @@ package format
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 
 	"github.com/pelletier/go-toml/v2"
@@ -58,11 +59,19 @@ func (m *MdManifest) BlockName(node any) (string, bool) {
 func (m *MdManifest) Selectors() []string { return m.Selectors_ }
 
 // TxtManifest is the concrete Manifest impl for the txt format. Selectors
-// are regex pattern strings; the txt backend compiles them.
+// are regex pattern strings; the loader pre-compiles them at load time per
+// the L3-D4 CE-5 contract ("compile happens at manifest load time, NOT per
+// Find/Splice"). Compiled holds block-name → *regexp.Regexp so the txt
+// backend can do a single map lookup per call.
+//
+// Authors writing multi-line plain-text patterns typically need the `(?m)`
+// flag: Go's default `^`/`$` are start/end-of-text, not start/end-of-line.
+// Without `(?m)`, anchors will only match at buffer boundaries.
 type TxtManifest struct {
 	Selectors_     []string
 	SelectorToName map[string]string
 	NameToSelector map[string]string
+	Compiled       map[string]*regexp.Regexp
 	Description    string
 	FieldBindings  map[string]any
 }
@@ -198,10 +207,24 @@ func buildTxtManifest(raw rawManifest, source string) (*TxtManifest, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Pre-compile every regex selector at load time per L3-D4 CE-5 contract.
+	// Malformed patterns surface here, NOT at Find/Splice time — manifest
+	// loading is the loud-failure stage. Compiled is keyed by block name
+	// (not selector string) so the backend's per-call lookup is a single
+	// map read keyed off the user-facing identifier.
+	compiled := make(map[string]*regexp.Regexp, len(nameToSel))
+	for name, pattern := range nameToSel {
+		re, cerr := regexp.Compile(pattern)
+		if cerr != nil {
+			return nil, fmt.Errorf("format: manifest %q: regex_selectors.%s: compile %q: %w", source, name, pattern, cerr)
+		}
+		compiled[name] = re
+	}
 	return &TxtManifest{
 		Selectors_:     sels,
 		SelectorToName: selToName,
 		NameToSelector: nameToSel,
+		Compiled:       compiled,
 		Description:    raw.Description,
 		FieldBindings:  raw.FieldTypeBindings,
 	}, nil

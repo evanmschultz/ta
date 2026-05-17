@@ -242,6 +242,69 @@ section = "## h2"
 	}
 }
 
+// TestManifest_TxtRegexCompiledAtLoadTime pins L3-D4 CE-5: the txt manifest
+// loader pre-compiles every regex_selectors entry into *regexp.Regexp at
+// load time, exposed via TxtManifest.Compiled keyed by block name. The
+// backend's Find / Splice path consumes these compiled regexps directly
+// (no per-call recompile). Pattern strings declared in the fixture are
+// reachable both via NameToSelector (raw string) AND Compiled (compiled
+// pattern); both maps must agree on key coverage.
+func TestManifest_TxtRegexCompiledAtLoadTime(t *testing.T) {
+	m, err := LoadManifestFile(filepath.Join("testdata", "manifests", "txt.toml"))
+	if err != nil {
+		t.Fatalf("LoadManifestFile(txt): %v", err)
+	}
+	tm, ok := m.(*TxtManifest)
+	if !ok {
+		t.Fatalf("expected *TxtManifest, got %T", m)
+	}
+	if tm.Compiled == nil {
+		t.Fatal("TxtManifest.Compiled is nil; CE-5 requires pre-compilation at load time")
+	}
+	// Every key in NameToSelector must have a corresponding compiled regex.
+	for name := range tm.NameToSelector {
+		re, hit := tm.Compiled[name]
+		if !hit {
+			t.Errorf("Compiled missing entry for block %q", name)
+			continue
+		}
+		if re == nil {
+			t.Errorf("Compiled[%q] = nil", name)
+		}
+	}
+	if len(tm.Compiled) != len(tm.NameToSelector) {
+		t.Errorf("Compiled has %d entries, NameToSelector has %d; CE-5 requires 1:1 coverage", len(tm.Compiled), len(tm.NameToSelector))
+	}
+}
+
+// TestManifest_TxtInvalidRegexRejectedAtLoad pins L3-D4 CE-5: a malformed
+// regex pattern in regex_selectors must surface at LoadManifestFile time
+// (not at Find/Splice). The returned error must name the offending block
+// and quote the bad pattern so the user can find it.
+func TestManifest_TxtInvalidRegexRejectedAtLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad_regex.toml")
+	// `(unclosed` is a guaranteed RE2 compile failure.
+	body := []byte(`format = "txt"
+description = "bad regex"
+[regex_selectors]
+broken = "(unclosed"
+`)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	_, err := LoadManifestFile(path)
+	if err == nil {
+		t.Fatal("LoadManifestFile expected error for invalid regex, got nil")
+	}
+	if !strings.Contains(err.Error(), "broken") {
+		t.Errorf("error %q does not name offending block %q", err.Error(), "broken")
+	}
+	if !strings.Contains(err.Error(), "compile") {
+		t.Errorf("error %q does not mention compile failure", err.Error())
+	}
+}
+
 // equalStrings is a tiny helper because slices.Equal would force a stdlib
 // import bump and we want this test file dependency-light.
 func equalStrings(a, b []string) bool {

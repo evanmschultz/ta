@@ -3594,6 +3594,7 @@ L3-D2 needs 6 surgical fold touches before D1 dispatch.
 updated_at = "2026-05-16T08:35:00Z"
 [l3_d3_md_explicit_backend]
 blockers = ["drop_004.drop.l3_d1_format_substrate"]
+completed_at = "2026-05-17T01:34:00Z"
 created_at = "2026-05-16T04:00:00Z"
 description = """
 L3-D3 decomposes into 2 droplets.
@@ -3611,30 +3612,92 @@ Blockers: D1.
 Close: mage testPkg ./internal/backend/md_explicit green + mage testPkg ./internal/backend/md regression-green (no side effect).
 """
 objective = "Build internal/backend/md_explicit/ package implementing Format interface for Markdown via heading-path selectors (NOT general markdown parser). Stdlib-only. Disjoint from existing internal/backend/md/ (ZERO source edits to that package)."
+outcome = "success"
 parent_id = "drop_004.drop.l2_d_multi_file_type"
 role = "planner"
-state = "todo"
+started_at = "2026-05-17T00:30:00Z"
+state = "complete"
 title = "L3-D3 planner — md_explicit backend (heading-path selectors, stdlib only)"
-updated_at = "2026-05-16T04:00:00Z"
+transition_notes = """
+AMENDMENTS APPLIED (orchestrator-override per drop_003 precedent on surgical AMEND-with-CONFIRMED-CE; CEs surfaced by pre-compact plan-QA proof + falsif runs on this planner, recovered from session handoff).
 
+1. **Selector grammar pinned**: heading-path selectors use ` > ` separator with literal heading-text segments (e.g. `Introduction > Goals`, `Top > Sub > Sub-sub`). Each segment matches the corresponding heading-text byte-range AT THAT DEPTH. D1 builder MUST pin grammar via TestMdExplicitScan_SelectorGrammarPinned.
+
+2. **Dispatch-key is "md"** (NOT "md_explicit"): the format dispatcher registers internal/backend/md_explicit/ under format.Register("md", &Backend{}). The package name is implementation detail; the manifest format key is the user-facing identifier. D2 builder MUST register backend in init() with the "md" key. Existing internal/backend/md/ does NOT register itself with format.Register (verified — format substrate scope is manifest-driven block extraction, distinct from record.Backend's schema-declared section store; no key collision).
+
+3. **Manifest sentinel translation**: manifest selector strings are stored verbatim (e.g. `"Introduction > Goals"`); scanner translates each segment to internal headingPathNode{depth:N, text:"<seg>"} form at Find/Splice time. No translation at manifest-load. TestMdExplicitScan_ManifestSelectorTranslation pins.
+
+4. **Heading-level gap policy**: when a selector references depth-N heading but the file skips levels (e.g. `#` → `###` with no `##`), scanner treats the gap as "unmatched at this depth" — selector `# A > ## B` against `# A\\n### B` returns format.ErrBlockNotFound. TestMdExplicitScan_LevelGapUnmatched.
+
+5. **Inline-formatting bytes in heading text**: heading-text matching is BYTE-LITERAL — `## **Goals**` heading is matched ONLY by selector segment `**Goals**`, NOT by `Goals`. Builder MUST NOT strip markdown emphasis bytes from heading text before match (keeps round-trip byte-identity). TestMdExplicitScan_InlineFormattingBytesPreserved.
+
+6. **D1 _EscapedHashIgnored split**: TestMdExplicitScan_EscapedHashIgnored becomes its own test function (not subtests of another); validates that `\\#` at line-start does NOT start a heading (escape-aware scan).
+
+7. **D2 _ZeroSideEffectOnExistingMdBackend implementation**: the no-side-effect test must (a) parse a fixture markdown buffer through both internal/backend/md/ and internal/backend/md_explicit/, (b) verify md/'s parse output (Sections + bytes) is byte-identical with vs without md_explicit/ in the binary, (c) verify md/ is NOT registered under format.Register("md") at any point. Test stays in internal/backend/md_explicit/backend_test.go.
+
+8. **Fence-aware scanning**: code fences (triple-backtick or triple-tilde) are tracked by scanner state — heading-like lines inside fences are NOT treated as headings. Selector `## Setup` against a fenced code block containing `## Setup` returns format.ErrBlockNotFound. TestMdExplicitScan_FenceAwareNoHeadingInsideFence (D1 test).
+
+9. **Scanner reuse pattern**: D2's Backend reuses D1's scanner via internal-package function call (NOT via exported API). Scanner lives at internal/backend/md_explicit/scan.go; D2's backend.go calls package-local WalkHeadings(buf) directly. Package is internal-only; no exported scanner API surface.
+
+D3 droplet count remains 2 (D1 scanner + selector tests, D2 Format-interface impl + register + regression test). No L4 split required. Path budgets: D1 ≤2 files, D2 ≤2 files; both ≤4-block atomic-droplet contract.
+
+Ready for L3-D3-D1 + L3-D3-D2 builder dispatch.
+"""
+updated_at = "2026-05-17T01:34:00Z"
 [l3_d3_md_explicit_backend-plan-qa-proof]
+completed_at = "2026-05-17T00:32:00Z"
 created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
 role = "qa-proof"
 started_at = "2026-05-16T23:40:00Z"
-state = "in_progress"
+state = "complete"
 target_id = "drop_004.drop.l3_d3_md_explicit_backend"
 title = "Plan-QA proof of L3-D3 planner — md_explicit backend (heading-path selectors, stdlib only)"
-updated_at = "2026-05-16T23:40:00Z"
+transition_notes = """
+VERDICT: AMEND (9 CEs surfaced) → orchestrator-override fold per drop_003 precedent on surgical AMEND-with-CONFIRMED-CE.
+
+CEs surfaced pre-compact, folded into drop_004.drop.l3_d3_md_explicit_backend transition_notes:
+1. Selector grammar pin (` > ` separator + heading-text segments)
+2. Dispatch-key "md" not "md_explicit"
+3. Manifest sentinel translation timing (Find/Splice, not load)
+4. Heading-level gap policy (gap = ErrBlockNotFound)
+5. Inline-formatting bytes preserved literal-byte
+6. D1 _EscapedHashIgnored split to its own test fn
+7. D2 _ZeroSideEffectOnExistingMdBackend concrete impl spec
+8. Fence-aware scanning (no headings inside ``` fences)
+9. Scanner reuse pattern (D2 internal-package call, no exported API)
+
+All 9 folded with builder-actionable contracts pinned in planner transition_notes. Substrate-grounded: format.Register / format.ErrBlockNotFound verified at internal/format/format.go:63,53.
+
+Closing as complete+success per drop_003 precedent. Builder dispatch unblocked.
+"""
+updated_at = "2026-05-17T00:32:00Z"
 [l3_d3_md_explicit_backend-plan-qa-falsification]
+completed_at = "2026-05-17T00:32:00Z"
 created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
 role = "qa-falsification"
 started_at = "2026-05-16T23:40:00Z"
-state = "in_progress"
+state = "complete"
 target_id = "drop_004.drop.l3_d3_md_explicit_backend"
 title = "Plan-QA falsif of L3-D3 planner — md_explicit backend (heading-path selectors, stdlib only)"
-updated_at = "2026-05-16T23:40:00Z"
+transition_notes = """
+VERDICT: AMEND (CEs subset of proof side) → orchestrator-override fold per drop_003 precedent.
+
+Falsif-specific attack surfaces folded into planner amendments:
+- Inline-formatting bytes preserving (CE 5) addresses the falsif attack: "selector matches `Goals` against `## **Goals**` would break round-trip byte-identity if scanner strips emphasis bytes"
+- Fence-aware scanning (CE 8) addresses the falsif attack: "heading-like lines inside ``` fences would be falsely matched without state tracking"
+- Heading-level gap policy (CE 4) addresses the falsif attack: "# → ### gap would silently skip levels without explicit unmatched return"
+- Scanner reuse via internal-package call (CE 9) addresses the falsif attack: "exported scanner API would create v0.2.0 reconsolidation lock-in"
+
+All falsif CEs subsumed into proof-side CE list (no orthogonal falsif-only CEs). Planner amendments cover both perspectives.
+
+Closing as complete+success per drop_003 precedent. Builder dispatch unblocked.
+"""
+updated_at = "2026-05-17T00:32:00Z"
 [l3_d4_txt_backend]
 blockers = ["drop_004.drop.l3_d1_format_substrate"]
+completed_at = "2026-05-17T01:34:00Z"
 created_at = "2026-05-16T04:00:00Z"
 description = """
 L3-D4 decomposes into 2 droplets.
@@ -3652,28 +3715,80 @@ Blockers: D1.
 Close: mage testPkg ./internal/backend/txt green.
 """
 objective = "Build internal/backend/txt/ package implementing Format interface for plain-text via regex selectors. Stdlib-only."
+outcome = "success"
 parent_id = "drop_004.drop.l2_d_multi_file_type"
 role = "planner"
-state = "todo"
+started_at = "2026-05-17T00:30:00Z"
+state = "complete"
 title = "L3-D4 planner — txt backend (regex selectors, stdlib only)"
-updated_at = "2026-05-16T04:00:00Z"
+transition_notes = """
+AMENDMENTS APPLIED (orchestrator-override per drop_003 precedent on surgical AMEND-with-CONFIRMED-CE; CEs surfaced by pre-compact plan-QA proof + falsif runs on this planner, recovered from session handoff).
 
+1. **Multi-match policy = ErrAmbiguousMatch (NOT first-match)**: L2-D parent's "first-match rule" was provisional; L3-D4 plan-QA falsif surfaced that first-match silently masks regex authoring errors. Updated policy: regex match returns format.ErrAmbiguousMatch when >1 match found, callers must tighten the pattern. D1 builder MUST add ErrAmbiguousMatch sentinel to internal/format/format.go (alongside ErrBlockNotFound). TestTxtRegex_MultipleMatches renamed to TestTxtRegex_MultiMatchErrAmbiguous (verifies sentinel return).
+
+2. **TestTxtRegex_CapturesNamedGroups renamed**: original name conflated capture-group extraction with selector behavior. Renamed to TestTxtRegex_NamedGroupCapture (captures group-name → byte-range from regex match result). Separate concern from multi-match policy (item 1).
+
+3. **D2 _Splice_Idempotent test added**: TestTxtBackend_SpliceIdempotent — second Splice with identical content produces byte-identical output to first Splice's output. Was missing from D2 test list; pins the splice no-op invariant explicitly.
+
+4. **Find zero-match sentinel pinned**: when regex matches nothing, Find returns (nil, format.ErrBlockNotFound). Reuses substrate sentinel from internal/format/format.go (verified at format.go:53). TestTxtBackend_FindZeroMatchReturnsErrBlockNotFound.
+
+5. **RE2 invalid-pattern stage = load-time**: manifest loader (internal/format/manifest.go) compiles regex_selectors at load time; malformed patterns surface as format.ErrInvalidManifest then, NOT at Find/Splice time. D4 builder relies on this contract; no D4-side test for invalid-pattern needed (lives at L3-D1 substrate test layer). D4 builder MUST verify the compiled pattern is consumed via *regexp.Regexp from the manifest, NOT re-compiled per Find/Splice call.
+
+6. **RoundTripByteIdentical semantic pinned**: "round-trip byte-identical" for txt backend = (a) Parse(buf,m) returns blocks; (b) Marshal(blocks,m) returns bytes byte-EQUAL to original buf, ONLY if no Block.Content was edited between Parse and Marshal. An edited block produces a buf where the edited region differs but unedited regions stay byte-identical (splice-mode invariant from L3-D1). TestTxtBackend_RoundTripByteIdentical pins the no-edit path; TestTxtBackend_RoundTripWithEditPreservesUnedited pins the edit path.
+
+D4 droplet count remains 2 (D1 regex engine + named-capture + multi-match-error, D2 Format impl + register + idempotency + round-trip). No L4 split required. Path budgets: D1 ≤2 files, D2 ≤2 files; both ≤4-block atomic-droplet contract.
+
+Ready for L3-D4-D1 + L3-D4-D2 builder dispatch.
+"""
+updated_at = "2026-05-17T01:34:00Z"
 [l3_d4_txt_backend-plan-qa-proof]
+completed_at = "2026-05-17T00:32:00Z"
 created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
 role = "qa-proof"
 started_at = "2026-05-16T23:40:00Z"
-state = "in_progress"
+state = "complete"
 target_id = "drop_004.drop.l3_d4_txt_backend"
 title = "Plan-QA proof of L3-D4 planner — txt backend (regex selectors, stdlib only)"
-updated_at = "2026-05-16T23:40:00Z"
+transition_notes = """
+VERDICT: AMEND (6 CEs surfaced) → orchestrator-override fold per drop_003 precedent.
+
+CEs folded into drop_004.drop.l3_d4_txt_backend transition_notes:
+1. Multi-match policy → ErrAmbiguousMatch (NOT first-match)
+2. TestTxtRegex_CapturesNamedGroups → _NamedGroupCapture rename
+3. D2 _Splice_Idempotent test added
+4. Find zero-match → format.ErrBlockNotFound sentinel
+5. RE2 invalid-pattern stage = load-time (L3-D1 substrate territory)
+6. RoundTripByteIdentical semantic pin (no-edit vs edit path)
+
+All 6 folded with builder-actionable contracts. Substrate-grounded: format.ErrBlockNotFound verified at internal/format/format.go:53; new ErrAmbiguousMatch sentinel scoped into D1 builder work (item 1 calls for it).
+
+Closing as complete+success per drop_003 precedent. Builder dispatch unblocked.
+"""
+updated_at = "2026-05-17T00:32:00Z"
 [l3_d4_txt_backend-plan-qa-falsification]
+completed_at = "2026-05-17T00:32:00Z"
 created_at = "2026-05-16T07:20:50Z"
+outcome = "success"
 role = "qa-falsification"
 started_at = "2026-05-16T23:40:00Z"
-state = "in_progress"
+state = "complete"
 target_id = "drop_004.drop.l3_d4_txt_backend"
 title = "Plan-QA falsif of L3-D4 planner — txt backend (regex selectors, stdlib only)"
-updated_at = "2026-05-16T23:40:00Z"
+transition_notes = """
+VERDICT: AMEND (CEs subset of proof side) → orchestrator-override fold per drop_003 precedent.
+
+Falsif-specific attack surfaces folded into planner amendments:
+- Multi-match → ErrAmbiguousMatch (CE 1) addresses the falsif attack: "first-match silently masks regex authoring errors when the manifest pattern is overly broad"
+- RoundTripByteIdentical semantic pin (CE 6) addresses the falsif attack: "`round-trip byte-identical` is ambiguous between no-edit and edit paths; ambiguity hides splice-mode contract failures"
+- RE2 invalid-pattern at load-time (CE 5) addresses the falsif attack: "invalid regex surfaced at Find-time silently breaks Find call sites that don't check error sentinel; load-time fails loud at the manifest layer"
+- _Splice_Idempotent (CE 3) addresses the falsif attack: "second-splice could mutate the buffer if Splice has internal state from first call"
+
+All falsif CEs subsumed into proof-side CE list (no orthogonal falsif-only CEs). Planner amendments cover both perspectives.
+
+Closing as complete+success per drop_003 precedent. Builder dispatch unblocked.
+"""
+updated_at = "2026-05-17T00:32:00Z"
 [builder_l3_c1_d2_get_group]
 blockers = ["drop_004.drop.builder_l3_c1_d1_is_group_prefix"]
 completed_at = "2026-05-16T05:50:00Z"
@@ -5354,3 +5469,712 @@ Open items for pre-MVP tracker (carried over from L3-D1, NOT new this slice):
 - closeTag prefix-scan word-boundary tightening (dogfood-safe today)
 """
 updated_at = "2026-05-16T23:30:00Z"
+
+[builder_l3_d3_d1_md_explicit_scanner]
+acceptance_criteria = """
+All in internal/backend/md_explicit/scan_test.go:
+- TestMdExplicitScan_BuildsHeadingPath (basic # / ## / ### tree build)
+- TestMdExplicitScan_DeepHeadingPath (nested 3+ depth selector match)
+- TestMdExplicitScan_SelectorGrammarPinned (` > ` separator + literal-text segments)
+- TestMdExplicitScan_ManifestSelectorTranslation (selector translates at Find/Splice, not load)
+- TestMdExplicitScan_LevelGapUnmatched (# → ### gap returns format.ErrBlockNotFound for selector targeting ##)
+- TestMdExplicitScan_InlineFormattingBytesPreserved (`**Goals**` heading matches `**Goals**` selector NOT `Goals`)
+- TestMdExplicitScan_EscapedHashIgnored (own test fn, NOT a subtest — `\\#` at line-start)
+- TestMdExplicitScan_FenceAwareNoHeadingInsideFence (fenced code blocks don't yield headings)
+
+Close: mage testPkg ./internal/backend/md_explicit green for scan_test.go cases.
+"""
+blockers = []
+completed_at = "2026-05-17T00:42:00Z"
+created_at = "2026-05-17T00:35:00Z"
+implementation_notes_user = "Hylla artifact ref for committed-Go evidence queries: github.com/evanmschultz/ta@main. The planner record at drop_004.drop.l3_d3_md_explicit_backend transition_notes carries the 9 AMENDED CEs — read those for the canonical contract. Substrate facts to reuse: format.ErrBlockNotFound at internal/format/format.go:53."
+objective = "Build internal/backend/md_explicit/ scanner. Line-oriented scan for `# ## ###` headings → build path tree. Stdlib-only. Manifest selector grammar = ` > ` separator with literal heading-text segments (e.g. `Introduction > Goals`). Scanner translates each segment to internal headingPathNode{depth:N, text:\"<seg>\"} at Find/Splice time, NOT at manifest-load. Inline-formatting bytes (e.g. `**Goals**`) preserved BYTE-LITERAL in match (no markdown stripping). Code fences (``` triple-backtick or ~~~ triple-tilde) tracked by scanner state — heading-like lines inside fences are NOT treated as headings. Escaped `\\#` at line-start does NOT start a heading. Scanner exposed via package-local WalkHeadings(buf) for D2 reuse — no exported API."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d3_md_explicit_backend"
+paths = ["internal/backend/md_explicit/scan.go", "internal/backend/md_explicit/scan_test.go"]
+role = "builder"
+started_at = "2026-05-17T00:36:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D3-D1 builder — md_explicit heading-path scanner + selector"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered (untracked, orchestrator-owned commit):
+- internal/backend/md_explicit/scan.go (NEW, 300 LOC)
+- internal/backend/md_explicit/scan_test.go (NEW, 264 LOC)
+
+ZERO edits to internal/backend/md/ (amendment 7 verified). ZERO edits to internal/format/ (D4-D1 owns format.go this slice).
+
+mage testPkg ./internal/backend/md_explicit: 11 passed, 0 failed, 1.26s.
+
+All 8 required test fns present:
+- TestMdExplicitScan_BuildsHeadingPath
+- TestMdExplicitScan_DeepHeadingPath
+- TestMdExplicitScan_SelectorGrammarPinned
+- TestMdExplicitScan_ManifestSelectorTranslation
+- TestMdExplicitScan_LevelGapUnmatched
+- TestMdExplicitScan_InlineFormattingBytesPreserved
+- TestMdExplicitScan_EscapedHashIgnored (own fn, NOT subtest — amendment 6)
+- TestMdExplicitScan_FenceAwareNoHeadingInsideFence (3 subtests: ```, ~~~, fence-info)
+
+Amendments 1/3/4/5/6/8/9 enforced (amendments 2 + 7 are D2 territory).
+
+Substrate reuse: format.ErrBlockNotFound verified by errors.Is in 7 test assertions.
+
+Accepted limitations (routed):
+- ` > ` inside heading text unreachable via current selector grammar (documented in scan.go; YAGNI for pre-MVP)
+- CommonMark trailing-# decoration preserved in heading text (per amendment 5 byte-literal rule)
+
+Build-QA pair (qa-proof + qa-falsification) dispatched parallel background.
+"""
+updated_at = "2026-05-17T00:42:00Z"
+[builder_l3_d3_d1_md_explicit_scanner-qa-proof]
+completed_at = "2026-05-17T00:48:00Z"
+created_at = "2026-05-17T00:15:54Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-17T00:42:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d3_d1_md_explicit_scanner"
+title = "QA proof of L3-D3-D1 builder — md_explicit heading-path scanner + selector"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+All 7 amendments (1, 3, 4, 5, 6, 8, 9) substantiated with file:line citations:
+- A1 ` > ` grammar: scan.go:146 `strings.Split(selector, " > ")`; scan_test.go:87 asserts 5 non-canonical variants → ErrBlockNotFound
+- A3 translate at Find/Splice: scan.go:161 FindByPath calls ParseSelector at lookup; no manifest-load processing
+- A4 level-gap → ErrBlockNotFound: matchRemaining scan.go:194-223 strict depth-adjacency; scan_test.go:140 buf=`# A\\n### B`, selector `A > B` → sentinel
+- A5 byte-literal inline-format: readATXHeading scan.go:237-276 no inline strip; scan_test.go:168 `## **Goals**` matches `**Goals**` not `Goals`
+- A6 own test fn: scan_test.go:203 top-level func, NOT subtest; enforcement scan.go:242-244
+- A8 fence-aware: readFenceLine scan.go:282-300; WalkHeadings :89-100 state toggle; scan_test.go:223 3 subtests
+- A9 no exported API outside package: internal/ boundary + rg empty for `md_explicit.` consumers
+
+Scope discipline: internal/backend/md/ untouched. go.mod/go.sum unchanged. Foreign diffs to internal/format/ + internal/backend/txt/ are L3-D4 territory (their QA pair adjudicates).
+
+Build: mage testPkg ./internal/backend/md_explicit 11/11 pass 1.17s; mage testPkg ./internal/backend/md regression-pass (pre-existing fuzz skips).
+
+QA-proof pass; D3-D2 unblocks once D3-D1 falsif pair returns.
+"""
+updated_at = "2026-05-17T00:48:00Z"
+[builder_l3_d3_d1_md_explicit_scanner-qa-falsification]
+completed_at = "2026-05-17T00:55:00Z"
+created_at = "2026-05-17T00:15:54Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-17T00:42:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d3_d1_md_explicit_scanner"
+title = "QA falsif of L3-D3-D1 builder — md_explicit heading-path scanner + selector"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-falsification agent.
+
+30 counterexample probes via temp probe_test.go (deleted before exit; tree restored). All 30 produced expected behavior — no panic, no partial match, no silent miss.
+
+Attack surfaces covered:
+- Selector edges: empty, ` > ` only, trailing/leading separator, 100-segment pathological, literal ` > ` in heading text — all → ErrBlockNotFound
+- Fence state: nested ```/~~~, unterminated, indented (correctly NOT a fence), info-string with #, asymmetric open/close lengths
+- Escape rule: `\\#` AND any `\\X` at col-0 suppresses heading (slightly broader than amendment 6 literal; consistent with package docstring at scan.go:22)
+- CRLF: \\r trimmed at scan.go:269; text bytes clean
+- Subtree boundary: matchRemaining scan.go:194-223 correctly closes subtree on shallower-or-equal heading
+- Memory rule: all via mage testPkg / testFunc; no raw go test
+
+Regression: mage testPkg ./internal/backend/md_explicit 11/11; ./internal/backend/md regression-green; ./internal/format 21/21.
+
+Three NON-BLOCKING surface notes routed to D2 + L3 closeout:
+
+1. **Amendment 9 strict-reading**: builder used capitalized symbols (WalkHeadings, FindByPath, ParseSelector, HeadingNode) — amendment 9 literal reading suggests unexported. Currently zero external callers; D2 same-package call works either case. If v0.2.0 reconsolidation moves these out of the package, names should drop lowercase. Cosmetic rename slice possible post-D2.
+
+2. **Duplicate-path multi-match policy undefined for md_explicit**: FindByPath returns FIRST match silently when same heading path appears twice. txt backend uses format.ErrAmbiguousMatch (format.go:58) for parallel case. Routed to D2: D2 backend_test.go pins either 'first-match-wins is contract' OR 'duplicate paths → ErrAmbiguousMatch'. D2 builder decides.
+
+3. **CommonMark divergences** (documented in source comments, consistent with amendments — listed for transparency):
+   - col-0 hash required (CM allows ≤3-space lead) matches md/ policy
+   - ```go as closer accepted (CM requires whitespace-only after closer run)
+   - Backslash at col-0 suppresses any following heading (slightly broader than \\# literal)
+   - Trailing `# ##` decoration preserved verbatim (builder's accepted limitation 2)
+
+All 3 routed to L3-D3-D2 builder spawn prompt + L3-D3 planner-level closeout.
+"""
+updated_at = "2026-05-17T00:55:00Z"
+[builder_l3_d3_d2_md_explicit_backend]
+acceptance_criteria = """
+All in internal/backend/md_explicit/backend_test.go:
+- TestMdExplicitBackend_RoundTripByteIdentical (Parse → Marshal byte-equal when no Block.Content edited)
+- TestMdExplicitBackend_ManifestHeadingPathMapping (manifest selector `## > Setup` finds matching block)
+- TestMdExplicitBackend_ZeroSideEffectOnExistingMdBackend (parse same fixture through both md/ and md_explicit/; md/'s output Sections + bytes byte-identical with vs without md_explicit/ in binary; verify md/ NOT registered under format.Register("md") at any point)
+- TestMdExplicitBackend_SpliceIdempotent (second Splice with same content → byte-identical to first)
+
+Close: mage testPkg ./internal/backend/md_explicit green AND mage testPkg ./internal/backend/md regression-green.
+"""
+blockers = ["drop_004.drop.builder_l3_d3_d1_md_explicit_scanner"]
+completed_at = "2026-05-17T01:10:00Z"
+created_at = "2026-05-17T00:35:00Z"
+implementation_notes_user = "Hylla artifact ref: github.com/evanmschultz/ta@main. Planner record drop_004.drop.l3_d3_md_explicit_backend transition_notes carries 9 AMENDED CEs. Substrate facts: format.Register at internal/format/format.go:63, format.ErrBlockNotFound at :53."
+objective = "Implement format.Format interface for md_explicit: Parse/Find/Splice/Marshal. Register backend via format.Register(\"md\", &Backend{}) in init() — dispatch key is \"md\" NOT \"md_explicit\" (package name is impl detail; format key is user-facing). Backend reuses D1's scanner via package-local WalkHeadings call (no exported API). ZERO source edits to internal/backend/md/ — that package is untouched and does not register with format.Register at any point. Splice preserves byte-identity on unedited regions (matched node's source byte range rewritten in-place; rest of buf untouched)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d3_md_explicit_backend"
+paths = ["internal/backend/md_explicit/backend.go", "internal/backend/md_explicit/backend_test.go"]
+role = "builder"
+started_at = "2026-05-17T01:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D3-D2 builder — md_explicit Format impl + register"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered (untracked, orchestrator-owned commit):
+- internal/backend/md_explicit/backend.go (NEW, 261 LOC)
+- internal/backend/md_explicit/backend_test.go (NEW, 368 LOC)
+
+Zero edits to scan.go (routed concern 2 implemented at backend level via findAllByPath helper; D1's FindByPath API stable). Zero edits to internal/backend/md/ (amendment 7 preserved). Zero new go.mod/go.sum entries.
+
+mage testPkg gates:
+- ./internal/backend/md_explicit: 21/21 (7 D1 scan + 14 new backend)
+- ./internal/backend/md: 86 pass + 7 pre-existing fuzz-seed skips (regression-green per amendment 7)
+- ./internal/format: 23/23 (substrate intact; new init() md key registration works)
+- mage fmt: clean
+
+New tests (10):
+- TestMdExplicitBackend_RegisteredUnderMdKey (amendment 2 — key="md", *Backend type)
+- TestMdExplicitBackend_RoundTripByteIdentical
+- TestMdExplicitBackend_ManifestHeadingPathMapping
+- TestMdExplicitBackend_ZeroSideEffectOnExistingMdBackend (amendment 7 3-part check: md.Backend stable + format.Get("md") returns *md_explicit.Backend + md package NOT registered)
+- TestMdExplicitBackend_SpliceIdempotent
+- TestMdExplicitBackend_DuplicatePathMultiMatch (routed concern 2 — ErrAmbiguousMatch + first-match bytes; mirrors html backend convention)
+- TestMdExplicitBackend_FindNotFound
+- TestMdExplicitBackend_SpliceNotFound
+- TestMdExplicitBackend_ParseNilManifest
+- TestMdExplicitBackend_MarshalEmpty
+
+Routed concern 2 (duplicate-path policy): symmetric with txt + html — wrap format.ErrAmbiguousMatch and return first-match bytes alongside. Caller uses errors.Is(err, format.ErrAmbiguousMatch). Applied uniformly to Find AND Splice.
+
+Implementation notes:
+- Marshal contract: no-separator concat (differs from html single-newline). Lossless round-trip holds when buf entirely tiled by named blocks — FindByPath spans run heading-line through next-sibling-start so adjacent blocks already include boundary newlines.
+- Manifest type resolution: dual surface (interface `nameToSelectorer` OR concrete *format.MdManifest via adapter) mirrors html backend pattern.
+- Coexistence: record.Backend (md/) and format.Format (md_explicit/) address disjoint slices — md/ schema-driven record store; md_explicit/ buffer-level Format impl. Documented in Backend godoc.
+
+NEW ROUTED CONCERN (non-blocking, post-v0.1.0): Parse's behavior on multi-match selectors silently emits only FIRST match. Find/Splice surface ErrAmbiguousMatch; Parse does not. Documented in Backend.Parse godoc as known asymmetry. Triage for follow-up slice — either Parse also detects ambiguity OR emits ALL matches. Symmetric option is detect+error. Adding to pre-MVP tracker.
+
+Build-QA pair (qa-proof + qa-falsification) dispatched parallel background.
+"""
+updated_at = "2026-05-17T01:10:00Z"
+[builder_l3_d3_d2_md_explicit_backend-qa-proof]
+completed_at = "2026-05-17T01:16:00Z"
+created_at = "2026-05-17T00:15:54Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-17T01:10:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d3_d2_md_explicit_backend"
+title = "QA proof of L3-D3-D2 builder — md_explicit Format impl + register"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+All 6 contract checks substantiated with file:line:
+- A2 register "md": backend.go:37 `format.Register("md", &Backend{})`; TestMdExplicitBackend_RegisteredUnderMdKey (backend_test.go:46-57) asserts format.Get("md") → *Backend and Get("md_explicit") → error
+- A7 zero side effect on md/: `rg 'format\\.Register' internal/backend/md/` 0 matches; TestMdExplicitBackend_ZeroSideEffectOnExistingMdBackend (backend_test.go:150-202) 3-part check passes
+- Routed concern 2 (ErrAmbiguousMatch uniform Find+Splice): findAllByPath backend.go:241-261; Find :166-175 + Splice :198-210 symmetric; TestMdExplicitBackend_DuplicatePathMultiMatch (backend_test.go:247-279) pins both surfaces
+- RoundTripByteIdentical: TestMdExplicitBackend_RoundTripByteIdentical (backend_test.go:64-96)
+- SpliceIdempotent: TestMdExplicitBackend_SpliceIdempotent (backend_test.go:208-240)
+- Manifest mapping: TestMdExplicitBackend_ManifestHeadingPathMapping (backend_test.go:102-136)
+
+Boundary clean: git diff --stat HEAD internal/backend/ + go.mod + go.sum all empty.
+
+Gates all green:
+- testPkg ./internal/backend/md_explicit 21/21
+- testPkg ./internal/backend/md 86 pass + 7 pre-existing fuzz skips
+- testPkg ./internal/format 23/23
+- testPkg ./internal/backend/html 33/33 (html still registers under "html")
+- fmtCheck clean; vet clean
+
+No unmitigated CEs from 6 falsification probes. Ratify builder.
+"""
+updated_at = "2026-05-17T01:16:00Z"
+[builder_l3_d3_d2_md_explicit_backend-qa-falsification]
+completed_at = "2026-05-17T01:18:00Z"
+created_at = "2026-05-17T00:15:54Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-17T01:10:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d3_d2_md_explicit_backend"
+title = "QA falsif of L3-D3-D2 builder — md_explicit Format impl + register"
+transition_notes = """
+VERDICT: AMEND → orchestrator-direct fold per drop_003 precedent. Both CEs surgical (doc + test); applied. Closing complete+success.
+
+10 of 10 attack surfaces resolved (MITIGATED / ACCEPTED with rationale). 2 non-blocking CEs surfaced + FOLDED:
+
+## CE-1 FOLDED: cross-reference accuracy (doc text)
+
+backend.go:152-157 + backend_test.go:245-246 cited 'symmetry with txt regex backend' but md_explicit's first-match-bytes + wrapped ErrAmbiguousMatch policy actually mirrors html (NOT txt; txt returns nil + ErrAmbiguousMatch).
+
+**Fold**:
+- backend.go Find godoc: cross-reference corrected to 'symmetry with html backend, NOT txt' + rationale paragraph explaining the contract choice (heading-path first match is stable and useful even under ambiguity).
+- backend_test.go TestMdExplicitBackend_DuplicatePathMultiMatch comment: corrected to mirror html, NOT txt.
+
+## CE-2 FOLDED: Parse silent-first-match coverage gap
+
+Builder admitted in godoc that Parse silently emits FIRST match (asymmetric with Find/Splice ErrAmbiguousMatch). No test pinned the current behavior — a future refactor flipping Parse to surface ErrAmbiguousMatch would not break any test.
+
+**Fold**:
+- backend_test.go: added TestMdExplicitBackend_ParseDuplicatePathFirstMatch (~28 LOC) pinning the current behavior. Same fixture as TestMdExplicitBackend_DuplicatePathMultiMatch (`# A\\n## B\\nbody1\\n# A\\n## B\\nbody2\\n`). Asserts Parse returns 1 block, contains body1, NOT body2, err=nil.
+- Test comment routes the asymmetry to CLAUDE.md's pre-MVP 'md_explicit Parse vs Find/Splice ambiguity' tracker item.
+
+Verification: mage testPkg ./internal/backend/md_explicit → 22/22 pass (was 21; +1 for new Parse test).
+
+All 10 attack surfaces resolved. D3-D2 ratified.
+"""
+updated_at = "2026-05-17T01:18:00Z"
+[builder_l3_d4_d1_txt_regex]
+acceptance_criteria = """
+Source: internal/backend/txt/regex.go + format.go addition (ErrAmbiguousMatch sentinel).
+Tests in internal/backend/txt/regex_test.go:
+- TestTxtRegex_NamedGroupCapture (renamed from _CapturesNamedGroups — captures group-name → byte-range)
+- TestTxtRegex_MultiMatchErrAmbiguous (renamed from _MultipleMatches — verifies format.ErrAmbiguousMatch return when regex matches >1)
+- TestTxtRegex_CaseInsensitiveFlag (manifest `(?i)` flag honored)
+
+Also pin in internal/format/format_test.go (or equivalent format-substrate test layer):
+- TestFormat_ErrAmbiguousMatch_Sentinel (errors.Is verifies new sentinel)
+
+Close: mage testPkg ./internal/backend/txt green for regex_test.go cases AND mage testPkg ./internal/format green for sentinel test.
+"""
+blockers = []
+completed_at = "2026-05-17T00:46:00Z"
+created_at = "2026-05-17T00:35:00Z"
+implementation_notes_user = "Hylla artifact ref: github.com/evanmschultz/ta@main. Planner record drop_004.drop.l3_d4_txt_backend transition_notes carries 6 AMENDED CEs. Substrate edit: ADD format.ErrAmbiguousMatch to internal/format/format.go (sibling to ErrBlockNotFound at :53). Format package public surface lives at format.go (verified format.Register at :63, format.ErrBlockNotFound at :53)."
+objective = "Build internal/backend/txt/ regex selector engine. Stdlib regexp.Regexp consumed from manifest (compiled at manifest-load by internal/format/manifest.go — NOT recompiled per Find/Splice call). Multi-match policy = format.ErrAmbiguousMatch (NEW sentinel — D1 builder MUST add it to internal/format/format.go alongside ErrBlockNotFound). Named-capture groups extracted from match result as name → byte-range map. NOT first-match (CE 1 of L3-D4 planner amendments — overrides L2-D's provisional first-match wording)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d4_txt_backend"
+paths = ["internal/backend/txt/regex.go", "internal/backend/txt/regex_test.go", "internal/format/format.go"]
+role = "builder"
+started_at = "2026-05-17T00:36:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D4-D1 builder — txt regex engine + named-capture + multi-match-error"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent + AMEND fold orchestrator-direct (zero-width CE).
+
+Files delivered (untracked + modified, orchestrator-owned commit):
+- internal/format/format.go (MODIFIED, +5 LOC) — ErrAmbiguousMatch sentinel added
+- internal/format/format_test.go (MODIFIED, +43 LOC) — TestFormat_ErrAmbiguousMatch_Sentinel + wrappedErr helper
+- internal/backend/txt/regex.go (NEW, 95 LOC after AMEND fold: +6 LOC for zero-width collapse + doc paragraph)
+- internal/backend/txt/regex_test.go (NEW, 207 LOC after AMEND fold: +30 LOC for TestTxtRegex_ZeroWidthMatchCollapsesToErrBlockNotFound)
+
+ZERO edits to internal/backend/md_explicit/.
+
+mage testPkg ./internal/backend/txt: 11 pass, 0 fail (8 originals + 3 zero-width subtests).
+mage testPkg ./internal/format: 21 pass, 0 fail.
+mage fmtCheck: clean.
+
+## AMEND fold applied (zero-width single match CE)
+
+QA falsif surfaced silent success path: single zero-width regex matches returned `Bytes:[], Start=End=0, err=nil`. Orchestrator-direct fold (drop_003 precedent), dev-chosen Option A: collapse to ErrBlockNotFound.
+
+- regex.go:46-50 — added `if start == end { return format.Block{}, nil, format.ErrBlockNotFound }` after `m := matches[0]`
+- regex.go doc — paragraph explicitly stating zero-width collapse semantics
+- regex_test.go — TestTxtRegex_ZeroWidthMatchCollapsesToErrBlockNotFound with 3 subtests
+
+## Routed concerns for D4-D2
+
+1. manifest loader (internal/format/manifest.go) does NOT yet pre-compile regex_selectors. TxtManifest stores raw strings. D4-D2 must bridge raw → compiled OR consume already-compiled regex. Engine takes *regexp.Regexp regardless.
+2. Anchor semantics: Go default `^`/`$` are start/end-of-text; multi-line plain-text patterns typically need `(?m)`. D4-D2 Parse layer should document expected anchor behavior.
+3. block.Bytes is sub-slice of buf (zero-copy). D4-D2 Splice relies on this; future refactors changing to copy semantics would silently break Splice — pin via D4-D2 Splice tests.
+4. NEW: zero-width single matches now collapse to ErrBlockNotFound (engine contract pinned by zero-width-collapse test). D4-D2 Parse/Find/Splice can rely on this — a successful FindBlock return means non-empty Block.Bytes.
+
+## Routed: html sentinel drift (pre-MVP)
+
+`internal/backend/html/splice.go:32` declares local ErrAmbiguousMatch with distinct identity from format.ErrAmbiguousMatch. Folded into CLAUDE.md "Error-prefix unification" pre-MVP tracker item. Non-blocking until v0.1.0 tag.
+
+All QA twins ratified: qa-proof PASS, qa-falsification PASS (after AMEND fold).
+"""
+updated_at = "2026-05-17T01:02:00Z"
+[builder_l3_d4_d1_txt_regex-qa-proof]
+completed_at = "2026-05-17T00:50:00Z"
+created_at = "2026-05-17T00:15:54Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-17T00:46:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d4_d1_txt_regex"
+title = "QA proof of L3-D4-D1 builder — txt regex engine + named-capture + multi-match-error"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+All 6 contract elements (CE-1..5 + substrate sentinel) substantiated:
+- CE-1 multi-match → ErrAmbiguousMatch: regex.go:43-45 returns wrapped sentinel; regex_test.go:86-103 errors.Is + non-collision
+- CE-2 named-group capture: extractNamedGroups regex.go:63-89; regex_test.go:16-80 three pinning tests
+- CE-3 (?i) flag pass-through: regex_test.go:109-127 engine flag-agnostic
+- CE-4 zero-match → ErrBlockNotFound: regex.go:40-42; regex_test.go:132-145 errors.Is + non-collision
+- CE-5 pre-compiled regex consumed (NOT re-compiled): FindBlock signature accepts *regexp.Regexp; ZERO regexp.Compile/MustCompile in production regex.go (imports fmt, regexp, format; method-only usage)
+- format.ErrAmbiguousMatch sentinel: format.go:55-58 sibling to ErrBlockNotFound; format_test.go:236-258 real %w wrap via wrappedErr Unwrap chain, non-collision, substring check
+
+Boundary clean: zero diff in internal/backend/{md_explicit,md,html,toml}/; md_explicit/ untracked (D3-D1 peer slice, files scan.go/scan_test.go distinct from txt regex.go/regex_test.go).
+
+Module hygiene: go.mod/go.sum unchanged.
+
+mage gates all green:
+- testPkg ./internal/backend/txt: 7/7
+- testPkg ./internal/format: 21/21
+- testPkg ./internal/backend/html: 33/33 (regression-clean substrate consumer)
+- testPkg ./internal/backend/md: 86 pass + 7 pre-existing FuzzSpliceInvariant seed-skips
+- fmtCheck: silent (clean)
+- vet: silent (clean)
+
+CE-6 RoundTripByteIdentical correctly deferred to D4-D2.
+
+QA-proof pass; D4-D2 unblocks once D4-D1 falsif pair returns.
+"""
+updated_at = "2026-05-17T00:50:00Z"
+[builder_l3_d4_d1_txt_regex-qa-falsification]
+completed_at = "2026-05-17T01:02:00Z"
+created_at = "2026-05-17T00:15:54Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-17T00:46:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d4_d1_txt_regex"
+title = "QA falsif of L3-D4-D1 builder — txt regex engine + named-capture + multi-match-error"
+transition_notes = """
+VERDICT: AMEND → orchestrator-direct fold per drop_003 precedent on surgical AMEND-with-CONFIRMED-CE. AMEND verdict accepted; fold applied; closing complete+success.
+
+11 of 12 attack surfaces MITIGATED. 1 confirmed CE + 1 substrate observation:
+
+## CE-1 FOLDED: zero-width single match
+
+Reproducer: `FindBlock([]byte("ab\\ncd"), "x", regexp.MustCompile("^"))` returned `Bytes:[], Start=End=0, err=nil`. Silent success bypassed both ErrBlockNotFound (zero-match) and ErrAmbiguousMatch (multi-match). Downstream D4-D2 Splice would have inserted content at byte position 0 with no signal.
+
+**Fold** (Option A — collapse to ErrBlockNotFound, dev-chosen):
+- `internal/backend/txt/regex.go:46-50`: after `m := matches[0]; start, end := m[0], m[1]`, added `if start == end { return format.Block{}, nil, format.ErrBlockNotFound }`
+- `internal/backend/txt/regex.go` doc: added explicit `Zero-width matches ... collapse to format.ErrBlockNotFound` paragraph in FindBlock doc-comment.
+- `internal/backend/txt/regex_test.go`: ADDED `TestTxtRegex_ZeroWidthMatchCollapsesToErrBlockNotFound` with 3 subtests (`^` on multi-line buf, `^` on empty buf, `$` on multi-line buf) — all verify errors.Is(err, format.ErrBlockNotFound) returns true.
+
+Verification: mage testPkg ./internal/backend/txt → 11/11 pass.
+
+## CE-2 ROUTED: html sentinel drift
+
+`internal/backend/html/splice.go:32` declares LOCAL `var ErrAmbiguousMatch = errors.New("html: selector matched multiple nodes")` with DISTINCT identity from `format.ErrAmbiguousMatch` at format.go:55 ("format: ambiguous match"). Pre-existing substrate drift.
+
+**Fold** (dev-chosen: fold into pre-MVP tracker):
+- CLAUDE.md "Error-prefix unification" pre-MVP tracker item EXPANDED to include this drift. Unify on format.ErrAmbiguousMatch when collapsing prefix conventions. Non-blocking until v0.1.0 tag.
+
+All 12 attack surfaces resolved or routed. D4-D1 ratified.
+"""
+updated_at = "2026-05-17T01:02:00Z"
+[builder_l3_d4_d2_txt_backend]
+acceptance_criteria = """
+All in internal/backend/txt/backend_test.go:
+- TestTxtBackend_RoundTripByteIdentical (Parse → Marshal byte-EQUAL to original input when no Block.Content edited between)
+- TestTxtBackend_RoundTripWithEditPreservesUnedited (edited block: edited region differs; unedited regions byte-identical)
+- TestTxtBackend_ManifestRegexSelectorMapping (manifest regex selector finds block matching pattern)
+- TestTxtBackend_FindZeroMatchReturnsErrBlockNotFound (zero match → format.ErrBlockNotFound)
+- TestTxtBackend_SpliceIdempotent (second Splice with same content → byte-identical to first)
+
+Close: mage testPkg ./internal/backend/txt green.
+"""
+blockers = ["drop_004.drop.builder_l3_d4_d1_txt_regex"]
+completed_at = "2026-05-17T01:14:00Z"
+created_at = "2026-05-17T00:35:00Z"
+implementation_notes_user = "Hylla artifact ref: github.com/evanmschultz/ta@main. Planner record drop_004.drop.l3_d4_txt_backend transition_notes carries 6 AMENDED CEs. D1 adds format.ErrAmbiguousMatch — D2 reuses it. Substrate facts: format.Register at :63, format.ErrBlockNotFound at :53."
+objective = "Implement format.Format interface for txt: Parse/Find/Splice/Marshal. Register via format.Register(\"txt\", &Backend{}) in init(). Backend consumes pre-compiled *regexp.Regexp from manifest (no per-call recompile). Find zero-match → (nil, format.ErrBlockNotFound). Find multi-match → (nil, format.ErrAmbiguousMatch) — uses D1's sentinel. Splice preserves byte-identity on unedited regions (regex-match byte-range rewritten; rest of buf untouched)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_d4_txt_backend"
+paths = ["internal/backend/txt/backend.go", "internal/backend/txt/backend_test.go"]
+role = "builder"
+started_at = "2026-05-17T01:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-D4-D2 builder — txt Format impl + register + round-trip"
+transition_notes = """
+VERDICT: SUCCESS via ta-go-builder agent.
+
+Files delivered (untracked + modified, orchestrator-owned commit):
+- internal/backend/txt/backend.go (NEW, 242 LOC)
+- internal/backend/txt/backend_test.go (NEW, 384 LOC)
+- internal/format/manifest.go (+24/-1, substrate-scope per routed concern 1 option b)
+- internal/format/manifest_test.go (+63 LOC, 2 new substrate tests)
+
+mage gates:
+- testPkg ./internal/backend/txt: 24/24 pass (11 D1 regex + 13 new D2 backend)
+- testPkg ./internal/format: 23/23 pass (incl. 2 new substrate tests)
+- testFunc TestTxtBackend: 13/13 module-wide pass across 22 packages
+
+New tests in backend_test.go (13):
+- TestTxtBackend_Registered
+- TestTxtBackend_RoundTripByteIdentical (CE-6 no-edit path)
+- TestTxtBackend_RoundTripWithEditPreservesUnedited (CE-6 edit path)
+- TestTxtBackend_ManifestRegexSelectorMapping
+- TestTxtBackend_FindZeroMatchReturnsErrBlockNotFound (CE-4)
+- TestTxtBackend_FindUnknownNameReturnsErrBlockNotFound
+- TestTxtBackend_FindAmbiguousMatchReturnsErrAmbiguous (CE-1)
+- TestTxtBackend_SpliceIdempotent (CE-3)
+- TestTxtBackend_SpliceUnknownNameReturnsErrBlockNotFound
+- TestTxtBackend_SubSliceBytesPreservedThroughSplice (routed concern 3: unsafe.SliceData pointer check)
+- TestTxtBackend_ParseSkipsZeroWidthSelector (routed concern 4: post-AMEND zero-width contract)
+- TestTxtBackend_ParsePropagatesAmbiguousFromOneSelector (CE-1 belt-and-braces)
+- TestTxtBackend_MarshalEmptyBlocks
+
+New tests in manifest_test.go (2):
+- TestManifest_TxtRegexCompiledAtLoadTime (CE-5 at substrate)
+- TestManifest_TxtInvalidRegexRejectedAtLoad (invalid-pattern surfaces at load time, not Find/Splice)
+
+Routed concern 1 (substrate option b chosen): TxtManifest.Compiled map[string]*regexp.Regexp populated by buildTxtManifest at load time. Invalid patterns surface as loader errors per CE-5 ('compile happens at manifest load time, NOT per Find/Splice'). Option (a) backend-side cache would have pushed compile-failure to call-time which CE-5 forbids.
+
+Implementation notes:
+- compiledLookup interface mirrors html's nameToSelectorer shape
+- txtManifestAdapter adapts *format.TxtManifest.Compiled map
+- Splice: out := make([]byte, 0, exactCapacity) + 3 appends; caller's buf is read-only (zero-aliasing verified by unsafe.SliceData pointer mismatch test)
+- Parse propagates ErrAmbiguousMatch (CE-1: must not silently mask manifest-author bugs) but silently skips ErrBlockNotFound (Parse is not the validation surface — html backend precedent)
+- Backend.go doc comment explicitly documents anchor semantics + zero-width contract + gap-free round-trip caveat
+
+No unmitigated counterexamples. No new routed concerns.
+
+Build-QA pair (qa-proof + qa-falsification) dispatched parallel background.
+"""
+updated_at = "2026-05-17T01:14:00Z"
+[builder_l3_d4_d2_txt_backend-qa-proof]
+completed_at = "2026-05-17T01:20:00Z"
+created_at = "2026-05-17T00:15:54Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-17T01:14:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d4_d2_txt_backend"
+title = "QA proof of L3-D4-D2 builder — txt Format impl + register + round-trip"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+All 6 amended CEs + 4 routed concerns pinned file:line:
+- CE-6 no-edit roundtrip: TestTxtBackend_RoundTripByteIdentical (backend_test.go:79-102) bytes.Equal(out, buf)
+- CE-6 edit-path: TestTxtBackend_RoundTripWithEditPreservesUnedited (backend_test.go:107-148) pre+post+edited region asserts
+- CE-5 load-time pre-compile: manifest.go:74 Compiled field; :215-222 compile loop; TestManifest_TxtRegexCompiledAtLoadTime + TestManifest_TxtInvalidRegexRejectedAtLoad
+- Production NEVER re-compiles: rg regexp.Compile in backend.go: 0 matches. rg regexp.MustCompile in backend.go: 0 matches. Only manifest.go:217 (load-time substrate) + test scaffolding.
+- Routed concern 3 sub-slice: TestTxtBackend_SubSliceBytesPreservedThroughSplice (backend_test.go:285-315) unsafe.SliceData pointer comparison — zero-copy verified for Bytes, defensive new-alloc verified for Splice output
+- Routed concern 4 zero-width: TestTxtBackend_ParseSkipsZeroWidthSelector (backend_test.go:322-347) + engine-layer TestTxtRegex_ZeroWidthMatchCollapsesToErrBlockNotFound (regex_test.go:154-176)
+- CE-1 Find ambiguous: TestTxtBackend_FindAmbiguousMatchReturnsErrAmbiguous (backend_test.go:214-231)
+- CE-1 Parse propagation (NOT swallowed): backend.go:148-154 continues on ErrBlockNotFound but returns on Ambiguous; TestTxtBackend_ParsePropagatesAmbiguousFromOneSelector (backend_test.go:353-368) pins
+- Registration: backend.go:62-64 init() format.Register("txt", ...); TestTxtBackend_Registered (backend_test.go:16-27)
+- CE-3 Splice idempotent: TestTxtBackend_SpliceIdempotent (backend_test.go:237-255)
+
+Boundary clean: git status -s confirmed ZERO modifications under internal/backend/md_explicit/, md/, html/, toml/. go.mod/go.sum unchanged.
+
+Mage gates ALL green:
+- testPkg ./internal/backend/txt: 24/24
+- testPkg ./internal/format: 23/23
+- testPkg ./internal/backend/html: 33/33
+- testPkg ./internal/backend/md: 86 + 7 pre-existing fuzz skips
+- fmtCheck: clean
+- vet: clean
+- check (module-wide): 1295 tests, 1285 passed, 10 pre-existing skips, 0 failed across 22 packages
+
+Informational nit (non-blocking, addressed in this fold): builder claim summary omitted format.go (+5) and format_test.go (+43) ErrAmbiguousMatch sentinel addition. These are required CE-1 substrate — every txt CE-1 test references format.ErrAmbiguousMatch — not a scope violation, sound addition.
+
+FOLD APPLIED: builder transition_notes (drop_004.drop.builder_l3_d4_d2_txt_backend) already enumerates these additions per earlier orchestrator update (the file list at the top of that record's transition_notes includes format.go +5 / format_test.go +43). Audit clarity satisfied.
+"""
+updated_at = "2026-05-17T01:20:00Z"
+[builder_l3_d4_d2_txt_backend-qa-falsification]
+completed_at = "2026-05-17T01:20:00Z"
+created_at = "2026-05-17T00:15:54Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-17T01:14:00Z"
+state = "complete"
+target_id = "drop_004.drop.builder_l3_d4_d2_txt_backend"
+title = "QA falsif of L3-D4-D2 builder — txt Format impl + register + round-trip"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-falsification agent. 13-probe reproducer (qa_falsif_test.go temp file, deleted post-run) all green. 11 attack surfaces → all MITIGATED.
+
+Attack surfaces covered:
+- 1a-d Splice mutation: empty content deletion; nil content; out mutation doesn't affect buf; shorter-than-replaced capacity correct
+- 2 Parse overlap policy + empty manifest + two-ambiguous (first-error wins, no errors.Join — documented in fold)
+- 3 CE-6 lossy with gaps: documented at backend.go:33-40
+- 4 TxtManifest.Compiled nil-safety: adapter returns (nil, false) → ErrBlockNotFound
+- 5 Invalid pattern: %w wrapped RE2 error; manifest.go:217-219
+- 6 Concurrent: Backend zero-state (type Backend struct{}); *regexp.Regexp stdlib-concurrent-safe; 100-goroutine probe clean
+- 7 Marshal sort instability with equal Start: no panic, defensible (manifest contract violation)
+- 7b format.Get("txt") returns *Backend (already covered by _Registered)
+- 8 Boundary: rg internal/backend/{md_explicit,md,html,toml} in txt/: ZERO hits
+- 9 Concurrent format.Get same pointer: PASS
+- 10 Slice-scope vs module-wide: non-issue (proper gates run; module-wide was extra verification)
+- 11 CE-5 strictness: backend.go ZERO regexp.Compile/MustCompile; manifest.go ONE (substrate buildTxtManifest load loop) — EXACT
+
+Two non-blocking latent doc-gap observations folded orchestrator-direct:
+- backend.go Parse godoc: added 'Overlap policy' paragraph (selectors matching overlapping byte ranges → each contributes own Block; no dedup; Blocks sorted by Start so overlap visible)
+- backend.go Parse godoc: added 'Multi-ambiguous policy' paragraph (FIRST encountered selector in manifest iteration order wins; no errors.Join; tighten one at a time)
+
+Verification: mage testPkg ./internal/backend/txt → 24/24 still green after doc-only fold.
+
+Working tree clean post-falsif probe (qa_falsif_test.go deleted).
+
+All 11 attack surfaces resolved. D4-D2 ratified.
+"""
+updated_at = "2026-05-17T01:20:00Z"
+
+[l3_d3_md_explicit_backend-build-qa-proof]
+completed_at = "2026-05-17T01:28:00Z"
+created_at = "2026-05-17T01:22:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-17T01:22:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d3_md_explicit_backend"
+title = "Build-QA proof of L3-D3 planner subtree (md_explicit backend)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+L3-D3 sub-tree (D1 scanner + D2 backend) ratified as integrated unit.
+
+Cross-droplet integration: D1 symbols (WalkHeadings, FindByPath, ParseSelector, HeadingNode) consumed by D2 backend.go at lines 118, 244-253. Package-local; no exported-API boundary crossing.
+
+All 9 amendments enforced (file:line):
+- A1 ` > ` grammar: scan_test.go:76 SelectorGrammarPinned
+- A2 register "md": backend.go:37 + backend_test.go:46
+- A3 Find/Splice-time translation: scan_test.go:103
+- A4 level-gap → ErrBlockNotFound: scan_test.go:136
+- A5 byte-literal: scan_test.go:165
+- A6 _EscapedHashIgnored own fn: scan_test.go:203
+- A7 zero side effect on md/: backend_test.go:138 (3-part check) + rg confirms 0 format.Register hits in md/
+- A8 fence-aware: scan_test.go:220 (3 subtests)
+- A9 no exported scanner API outside package: rg `md_explicit.` cmd/ internal/ excluding pkg = 0 matches; rg import of md_explicit = 0
+
+Routed CE folds verified in source:
+- CE-1 html cross-reference: backend.go:153 "html backend, NOT txt"; :157 rationale; backend_test.go:245-247 echoes. Zero residual txt-citations.
+- CE-2 Parse silent-first-match pin: backend_test.go:290 TestMdExplicitBackend_ParseDuplicatePathFirstMatch asserts len(blocks)==1 with body1 (not body2).
+
+Round-trip: backend_test.go:64 bytes.Equal(out, buf) for tiled buffer.
+Splice integrity: backend_test.go:208 idempotent + outside-range preserved.
+Duplicate-path uniform Find+Splice: backend.go:174-178 + :205-213.
+
+Module-wide gates ALL green:
+- testPkg ./internal/backend/md_explicit: 22/22
+- testPkg ./internal/backend/md: 86 + 7 pre-existing skips
+- testPkg ./internal/backend/html: 33/33
+- testPkg ./internal/backend/txt: 24/24
+- testPkg ./internal/format: 23/23
+- mage check (full module): 24 packages, 22 pass, 2 pre-existing skips, 0 fail
+- fmtCheck + vet: clean
+
+6 falsification attacks all mitigated/accepted. Parse vs Find/Splice asymmetry documented + pinned + in CLAUDE.md pre-MVP tracker.
+
+L3-D3 sub-tree ratified; planner closes back to L2-D.
+"""
+updated_at = "2026-05-17T01:28:00Z"
+[l3_d3_md_explicit_backend-build-qa-falsification]
+completed_at = "2026-05-17T01:32:00Z"
+created_at = "2026-05-17T01:22:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-17T01:22:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d3_md_explicit_backend"
+title = "Build-QA falsif of L3-D3 planner subtree (md_explicit backend)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-falsification agent.
+
+13 attack surfaces probed via temp probe_falsif_test.go (8 integration probes + 5 grep/code audits). All 30 tests green (22 existing + 8 probes). Probe file deleted; tree restored.
+
+Attack surfaces all MITIGATED:
+- Interface conformance (compile-time + runtime via format.Get)
+- Manifest dispatch tri-pathway (nameToSelectorer + *MdManifest + unrelated fallthrough)
+- Cross-amendment crossovers: A5+A8 (inline-format inside fence), A1+A4 (depth-3 vs depth-1), A2+A7 (PkgPath=md_explicit)
+- Splice first-match-wins under 3-duplicate buffer (body2/body3 preserved verbatim)
+- Routed concern folds in source: CE-1 'html backend, NOT txt' at backend.go:153 + backend_test.go:245-246; CE-2 Parse pin at backend_test.go:290-310 calls be.Parse
+- CLAUDE.md tracker entry present at line 95 ('md_explicit Parse vs Find/Splice ambiguity asymmetry')
+- Boundary: md/ clean, go.mod/go.sum unchanged, 0 cross-package refs
+- Memory rule: zero raw go test/gofmt/gofumpt in md_explicit
+- Performance: 1000-heading buffer scale-out OK (<1.3s)
+- Module-wide: mage check 22 packages, 1286 tests, 10 pre-existing skips, 0 fail
+
+One pre-existing observation (already tracked, not a new CE): html-local ErrAmbiguousMatch sentinel-identity mismatch from html/splice.go:32 vs format.ErrAmbiguousMatch. Already in CLAUDE.md pre-MVP 'Error-prefix unification' tracker via L3-D4-D1 falsif fold.
+
+No unmitigated counterexample. L3-D3 sub-tree ratified at planner-integration level.
+"""
+updated_at = "2026-05-17T01:32:00Z"
+[l3_d4_txt_backend-build-qa-proof]
+completed_at = "2026-05-17T01:30:00Z"
+created_at = "2026-05-17T01:22:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-17T01:22:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d4_txt_backend"
+title = "Build-QA proof of L3-D4 planner subtree (txt backend)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+L3-D4 sub-tree (D1 regex engine + D2 backend + substrate amendments) ratified.
+
+All 6 CEs enforced + pinned:
+- CE-1 multi-match → ErrAmbiguousMatch: regex.go:48-50 + 4 tests (regex_test.go:86, backend_test.go:214 + :353)
+- CE-2 named-group capture: extractNamedGroups regex.go:71-97 + 3 tests at regex_test.go:16/50/70
+- CE-3 splice idempotent (per planner record): backend_test.go:237
+- CE-4 Find zero-match → ErrBlockNotFound: 3 tests across regex_test.go + backend_test.go
+- CE-5 pre-compiled (NOT re-compiled): rg `regexp.Compile|MustCompile` backend.go = 0; manifest.go = 1 (buildTxtManifest load loop); regression-pinned TestManifest_TxtRegexCompiledAtLoadTime
+- CE-6 round-trip: backend_test.go:79 (no-edit) + :107 (edit-preserves-unedited)
+
+Cross-layer flow verified: format.LoadManifestFile → buildTxtManifest populates TxtManifest.Compiled → backend resolveCompiled adapter → txtManifestAdapter.CompiledFor → FindBlock(*regexp.Regexp). Zero recompile in Find/Splice path.
+
+4 Routed concerns resolved:
+1. Concern 1 option b: TxtManifest.Compiled load-time (manifest.go:74 field + :215-222 populator)
+2. Concern 2: anchor semantics documented backend.go:14-22
+3. Concern 3: sub-slice property pinned TestTxtBackend_SubSliceBytesPreservedThroughSplice (backend_test.go:285) unsafe.SliceData pointer-equality
+4. Concern 4: zero-width collapse contract regex.go:53-55 + godoc + 3-case table + Parse-layer test
+
+Recent doc folds verified in source: backend.go:14-22 anchor, :24-30 zero-width, :115-119 overlap, :121-125 multi-ambiguous.
+
+Module gates ALL green:
+- testPkg ./internal/backend/txt: 24/24
+- testPkg ./internal/format: 23/23
+- testPkg ./internal/backend/html: 33/33
+- testPkg ./internal/backend/md: 86 + 7 pre-existing skips
+- testPkg ./internal/backend/md_explicit: 22/22
+- mage check (full module): 1296 tests, 1286 pass, 10 pre-existing skips, 0 fail
+- fmtCheck + vet: clean
+
+Two cosmetic AMEND-eligible items routed (non-blocking, dev decision):
+- A8: godoc on TestTxtRegex_CaseInsensitiveFlag (regex_test.go:105) attributes to 'CE-5' but the test exercises flag pass-through semantics. Defensible labeling but slightly misleading.
+- A9: CE-5 amendment language mentioned 'format.ErrInvalidManifest' sentinel aspirationally; implementation uses wrapped fmt.Errorf (manifest.go:218-220) naming offending block + 'compile' substring. Spawn prompt allowed 'or equivalent' wording. Could fold a dedicated ErrInvalidManifest sentinel if dev prefers.
+
+9 falsification attacks all mitigated/accepted (A8/A9 are cosmetic notes, not behavioral CEs).
+
+L3-D4 sub-tree ratified; planner closes back to L2-D.
+"""
+updated_at = "2026-05-17T01:30:00Z"
+[l3_d4_txt_backend-build-qa-falsification]
+completed_at = "2026-05-17T01:32:00Z"
+created_at = "2026-05-17T01:22:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-17T01:22:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_d4_txt_backend"
+title = "Build-QA falsif of L3-D4 planner subtree (txt backend)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-falsification agent.
+
+13 attack surfaces probed via temp probe_test.go (10 integration probes + 3 grep/code audits). All 34 tests green (24 existing + 10 probes). Probe file deleted; tree restored.
+
+Attack surfaces all MITIGATED:
+- E2E loader→backend chain: real TxtManifest TOML loaded via format.LoadManifestFile, resolved via format.Get("txt"), Find + Splice on preamble+header+body+footer+postamble buffer — byte-faithful
+- CE-5 strictness: 9 test-only Compile/MustCompile + ONE production hit at manifest.go:217 (buildTxtManifest loader). Zero per-call compiles in backend
+- Zero-width + mixed scenario: anchor selector silently drops via start==end collapse; real selector emits 1 block
+- errors.Is traversal through Find / Parse / Splice wrap chains — all surface format.ErrAmbiguousMatch via %w
+- Overlap policy + Multi-ambiguous policy: in-source docs match implementation (alphabetic-first via sort.Strings ordering)
+- Cross-backend Register: html/md_explicit/txt 3 distinct keys; collision-guarded by TestFormat_RegisterDuplicate_Panics
+- DoS: 1MB buffer with one unique match — 13-byte slice returned; (.*)* pathological survives via RE2 linear-time guarantee
+- Substrate amendments: nil Compiled → ErrBlockNotFound (no panic); invalid pattern short-circuits at load (no half-built leak)
+- Memory rule: zero raw go test/gofmt
+- Module-wide: mage check 1286 tests / 0 fail / 10 pre-existing skips / 22 packages
+- CLAUDE.md tracker: exactly ONE 'Error-prefix unification' entry (expanded with html sentinel drift); zero duplicates
+- Boundary: 4 'html backend' references in backend.go — all godoc cross-references, no imports/code
+
+No unmitigated counterexample.
+
+One pre-existing observation (already tracked): html-local ErrAmbiguousMatch sentinel-identity mismatch (CLAUDE.md L96, from earlier slice). Non-blocking until v0.1.0.
+
+A8 godoc CE-attribution fold applied orchestrator-direct alongside this closure (regex_test.go:105-112 corrected to point at flag-pass-through contract, cross-referenced to TestManifest_TxtRegexCompiledAtLoadTime for the load-time substrate pin). mage testPkg ./internal/backend/txt 24/24 still green.
+
+A9 ErrInvalidManifest sentinel deferred per dev choice — wrapped fmt.Errorf (manifest.go:218-220) covers behavior; sentinel-discipline cleanup belongs in a focused substrate slice post-MVP-feature-completion.
+
+L3-D4 sub-tree ratified at planner-integration level.
+"""
+updated_at = "2026-05-17T01:32:00Z"

@@ -229,6 +229,49 @@ func TestFormat_ErrBlockNotFound_Sentinel(t *testing.T) {
 	}
 }
 
+// TestFormat_ErrAmbiguousMatch_Sentinel pins the new substrate sentinel
+// returned by selector engines when more than one block matches. Callers
+// (txt backend's regex engine, in particular) use errors.Is to detect it
+// and surface a tightening hint rather than silently picking one match.
+func TestFormat_ErrAmbiguousMatch_Sentinel(t *testing.T) {
+	// The sentinel is its own concrete error; errors.Is must report true
+	// when wrapped via fmt.Errorf("...: %w", ...) and false against the
+	// sibling ErrBlockNotFound.
+	wrapped := errors.New("regex selector matched 3 candidates: " + ErrAmbiguousMatch.Error())
+	if errors.Is(wrapped, ErrAmbiguousMatch) {
+		t.Fatal("string-prefix wrapping must not satisfy errors.Is; test setup wrong")
+	}
+	// Properly wrapped via %w.
+	wrapped2 := errorsWrap("regex selector matched 3 candidates", ErrAmbiguousMatch)
+	if !errors.Is(wrapped2, ErrAmbiguousMatch) {
+		t.Errorf("errors.Is(wrapped, ErrAmbiguousMatch) = false; want true")
+	}
+	if errors.Is(wrapped2, ErrBlockNotFound) {
+		t.Errorf("errors.Is(wrapped, ErrBlockNotFound) = true; want false (sibling sentinel must not collide)")
+	}
+	if ErrAmbiguousMatch.Error() == "" {
+		t.Errorf("ErrAmbiguousMatch.Error() empty; want descriptive message")
+	}
+	if !strings.Contains(ErrAmbiguousMatch.Error(), "ambiguous") {
+		t.Errorf("ErrAmbiguousMatch.Error() = %q; want substring %q", ErrAmbiguousMatch.Error(), "ambiguous")
+	}
+}
+
+// errorsWrap is a tiny helper that wraps an error with %w so the test stays
+// honest about errors.Is semantics. Inlined here rather than imported from
+// fmt to keep the test self-explanatory.
+func errorsWrap(msg string, err error) error {
+	return &wrappedErr{msg: msg, err: err}
+}
+
+type wrappedErr struct {
+	msg string
+	err error
+}
+
+func (w *wrappedErr) Error() string { return w.msg + ": " + w.err.Error() }
+func (w *wrappedErr) Unwrap() error { return w.err }
+
 // TestFormat_RegisterAfterInit_Panics satisfies the surgical-fold pin that
 // Register is init-time-only and not goroutine-safe post-init. The only
 // runtime-observable panic surface is duplicate registration, which mirrors
