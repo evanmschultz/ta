@@ -920,7 +920,7 @@ updated = 2026-05-16T05:13:25.922459Z
 [drop_004.drop.l2_e_html_template_system]
 created = 2026-05-16T00:18:04.346878Z
 type = 'planner'
-updated = 2026-05-16T07:01:57.990135Z
+updated = 2026-05-18T22:31:48.536952Z
 
 [drop_004.drop.l2_e_plan_qa_falsif]
 created = 2026-05-16T00:26:12.124879Z
@@ -1215,7 +1215,7 @@ updated = 2026-05-17T02:12:49.315233Z
 [drop_004.drop.l3_e1_astro_substrate]
 created = 2026-05-16T07:02:54.741268Z
 type = 'planner'
-updated = 2026-05-16T07:19:52.348773Z
+updated = 2026-05-18T22:31:16.834103Z
 
 [drop_004.drop.l3_e1_astro_substrate-plan-qa-falsification]
 created = 2026-05-16T07:02:54.767002Z

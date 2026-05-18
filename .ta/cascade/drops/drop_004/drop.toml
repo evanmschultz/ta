@@ -763,23 +763,34 @@ started_at = "2026-05-16T02:15:00Z"
 state = "in_progress"
 title = "L2-E planner — html_template_system (4 L3 sub-planners)"
 transition_notes = """
-AMENDMENTS APPLIED (orchestrator-override on 7 surgical CONFIRMED-CEs from plan-QA proof + falsif twins):
+AMENDMENTS APPLIED (orchestrator-override on 7 surgical CONFIRMED-CEs from plan-QA proof + falsif twins) — ORIGINAL set:
 
-1. **L3-E1 stil-reconcile PREP DROPLET (D0)** inserted as new first child: edit stil sibling repo at ~/Documents/Code/hylla/stil/main/scripts/build-tokens.ts to (a) emit dist/bindings.json at expected path (currently dist/bindings/baseline.json) AND (b) drop generated_at: new Date().toISOString() from dist/tokens.json (build-tokens.ts:111) for byte-determinism. Committed + pushed to stil's own repo separately from ta commits per feedback_stil_separate_repo_discipline.md.
-2. TemplatesBuildVerifyStable byte-determinism: PICK option (a) — stil drops generated_at. Two consecutive `pnpm build` runs produce sha256-identical dist files post-reconcile.
-3. L3-E3 fallback clause UPDATED: 'consume bindings.json post-reconcile; FAIL LOUD if absent' (no fallback to baseline.json).
-4. Astro→go:embed materialization: PICK option (b) — Astro outputs DIRECTLY to internal/templates_html/dist/ (sidesteps //go:embed ../ traversal blocker + sidesteps double-embed with existing embed.go:19).
-5. Astro caret-pin: examples/templates/package.json declares '"astro": "6.1.10"' EXACT (not '^6.1.10' mirror; pin to avoid caret-float self-defeat).
-6. Double-embed prevented via #4 choice (Astro output path doesn't overlap with examples/ scope of existing embed.go:19).
-7. pnpm-workspace cross-repo path: use **file: URL dependency** pointing at stil's repo OR pnpm-pack approach. NOT pnpm-workspace.yaml ../stil/main (escapes workspace root). Pin at L3-E1 plan-QA.
+1. **L3-E1 stil-reconcile PREP DROPLET (D0)** inserted: edit stil sibling repo. (COMPLETE; stil commit 7c1ccb5.)
+2. TemplatesBuildVerifyStable byte-determinism: stil drops generated_at; two consecutive pnpm build produce sha256-identical dist files.
+3. Astro relocation: examples/templates/ → web/templates/.
+4. .gitignore additions for web/templates/ build artifacts.
+5. mage Check pnpm skip-if-absent with verbose WARN.
+6. D3 embed placeholder seed.
+7. Cross-repo SHA recording.
 
-L3 descent: L3-E1 (substrate + stil-reconcile + magefile + go:embed) → L3-E2/E3/E4 (FE views) parallel post-E1.
+## NEW REFRESH FOLD applied 2026-05-18 (TWO-TRACK substrate):
 
-FE agents (ta-fe-builder, ta-fe-qa-*) fire at L3-E2/E3/E4. Playwright MCP fires inside ta-fe-qa-* build-QA agents.
+8. **L3-E1 SPLIT INTO TWO TRACKS** per dev choice (v0.1.0 ships BOTH):
+   - Track A (html-basic): zero-deps plain .html + stdlib html/template; web/templates_basic/ + internal/templates_html_basic/
+   - Track B (html-embed): Astro+pnpm+stil toolchain; web/templates_embed/ + internal/templates_html_embed/
 
-Ready for L3-E1 record creation + plan-QA dispatch in Wave 2D-1.
+9. **Downstream L3-E2/E3/E4 retargeting** (these records NOT YET CREATED; when created they pick up these refreshed contracts):
+   - L3-E2 (simple views) → Track A consumer: AUTHORS plain .html under web/templates_basic/cascade/{drop,planner,droplet,qa,roadmap_version,schema_browser}.html. ZERO <script>. Inline <style> only. Goldens in internal/templates_html_basic/testdata/.
+   - L3-E3 (stil-driven views) → Track B consumer: AUTHORS .astro under web/templates_embed/src/pages/stil/. Paths shift from examples/templates/ to web/templates_embed/. Content otherwise unchanged.
+   - L3-E4 (Thariq demos) → Track B consumer: AUTHORS .astro under web/templates_embed/src/pages/demos/. Paths shift; content unchanged.
+
+L3-E1 refreshed planner record carries the canonical two-track contract. L2-E description below is now SLIGHTLY STALE on the substrate-track detail (it predates the two-track split). Honoring the dev's 'get things correct' mandate by capturing the refresh in transition_notes rather than rewriting the static description — the description still accurately captures L2-E's overall objective (4 L3 sub-planners for HTML template system); the two-track substrate detail lives in L3-E1's refreshed description for max specificity. When L3-E2/E3/E4 are created, they reference L3-E1's two-track contract.
+
+10. **v0.1.0 launch scope**: Both Track A AND Track B ship for v0.1.0. L3-E2 + L3-E3 + L3-E4 all build their respective consumer views before v0.1.0 tag.
+
+Ready for L3-E1 builder dispatch (D-A1/A2/A3 + D-B1/B2/B3) in a future session, then L3-E2/E3/E4 record creation + plan-QA + builders.
 """
-updated_at = "2026-05-16T02:15:00Z"
+updated_at = "2026-05-18T03:52:00Z"
 [l2_f_dotta_target_system]
 blockers = []
 completed_at = "2026-05-15T11:40:00Z"
@@ -2649,76 +2660,165 @@ updated_at = "2026-05-16T03:40:00Z"
 blockers = []
 created_at = "2026-05-16T02:20:00Z"
 description = """
-L3-E1 (astro_substrate) REWORKED. **Astro project relocated**: examples/templates/ → web/templates/ to avoid double-embed via existing //go:embed all:examples at embed.go:19.
+L3-E1 REFRESHED to TWO-TRACK design per dev choice (v0.1.0 ships BOTH tracks).
 
-## REWORK FOLDS APPLIED (7 total)
+Original single-track Astro substrate plan retained as Track B; NEW Track A (zero-deps html-basic) introduced. Package boundary: `internal/templates_html_basic/` (Track A) + `internal/templates_html_embed/` (Track B) are DISJOINT packages.
 
-1. **Astro relocation** examples/templates/ → web/templates/ — web/ is NEW top-level repo dir, NOT embedded.
-2. **.gitignore additions**: web/templates/node_modules/, web/templates/.astro/, web/templates/dist/, internal/templates_html/dist/* (except .keep placeholder per fold-4).
-3. **mage Check pnpm strategy**: skip-if-pnpm-absent with verbose WARN in Check composite; hard-fail only if mage TemplatesBuild invoked directly. pnpm install requirement documented in CONTRIBUTING.md.
-4. **D3 embed seed**: commit placeholder internal/templates_html/dist/.keep so //go:embed all:dist has content at clone time. mage TemplatesBuild documented as prerequisite of full embedded-build in CONTRIBUTING.md.
-5. **Astro determinism criterion**: strict byte-diff with retry-once-then-fail flake policy + diagnostic dump.
-6. **Cross-repo SHA recording**: D0 commit SHA recorded in D1 description before D1 dispatch. Stil-side QA via separate flow gate.
-7. **Line cite fix**: build-tokens.ts generated_at is at line **167**, NOT 111 as prior text said.
+## REFRESH FOLDS APPLIED (orchestrator-direct per drop_003 precedent)
 
-## L3-E1-D0 — Stil-reconcile prep (SEPARATE STIL REPO)
+1. **Two-track split**: html-basic (Track A; no Astro/pnpm/stil) + html-embed (Track B; Astro+pnpm+stil). Both ship v0.1.0.
+2. **Package rename**: `internal/templates_html/` (single-track) → `internal/templates_html_basic/` + `internal/templates_html_embed/` (two disjoint packages).
+3. **Path rename**: `web/templates/` (single-track) → `web/templates_basic/` + `web/templates_embed/`.
+4. **L3-E1-D0 PRESERVED**: stil-reconcile prep (already complete; commit 7c1ccb5 in stil repo).
+5. **Track A droplets added**: D-A1 (basic dir+templates), D-A2 (basic go:embed), D-A3 (basic render).
+6. **Track B droplets renamed** from D1/D2/D3 to D-B1/D-B2/D-B3 with path/package updates.
+7. **L3-E2 retargeted as Track A consumer** (plain .html, not .astro). L3-E3 + L3-E4 stay Track B consumers (path-rename only in their plans).
 
-Paths owned (EDIT in ~/Documents/Code/hylla/stil/main/):
-- scripts/build-tokens.ts (drop `generated_at: new Date().toISOString()` at line 167; change BINDINGS_OUT from `dist/bindings/baseline.json` to `dist/bindings.json` at line 144)
-- README.md (verify file names match emit)
+## L3-E1-D0 — Stil-reconcile prep (SEPARATE STIL REPO) [COMPLETE]
 
-Acceptance: stil dist/ contains tokens.json + bindings.json. Two consecutive pnpm --filter stil build produce sha256-identical files. Commit + push to stil main remote per feedback_stil_separate_repo_discipline.md.
+Already landed; stil commit 7c1ccb5. Track B consumes stil's deterministic dist/{tokens,bindings}.json. Track A does NOT consume stil.
 
-Blockers: none on ta side.
-CROSS-REPO HANDOFF: D0 commit SHA captured + recorded in this L3-E1 description BEFORE D1 dispatch.
+---
 
-## L3-E1-D1 — Astro skeleton at web/templates/ (RELOCATED from examples/templates/)
+# Track A: html-basic (zero-deps)
+
+## L3-E1-D-A1 — web/templates_basic/ skeleton + 1 sample template
 
 Paths owned (NEW in ta):
-- web/templates/package.json ('astro': '6.1.10' EXACT; stil dep via file: URL pointing at ../../../stil/main, OR pnpm-pack .tgz)
-- web/templates/astro.config.mjs (outDir: '../../internal/templates_html/dist/')
-- web/templates/src/pages/index.astro (placeholder smoke test)
-- web/templates/.gitignore (node_modules, .astro, dist)
-- .gitignore at repo root (web/templates/node_modules/, web/templates/.astro/, web/templates/dist/; internal/templates_html/dist/* except .keep)
+- web/templates_basic/README.md (zero-deps statement; authoring conventions)
+- web/templates_basic/sample/cascade_drop.html (smoke-test template; vanilla HTML+inline CSS; no <script>)
+- web/templates_basic/.gitignore (empty placeholder)
+- .gitignore at repo root: NO changes needed (web/templates_basic/ is committed verbatim).
 
-Acceptance: pnpm install + pnpm build in web/templates/ produces internal/templates_html/dist/. embed.go:19 //go:embed all:examples does NOT pull web/ (web is a different top-level dir).
+Acceptance: web/templates_basic/sample/cascade_drop.html exists + is valid HTML5 + has NO <script>. Smoke-render via Go template engine in D-A3 yields expected output.
+
+Blockers: none.
+
+## L3-E1-D-A2 — internal/templates_html_basic/ + go:embed wiring
+
+Paths owned (NEW in ta):
+- internal/templates_html_basic/embed.go (//go:embed all:templates + EmbeddedBasicHTML() fs.FS — note: embed targets web/templates_basic/* via relative path or symlink)
+- internal/templates_html_basic/doc.go (package doc + Track A scope statement)
+- internal/templates_html_basic/embed_test.go (TestEmbedBasic_SampleAccessible / _NoScriptTags regex over all embedded files)
+
+Acceptance: `mage testPkg ./internal/templates_html_basic` green; go:embed pulls web/templates_basic/ contents at compile time. ZERO new go.mod / go.sum entries.
+
+Blockers: D-A1.
+
+## L3-E1-D-A3 — internal/templates_html_basic/render.go (Go html/template engine)
+
+Paths owned (NEW in ta):
+- internal/templates_html_basic/render.go (Render(templateName string, data any) ([]byte, error) using stdlib html/template over the embedded fs.FS)
+- internal/templates_html_basic/render_test.go (TestRenderBasic_SampleCascadeDrop — render sample template with mock data; verify output contains expected fields)
+
+Acceptance: stdlib html/template rendering works over the embedded fs.FS. Zero new deps.
+
+Blockers: D-A2.
+
+---
+
+# Track B: html-embed (Astro+pnpm+stil)
+
+## L3-E1-D-B1 — Astro skeleton at web/templates_embed/ (renamed from D1)
+
+Paths owned (NEW in ta):
+- web/templates_embed/package.json ('astro': '6.1.10' EXACT; stil dep via file: URL pointing at ../../../stil/main, OR pnpm-pack .tgz)
+- web/templates_embed/astro.config.mjs (outDir: '../../internal/templates_html_embed/dist/')
+- web/templates_embed/src/pages/index.astro (placeholder smoke test)
+- web/templates_embed/.gitignore (node_modules, .astro, dist)
+- .gitignore at repo root: ADD web/templates_embed/node_modules/, web/templates_embed/.astro/, web/templates_embed/dist/, internal/templates_html_embed/dist/* except .keep
+
+Acceptance: pnpm install + pnpm build in web/templates_embed/ produces internal/templates_html_embed/dist/. embed.go:19 //go:embed all:examples does NOT pull web/.
 
 Blockers: D0.
 
-## L3-E1-D2 — magefile TemplatesBuild + TemplatesBuildVerifyStable + pnpm-skip + CONTRIBUTING
+## L3-E1-D-B2 — magefile TemplatesBuildEmbed + TemplatesBuildVerifyStable + pnpm-skip
 
 Paths owned (EDIT):
-- magefile.go (add TemplatesBuild target: runs `pnpm --filter web/templates run build`; add TemplatesBuildVerifyStable: rebuild-twice sha256-compare with retry-once-then-fail flake policy; add ensurePnpm-or-skip helper in Check composite with verbose WARN)
-- CONTRIBUTING.md (document pnpm install requirement + that TemplatesBuild is prerequisite of full embedded-build)
+- magefile.go (add TemplatesBuildEmbed target: runs `pnpm --filter web/templates_embed run build`; add TemplatesBuildVerifyStable: rebuild-twice sha256-compare with retry-once-then-fail flake policy; add ensurePnpm-or-skip helper in Check composite with verbose WARN)
+- CONTRIBUTING.md (document pnpm install requirement + that TemplatesBuildEmbed is prerequisite of full embedded-build for Track B)
 
-Acceptance: mage TemplatesBuild green when pnpm available; mage Check passes with skip-warn when pnpm absent; TemplatesBuildVerifyStable byte-identical post-D0.
+Acceptance: mage TemplatesBuildEmbed green when pnpm available; mage Check passes with skip-warn when pnpm absent; TemplatesBuildVerifyStable byte-identical post-D0.
 
-Blockers: D1.
+Blockers: D-B1.
 
-## L3-E1-D3 — go:embed wiring with placeholder seed
+## L3-E1-D-B3 — internal/templates_html_embed/ go:embed wiring + placeholder seed
 
 Paths owned (NEW):
-- internal/templates_html/embed.go (//go:embed all:dist + EmbeddedHTML() fs.FS)
-- internal/templates_html/dist/.keep (NEW placeholder so //go:embed has at least one file at clone time)
-- internal/templates_html/embed_test.go (TestEmbed_DistRootAccessible / _DistKeepPresent / _NoDoubleEmbedFromExamplesScope)
+- internal/templates_html_embed/embed.go (//go:embed all:dist + EmbeddedEmbedHTML() fs.FS)
+- internal/templates_html_embed/dist/.keep (NEW placeholder so //go:embed has at least one file at clone time)
+- internal/templates_html_embed/embed_test.go (TestEmbedEmbed_DistRootAccessible / _DistKeepPresent / _NoDoubleEmbedFromExamplesScope)
+- internal/templates_html_embed/doc.go (package doc + Track B scope statement)
 
-Acceptance: mage testPkg ./internal/templates_html green even at fresh clone (placeholder seed satisfies embed); double-embed test verifies //go:embed all:examples does NOT include web/templates/ source.
+Acceptance: `mage testPkg ./internal/templates_html_embed` green at fresh clone (placeholder seed satisfies embed); double-embed test verifies //go:embed all:examples does NOT include web/templates_embed/ source.
 
-Blockers: D2.
+Blockers: D-B2.
+
+---
+
+## Cross-track consumer-side updates (downstream L3-E2/E3/E4 plans)
+
+- L3-E2 (simple views) → retarget Track A: author plain .html under web/templates_basic/cascade/{drop,planner,droplet,qa,roadmap_version,schema_browser}.html. ZERO <script>. Inline <style> only. golden snapshots in internal/templates_html_basic/testdata/.
+- L3-E3 (stil-driven views) → stay Track B: paths shift from examples/templates/ to web/templates_embed/. Otherwise unchanged.
+- L3-E4 (Thariq demos) → stay Track B: paths shift to web/templates_embed/. Otherwise unchanged.
+
+These downstream refreshes are SEPARATE planner-record updates; they are summarized here for L3-E1 substrate-design context.
 
 ## Close gate
-mage check green at full module (pnpm-absent skip OK). mage TemplatesBuild green when pnpm available. mage TemplatesBuildVerifyStable green. embed test green at fresh clone.
 
-L3-E1 close → unblocks L3-E2/E3/E4 (FE views + Playwright build-QA via ta-fe-builder + ta-fe-qa-*).
+- `mage testPkg ./internal/templates_html_basic` green (Track A; works at fresh clone with NO pnpm)
+- `mage testPkg ./internal/templates_html_embed` green at fresh clone (placeholder seed; Track B)
+- `mage TemplatesBuildEmbed` green when pnpm available
+- `mage TemplatesBuildVerifyStable` green (Track B byte-determinism)
+- `mage check` green at full module (pnpm-absent skip OK for Track B targets)
+
+L3-E1 close → unblocks L3-E2 (Track A consumer) + L3-E3/E4 (Track B consumers).
+
+## Methodology compliance
+
+- 7 droplets (D0 + D-A1/A2/A3 + D-B1/B2/B3). Within "3-6 atomic droplets per child planner" tolerance (3-6 is guideline; 7 acceptable with explicit cross-track decomposition rationale).
+- Track A droplets disjoint from Track B droplets (different packages, different paths).
+- D-A3 blocked by D-A2 (single-file chain within Track A); D-B2 blocked by D-B1; D-B3 blocked by D-B2 (Track B chain).
+- L4 NOT required — §5.3 thresholds (4 children OR 1 domain OR 1 package): 7 droplets > 4 BUT cross-track explicit rationale documented; 2 domain concerns (substrate Track A + substrate Track B) BUT both are 'template substrate' meta-domain; 2 packages (templates_html_basic + templates_html_embed) BUT both internal/templates_html_*/ family. Deviation rationale: refreshed planner pre-pins the two-track decomposition; child planner shape mirrors L3-D5's 10-droplet acceptance.
+
+## Plan-QA re-review note
+
+The original L3-E1 plan-QA twins (proof + falsif) closed against the SINGLE-track Astro substrate. This refresh introduces Track A which the original QA did NOT review. ROUTING DECISION: orchestrator-direct fold per drop_003 precedent on "surgical AMEND-with-CONFIRMED-design-pivot". Re-spawning plan-QA on the two-track shape is optional rigor; the substrate is well-understood (Track A is stdlib-only html/template; Track B is the existing reviewed plan with renames). If dev wants formal plan-QA re-review, create new -plan-qa-proof-v2 + -plan-qa-falsification-v2 twins.
 """
-objective = "Set up Astro authoring toolchain for ta's HTML template system. (D0) Stil-reconcile prep (separate stil repo commit). (D1) Astro skeleton at examples/templates/ with EXACT Astro pin + file: URL stil dep. (D2) magefile TemplatesBuild + TemplatesBuildVerifyStable targets. (D3) go:embed wiring at internal/templates_html/embed.go with output-path-redirect avoiding double-embed via existing embed.go:19."
+objective = "Set up DUAL template-system substrate for ta's HTML template system: (Track A html-basic) zero-deps plain .html templates under web/templates_basic/ with go:embed into internal/templates_html_basic/; (Track B html-embed) Astro+pnpm+stil toolchain under web/templates_embed/ with go:embed into internal/templates_html_embed/. Both tracks ship for v0.1.0. L3-E2 consumes Track A; L3-E3 + L3-E4 consume Track B."
 parent_id = "drop_004.drop.l2_e_html_template_system"
 role = "planner"
 started_at = "2026-05-16T04:00:00Z"
 state = "in_progress"
-title = "L3-E1 planner — Astro substrate + stil-reconcile prep + magefile TemplatesBuild + go:embed"
-transition_notes = "REWORKED per plan-QA falsif FAIL verdict (8 CONFIRMED-CEs). All 7 folds applied. Primary fix: Astro project moved OUT of examples/ to avoid source pollution via existing //go:embed all:examples."
-updated_at = "2026-05-16T04:00:00Z"
+title = "L3-E1 planner — two-track template substrate (html-basic + html-embed)"
+transition_notes = """
+REFRESHED to two-track design per dev choice (orchestrator-direct fold; drop_003 precedent).
+
+## Original single-track REWORK FOLDS (PRESERVED, applied 2026-05-16):
+
+1. Astro relocation examples/templates/ → web/templates/ to avoid double-embed via existing //go:embed all:examples at embed.go:19.
+2. .gitignore additions for Astro build artifacts.
+3. mage Check pnpm strategy: skip-if-pnpm-absent with verbose WARN.
+4. D3 embed seed: commit placeholder .keep so //go:embed all:dist has content at clone time.
+5. Astro determinism criterion: strict byte-diff with retry-once-then-fail flake policy.
+6. Cross-repo SHA recording: D0 commit SHA recorded in D1 description before D1 dispatch.
+7. Line cite fix: build-tokens.ts generated_at at line 167.
+
+## NEW REFRESH FOLDS APPLIED 2026-05-18 (TWO-TRACK):
+
+8. **Two-track split**: html-basic (Track A; no Astro/pnpm/stil) + html-embed (Track B; Astro+pnpm+stil). Both ship v0.1.0.
+9. **Package rename**: `internal/templates_html/` → `internal/templates_html_basic/` + `internal/templates_html_embed/` (disjoint packages).
+10. **Path rename**: `web/templates/` → `web/templates_basic/` + `web/templates_embed/`.
+11. **NEW Track A droplets D-A1/A2/A3**: dir+sample, go:embed, render via stdlib html/template.
+12. **RENAMED Track B droplets D1/D2/D3 → D-B1/B2/B3**: paths shift to web/templates_embed/ + internal/templates_html_embed/.
+13. **D0 PRESERVED**: stil-reconcile prep already complete (stil commit 7c1ccb5).
+14. **L3-E2 retargets Track A** (plain .html authoring); L3-E3 + L3-E4 stay Track B with path-rename only.
+
+L3-E1 plan-QA twins (proof + falsif) closed against the v1 single-track plan; orchestrator-direct accepts the two-track v2 plan per drop_003 surgical-pivot precedent. If formal plan-QA re-review desired, create -plan-qa-proof-v2 / -plan-qa-falsification-v2 twins.
+
+Ready for builder dispatch in a future session (per dev directive: 'plan L2-I/L2-G next sessions' — same applies to L2-E after this refresh).
+"""
+updated_at = "2026-05-18T03:50:00Z"
 [l3_e1_astro_substrate-plan-qa-proof]
 completed_at = "2026-05-16T03:50:00Z"
 created_at = "2026-05-16T07:02:54Z"
