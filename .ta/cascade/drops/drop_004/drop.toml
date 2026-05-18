@@ -615,7 +615,7 @@ All five items are post-wave routing only — no code changes required at this l
 updated_at = "2026-05-15T11:35:00Z"
 [l2_d_multi_file_type]
 blockers = []
-completed_at = "2026-05-15T11:35:00Z"
+completed_at = "2026-05-17T04:58:00Z"
 created_at = "2026-05-15T11:30:00Z"
 description = """
 L2-D decomposition into 5 L3 sub-planners. Goal: round-trip JSON↔structured-file substrate for html/md/txt driven by template_manifest.* records. ALL backends use splice-mode byte-range preservation (NOT parse→serialize).
@@ -678,7 +678,7 @@ outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "planner"
 started_at = "2026-05-16T02:15:00Z"
-state = "in_progress"
+state = "complete"
 title = "L2-D planner — multi_file_type_substrate (5 L3 sub-planners)"
 transition_notes = """
 AMENDMENTS APPLIED (orchestrator-override per drop_003 precedent on surgical AMEND-with-CONFIRMED-CE):
@@ -693,7 +693,7 @@ L3 descent order: L3-D0 (split prep) → L3-D1/D2/D3/D4 (substrate + html + md_e
 
 Ready for L3-D0 record creation + plan-QA dispatch in Wave 2D-1.
 """
-updated_at = "2026-05-16T02:15:00Z"
+updated_at = "2026-05-17T04:58:00Z"
 [l2_e_html_template_system]
 blockers = []
 completed_at = "2026-05-15T11:35:00Z"
@@ -7114,3 +7114,81 @@ Final verification: mage check 1437+ tests / 0 fail / 10 pre-existing skips. Wor
 L3-D5 sub-tree ratified.
 """
 updated_at = "2026-05-17T02:42:00Z"
+
+[l2_d_multi_file_type-build-qa-proof]
+completed_at = "2026-05-17T04:55:00Z"
+created_at = "2026-05-17T04:50:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-17T04:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_d_multi_file_type"
+title = "Build-QA proof of L2-D planner subtree (multi-file-type substrate)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+L2-D sub-tree (5 L3 children + L3-D0 prep, ~25 droplets, ~7000 LOC) ratified as integrated substrate.
+
+All 10 contract items verified file:line:
+- 3-backend format.Format conformance: var _ format.Format compile-time assertions at html/backend.go:28, md_explicit/backend.go:34, txt/backend.go:60
+- Splice-mode byte preservation: rg html.Render → 0 hits; TestHtmlSplice_PreservesByteRangeOutsideSelector + Idempotent + NestedSelector pin
+- Manifest loader → backend dispatch: format/manifest.go (231 LOC) + 3 fixtures + dispatch_test.go::TestDispatch_SchemaEnumKeyMapping
+- Cross-backend sentinel uniformity at public surface: format.ErrBlockNotFound + ErrAmbiguousMatch %w-wrapped (190 rg hits); errors.Is verified per backend
+- L3-D1 substrate enables D2/D3/D4: each backend imports internal/format + calls format.Register at init
+- L3-D5 surfaces substrate end-to-end: 10 TestE2E_* (cmd/ta/multi_format_test.go) + 10 TestEMCP_* (mcpsrv/server_test.go)
+- ZERO edits to internal/backend/md/: git diff --stat empty; rg format.Register → 0 hits in md/
+- mage check 1437 tests / 1427 passed / 0 fail / 10 pre-existing skips / 24 packages
+- Honest test naming: 0 'Positive' hits in html/ + txt/; tracker entry CLAUDE.md §95
+- Pre-MVP tracker items routed honestly CLAUDE.md §94-97: Get-vs-Dispatch dedup, schema.Format gap, md_explicit Parse asymmetry, error-prefix + html sentinel drift
+
+8 falsification attacks ALL MITIGATED:
+1. html local ErrAmbiguousMatch — internal-only; outer wrapper exposes format.ErrAmbiguousMatch (tracker routed)
+2. md_explicit Parse silent first-match — documented asymmetry (tracker routed)
+3. CLI E2E RoundTripByteFidelity uses ops.Get bypass — lower-layer backend tests do byte-identity rigorously
+4. schema.Format html/txt gap — accepted as documented pre-MVP
+5. Get-vs-Dispatch stutter — production uses Get directly; only test exercises Dispatch (tracker routed)
+6. L2-D state still in_progress — orchestrator next-action, not build defect
+7. L2-J sibling pollution — disjoint paths_owned
+8. mage check fuzz skips — pre-existing, not L2-D regression
+
+L2-D commit range complete: b8c861b (L3-D0 prep) through 6f0514b (L3-D5 close audit trail).
+
+L2-D sub-tree ratified; closes back to L1 drop_004.
+"""
+updated_at = "2026-05-17T04:55:00Z"
+[l2_d_multi_file_type-build-qa-falsification]
+completed_at = "2026-05-17T04:58:00Z"
+created_at = "2026-05-17T04:50:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-17T04:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_d_multi_file_type"
+title = "Build-QA falsif of L2-D planner subtree (multi-file-type substrate)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-falsification agent. One routed-already concern carried forward (non-blocking).
+
+15 attack surfaces probed. 14 MITIGATED with evidence; 1 CONFIRMED finding (already-tracked, caller-unobservable today, pre-MVP cleanup).
+
+Confirmed finding 1.1: internal/backend/html/backend.go:190 + :227 wrap LOCAL html.ErrAmbiguousMatch (splice.go:32) in HtmlBackend.Find / HtmlBackend.Splice. Probe-verified errors.Is(err, format.ErrAmbiguousMatch) returns FALSE for html ambiguity; errors.Is(err, html.ErrAmbiguousMatch) returns TRUE. Already TRACKED in CLAUDE.md §97. NOT introduced by L2-D — sentinel pre-dates the format substrate. Caller-unobservable today (no caller in cmd/ta, internal/mcpsrv, internal/ops asserts on ErrAmbiguousMatch).
+
+All other findings MITIGATED:
+- 3-backend Format conformance + probe-verified byte-identity round-trip on Splice
+- F23 QA twins: 20/20 across 5 L3 children
+- L3-D5 §5.3 deviation honest (drop.toml:6249-6253)
+- Error-shape uniform across CLI+MCP (post L3-D5 prefix-strip fold): byte-identical 'db.Format=%s; --as=%s requires matching format' at 16 occurrences
+- schema.Format gap tracked CLAUDE.md §95
+- L3-D0 split additive (298 LOC test added, 0 tests removed)
+- No TODO/HACK/XXX/FIXME in L2-D added files
+- Backends import internal/format only; no record reach-through
+- cmd/ta uses format.Get exclusively (no direct backend imports)
+- mage check 1437/0/10 verified
+- Marshal asymmetry across backends (html joins '\\n'; md_explicit/txt no separator) DOCUMENTED per backend godoc — honest
+- Parse-then-Marshal lossy DOCUMENTED per backend — honest
+- cascadia v1.3.3 used (html); no version conflicts
+
+No NEW unmitigated counterexample. Probe files deleted; working tree restored.
+
+L2-D sub-tree ratified.
+"""
+updated_at = "2026-05-17T04:58:00Z"
