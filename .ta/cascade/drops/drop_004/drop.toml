@@ -2215,6 +2215,7 @@ updated_at = "2026-05-16T01:55:00Z"
 
 [l3_i1_config_schema_and_loader]
 blockers = []
+completed_at = "2026-05-18T03:42:00Z"
 created_at = "2026-05-16T02:20:00Z"
 description = """
 L3-I1 (installable_substrate config + loader + examples sync) REWORKED. **Package renamed**: internal/config/ → internal/installconfig/ to avoid collision with existing internal/config/ schema-resolver (V2-PLAN §12.11). Both packages coexist; internal/config/ schema-resolver UNTOUCHED.
@@ -2271,10 +2272,10 @@ objective = "Deliver internal/config/ package with Config struct (TOML-bound), L
 parent_id = "drop_004.drop.l2_i_installable_substrate"
 role = "planner"
 started_at = "2026-05-16T04:00:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-I1 planner — config schema + loader + examples-schema sync"
 transition_notes = "REWORKED per plan-QA REWORK verdict (falsif FAIL + proof AMEND converged on package collision). All 4 surgical-extended folds applied."
-updated_at = "2026-05-16T04:00:00Z"
+updated_at = "2026-05-18T03:42:00Z"
 [l3_i1_config_schema_and_loader-plan-qa-proof]
 completed_at = "2026-05-16T02:40:00Z"
 created_at = "2026-05-16T07:02:54Z"
@@ -7192,3 +7193,87 @@ No NEW unmitigated counterexample. Probe files deleted; working tree restored.
 L2-D sub-tree ratified.
 """
 updated_at = "2026-05-17T04:58:00Z"
+
+[l3_i1_config_schema_and_loader-build-qa-proof]
+completed_at = "2026-05-18T03:38:00Z"
+created_at = "2026-05-18T03:30:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-18T03:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i1_config_schema_and_loader"
+title = "Build-QA proof of L3-I1 planner subtree (installconfig + examples sync + testdata)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-proof agent.
+
+L3-I1 sub-tree (4 droplets: D1 config+load, D2 merge+validate, D3 examples-cascade.toml sync, D4 testdata fixture+amend) ratified as integrated substrate.
+
+All 10 contract items verified file:line:
+- Package rename honored: 8 Go files under internal/installconfig/ all declare 'package installconfig'; zero new code under internal/config/ (still 3 pre-existing schema-resolver files, last touched commit c467803 pre-drop_004)
+- Existing internal/config/ untouched: git diff f68ce8c~1 HEAD -- internal/config/ empty; mage testPkg ./internal/config 4/4 (regression green)
+- Config struct exact: Config{Substrates map[string]Substrate `toml:"substrate"`}; Substrate has 8 snake_case TOML tags; Registration has Event/Matcher/SettingsFile
+- LoadFile + LoadBytes: pelletier/go-toml/v2 with %w wrapping ('installconfig: read %q: %w', 'installconfig: parse toml: %w'); post-decode Validate
+- MergeDefaults + Validate: merge.go user-over-defaults with empty-rule; validate.go enum sets for flatten_strategy + merge_strategy + required-field gates
+- examples cascade.toml sync byte-identical: lines 553-557 + 617-621 match live .ta/schema.toml lines 46-50 + 119-123; TestExamplesCascadeSchema_AutoSpawnByteFidelity at internal/schema/meta_test.go:420 pins deep-equal Type/IDTemplate/Fields
+- Canonical testdata fixture complete: 6 substrate types + register triple + chmod=0755 on hooks; TestLoadFile_AcceptsCanonicalFixture (D4 amend) regresses it
+- No go.mod/go.sum churn from L3-I1: per-commit diffs empty; pelletier/go-toml/v2 v2.3.0 already at go.mod:17
+- Module gate green: mage check 1437/1427/0/10 across 24 packages (22 pass / 2 pre-existing skip)
+- Cascade methodology compliance: 4 atomic droplets, paths disjoint (D1 config+load, D2 merge+validate, D3 examples+meta_test, D4 testdata+config_test extension)
+
+10 falsification attacks ALL MITIGATED:
+1. TOML tag drift — 12 tags cross-checked against install.toml fixture, all match
+2. AutoSpawn byte-fidelity test parsed-shape proves token-for-token over the parsed structure
+3. No new deps — go.mod diffs empty for L3-I1 commits
+4. Tests are real (validate enum checks + merge zero-value semantics + load real toml.Unmarshal)
+5. install.toml register triple verified (PreToolUse/Bash, PreToolUse/Agent, SessionStart/empty)
+6. internal/config/ schema-resolver untouched, 4/4 green
+7. F23 token strings parse cleanly via LoadBytes
+8. Tree state clean (only cascade records modified)
+9. Disjoint paths per-commit verified
+10. D4 amend orchestrator-direct is documented planner-level fold, not violation
+
+Note: internal/installconfig has zero current importers — by-design per package doc (substrate awaiting consumer wiring in L3-I3 install primitive when that lands).
+
+L3-I1 sub-tree ratified; closes back to L2-I.
+"""
+updated_at = "2026-05-18T03:38:00Z"
+[l3_i1_config_schema_and_loader-build-qa-falsification]
+completed_at = "2026-05-18T03:42:00Z"
+created_at = "2026-05-18T03:30:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-18T03:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i1_config_schema_and_loader"
+title = "Build-QA falsif of L3-I1 planner subtree (installconfig + examples sync + testdata)"
+transition_notes = """
+VERDICT: PASS via ta-go-qa-falsification agent.
+
+15 attack surfaces probed via temp probe_test.go (deleted post-run; tree restored). All 15 MITIGATED or ACCEPTED-NON-BLOCKER with file:line evidence.
+
+Attack surfaces resolved:
+1. Package rename completeness — 13 installconfig hits all under installconfig/; zero stray internal/config/ refs
+2. internal/config/ isolation — git show --stat over 5 L3-I1 commits: 0 files in internal/config/
+3. TOML tag accuracy — 8 Substrate + 3 Registration tags lowercase snake_case verbatim match fixture
+4. Error-message quality — 'installconfig: substrate "bad": invalid merge_strategy "splice"' names pkg + substrate + field + value
+5. Auto_spawn fidelity — byte-identical char-for-char in side-by-side; semantic test pins Type+IDTemplate+Fields via reflect.DeepEqual
+6. Canonical testdata coverage — 6 substrate types + 3 merger paths + register triple + chmod=0755 (edge cases in unit tests, not fixture)
+7. No new deps — go.mod/go.sum untouched by L3-I1 commits; pelletier/go-toml/v2 already at go.mod:17
+8. Backward-compat vacuous — net-new package, zero existing consumers
+9. Enum drift — fail-loud package-local maps; correct behavior, not CE
+10. Concurrent LoadFile race-safe — pure functions, no goroutines, no shared state
+11. Path validation minimalism INTENTIONAL — per package doc, apply-time consumer (future L3-I3/I4) owns disk semantics
+12. Cross-droplet integration — D1 LoadFile → D2 MergeDefaults → Validate end-to-end probe green
+13. Failure-mode messages high-quality with file:line evidence at validate.go:42-60 + load.go:28
+14. mage check stability — 1427/0/10 baseline preserved
+15. Audit completeness — 4-fold REWORK AMEND landed at file:line evidence; package rename + test names + paths propagated
+
+Soft observations (NOT counterexamples, recorded for awareness):
+- Validate first-error-wins on map iteration — standard Go pattern, error names which substrate
+- 'Byte-fidelity' naming nit — description-layer phrasing vs parsed-shape implementation; substantive contract (Type/IDTemplate/Fields equality) is enforced
+
+No unmitigated CE. Working tree restored post-probe.
+
+L3-I1 sub-tree ratified.
+"""
+updated_at = "2026-05-18T03:42:00Z"

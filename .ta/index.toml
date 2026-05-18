@@ -1255,7 +1255,17 @@ updated = 2026-05-16T00:42:22.409833Z
 [drop_004.drop.l3_i1_config_schema_and_loader]
 created = 2026-05-16T07:02:54.630398Z
 type = 'planner'
-updated = 2026-05-16T07:19:52.334788Z
+updated = 2026-05-18T22:09:00.520053Z
+
+[drop_004.drop.l3_i1_config_schema_and_loader-build-qa-falsification]
+created = 2026-05-18T22:02:42.429624Z
+type = 'qa_falsification'
+updated = 2026-05-18T22:09:00.50238Z
+
+[drop_004.drop.l3_i1_config_schema_and_loader-build-qa-proof]
+created = 2026-05-18T22:02:42.413499Z
+type = 'qa_proof'
+updated = 2026-05-18T22:08:11.359018Z
 
 [drop_004.drop.l3_i1_config_schema_and_loader-plan-qa-falsification]
 created = 2026-05-16T07:02:54.656105Z
