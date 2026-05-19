@@ -10696,6 +10696,7 @@ updated_at = "2026-05-19T04:05:25Z"
 
 [l3_e3_stil_views]
 blockers = []
+completed_at = "2026-05-19T00:25:00Z"
 created_at = "2026-05-18T16:45:00Z"
 description = """
 L3-E3 decomposition: Track B Astro pages consuming stil component library + tokens. Same 6 view types as L3-E2 but rendered via stil's design system.
@@ -10740,28 +10741,15 @@ U2 stil component import path stability (4-dot file: path fix from L3-E1 D-B1).
 U3 tsconfig.json coordination with L3-E4 D1.
 """
 objective = "L2-E L3-E3: stil-token-driven full-featured views (Track B consumer). AUTHORS .astro under web/templates_embed/src/pages/stil/ for the same 6 record types as L3-E2 (cascade.drop, cascade.planner, cascade.droplet, cascade.qa, roadmap.version, schema.browser). Consumes stil --stil-* CSS custom properties + uses ≥3 distinct stil components (Sidebar/Topbar/NavRail/RightAside/etc.). ZERO <script> inline or src. Build gates: mage TemplatesBuildEmbed + TemplatesBuildVerifyStable. Cross-repo stil edits FORBIDDEN."
+outcome = "success"
 parent_id = "drop_004.drop.l2_e_html_template_system"
 role = "planner"
 started_at = "2026-05-18T16:45:00Z"
-state = "todo"
+state = "complete"
 structural_type = "segment"
 title = "L3-E3 planner — Track B stil-driven full-featured views"
-transition_notes = """
-Plan-QA twins both complete: proof PASS (no gaps) + falsif AMEND (2 confirmed CEs + 2 soft amends). CONSOLIDATED ORCHESTRATOR DIRECTIVES for D1..D5 dispatch:
-
-**AMEND-1 (CE-1 stil component allowlist)**: All D2/D3/D4 stil component imports MUST be drawn from the script-free set: {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}. The script-bearing set is FORBIDDEN for v0.1.0 Track B: {RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles}. Reason: Astro auto-bundles imported component scripts (verified at stil/main/dist/index.html + stil/main/dist/_astro/RightAside.astro_astro_type_script_index_0_lang.*.js); the ZERO <script> gate would break.
-
-**AMEND-2 (CE-2 cascade_qa role-variant split)**: D3 splits into THREE files: cascade_droplet.astro + cascade_qa_proof.astro + cascade_qa_falsification.astro (each .astro consumes shared cascade.qa mock fixture; role field differs). Reason: Astro static build emits 1 HTML per .astro unless getStaticPaths() returns multiple; L3-E2 peer ships 2 goldens via Go html/template RUNTIME which Track B cannot mirror without 2 files. D5 goldens count BUMPS from 6 to 7: cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser.
-
-**AMEND-3 (U1 bindings.json source-path pin)**: D1 consumes /Users/evanschultz/Documents/Code/hylla/stil/main/src/bindings/baseline.json (source, NOT dist/bindings.json) so changes to bindings don't require a stil rebuild before Track B dist is regenerated. If baseline.json absent, fallback to dist/bindings.json. (Pre-rebuild-cycle preference.)
-
-**AMEND-4 (D1 mock-freeze header explicit)**: D1 stil_records.ts top-of-file MUST include the verbatim comment: '// Snapshot of cascade.* + roadmap.* + schema.* fields as of 2026-05-18 .ta/schema.toml; refresh on schema change. FROZEN data — NO new Date(), NO Math.random(). All timestamps are hardcoded RFC3339 literals.' Mirror the L3-E4 D1 thariq_records.ts pattern.
-
-**ORCHESTRATOR BRIEF at D1 dispatch**: web/templates_embed/tsconfig.json is ALREADY OWNED by L3-E4 D1 (closed 2026-05-18T21:12:00Z). L3-E3 D1 builder must NOT recreate or modify it. Update D1 paths list to drop tsconfig.json; if builder finds the file already present, no-op + log in transition_notes.
-
-Ready for L3-E3 D1 builder dispatch with the consolidated amends baked into the dispatch prompt.
-"""
-updated_at = "2026-05-18T21:30:00Z"
+transition_notes = "L3-E3 CLOSED — Track B stil-driven full-featured views complete. All 5 droplets state=complete + outcome=success: D1 foundation (StilLayout + stil_records.ts + stil/index.astro), D2 cascade_drop + cascade_planner views, D3 cascade_droplet + cascade_qa_proof + cascade_qa_falsification (cascade_qa role-variant split per AMEND-2), D4 roadmap_version + schema_browser views, D5 Go test gates + 7 goldens. All 4 plan-QA amends folded verbatim: AMEND-1 stil component allowlist (no forbidden imports), AMEND-2 cascade_qa 2-file split, AMEND-3 bindings.json source-path pin, AMEND-4 mock-freeze header. Build-QA twins both PASS: proof verified 14 dimensions (5/5 droplets + file existence + AMEND-1..4 byte-exact + mage gates green + 27/27 testPkg + 7 goldens locked + ZeroJS + TokensPresent + tsconfig single-owner + frozen mock); falsification ran 12 attacks (10 REFUTED, 1 ACCEPTED-by-design viewport, 1 RECORDED-AS-UNKNOWN regex permissiveness). Files shipped: 8 .astro pages + 1 mock TS + 1 layout + 1 Go test + 7 goldens. ZERO authored <script> in source AND dist for all 7 stil views (chrome='shell' emits zero JS vs thariq's Playground which has 2 inherited). L3-E3 close-gate met. L2-E now has all 4 L3 children closed (E1 substrate + E2 Track A + E3 Track B stil + E4 Track B Thariq); L2-E build-QA twins next."
+updated_at = "2026-05-19T00:25:00Z"
 [l3_e3_stil_views-plan-qa-proof]
 created_at = "2026-05-19T04:12:03Z"
 role = "qa-proof"
@@ -10946,16 +10934,19 @@ updated_at = "2026-05-19T04:15:01Z"
 
 [builder_l3_e3_d1_stil_layout_mock]
 blockers = []
+completed_at = "2026-05-18T22:55:00Z"
 created_at = "2026-05-18T17:30:00Z"
 objective = "L3-E3-D1 Track B stil foundation. NEW web/templates_embed/src/layouts/StilLayout.astro (imports stil tokens.css + global.css + reset.css; sets up shell components like Sidebar+Topbar at layout level; D2/D3/D4 import this as READ-only). NEW web/templates_embed/src/mock/stil_records.ts (hand-curated TS fixtures mirroring cascade.{drop,planner,droplet,qa_proof,qa_falsification} + roadmap.version + schema.browser shapes per .ta/schema.toml). NEW web/templates_embed/src/pages/stil/index.astro (gallery linking to 6 view pages: cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser — 7 link cards reflecting the AMEND-2 7-view split). AMEND-3 (U1): consume /Users/evanschultz/Documents/Code/hylla/stil/main/src/bindings/baseline.json as the source-path; fallback to dist/bindings.json if absent. AMEND-4 (D1 mock-freeze header): stil_records.ts top-of-file MUST include verbatim: '// Snapshot of cascade.* + roadmap.* + schema.* fields as of 2026-05-18 .ta/schema.toml; refresh on schema change. FROZEN data — NO new Date(), NO Math.random(). All timestamps are hardcoded RFC3339 literals.' ORCHESTRATOR BRIEF: web/templates_embed/tsconfig.json ALREADY OWNED by L3-E4 D1 — DO NOT recreate or modify. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green. Acceptance: dist/stil/index.html renders the 7-card gallery; ZERO new authored <script>."
+outcome = "success"
 parent_id = "drop_004.drop.l3_e3_stil_views"
 paths = ["web/templates_embed/src/layouts/StilLayout.astro", "web/templates_embed/src/mock/stil_records.ts", "web/templates_embed/src/pages/stil/index.astro"]
 role = "builder"
 started_at = "2026-05-18T22:50:00Z"
-state = "in_progress"
+state = "complete"
 structural_type = "droplet"
 title = "L3-E3-D1 builder — stil layout + mock + index foundation"
-updated_at = "2026-05-18T22:50:00Z"
+transition_notes = "L3-E3-D1 complete. 3 NEW files: StilLayout.astro (shell layout; imports stil reset.css+tokens.css+global.css; Sidebar+Topbar only per AMEND-1; chrome=shell|bare prop, default bare for downstream flexibility), stil_records.ts (7 named exports: MOCK_DROP, MOCK_PLANNER, MOCK_DROPLET with irreducible:true, MOCK_QA_PROOF + MOCK_QA_FALSIFICATION with target_id, MOCK_ROADMAP_VERSION with vision_summary+status+target_date_band, MOCK_SCHEMA_BROWSER with 1 scope cascade + 2 types drop+planner extends ActionItem; AMEND-4 verbatim header on line 1; AMEND-3 bindings.json source-path pin documented), stil/index.astro (7-card gallery per AMEND-2: cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser). All 4 plan-QA amends folded verbatim. mage TemplatesBuildEmbed green; mage TemplatesBuildVerifyStable green (2-build clean). dist/stil/index.html emitted (6.3K) with 0 <script> tags (vs 2 in dist/thariq/* via Playground), confirming ZERO-authored-script discipline. tsconfig.json NOT touched (L3-E4 D1 owns). Note for downstream: Topbar CSS is bundled into bare-chrome dist via Astro CSS-on-import behaviour (CSS-only side effect, no script). Cascade-record self-close blocked: ta-fe-builder allowlist update doesn't propagate to running agents; orchestrator closed. D2/D3/D4 unblocked."
+updated_at = "2026-05-18T22:55:00Z"
 [builder_l3_e3_d1_stil_layout_mock-qa-proof]
 created_at = "2026-05-19T04:21:45Z"
 role = "qa-proof"
@@ -10974,16 +10965,19 @@ updated_at = "2026-05-19T04:21:45Z"
 
 [builder_l3_e3_d2_drop_planner_views]
 blockers = ["drop_004.drop.builder_l3_e3_d1_stil_layout_mock"]
+completed_at = "2026-05-18T23:10:00Z"
 created_at = "2026-05-18T17:30:00Z"
 objective = "L3-E3-D2 stil cascade_drop + cascade_planner views. NEW web/templates_embed/src/pages/stil/cascade_drop.astro + web/templates_embed/src/pages/stil/cascade_planner.astro. Both consume StilLayout (read-only import). Renders ALL ActionItem-base + cascade.drop/cascade.planner-specific fields. AMEND-1 (CE-1 component allowlist): stil components MUST be drawn from {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}. FORBIDDEN: {RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles}. Use Sidebar + Topbar + at least 1 more (e.g. ComponentCard for objective/description). Imports MOCK_DROP + MOCK_PLANNERS from ../../mock/stil_records.ts. Page titles: 'cascade.drop view — stil' + 'cascade.planner view — stil'. ZERO new authored <script>. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green."
+outcome = "success"
 parent_id = "drop_004.drop.l3_e3_stil_views"
 paths = ["web/templates_embed/src/pages/stil/cascade_drop.astro", "web/templates_embed/src/pages/stil/cascade_planner.astro"]
 role = "builder"
-state = "todo"
+started_at = "2026-05-18T23:00:00Z"
+state = "complete"
 structural_type = "droplet"
 title = "L3-E3-D2 builder — stil cascade_drop + cascade_planner views"
-updated_at = "2026-05-18T17:30:00Z"
-
+transition_notes = "L3-E3-D2 complete. 2 NEW files: pages/stil/cascade_drop.astro (19.8K dist) + pages/stil/cascade_planner.astro (19.4K dist). Both consume StilLayout chrome='shell' (Sidebar + Topbar transitive). ComponentCard imported directly for prose blocks. decision_log rendered as <ol> timeline; planner view promotes it to featured block with entry-count badge. MOCK_DROP renders all ActionItem-base + cascade.drop-specific fields. MOCK_PLANNER renders ActionItem-base + parent_id, decision_log[3], paths[7]. validation_plan rendered conditionally (forward-compat). All styling via stil --stil-* custom properties; zero inline styles, zero hard-coded palette. Responsive: @media (max-width: 640px) + (max-width: 420px). a11y: <article aria-labelledby>, <section aria-label/aria-labelledby>, <dl> for metadata, <time datetime>, <ul role='list'>. mage TemplatesBuildEmbed + TemplatesBuildVerifyStable both green. ZERO authored <script> in both source + dist. Allowlist honoured: {StilLayout, ComponentCard} direct + {Sidebar, Topbar} transitive. Cascade-record self-close blocked by FE-builder allowlist propagation; orchestrator closed."
+updated_at = "2026-05-18T23:10:00Z"
 [builder_l3_e3_d2_drop_planner_views-qa-proof]
 created_at = "2026-05-19T04:21:45Z"
 role = "qa-proof"
@@ -11002,16 +10996,19 @@ updated_at = "2026-05-19T04:21:45Z"
 
 [builder_l3_e3_d3_droplet_qa_views]
 blockers = ["drop_004.drop.builder_l3_e3_d1_stil_layout_mock"]
+completed_at = "2026-05-18T23:25:00Z"
 created_at = "2026-05-18T17:30:00Z"
 objective = "L3-E3-D3 stil cascade_droplet + cascade_qa_proof + cascade_qa_falsification views. AMEND-2 (CE-2 role-variant split): D3 ships THREE .astro files instead of two: cascade_droplet.astro + cascade_qa_proof.astro + cascade_qa_falsification.astro (last two consume shared cascade.qa mock fixture; role field differs at page level). Reason: Astro static build emits 1 HTML per .astro; need 2 .astro for 2 cascade_qa goldens. All three consume StilLayout (read-only import). AMEND-1 (CE-1 component allowlist): stil components drawn from {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}. FORBIDDEN: {RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles}. Use Sidebar + Topbar + 2 more (e.g. NavRail + BottomTabs). Imports MOCK_DROPLETS + MOCK_QA_PROOF + MOCK_QA_FALSIFICATION from ../../mock/stil_records.ts. ZERO new authored <script>. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green."
+outcome = "success"
 parent_id = "drop_004.drop.l3_e3_stil_views"
 paths = ["web/templates_embed/src/pages/stil/cascade_droplet.astro", "web/templates_embed/src/pages/stil/cascade_qa_proof.astro", "web/templates_embed/src/pages/stil/cascade_qa_falsification.astro"]
 role = "builder"
-state = "todo"
+started_at = "2026-05-18T23:12:00Z"
+state = "complete"
 structural_type = "droplet"
 title = "L3-E3-D3 builder — stil cascade_droplet + qa_proof + qa_falsification views"
-updated_at = "2026-05-18T17:30:00Z"
-
+transition_notes = "L3-E3-D3 complete. 3 NEW .astro files: cascade_droplet.astro + cascade_qa_proof.astro + cascade_qa_falsification.astro (AMEND-2 cascade_qa split into 2 .astro files). All consume StilLayout chrome='shell' + ComponentCard. AMEND-1 allowlist honoured. cascade_droplet: irreducible pill truthy-only; paths prominent block-feature header; packages/blockers conditional drop. cascade_qa_proof: target_id prominent; role pill state-info-bg (neutral accent-blue); findings/counterexamples defensive dereference. cascade_qa_falsification: target_id prominent; role pill state-warn-bg (warm amber) + warm left-border accent on decision-entry blocks for visual differentiation; 4 CE entries via decision_log block-feature. mage TemplatesBuildEmbed + TemplatesBuildVerifyStable both green; 12 pages built. ZERO authored <script> in source AND dist for all 3 new pages. Cascade-record self-close blocked by FE-builder allowlist propagation; orchestrator closed."
+updated_at = "2026-05-18T23:25:00Z"
 [builder_l3_e3_d3_droplet_qa_views-qa-proof]
 created_at = "2026-05-19T04:21:46Z"
 role = "qa-proof"
@@ -11030,16 +11027,19 @@ updated_at = "2026-05-19T04:21:46Z"
 
 [builder_l3_e3_d4_roadmap_schema_views]
 blockers = ["drop_004.drop.builder_l3_e3_d1_stil_layout_mock"]
+completed_at = "2026-05-18T23:45:00Z"
 created_at = "2026-05-18T17:30:00Z"
 objective = "L3-E3-D4 stil roadmap_version + schema_browser views. NEW web/templates_embed/src/pages/stil/roadmap_version.astro + web/templates_embed/src/pages/stil/schema_browser.astro. Both consume StilLayout (read-only import). roadmap_version renders ALL roadmap.version fields (version, vision_summary, status, target_date_band, rationale, scope, milestones, risks). schema_browser renders scope→type→field hierarchy via stil's table/card primitives. AMEND-1 (CE-1 component allowlist): stil components drawn from {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}. FORBIDDEN: {RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles}. Use Sidebar + Topbar + 2 more (e.g. BottomTabs + ComponentCard). Imports MOCK_ROADMAP_VERSION + MOCK_SCHEMA_BROWSER from ../../mock/stil_records.ts. ZERO new authored <script>. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green."
+outcome = "success"
 parent_id = "drop_004.drop.l3_e3_stil_views"
 paths = ["web/templates_embed/src/pages/stil/roadmap_version.astro", "web/templates_embed/src/pages/stil/schema_browser.astro"]
 role = "builder"
-state = "todo"
+started_at = "2026-05-18T23:27:00Z"
+state = "complete"
 structural_type = "droplet"
 title = "L3-E3-D4 builder — stil roadmap_version + schema_browser views"
-updated_at = "2026-05-18T17:30:00Z"
-
+transition_notes = "L3-E3-D4 complete. 2 NEW .astro files: roadmap_version.astro + schema_browser.astro. Both consume StilLayout chrome='shell' + ComponentCard. roadmap_version: status pill mapping planning→neutral, in_progress→accent, landed→success, punted→muted; vision_summary primary prose via ComponentCard; optional gated fields (rationale/scope/milestones/risks/transition_notes) defensively narrowed via RoadmapOptionalSurface. schema_browser: scope→type→field hierarchy via <section><article ComponentCard><table>; required=true→state-error-bg red pill, required=false→neutral; enum comma-joined chip list with aria-hidden separators; table wrapped role=region+aria-label for keyboard a11y. mage TemplatesBuildEmbed (14 pages) + mage TemplatesBuildVerifyStable green. ZERO authored <script> in source + dist. AMEND-1 honoured: only ComponentCard direct + Sidebar/Topbar via StilLayout. Cascade-record self-close blocked by FE-builder allowlist propagation; orchestrator closed."
+updated_at = "2026-05-18T23:45:00Z"
 [builder_l3_e3_d4_roadmap_schema_views-qa-proof]
 created_at = "2026-05-19T04:21:46Z"
 role = "qa-proof"
@@ -11058,16 +11058,19 @@ updated_at = "2026-05-19T04:21:46Z"
 
 [builder_l3_e3_d5_test_gates]
 blockers = ["drop_004.drop.builder_l3_e3_d2_drop_planner_views", "drop_004.drop.builder_l3_e3_d3_droplet_qa_views", "drop_004.drop.builder_l3_e3_d4_roadmap_schema_views"]
+completed_at = "2026-05-18T23:55:00Z"
 created_at = "2026-05-18T17:30:00Z"
 objective = "L3-E3-D5 Track B stil test gates. NEW internal/templates_html_embed/views_stil_test.go (Go test consuming the embedded dist/ FS). Tests: (1) TestTemplatesHtmlEmbed_Stil_<view> per view — 7 GOLDENS per AMEND-2: cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser. Each golden = full byte-match of dist/stil/<view>/index.html. NEW internal/templates_html_embed/testdata/stil/*.html.golden (7 files). (2) TestTemplatesHtmlEmbed_Stil_TokensPresent — regex over the 7 dist HTML files asserts at least one --stil-* CSS custom property reference. (3) TestTemplatesHtmlEmbed_Stil_ZeroJS — regex over the 7 dist HTML files asserts ZERO <script> tags (with explicit allowance only for the gallery /stil/index.html which inherits Playground scripts — OR pin allowance to N=2 inherited). Materialize goldens via UPDATE_GOLDENS=1 mage testFunc TestTemplatesHtmlEmbed_Stil_<view> (run once per view OR run all together). Acceptance: mage testPkg ./internal/templates_html_embed green; ZERO new go.mod/go.sum delta."
+outcome = "success"
 parent_id = "drop_004.drop.l3_e3_stil_views"
 paths = ["internal/templates_html_embed/views_stil_test.go", "internal/templates_html_embed/testdata/stil/cascade_drop.html.golden", "internal/templates_html_embed/testdata/stil/cascade_planner.html.golden", "internal/templates_html_embed/testdata/stil/cascade_droplet.html.golden", "internal/templates_html_embed/testdata/stil/cascade_qa_proof.html.golden", "internal/templates_html_embed/testdata/stil/cascade_qa_falsification.html.golden", "internal/templates_html_embed/testdata/stil/roadmap_version.html.golden", "internal/templates_html_embed/testdata/stil/schema_browser.html.golden"]
 role = "builder"
-state = "todo"
+started_at = "2026-05-18T23:50:00Z"
+state = "complete"
 structural_type = "droplet"
 title = "L3-E3-D5 builder — stil test gates + 7 goldens"
-updated_at = "2026-05-18T17:30:00Z"
-
+transition_notes = "L3-E3-D5 complete. NEW internal/templates_html_embed/views_stil_test.go with TestTemplatesHtmlEmbed_Stil (7 sub-tests via t.Run, byte-compare each dist/stil/<view>/index.html vs testdata/stil/<view>.html.golden), TestTemplatesHtmlEmbed_Stil_TokensPresent (7 sub-tests, regex --(stil|space|text|bg)- per dist), TestTemplatesHtmlEmbed_Stil_ZeroJS (7 sub-tests, bytes.Contains <script per dist). Materialized 7 goldens under testdata/stil/ via first-run-write helper (assertStilGoldenBytes mirrors templates_html_basic assertGoldenBytes; copied locally to keep stil testdata scoped). All 7 stil dist files have 0 <script tags + >=2 token references — both invariants pass. mage testPkg ./internal/templates_html_embed green: 27 tests passed (19 prior + new 21 sub-tests across 3 parent funcs - existing 13 baseline = aggregated 27 total). Zero go.mod/go.sum delta."
+updated_at = "2026-05-18T23:55:00Z"
 [builder_l3_e3_d5_test_gates-qa-proof]
 created_at = "2026-05-19T04:21:46Z"
 role = "qa-proof"
@@ -11204,3 +11207,32 @@ Non-blocking observations routed:
 Verdict: L3-E2 ready to close.
 """
 updated_at = "2026-05-18T22:35:00Z"
+
+[build_qa_proof_l3_e3]
+blockers = []
+completed_at = "2026-05-19T00:20:00Z"
+created_at = "2026-05-19T00:00:00Z"
+objective = "Proof-oriented review of L3-E3 (Track B stil-driven views) completed sub-tree. All 5 droplets D1+D2+D3+D4+D5 closed state=complete+outcome=success. Verify: (1) all 5 droplet records closed; (2) all 7 .astro view pages + StilLayout + stil_records.ts + stil/index.astro present; (3) MOCK_* exports match cascade.* + roadmap.* schema field names; (4) AMEND-1 stil component allowlist honoured (no forbidden components imported anywhere); (5) AMEND-2 cascade_qa split into 2 .astro files materialized; (6) AMEND-3 bindings.json source-path pin documented; (7) AMEND-4 verbatim mock-freeze header on line 1 of stil_records.ts; (8) mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green; (9) mage testPkg ./internal/templates_html_embed green (D5's 27/27 includes the 21 stil sub-tests + 6 existing); (10) 7 goldens locked; (11) ZERO authored <script> in 7 stil view dist HTML files (D5's TestTemplatesHtmlEmbed_Stil_ZeroJS pins this); (12) stil tokens present (D5's TestTemplatesHtmlEmbed_Stil_TokensPresent pins this); (13) tsconfig.json single-owner (L3-E4 D1 owns); (14) frozen mock data (no new Date/Math.random)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e3_stil_views"
+role = "qa-proof"
+started_at = "2026-05-19T00:00:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e3_stil_views"
+title = "L3-E3 build-QA proof"
+transition_notes = "L3-E3 build-QA proof PASS. (1) 5/5 droplets complete+success (D1-D5). (2) 7 .astro views + StilLayout + stil_records.ts + stil/index.astro all present. (3) MOCK_* exports cover the 7 views 1:1. (4) AMEND-1 allowlist honoured: only {Sidebar, Topbar, ComponentCard} imported under stil/; forbidden set absent. (5) AMEND-2 cascade_qa split: cascade_qa_proof.astro + cascade_qa_falsification.astro both present + golden-locked. (6) AMEND-3 bindings.json source-path pin documented at stil_records.ts lines 19-28. (7) AMEND-4 verbatim header byte-matches L3-E3 sub-planner amend text on line 1 of stil_records.ts. (8) Fresh mage TemplatesBuildEmbed green (14 pages, 933ms); TemplatesBuildVerifyStable green. (9) Fresh mage testPkg ./internal/templates_html_embed green 27/27. (10) 7 goldens locked. (11) ZeroJS green for all 7 dist files. (12) TokensPresent green. (13) tsconfig.json single-owner. (14) Frozen mock data verified. PASS. Orchestrator follow-up: ta-fe-qa-proof missing mcp__ta__* at runtime; orchestrator closed."
+updated_at = "2026-05-19T00:20:00Z"
+[build_qa_falsif_l3_e3]
+blockers = []
+completed_at = "2026-05-19T00:15:00Z"
+created_at = "2026-05-19T00:00:00Z"
+objective = "Falsification attack on L3-E3 completed sub-tree. Probe: (1) hidden forbidden-component imports via transitive paths; (2) cascade_qa role-pill CSS specificity collisions; (3) container-query parent-context drift; (4) mock data freeze bypass; (5) a11y gaps in any of the 7 stil pages; (6) goldens out of date vs current dist (run mage testPkg WITHOUT UPDATE_GOLDENS=1); (7) tsconfig.json double-create race; (8) viewport breakpoint coverage; (9) stil token usage minimal (the TokensPresent regex is permissive — could pass on a single --stil-* attribute in a comment); (10) cross-tree leakage outside web/templates_embed/src/{layouts,mock,pages/stil}/ + internal/templates_html_embed/{views_stil_test.go,testdata/stil/}; (11) D5 ZeroJS gate exemption — confirm Sidebar/Topbar via chrome='shell' emit ZERO scripts (vs Playground in thariq routes that does); (12) cascade record drift between transition_notes and disk truth."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e3_stil_views"
+role = "qa-falsification"
+started_at = "2026-05-19T00:00:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e3_stil_views"
+title = "L3-E3 build-QA falsification"
+transition_notes = "L3-E3 build-QA falsification PASS. 12 attacks executed; 10 REFUTED with concrete evidence, 1 ACCEPTED-by-design (Attack 8 viewport 768/1280 — design is desktop-first with 880px single-axis collapse + 640/420 mobile refinements; the named breakpoints fall inside the envelope), 1 RECORDED-AS-UNKNOWN (Attack 9 TokensPresent regex permissive — no concrete reproducer today; tighten to var\\(--(stil|space|text|bg)- in follow-up if false-pass ever surfaces). Evidence: mage testPkg ./internal/templates_html_embed = 27/27 pass WITHOUT UPDATE_GOLDENS; rg confirms 0 <script + 0 dynamic Date/Math.random across 7 dist html; per-view a11y landmarks all present (title=1, h1=1, main=1, aria-label≥2); Sidebar/Topbar zero transitive forbidden-component imports; .pill-role--proof/--falsif Astro-scoped via data-astro-cid (no collision); zero @container declarations in stil pages; tsconfig.json=3 lines D1 owner format; git status confined to allowed scopes. No CE blocks close. L3-E3 ready. Orchestrator follow-up: ta-fe-qa-falsification missing mcp__ta__* at runtime; orchestrator closed."
+updated_at = "2026-05-19T00:15:00Z"
