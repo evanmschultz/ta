@@ -424,7 +424,7 @@ Verified via reading `~/.ta/plans.toml` and `~/.ta/notes.toml`: both files decla
 
 **Captured-twice symptom:** F17 (wrong toggle key in prompt text) and F18 (picker rendering hostile) both surfaced because the picker's affordance is bad enough that users can't tell what works. Fixing F18 properly subsumes F17 (the help bar will say what's actually bound, the prompt text becomes redundant).
 
-## F19. Delete shape was never finalized under §12.17.9 — multiple bugs surface together
+## F19. Delete shape was never finalized under §12.17.9 — multiple bugs surface together [CLOSED — drop_004 L3-G6 D1]
 
 `ta delete notes` (intent: delete the whole `notes.toml` file) errored with: `Ops: ambiguous delete on multi-instance db: "notes" does not address a single record under Phase 9.2 grammar (db: unknown db: no db mount matches "notes")`.
 
@@ -451,7 +451,7 @@ Three distinct problems in that one error message:
 
 This ties to F10 (address grammar) — both fixes touch the address parser. Land them in the same migration slice.
 
-## F20. `--verbose` flag missing on `ta delete`
+## F20. `--verbose` flag missing on `ta delete` [CLOSED — drop_004 L3-G6 D1]
 
 `--verbose` is wired on `ta create`, `ta update`, and `ta schema --action=create|update|delete`. Echoes the post-mutation record/schema after the success notice. Useful for human-driven "did it actually work" feedback.
 

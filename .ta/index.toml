@@ -812,6 +812,111 @@ created = 2026-05-18T23:28:39.454341Z
 type = 'qa_proof'
 updated = 2026-05-18T23:28:39.454341Z
 
+[drop_004.drop.builder_l3_e2_dv1_cascade_drop_template]
+created = 2026-05-19T00:55:29.323726Z
+type = 'droplet'
+updated = 2026-05-19T01:02:28.007263Z
+
+[drop_004.drop.builder_l3_e2_dv1_cascade_drop_template-qa-falsification]
+created = 2026-05-19T00:55:29.347667Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.347667Z
+
+[drop_004.drop.builder_l3_e2_dv1_cascade_drop_template-qa-proof]
+created = 2026-05-19T00:55:29.335661Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.335661Z
+
+[drop_004.drop.builder_l3_e2_dv2_cascade_planner_template]
+created = 2026-05-19T01:17:22.797359Z
+type = 'droplet'
+updated = 2026-05-19T03:52:05.942413Z
+
+[drop_004.drop.builder_l3_e2_dv2_cascade_planner_template-qa-falsification]
+created = 2026-05-19T01:17:22.823102Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:17:22.823102Z
+
+[drop_004.drop.builder_l3_e2_dv2_cascade_planner_template-qa-proof]
+created = 2026-05-19T01:17:22.81094Z
+type = 'qa_proof'
+updated = 2026-05-19T01:17:22.81094Z
+
+[drop_004.drop.builder_l3_g1_d1a_keymap_confirm]
+created = 2026-05-19T01:03:35.493734Z
+type = 'droplet'
+updated = 2026-05-19T01:12:48.510292Z
+
+[drop_004.drop.builder_l3_g1_d1a_keymap_confirm-qa-falsification]
+created = 2026-05-19T01:03:35.520691Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:03:35.520691Z
+
+[drop_004.drop.builder_l3_g1_d1a_keymap_confirm-qa-proof]
+created = 2026-05-19T01:03:35.507367Z
+type = 'qa_proof'
+updated = 2026-05-19T01:03:35.507367Z
+
+[drop_004.drop.builder_l3_g1_d1b_ctrl_a_groups]
+created = 2026-05-19T01:17:22.709837Z
+type = 'droplet'
+updated = 2026-05-19T01:20:18.985373Z
+
+[drop_004.drop.builder_l3_g1_d1b_ctrl_a_groups-qa-falsification]
+created = 2026-05-19T01:17:22.741396Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:17:22.741396Z
+
+[drop_004.drop.builder_l3_g1_d1b_ctrl_a_groups-qa-proof]
+created = 2026-05-19T01:17:22.724132Z
+type = 'qa_proof'
+updated = 2026-05-19T01:17:22.724132Z
+
+[drop_004.drop.builder_l3_g1_d2_palette]
+created = 2026-05-19T01:03:35.536415Z
+type = 'droplet'
+updated = 2026-05-19T01:16:09.040157Z
+
+[drop_004.drop.builder_l3_g1_d2_palette-qa-falsification]
+created = 2026-05-19T01:03:35.563774Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:03:35.563774Z
+
+[drop_004.drop.builder_l3_g1_d2_palette-qa-proof]
+created = 2026-05-19T01:03:35.549365Z
+type = 'qa_proof'
+updated = 2026-05-19T01:03:35.549365Z
+
+[drop_004.drop.builder_l3_g1_d3_examples_url]
+created = 2026-05-19T00:55:29.284819Z
+type = 'droplet'
+updated = 2026-05-19T01:00:22.068508Z
+
+[drop_004.drop.builder_l3_g1_d3_examples_url-qa-falsification]
+created = 2026-05-19T00:55:29.309942Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.309942Z
+
+[drop_004.drop.builder_l3_g1_d3_examples_url-qa-proof]
+created = 2026-05-19T00:55:29.297725Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.297725Z
+
+[drop_004.drop.builder_l3_g1_d4_help_bar_narrow]
+created = 2026-05-19T01:17:22.755887Z
+type = 'droplet'
+updated = 2026-05-19T01:21:17.852317Z
+
+[drop_004.drop.builder_l3_g1_d4_help_bar_narrow-qa-falsification]
+created = 2026-05-19T01:17:22.782207Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:17:22.782207Z
+
+[drop_004.drop.builder_l3_g1_d4_help_bar_narrow-qa-proof]
+created = 2026-05-19T01:17:22.769005Z
+type = 'qa_proof'
+updated = 2026-05-19T01:17:22.769005Z
+
 [drop_004.drop.builder_l3_g3_d1_cache_bareroot]
 created = 2026-05-18T23:34:20.458482Z
 type = 'droplet'
@@ -886,6 +991,21 @@ updated = 2026-05-18T23:45:45.587945Z
 created = 2026-05-18T23:45:45.573549Z
 type = 'qa_proof'
 updated = 2026-05-18T23:45:45.573549Z
+
+[drop_004.drop.builder_l3_g6_d1_f19_f20_verify_attest]
+created = 2026-05-19T00:55:29.243085Z
+type = 'droplet'
+updated = 2026-05-19T01:00:05.759195Z
+
+[drop_004.drop.builder_l3_g6_d1_f19_f20_verify_attest-qa-falsification]
+created = 2026-05-19T00:55:29.270061Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.270061Z
+
+[drop_004.drop.builder_l3_g6_d1_f19_f20_verify_attest-qa-proof]
+created = 2026-05-19T00:55:29.256887Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.256887Z
 
 [drop_004.drop.builder_l3_g7_d1_reserved_namespace_guard]
 created = 2026-05-18T23:45:45.602978Z
@@ -1022,6 +1142,81 @@ created = 2026-05-19T00:09:14.317687Z
 type = 'qa_proof'
 updated = 2026-05-19T00:09:14.317687Z
 
+[drop_004.drop.builder_l3_g9_d1_schema_no_args_guard]
+created = 2026-05-19T00:55:29.071942Z
+type = 'droplet'
+updated = 2026-05-19T01:00:16.890093Z
+
+[drop_004.drop.builder_l3_g9_d1_schema_no_args_guard-qa-falsification]
+created = 2026-05-19T00:55:29.099863Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.099863Z
+
+[drop_004.drop.builder_l3_g9_d1_schema_no_args_guard-qa-proof]
+created = 2026-05-19T00:55:29.085932Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.085932Z
+
+[drop_004.drop.builder_l3_g9_d2_form_polish]
+created = 2026-05-19T00:55:29.158005Z
+type = 'droplet'
+updated = 2026-05-19T01:18:06.955299Z
+
+[drop_004.drop.builder_l3_g9_d2_form_polish-qa-falsification]
+created = 2026-05-19T00:55:29.184298Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.184298Z
+
+[drop_004.drop.builder_l3_g9_d2_form_polish-qa-proof]
+created = 2026-05-19T00:55:29.17085Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.17085Z
+
+[drop_004.drop.builder_l3_g9_d3a_meta_schema_for_kind]
+created = 2026-05-19T00:55:29.11437Z
+type = 'droplet'
+updated = 2026-05-19T00:58:32.843244Z
+
+[drop_004.drop.builder_l3_g9_d3a_meta_schema_for_kind-qa-falsification]
+created = 2026-05-19T00:55:29.142412Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.142412Z
+
+[drop_004.drop.builder_l3_g9_d3a_meta_schema_for_kind-qa-proof]
+created = 2026-05-19T00:55:29.127933Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.127933Z
+
+[drop_004.drop.builder_l3_g9_d3b_schema_mutate_tui]
+created = 2026-05-19T01:03:35.449967Z
+type = 'droplet'
+updated = 2026-05-19T01:18:39.539539Z
+
+[drop_004.drop.builder_l3_g9_d3b_schema_mutate_tui-qa-falsification]
+created = 2026-05-19T01:03:35.477507Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:03:35.477507Z
+
+[drop_004.drop.builder_l3_g9_d3b_schema_mutate_tui-qa-proof]
+created = 2026-05-19T01:03:35.463421Z
+type = 'qa_proof'
+updated = 2026-05-19T01:03:35.463421Z
+
+[drop_004.drop.builder_l3_g9_d4_f15_verify]
+created = 2026-05-19T00:55:29.199893Z
+type = 'droplet'
+updated = 2026-05-19T00:59:51.098411Z
+
+[drop_004.drop.builder_l3_g9_d4_f15_verify-qa-falsification]
+created = 2026-05-19T00:55:29.228357Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.228357Z
+
+[drop_004.drop.builder_l3_g9_d4_f15_verify-qa-proof]
+created = 2026-05-19T00:55:29.213875Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.213875Z
+
 [drop_004.drop.builder_l3_i1_d1_config_struct]
 created = 2026-05-16T18:18:57.3526Z
 type = 'droplet'
@@ -1111,6 +1306,66 @@ updated = 2026-05-18T23:14:29.008322Z
 created = 2026-05-18T23:14:28.996302Z
 type = 'qa_proof'
 updated = 2026-05-18T23:14:28.996302Z
+
+[drop_004.drop.builder_l3_i3_d1_resolve]
+created = 2026-05-19T00:55:28.949512Z
+type = 'droplet'
+updated = 2026-05-19T01:02:09.17693Z
+
+[drop_004.drop.builder_l3_i3_d1_resolve-qa-falsification]
+created = 2026-05-19T00:55:28.976737Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:28.976737Z
+
+[drop_004.drop.builder_l3_i3_d1_resolve-qa-proof]
+created = 2026-05-19T00:55:28.964105Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:28.964105Z
+
+[drop_004.drop.builder_l3_i3_d2_copy]
+created = 2026-05-19T00:55:28.990785Z
+type = 'droplet'
+updated = 2026-05-19T00:58:08.008966Z
+
+[drop_004.drop.builder_l3_i3_d2_copy-qa-falsification]
+created = 2026-05-19T00:55:29.016768Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.016768Z
+
+[drop_004.drop.builder_l3_i3_d2_copy-qa-proof]
+created = 2026-05-19T00:55:29.003715Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.003715Z
+
+[drop_004.drop.builder_l3_i3_d3_merge]
+created = 2026-05-19T00:55:29.030935Z
+type = 'droplet'
+updated = 2026-05-19T00:59:46.310426Z
+
+[drop_004.drop.builder_l3_i3_d3_merge-qa-falsification]
+created = 2026-05-19T00:55:29.05679Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:55:29.05679Z
+
+[drop_004.drop.builder_l3_i3_d3_merge-qa-proof]
+created = 2026-05-19T00:55:29.043769Z
+type = 'qa_proof'
+updated = 2026-05-19T00:55:29.043769Z
+
+[drop_004.drop.builder_l3_i3_d4_apply]
+created = 2026-05-19T01:03:35.402281Z
+type = 'droplet'
+updated = 2026-05-19T01:10:50.327225Z
+
+[drop_004.drop.builder_l3_i3_d4_apply-qa-falsification]
+created = 2026-05-19T01:03:35.433465Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:03:35.433465Z
+
+[drop_004.drop.builder_l3_i3_d4_apply-qa-proof]
+created = 2026-05-19T01:03:35.418571Z
+type = 'qa_proof'
+updated = 2026-05-19T01:03:35.418571Z
 
 [drop_004.drop.builder_l3f1_d1_types_and_paths]
 created = 2026-05-16T00:42:26.906756Z
@@ -1595,7 +1850,17 @@ updated = 2026-05-16T00:42:22.409833Z
 [drop_004.drop.l3_g1_init_ux_residue]
 created = 2026-05-19T00:35:40.086633Z
 type = 'planner'
-updated = 2026-05-19T00:51:04.616912Z
+updated = 2026-05-19T01:30:38.680157Z
+
+[drop_004.drop.l3_g1_init_ux_residue-build-qa-falsification]
+created = 2026-05-19T01:21:54.295793Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:26:10.69447Z
+
+[drop_004.drop.l3_g1_init_ux_residue-build-qa-proof]
+created = 2026-05-19T01:21:54.278835Z
+type = 'qa_proof'
+updated = 2026-05-19T01:24:41.992558Z
 
 [drop_004.drop.l3_g1_init_ux_residue-plan-qa-falsification]
 created = 2026-05-19T00:35:40.113605Z
@@ -1675,7 +1940,17 @@ updated = 2026-05-18T23:12:02.99044Z
 [drop_004.drop.l3_g6_delete_verbose]
 created = 2026-05-19T00:35:40.127685Z
 type = 'planner'
-updated = 2026-05-19T00:51:04.593848Z
+updated = 2026-05-19T01:12:44.848222Z
+
+[drop_004.drop.l3_g6_delete_verbose-build-qa-falsification]
+created = 2026-05-19T01:03:35.591432Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:11:14.468787Z
+
+[drop_004.drop.l3_g6_delete_verbose-build-qa-proof]
+created = 2026-05-19T01:03:35.577397Z
+type = 'qa_proof'
+updated = 2026-05-19T01:06:53.146391Z
 
 [drop_004.drop.l3_g6_delete_verbose-plan-qa-falsification]
 created = 2026-05-19T00:35:40.152703Z
@@ -1740,7 +2015,17 @@ updated = 2026-05-18T23:28:03.133022Z
 [drop_004.drop.l3_g9_schema_mutation_tui]
 created = 2026-05-19T00:35:40.167704Z
 type = 'planner'
-updated = 2026-05-19T00:53:17.550693Z
+updated = 2026-05-19T01:30:38.66127Z
+
+[drop_004.drop.l3_g9_schema_mutation_tui-build-qa-falsification]
+created = 2026-05-19T01:19:36.83642Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:26:37.74224Z
+
+[drop_004.drop.l3_g9_schema_mutation_tui-build-qa-proof]
+created = 2026-05-19T01:19:36.81987Z
+type = 'qa_proof'
+updated = 2026-05-19T01:25:25.59706Z
 
 [drop_004.drop.l3_g9_schema_mutation_tui-plan-qa-falsification]
 created = 2026-05-19T00:35:40.192586Z
@@ -1805,7 +2090,17 @@ updated = 2026-05-18T23:09:55.847474Z
 [drop_004.drop.l3_i3_install_engine]
 created = 2026-05-19T00:35:39.919426Z
 type = 'planner'
-updated = 2026-05-19T00:49:29.51754Z
+updated = 2026-05-19T01:30:38.639751Z
+
+[drop_004.drop.l3_i3_install_engine-build-qa-falsification]
+created = 2026-05-19T01:19:36.864398Z
+type = 'qa_falsification'
+updated = 2026-05-19T01:24:38.420523Z
+
+[drop_004.drop.l3_i3_install_engine-build-qa-proof]
+created = 2026-05-19T01:19:36.850885Z
+type = 'qa_proof'
+updated = 2026-05-19T01:22:16.680029Z
 
 [drop_004.drop.l3_i3_install_engine-plan-qa-falsification]
 created = 2026-05-19T00:35:39.948118Z

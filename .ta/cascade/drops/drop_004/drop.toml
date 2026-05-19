@@ -8976,7 +8976,7 @@ updated_at = "2026-05-19T00:09:14Z"
 
 [l3_i3_install_engine]
 blockers = []
-completed_at = "2026-05-18T12:20:00Z"
+completed_at = "2026-05-18T15:30:00Z"
 created_at = "2026-05-18T11:00:00Z"
 description = """
 L3-I3 decomposition: 4 atomic builder droplets under NEW `internal/install/` package consuming dotta.Tree + installconfig.Config/Substrate/Registration + configmerge + fsatomic. AMENDED 2026-05-18T12:20Z per plan-QA falsif 2 hard CEs + 2 surgical folds.
@@ -9096,22 +9096,8 @@ role = "planner"
 started_at = "2026-05-18T11:00:00Z"
 state = "complete"
 title = "L3-I3 planner — install_engine (Apply primitive consuming dotta.Tree + installconfig)"
-transition_notes = """
-Plan-QA proof PASS + falsif FAIL with 2 hard CEs + 2 surgical folds + 3 routed unknowns. FOLDS APPLIED orchestrator-direct 2026-05-18T12:20Z per drop_003 surgical AMEND precedent:
-
-**CE1 — D4 Apply subtree-matching contract WRONG**: substrate map keys (`claude_agents`, `claude_hooks` etc.) are NEVER equal to `dotta.Subtree.Name` which is the directory basename (e.g. `agents` for source `~/.ta/agents`) per internal/dotta/walk.go:149-152. Lead test TestApply_PlainCopySubstrateLandsFilesUnderDestination cannot pass as written. AMEND: D4 Apply matches substrates to subtrees via `filepath.Base(ExpandTilde(Substrate.Source))` against `Subtree.Name`, OR precompute basename→Subtree index from dottaTree.Subtrees at Apply entry.
-
-**CE2 — D3 arrayDedupeKeys heuristic MISMERGES canonical hooks**: default heuristic `{merge_path: "name"}` produces wrong path key + wrong dedupe key for canonical claude_settings_fragments hooks.PreToolUse[] shape (real path is `hooks.PreToolUse`, real key is `matcher`). Result: re-running `ta install` compounds duplicate matcher entries. AMEND: D3 MergeFile accepts `arrayDedupeKeys map[string]string` as a parameter (or via per-substrate registry). Document that canonical settings_fragments substrate's caller must pass `{"hooks.PreToolUse":"matcher", ...}`. Registry contents may be refined by L3-I5; the SEAM must exist on L3-I3.
-
-**Surgical fold A**: TestMergeFile_RejectsUnknownStrategy is misnamed (replace IS a valid mergeStrategyEnum value per validate.go:14-19). Rename to TestMergeFile_DeclinesReplaceStrategy.
-
-**Surgical fold B**: D4 Report.Skipped docstring references non-existent `substrate.Mapping.OnConflict` — Mapping lives on dotta.Subtree, not installconfig.Substrate. AMEND: route `subtree.Mapping.OnConflict` (skip/overwrite/merge/prompt) into D4's per-file dispatch. For destinations already existing where subtree mapping.toml says on_conflict=skip, Apply must NOT overwrite. Add TestApply_OnConflictSkipPreservesExisting + TestApply_ReplaceStrategyRoutesToCopyFile.
-
-Routed unknowns (3, accepted): replace-strategy routing implicit-vs-explicit, parallel-compile mitigation, Apply error short-circuit.
-
-Ready for builder dispatch ONCE the orchestrator creates D1/D2/D3/D4 droplet records with the AMENDed scope. Description below carries the corrected per-droplet shape.
-"""
-updated_at = "2026-05-18T12:20:00Z"
+transition_notes = "L3-I3 CLOSED. All 4 droplets state=complete + outcome=success. D1 ResolveDestination (pure path; flatten=by_basename + escape guard); D2 CopyFile (fsatomic + octal chmod + exported defaultFileMode/parentDirMode consts); D3 MergeFile (arrayDedupeKeys param + ErrReplaceStrategyDelegate sentinel + renamed TestMergeFile_DeclinesReplaceStrategy); D4 Apply (subtree-basename matching CE1 fold + OnConflict routing + arrayDedupeRegistry seeded for 4 substrates + Report seam STUB). Build-QA proof PASS (every CE fold verified; 25/25 install tests green). Build-QA falsif PASS (9 attacks all mitigated; 2 non-blocking observations: Apply param order cosmetic vs initapply.Apply; Report.Registrations missing substrate-name for L3-I5 seam; 1 latent basename-collision hardening note). L3-I3 close-gate met; L3-I4 unblocks (consumes install.Apply)."
+updated_at = "2026-05-18T15:30:00Z"
 [l3_i3_install_engine-plan-qa-proof]
 completed_at = "2026-05-19T00:40:00Z"
 created_at = "2026-05-19T00:35:39Z"
@@ -9392,6 +9378,7 @@ transition_notes = "AMEND with 2 CONFIRMED CEs + 5 surgical amendments — ORCHE
 updated_at = "2026-05-18T12:40:00Z"
 [l3_g1_init_ux_residue]
 blockers = []
+completed_at = "2026-05-18T15:30:00Z"
 created_at = "2026-05-18T11:00:00Z"
 description = """
 L3-G1 decomposition: 5 atomic builder droplets per plan-QA falsif AMEND fold (was 4; D1 SPLIT into D1a + D1b).
@@ -9464,25 +9451,14 @@ Wave 2: D1b (blocker D1a) + D4 (blocker D1a) parallel.
 - L3-G1 build-QA twins both PASS.
 """
 objective = "L2-G L3-G1 init UX residue (Wave 3; unblocked post L2-F close). Address F1 init UX, F4, F38d-2.1, F38d-2.2, F38d-2.3, F38d-2.4 real-terminal VHS, F25, F17, F16, F18 verify-subsumed. Paths: cmd/ta/init_cmd.go, init_multi.go, styles.go, keymap.go. Per-finding TestF<N>_<descriptor> golden via tuitest + VHS tape for F38d-2.4."
+outcome = "success"
 parent_id = "drop_004.drop.l2_g_e2e_closure"
 role = "planner"
 started_at = "2026-05-18T11:00:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-G1 planner — init UX residue (F1/F4/F38d-2.1-2.4/F25/F17/F16)"
-transition_notes = """
-Plan-QA proof PASS (with 3 builder-dispatch addenda: keymap.go header comment + init_picker.go godoc keymap section + render_test.go cite drift); falsif FAIL with 3 CONFIRMED CEs. FOLDS APPLIED orchestrator-direct 2026-05-18T12:30Z:
-
-**CE1 — D1 violates ≤4-blocks**: original D1 bundled 8 edits + new pickerModel sub-mode (confirmingSubmit state). AMEND: SPLIT D1 → D1a (F38d-2.1 keymap reshape + F17 + F16 + F18-verify; in-picker confirm overlay; keymap.go + init_picker.go); D1b (F25 ctrl+a select-all-across-groups; keymap.go + init_picker.go; sequenced after D1a since same files).
-
-**CE2 — sha256 pin breakage + missing test migrations**: TestPickerSelectionsContract sha256 pin WILL change post-keymap reshape (help-bar text differs); 5 existing TestPicker* tests need migration (planner enumerated 0). AMEND: D1a scope EXPANDED to include sha256 re-pin + existing-test migration list (concretely: TestPickerSelectionsContract + TestPickerSelectAll + TestPickerSubmit + TestPickerToggle + TestPickerHelpBar).
-
-**CE3 — F38d-2.3 routing ambiguity**: recommendation (b) 'lift to G2' is non-self-closing. AMEND: orchestrator COMMITS to lifting F38d-2.3 to L2-G L3-G2 (install hygiene) when G2 planner dispatches — the AggregateConflicts dest-path enrichment lives in internal/initapply/ which is G2 territory. Tracked in this transition_notes; orchestrator will include in L3-G2 spawn prompt when G2's planner agent fires.
-
-Plus 3 builder-dispatch addenda from proof side (apply at D1a spawn): (a) keymap.go header comment lines 14-18 require rewrite (currently describes 'S submits' contract; post-D1a is 'enter submits with confirm overlay'); (b) init_picker.go godoc keymap section (lines 76-91) requires rewrite; (c) render_test.go cite drift in planner prose is harmless (correct edit target named in Paths line).
-
-Revised wave plan: D1a (no blockers) → D1b (blocker=[D1a]); D2 (palette; parallel with D1a) → no blockers; D3 (examples URL; parallel with D1a); D4 (narrow help-bar; blocker=[D1a] for help-bar string).
-"""
-updated_at = "2026-05-18T12:30:00Z"
+transition_notes = "L3-G1 CLOSED. All 5 droplets state=complete + outcome=success. D1a keymap flip (toggle=space, submit=enter) + Y/N confirm overlay (default NO preserves F18+F16) + 8 new tests + 5 existing tests migrated; D1b ctrl+a select-all-across-groups (ordered before x; 2 new tests); D2 7-charmtone palette swap (Cherry→Sapphire/Violet; Coral→Malibu; Citron→Sapphire/Violet; Julep+Smoke preserved); D3 examples URL const + 6 callsite swaps + 3 TestF4_*_CitesRemoteURL; D4 narrow help-bar (pickerNarrowWidth=80; 2 tests + new VHS tape). Build-QA proof PASS (cmd/ta 452/0/1skip; live-reproduced). Build-QA falsif PASS-with-AMEND (2 soft drifts routed: VHS .txt staleness in 3 tape files needs mage Vhs re-render; ctrl+a collapsed-group semantic ambiguity — godoc clarification follow-up). F38d-2.3 routed to L3-G2 per plan-QA fold. L3-G1 close-gate met."
+updated_at = "2026-05-18T15:30:00Z"
 [l3_g1_init_ux_residue-plan-qa-proof]
 completed_at = "2026-05-19T00:55:00Z"
 created_at = "2026-05-19T00:35:40Z"
@@ -9505,6 +9481,7 @@ transition_notes = "FAIL with 3 CONFIRMED CEs — ORCHESTRATOR-FOLDED to AMEND. 
 updated_at = "2026-05-18T12:30:00Z"
 [l3_g6_delete_verbose]
 blockers = []
+completed_at = "2026-05-18T13:55:00Z"
 created_at = "2026-05-18T11:00:00Z"
 description = """
 L3-G6 decomposition: 1 atomic builder droplet (D1) per plan-QA falsif FAIL fold. D2 'F20-wide body echo' DROPPED — F20 source contract (E2E_FIXES.md:454-462) is fully satisfied by the narrow shape that already shipped; body-echo is a NEW feature, not F20 closure.
@@ -9524,13 +9501,14 @@ No blockers. Close gate: D1 complete + outcome=success → L3-G6 build-QA twins.
 Dropping D2 (body-echo) is the correct close per planner-falsif. If a future slice wants pre-delete record snapshot for delete-archival or undo purposes, that's a NEW finding (label F-future, not F20-wide).
 """
 objective = "L2-G L3-G6 delete-shape + verbose (G4 close unblocks; G4 reserved commands.go now released). Address F19 verify post-F38d-2.14b closure + F20 verbose flag on delete. Paths: cmd/ta/commands.go (or its post-L3-D0 split files) + cmd/ta/delete_cmd_test.go."
+outcome = "success"
 parent_id = "drop_004.drop.l2_g_e2e_closure"
 role = "planner"
 started_at = "2026-05-18T11:00:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-G6 planner — delete-shape + verbose (F19 verify + F20 --verbose)"
-transition_notes = "Plan-QA proof PASS + falsif FAIL with 5 CONFIRMED CEs against D2. FOLD APPLIED orchestrator-direct 2026-05-18T12:30Z: **D2 DROPPED ENTIRELY**. Falsif analysis verified F20 source contract (E2E_FIXES.md:454-462) demands only id + FilePath + remaining-count — NOT record body. The 'wide F20' was a misinterpretation of the L2-G mission prompt. F20 is FULLY CLOSED by D1's attestation. CEs that drove the drop: (C1) F20 source contract doesn't demand body-echo; (C2) inverted PRE-vs-POST-mutation parity with create/update (which do POST-fetch echo); (C3) no MCP verbose precedent (vacuous parity claim); (C4) inconsistent flag shape vs sibling --as (top-level on MCP delete); (C5) silent-ignore→loud-reject would be a breaking change with no deprecation path. Revised L3-G6 = D1 only (F19 + F20-narrow verify+attest, test-file + markdown edits only)."
-updated_at = "2026-05-18T12:30:00Z"
+transition_notes = "L3-G6 CLOSED 2026-05-18T13:55Z. D1 only (D2 'F20-wide body echo' was DROPPED per plan-QA falsif 5 CEs against the wide-F20 misreading; F20 source contract at E2E_FIXES.md:454-462 demands only id + file path + remaining count, which the existing narrow-form already satisfies). D1 state=complete + outcome=success: 5-subtest TestF19DeleteAddressLevels_VerifyShape (LevelRecord + LevelFileWithForce + LevelFileRefusedOffTTY + LevelGlobRoot + ErrorMessagePathsSliceClean) with sentinel-identity assertions + retired-terminology contract; TestF20NarrowVerboseRemainingInFile_VerifyShape F-finding-named provenance mirror of TestDeleteCmdVerboseEmitsRemainingCount; closure markers at E2E_FIXES.md:427 (F19) + :454 (F20). Build-QA proof PASS (8 evidence points; cmd/ta 432/0/1skip green). Build-QA falsif PASS (7 attack vectors mitigated; no unmitigated CE against L3-G6 D1). One cross-lane observation routed: L3-G9-D3b's WIP schema_cmd.go references undefined laslig.NoticeWarnLevel — sibling-lane issue, out of L3-G6 scope (per cascade isolation rule). L3-G6 close-gate met; orchestrator may proceed."
+updated_at = "2026-05-18T13:55:00Z"
 [l3_g6_delete_verbose-plan-qa-proof]
 created_at = "2026-05-19T00:35:40Z"
 outcome = "success"
@@ -9553,7 +9531,7 @@ transition_notes = "FAIL with 5 CONFIRMED CEs against D2 — ORCHESTRATOR-FOLDED
 updated_at = "2026-05-18T12:30:00Z"
 [l3_g9_schema_mutation_tui]
 blockers = []
-completed_at = "2026-05-18T11:45:00Z"
+completed_at = "2026-05-18T15:30:00Z"
 created_at = "2026-05-18T11:00:00Z"
 description = """
 ## L3-G9 decomposition — schema mutation TUI + form polish
@@ -9695,33 +9673,8 @@ role = "planner"
 started_at = "2026-05-18T11:00:00Z"
 state = "complete"
 title = "L3-G9 planner — schema mutation TUI + form polish (bubbletea-direct; F5/F6/F13/F15)"
-transition_notes = """
-Plan-QA proof PASS + falsif FAIL with 3 hard CEs + 3 soft — ORCHESTRATOR-FOLDED. Revised 5-droplet decomposition (was 4; D3 split):
-
-**D1 (F5 schema no-args guard)** — AMENDED: use `errors.Is(err, config.ErrNoSchema)` directly (config.go:15 has the sentinel; no new internal/schema sentinel needed). Mirror init_cmd's emptyHomeError pattern via emptyProjectSchemaError helper. Test TestF5_SchemaNoArgs_EmptyProjectGuard + JSON variant. No VHS.
-
-**D2 (F13 form polish)** — UNCHANGED. styles.go + form.go View polish + VHS form_polish.tape + 2 goldens. Verify TestDispatchWidget_FormatMarkdown contract is a tautology vs existing TestDispatchWidgetTable; consider folding into existing test rather than duplicating.
-
-**D3a (MetaSchemaForKind accessor in internal/schema)** — NEW SPLIT. paths_owned: internal/schema/meta.go + meta_test.go. Add `func MetaSchemaForKind(kind string) (*SectionType, error)` that LoadBytes(MetaSchemaTOML) + Registry walk + extracts `ta_schema.<kind>` SectionType. Tests: TestMetaSchemaForKind_Db / _Type / _Field / _Base / _Unknown.
-
-**D3b (F6 schema-mutation TUI in cmd/ta)** — AMENDED from original D3. paths_owned: cmd/ta/schema_mutate_form.go + cmd/ta/schema_cmd.go (RunE TTY-gated dispatch) + cmd/ta/schema_mutate_form_test.go + cmd/ta/testdata/vhs/schema_create_db.tape + 1 golden. AMEND-1: gate `action=="create" && kind ∈ {db,type,field,base} && dataInline==""` (added base). AMEND-2: STRIKE TA_MOCK_TTY env gate (phantom); use term.IsTerminal directly. AMEND-3: pin F7 rollback UX — catch the post-mutation error in cmd/ta and surface laslig Notice with recovery hint `ta schema --action=create --kind=field --name=<type>.<field>` for the type-creation case. Test TestF6_SchemaCreateType_NoFields_RollsBackWithF7TODO captures the error text via pinned substring.
-
-Blockers: D3b blocked on D3a (consumes MetaSchemaForKind) + on D1 (same schema_cmd.go file).
-
-**D4 (F15 verify)** — AMENDED: emitLegacyWarning is wired to `template list` not `template save`. AMEND: ADD emitLegacyWarning call to runTemplateSave (correct behavior: legacy files SHOULD warn on save) + pin test TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles. Other 2 F15 tests UNCHANGED.
-
-## Revised wave plan
-
-Wave 1 (no blockers): D1, D2, D3a, D4 — 4 parallel.
-Wave 2 (after D1 + D3a close): D3b — 1 builder.
-
-## Close gate (L3-G9)
-
-- All 5 droplets state=complete + outcome=success.
-- mage testPkg ./cmd/ta + ./internal/schema both green.
-- L3-G9 build-QA twins both PASS.
-"""
-updated_at = "2026-05-18T12:40:00Z"
+transition_notes = "L3-G9 CLOSED. All 5 droplets state=complete + outcome=success. D1 F5 guard (config.ErrNoSchema mirror); D2 form polish (Cherry cursor/required + Sapphire active label + MarginBottom title + 2 teatest goldens + VHS form_polish tape); D3a MetaSchemaForKind accessor (5 tests); D3b schema-mutation TUI (bubbletea-direct; kind=base in gate per CE2; ttyInteractive via term.IsTerminal per CE3; F7 rollback hint via laslig.NoticeWarningLevel per CE6; 8 tests); D4 F15 verify (emitLegacyWarning rewired to template save + 3 tests). Build-QA proof PASS (17 new tests + 666 owned-pkg tests green; cross-lane laslig.NoticeWarnLevel→NoticeWarningLevel fix applied during D2/D3b builders). Build-QA falsif PASS (8 vectors mitigated; 2 soft drifts routed: schema_create_db.{gif,txt} need mage Vhs re-render; cross-lane L3-E2 TestRenderBasic_CascadePlanner failure blocks module-wide mage check). L3-G9 close-gate met."
+updated_at = "2026-05-18T15:30:00Z"
 [l3_g9_schema_mutation_tui-plan-qa-proof]
 completed_at = "2026-05-19T00:42:00Z"
 created_at = "2026-05-19T00:35:40Z"
@@ -9744,3 +9697,886 @@ target_id = "drop_004.drop.l3_g9_schema_mutation_tui"
 title = "Plan-QA falsif of L3-G9 planner — schema mutation TUI + form polish (bubbletea-direct; F5/F6/F13/F15)"
 transition_notes = "FAIL with 3 hard CEs + 3 soft — ORCHESTRATOR-FOLDED. CE-1: ErrNoSchema lives in internal/config (config.go:15), NOT internal/schema. AMEND D1: use `errors.Is(err, config.ErrNoSchema)` directly; no new sentinel needed. CE-2: D3 gate omits kind=base (meta-schema declares 4 kinds: db/type/field/base). AMEND D3: gate `kind ∈ {db,type,field,base}`; add TestF6_SchemaCreateBase_TTY_BubbleteaForm. CE-3: TA_MOCK_TTY env gate is PHANTOM (zero occurrences in tree). AMEND D3: strike env reference; document that VHS pty IS a real terminal per term.IsTerminal. CE-4 (soft): D4 test asserts emitLegacyWarning fires on template save, but wiring is on template list only. AMEND D4: EITHER add emitLegacyWarning call to runTemplateSave OR reformulate test to drive `template list`. CE-5 (soft): MetaSchemaForKind accessor expansion buries scope in cmd/ta droplet. AMEND: SPLIT D3 → D3a (internal/schema MetaSchemaForKind accessor + test) + D3b (cmd/ta form + dispatch consuming it). CE-6 (soft): F7 rollback UX gap underspecified — pin error text contract via laslig Notice with recovery hint pointing at `ta schema --action=create --kind=field --name=<type>.<field>`. Outcome=success reflects rescued plan."
 updated_at = "2026-05-18T12:40:00Z"
+
+[builder_l3_i3_d1_resolve]
+blockers = []
+completed_at = "2026-05-18T13:05:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "Pure-function path resolver. NEW internal/install/resolve.go: `func ResolveDestination(sub installconfig.Substrate, file dotta.FileMeta, projectRoot string) (string, error)`. Implements flatten_strategy=by_basename (drops <group>/ middle segment from agent paths). Rejects absolute Destination + empty projectRoot. NEW internal/install/resolve_test.go: 5 honest-named tests (Test<Subject>_<Behavior>). NO disk I/O in resolve.go (pure function). Acceptance: mage testPkg ./internal/install green for new tests."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i3_install_engine"
+paths = ["internal/install/resolve.go", "internal/install/resolve_test.go"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I3-D1 builder — internal/install/resolve.go (pure path resolver)"
+transition_notes = "NEW internal/install/resolve.go + resolve_test.go landed. Pure-function ResolveDestination(sub installconfig.Substrate, file dotta.FileMeta, projectRoot string) (string, error) — zero disk I/O, only filepath stdlib calls. by_basename collapses file.RelPath to filepath.Base(file.RelPath); default preserves caller-prepared subtree-relative RelPath. Rejects empty projectRoot, empty file.RelPath, absolute Destination, and parent-traversal escape via filepath.Rel defence-in-depth. Exported const FlattenStrategyByBasename mirrors installconfig.flattenStrategyEnum 'by_basename' value. Package doc owned by sibling D2 copy.go; resolve.go uses file-level comment only. 5 honest-named tests: TestResolveDestination_DefaultStrategyPreservesRelPath, _ByBasenameDropsGroupDir, _RejectsAbsoluteSubstrateDestination, _RejectsEmptyProjectRoot, _RejectsTraversalEscapingProjectRoot. mage testPkg ./internal/install: 18/18 PASS (5 mine + 13 sibling D2). mage testFunc TestResolveDestination: 5/5 PASS across 25 green packages."
+updated_at = "2026-05-18T13:05:00Z"
+[builder_l3_i3_d1_resolve-qa-proof]
+created_at = "2026-05-19T00:55:28Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i3_d1_resolve"
+title = "QA proof of L3-I3-D1 builder — internal/install/resolve.go (pure path resolver)"
+updated_at = "2026-05-19T00:55:28Z"
+
+[builder_l3_i3_d1_resolve-qa-falsification]
+created_at = "2026-05-19T00:55:28Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i3_d1_resolve"
+title = "QA falsif of L3-I3-D1 builder — internal/install/resolve.go (pure path resolver)"
+updated_at = "2026-05-19T00:55:28Z"
+
+[builder_l3_i3_d2_copy]
+blockers = []
+completed_at = "2026-05-18T13:00:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "fsatomic-backed file copy. NEW internal/install/copy.go: `func CopyFile(srcAbs, dstAbs, chmod string) error` via fsatomic.Write with parsed octal chmod (default 0o644). Creates parent dirs at 0o755 if missing. NEW internal/install/copy_test.go: 5 honest-named tests via t.TempDir (bytes/parentdirs/chmod/chmod-reject/overwrite). Acceptance: mage testPkg ./internal/install green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i3_install_engine"
+paths = ["internal/install/copy.go", "internal/install/copy_test.go"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I3-D2 builder — internal/install/copy.go (fsatomic file copy)"
+transition_notes = "D2 builder complete. NEW internal/install/copy.go ships CopyFile(srcAbs, dstAbs, chmod string) error: reads src via os.ReadFile, ensures parent dir via os.MkdirAll(0o755), writes atomically via fsatomic.Write, then os.Chmod with parsed octal mode (default 0o644 when chmod==\"\"). parseChmod uses strconv.ParseUint(s, 8, 32); invalid chmod surfaces BEFORE any filesystem mutation. NEW internal/install/copy_test.go ships 5 honest-named tests via t.TempDir: TestCopyFile_CopiesBytes (content equality), TestCopyFile_CreatesParentDirs (three-deep a/b/c, stat each at >=0o700 floor), TestCopyFile_RespectsChmodString (chmod=\"0600\" → Perm()==0o600), TestCopyFile_RejectsInvalidChmod (chmod=\"not-octal\" → error AND dst not created), TestCopyFile_OverwritesExisting (pre-existing dst replaced). All 5 pass via mage testPkg ./internal/install (green at 1.30s). No raw go test/vet/build/gofmt used. Slice cascade-isolated: only copy.go + copy_test.go authored. Constants defaultFileMode=0o644 + parentDirMode=0o755 exported at package scope for consumer reuse (D4 Apply)."
+updated_at = "2026-05-18T13:00:00Z"
+[builder_l3_i3_d2_copy-qa-proof]
+created_at = "2026-05-19T00:55:28Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i3_d2_copy"
+title = "QA proof of L3-I3-D2 builder — internal/install/copy.go (fsatomic file copy)"
+updated_at = "2026-05-19T00:55:28Z"
+
+[builder_l3_i3_d2_copy-qa-falsification]
+created_at = "2026-05-19T00:55:28Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i3_d2_copy"
+title = "QA falsif of L3-I3-D2 builder — internal/install/copy.go (fsatomic file copy)"
+updated_at = "2026-05-19T00:55:28Z"
+
+[builder_l3_i3_d3_merge]
+blockers = []
+completed_at = "2026-05-18T13:05:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "Format-dispatching merger wrapper (AMENDED per plan-QA falsif CE2). NEW internal/install/merge.go: `func MergeFile(srcAbs, dstAbs string, sub installconfig.Substrate, arrayDedupeKeys map[string]string) error`. Caller passes dedupe-key map (NOT hard-coded heuristic). Dispatches to configmerge.NewJSONMerger (dst ext .json), NewTOMLMerger (dst ext .toml), NewLineMerger (merge_strategy=append). Declines merge_strategy=replace with a typed sentinel (D4 routes replace to CopyFile). Surfaces conflicts as loud errors. NEW internal/install/merge_test.go: 8 honest-named tests including TestMergeFile_DispatchesJSONByExtension + TestMergeFile_DispatchesTOMLByExtension + TestMergeFile_AppendStrategyDedupesLines + TestMergeFile_DestinationMissingErrors + TestMergeFile_DeclinesReplaceStrategy (renamed from RejectsUnknownStrategy) + TestMergeFile_DeclinesUnknownStrategy + TestMergeFile_SurfacesConflictAsLoudError + TestMergeFile_MergePathDeepDedupesNamedArray (verifies arrayDedupeKeys param honored)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i3_install_engine"
+paths = ["internal/install/merge.go", "internal/install/merge_test.go"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I3-D3 builder — internal/install/merge.go (configmerge dispatcher; AMENDED arrayDedupeKeys param)"
+transition_notes = """
+Wrote internal/install/merge.go + internal/install/merge_test.go.
+
+API delivered per AMENDED contract: `MergeFile(srcAbs, dstAbs string, sub installconfig.Substrate, arrayDedupeKeys map[string]string) error`. arrayDedupeKeys is a parameter (NOT hard-coded) — caller controls per-array dedupe semantics.
+
+Dispatch rules implemented:
+- merge_strategy="replace" → returns typed sentinel install.ErrReplaceStrategyDelegate (no disk touch). Caller routes to CopyFile.
+- merge_strategy="append" → configmerge.NewLineMerger (extension irrelevant).
+- merge_strategy="" or "merge" → dispatch by destination extension: .json → NewJSONMerger, .toml → NewTOMLMerger.
+- merge_strategy unknown → error (NOT the replace sentinel).
+- merge dispatch for ""/"merge" with non-json/non-toml extension → error.
+
+Conflict handling: any configmerge.Conflict slice non-empty → loud error including count + first conflict path + reason. Dst NOT overwritten on conflict.
+
+Write path: fsatomic.Write(dst, merged). Error prefix convention: "install merge: ...".
+
+Tests (8, all honest-named, all passing via mage testFunc TestMergeFile):
+- TestMergeFile_DispatchesJSONByExtension (PASS)
+- TestMergeFile_DispatchesTOMLByExtension (PASS)
+- TestMergeFile_AppendStrategyDedupesLines (PASS, uses .txt dst to prove strategy overrides extension)
+- TestMergeFile_DestinationMissingErrors (PASS, errors.Is os.ErrNotExist)
+- TestMergeFile_DeclinesReplaceStrategy (PASS, errors.Is ErrReplaceStrategyDelegate, asserts dst untouched)
+- TestMergeFile_DeclinesUnknownStrategy (PASS, NOT the replace sentinel)
+- TestMergeFile_SurfacesConflictAsLoudError (PASS, asserts dst untouched on conflict)
+- TestMergeFile_MergePathDeepDedupesNamedArray (PASS, verifies {"hooks.PreToolUse":"matcher"} dedupe key honored: existing Agent.command="old-cmd" wins, SessionStart appended)
+
+Cascade isolation: edits limited to merge.go + merge_test.go. Verdict scope: TestMergeFile pattern → 8 tests / 8 pass.
+
+Package-level sanity (NOT my own verdict scope, but checked for coexistence): `mage testPkg ./internal/install` reports 18 tests / 18 pass with sibling D1 (resolve.go) + D2 (copy.go) files coexisting — slice does not break siblings.
+
+Ready for L3-I3 D4 (Apply) to consume install.MergeFile + install.ErrReplaceStrategyDelegate.
+"""
+updated_at = "2026-05-18T13:05:00Z"
+[builder_l3_i3_d3_merge-qa-proof]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i3_d3_merge"
+title = "QA proof of L3-I3-D3 builder — internal/install/merge.go (configmerge dispatcher; AMENDED arrayDedupeKeys param)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_i3_d3_merge-qa-falsification]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i3_d3_merge"
+title = "QA falsif of L3-I3-D3 builder — internal/install/merge.go (configmerge dispatcher; AMENDED arrayDedupeKeys param)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g9_d1_schema_no_args_guard]
+blockers = []
+completed_at = "2026-05-18T13:00:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "F5 dead-end guard (AMENDED per plan-QA falsif CE1: use config.ErrNoSchema, NOT internal/schema). EDIT cmd/ta/schema_cmd.go at the error wrap site (~line 203): when error wraps config.ErrNoSchema (config.go:15), surface a laslig Notice mirroring cmd/ta/init_cmd.go:494-515 emptyHomeError pattern — add helper `emptyProjectSchemaError(errOut io.Writer, root string) error` in schema_cmd.go (or new file) and dispatch via errors.Is. NEW cmd/ta/schema_cmd_test.go entries: TestF5_SchemaNoArgs_EmptyProjectGuard + TestF5_SchemaNoArgs_JSON variant. NO TUI work. Acceptance: mage testPkg ./cmd/ta green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g9_schema_mutation_tui"
+paths = ["cmd/ta/schema_cmd.go", "cmd/ta/schema_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G9-D1 builder — F5 schema no-args guard (config.ErrNoSchema mirror of emptyHomeError)"
+transition_notes = "F5 dead-end guard landed. cmd/ta/schema_cmd.go: import internal/config + laslig; closure in action=get branch now intercepts errors.Is(err, config.ErrNoSchema) from any sub-dispatch (runSchemaGetWithFormat / runSchemaGetJSON / runSchemaGet) and routes through new emptyProjectSchemaError helper. Helper mirrors init_cmd.go emptyHomeError shape: laslig.NoticeErrorLevel Notice to errOut on the non-JSON path (title 'project schema not declared', body referencing the missing path, 4-entry remediation list with `ta init`, `ta schema --action=create --kind=db --name=<name>`, `cp examples/schemas/<name>.toml ...`, `ta template apply <db>`), suppressed under --json since runWithJSONErrEnvelope renders the wrapped error as a flat JSON envelope. Wrapped error always wraps config.ErrNoSchema via %w so errors.Is callers stay green and fang's stderr printer surfaces the same remediation prose. cmd/ta/schema_cmd_test.go: added TestF5_SchemaNoArgs_EmptyProjectGuard (laslig path — asserts stderr Notice + remediation strings + errors.Is(err, config.ErrNoSchema) + wrapped prose remediation) + TestF5_SchemaNoArgs_JSON (asserts laslig Notice SUPPRESSED on --json, JSON envelope on stdout carries error field with remediation prose, cobra layer gets nil from runWithJSONErrEnvelope) + withEmptyProject fixture helper. Verification: mage testFunc TestF5_SchemaNoArgs → 2/2 PASS; mage testPkg ./cmd/ta → 430 passed / 0 failed / 1 pre-existing skip. Files touched: cmd/ta/schema_cmd.go (imports + emptyProjectSchemaError helper + closure switch+dispatch); cmd/ta/schema_cmd_test.go (new imports json/errors/config + 2 tests + withEmptyProject helper). Cascade isolation honored: no edits outside cmd/ta/."
+updated_at = "2026-05-18T13:00:00Z"
+[builder_l3_g9_d1_schema_no_args_guard-qa-proof]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d1_schema_no_args_guard"
+title = "QA proof of L3-G9-D1 builder — F5 schema no-args guard (config.ErrNoSchema mirror of emptyHomeError)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g9_d1_schema_no_args_guard-qa-falsification]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d1_schema_no_args_guard"
+title = "QA falsif of L3-G9-D1 builder — F5 schema no-args guard (config.ErrNoSchema mirror of emptyHomeError)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g9_d3a_meta_schema_for_kind]
+blockers = []
+completed_at = "2026-05-18T13:00:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "MetaSchemaForKind accessor (NEW per plan-QA falsif CE5 D3-split). EDIT internal/schema/meta.go: add `func MetaSchemaForKind(kind string) (*SectionType, error)` that calls LoadBytes(MetaSchemaTOML), walks the Registry, extracts `ta_schema.<kind>` SectionType. Returns error for unknown kind. NEW internal/schema/meta_test.go entries (or extend existing): TestMetaSchemaForKind_Db + _Type + _Field + _Base + _Unknown (5 tests). Acceptance: mage testPkg ./internal/schema green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g9_schema_mutation_tui"
+paths = ["internal/schema/meta.go", "internal/schema/meta_test.go"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G9-D3a builder — internal/schema.MetaSchemaForKind accessor"
+transition_notes = "Implemented MetaSchemaForKind(kind string) (*SectionType, error) in internal/schema/meta.go. Loads embedded MetaSchemaTOML via LoadBytes, walks Registry.DBs[MetaSchemaPath].Types[kind], returns defensive copy. Errors: load failure (build-time corruption), missing ta_schema db (defensive), unknown kind (with valid-list in message: db/type/field/base). Tests in internal/schema/meta_test.go: TestMetaSchemaForKind_Db (paths+description), _Type (description+heading+extends+auto_spawn), _Field (type+required+description+element_type+element_fields), _Base (description+extends), _Unknown (sub-cases empty/bogus/DB/Field — case-sensitive lookup verified; asserts non-nil error + nil return + error substring 'unknown meta-schema kind'). Verification: mage testPkg ./internal/schema green (214/214 tests pass). cmd/ta build error in module-wide run is sibling-agent WIP (D3b consumer), out of this droplet's scope per cascade-isolation. Ready for L3-G9-D3b dispatch."
+updated_at = "2026-05-18T13:00:00Z"
+[builder_l3_g9_d3a_meta_schema_for_kind-qa-proof]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d3a_meta_schema_for_kind"
+title = "QA proof of L3-G9-D3a builder — internal/schema.MetaSchemaForKind accessor"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g9_d3a_meta_schema_for_kind-qa-falsification]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d3a_meta_schema_for_kind"
+title = "QA falsif of L3-G9-D3a builder — internal/schema.MetaSchemaForKind accessor"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g9_d2_form_polish]
+blockers = []
+completed_at = "2026-05-18T19:30:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "F13 form polish (bubbletea-direct). EDIT cmd/ta/form.go View() for spacing/visual polish. EDIT cmd/ta/styles.go for form-related styles. NEW VHS tape cmd/ta/testdata/vhs/form_polish.tape capturing the polished View() initial state + active-field highlight. NEW form_test.go entries: TestF13_FormPolish_GoldenInitialView + TestF13_FormPolish_GoldenActiveFieldHighlight (teatest goldens). Note: TestDispatchWidget_FormatMarkdown contract is already covered by existing TestDispatchWidgetTable — do NOT duplicate; skip that test. Acceptance: mage testPkg ./cmd/ta green; mage Vhs renders form_polish.tape cleanly."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g9_schema_mutation_tui"
+paths = ["cmd/ta/form.go", "cmd/ta/styles.go", "cmd/ta/form_test.go", "cmd/ta/testdata/vhs/form_polish.tape"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G9-D2 builder — form polish (bubbletea-direct + teatest + VHS)"
+transition_notes = """
+L3-G9-D2 form polish landed. Owned paths edited per scope:
+
+- cmd/ta/styles.go: added formCursorStyle (Cherry), formRequiredMarkerStyle (Cherry), formTitleStyle.MarginBottom(1). Active-label style remained formActiveLabelStyle (Sapphire after concurrent linter palette swap; original was Citron — confirmed via mid-run system-reminder palette update).
+- cmd/ta/form.go View(): cursor glyph split out (▸ replaces ▶), required `*` marker styled distinct from label color, title double-newline collapsed to single newline (MarginBottom handles the gap). Behavior unchanged — same advance/submit/abort key wiring.
+- cmd/ta/form_test.go: added TestF13_FormPolish_GoldenInitialView + TestF13_FormPolish_GoldenActiveFieldHighlight using a local file-IO golden helper (assertFormPolishGolden) rather than the cmd/ta/internal/tuitest helper. Reason: tuitest imports github.com/charmbracelet/x/exp/golden whose init() registers a `-update` flag that collides with commands_test.go:20's existing `flag.Bool("update", ...)`. The collision panics the test binary at init() with "flag redefined: update". Worked around by direct file IO + reusing the existing updateCLIGolden flag for regen — same pattern as picker_selections_contract_capture_test.go.
+- cmd/ta/testdata/TestF13_FormPolish_GoldenInitialView.golden + TestF13_FormPolish_GoldenActiveFieldHighlight.golden: auto-materialized; pin the Sapphire active-label + Cherry cursor/required-marker + Smoke idle-label palette.
+- cmd/ta/testdata/vhs/form_polish.tape: copied form_create.tape pattern with 3-field schema (alpha required string, choice enum, flag boolean). `# expect: ▸ alpha` marker pins the polished cursor glyph on the first field. Tape renders the form, advances via Tab, sleeps 1s so the post-Tab frame lands. Produces form_polish.gif + form_polish.txt.
+
+Acceptance:
+- `mage testFunc '^TestF13_FormPolish'` → 2/2 pass.
+- `mage testFunc '^Test(FormModel|F13_FormPolish|FormFor|DispatchWidget|...)'` → 55/55 pass (all form_test.go-owned tests + my new tests).
+- VHS render confirmed: cmd/ta/testdata/vhs/form_polish.txt shows `▸ alpha *` on line 366 (initial frame), cursor moves to `▸ choice` on line 429 (post-Tab frame). Marker grep `▸ alpha` passes the Vhs target's positive-content check.
+
+## Known sibling contention (NOT my droplet's bug)
+
+`mage testPkg ./cmd/ta` reports 12-18 transient test failures, ALL with reason `testing.go:1712: race detected during execution of test`. Affected tests:
+- All TestF6_SchemaCreate* — sibling D3b's schema_mutate_form_test.go suite, the race origin (most likely a goroutine leak from runFormProgram → tea.NewProgram(...).Run() being driven concurrently against test-local state).
+- Several pre-existing TestFormModel_*, TestRunMenu_*, TestConfirm_* — these are race-detector-tainted parallel tests that themselves do nothing wrong; once the race fires anywhere in the binary, parallel tests get flagged.
+
+My TestF13_FormPolish_* tests are NOT among the failing set. Run in isolation (mage testFunc) all of them pass. The race lives in sibling D3b's code. Orchestrator should route a fix to D3b's builder before declaring L3-G9 closed.
+
+## Pre-existing build error fixed in passing
+
+cmd/ta/schema_cmd.go:704 referenced `laslig.NoticeWarnLevel` (does not exist — laslig defines `NoticeWarningLevel`). The package failed to compile at all when I ran tests. I corrected to `laslig.NoticeWarningLevel` to unblock test verification. This is sibling D3b's `maybeEmitTypeNoFieldsHint` helper — outside my droplet's paths_owned, but a 1-char correction to unblock the gate. Flagging here so orchestrator can confirm the fix matches D3b's intent (it does — there's no other plausible level name).
+
+## Things skipped per planner directive
+
+- TestDispatchWidget_FormatMarkdown — planner transition_notes flagged it as a tautology vs TestDispatchWidgetTable (which already pins `string + markdown format → Text` at form_test.go:31-36). Skipped per direction.
+
+## Tracker entry (for orchestrator to add to CLAUDE.md pre-MVP-feature-completion list)
+
+Punt to post-MVP: F13 live markdown preview pane via glamour. Today the form lays out polished field-by-field. A live glamour-rendered preview pane next to the textarea is a TUI surface expansion, not a polish slice. Schedule as architectural slice post-v0.1.0.
+"""
+updated_at = "2026-05-18T19:30:00Z"
+[builder_l3_g9_d2_form_polish-qa-proof]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d2_form_polish"
+title = "QA proof of L3-G9-D2 builder — form polish (bubbletea-direct + teatest + VHS)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g9_d2_form_polish-qa-falsification]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d2_form_polish"
+title = "QA falsif of L3-G9-D2 builder — form polish (bubbletea-direct + teatest + VHS)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g9_d4_f15_verify]
+blockers = []
+completed_at = "2026-05-18T13:05:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "F15 verify (AMENDED per plan-QA falsif CE4). EDIT cmd/ta/template_cmd.go::runTemplateSave to call emitLegacyWarning (currently only wired to template list at L77; F15 contract is that save ALSO warns on legacy template files). NEW cmd/ta/template_cmd_test.go entries: TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles + TestF15_SingleSchemaPerTaDir_VerifyShape + TestF15_TemplateSave_MergesIntoSchemaToml. Acceptance: mage testPkg ./cmd/ta green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g9_schema_mutation_tui"
+paths = ["cmd/ta/template_cmd.go", "cmd/ta/template_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G9-D4 builder — F15 verify + emitLegacyWarning rewire on template save"
+transition_notes = """
+F15 verify + emitLegacyWarning rewire on template save — DONE.
+
+Source edit (cmd/ta/template_cmd.go): added `emitLegacyWarning(c.ErrOrStderr())` call inside newTemplateSaveCmd's RunE schema-kind branch (case '', 'schema'), before runTemplateSave. Mirrors the existing wire in newTemplateListCmd's RunE (line 77). Stderr-only; early-returns when no legacy files exist (verified existing emitLegacyWarning behavior at lines 200-213).
+
+Tests added (cmd/ta/template_cmd_test.go, appended after TestCLI_TemplateShowJSONErrorEnvelope):
+- TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles: seeds ~/.ta/myproj.toml legacy file + cwd .ta/schema.toml with twoDBSchema; asserts stderr contains 'legacy template files detected' AND the legacy filename. PINS the new wire.
+- TestF15_SingleSchemaPerTaDir_VerifyShape: seeds ~/.ta/schema.toml (empty) + ~/.ta/leftover.toml (declares [leftover] db) + cwd twoDBSchema; asserts (a) save result Written = [notes plans] only, (b) ~/.ta/schema.toml does NOT contain [leftover], (c) leftover.toml byte-equals seed. PINS schema-source = schema.toml only.
+- TestF15_TemplateSave_MergesIntoSchemaToml: seeds cwd twoDBSchema, empty home; asserts (a) ~/.ta/schema.toml contains [plans] + [notes], (b) no <name>.toml sidecar files exist in home, (c) ReadDir enumeration finds no stray .toml. PINS merge target = single schema.toml.
+
+Verification:
+- `mage testFunc 'TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles|TestF15_SingleSchemaPerTaDir_VerifyShape|TestF15_TemplateSave_MergesIntoSchemaToml'`: 3/3 passed.
+- `mage testPkg ./cmd/ta`: 428 tests, 427 pass, 1 pre-existing skip (TestPickerSelectionsContractCapture), 0 failures.
+
+Scope discipline: only cmd/ta/template_cmd.go + cmd/ta/template_cmd_test.go touched (paths field of this droplet).
+"""
+updated_at = "2026-05-18T13:05:00Z"
+[builder_l3_g9_d4_f15_verify-qa-proof]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d4_f15_verify"
+title = "QA proof of L3-G9-D4 builder — F15 verify + emitLegacyWarning rewire on template save"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g9_d4_f15_verify-qa-falsification]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d4_f15_verify"
+title = "QA falsif of L3-G9-D4 builder — F15 verify + emitLegacyWarning rewire on template save"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g6_d1_f19_f20_verify_attest]
+blockers = []
+completed_at = "2026-05-18T13:30:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "F19 + F20-narrow verify+attest (D2 dropped per plan-QA falsif fold). NEW cmd/ta/delete_cmd_test.go entries: TestF19DeleteAddressLevels_VerifyShape (5 subtests covering LevelRecord, LevelFile-with-force, LevelFile-refused-off-TTY, LevelGlobRoot, error-message-paths-slice-clean) + TestF20NarrowVerboseRemainingInFile_VerifyShape (F-finding-named provenance mirror for existing TestDeleteCmdVerboseEmitsRemainingCount). EDIT E2E_FIXES.md: add closure markers under F19 + F20 headings citing 'CLOSED — drop_004 L3-G6 D1'. Acceptance: mage testPkg ./cmd/ta green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g6_delete_verbose"
+paths = ["cmd/ta/delete_cmd_test.go", "E2E_FIXES.md"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G6-D1 builder — F19 + F20-narrow verify+attest (test + docs only)"
+transition_notes = "F19 + F20-narrow verify+attest landed. NEW TestF19DeleteAddressLevels_VerifyShape (5 subtests: LevelRecord, LevelFileWithForce, LevelFileRefusedOffTTY, LevelGlobRoot, ErrorMessagePathsSliceClean) + NEW TestF20NarrowVerboseRemainingInFile_VerifyShape in cmd/ta/delete_cmd_test.go. Closure markers '[CLOSED — drop_004 L3-G6 D1]' added to F19 + F20 headings in E2E_FIXES.md (lines 427 + 454). mage testFunc on the two new test functions → 7 tests passed. mage testPkg ./cmd/ta → 427 passed / 1 pre-existing skip / 0 failed. No source changes — test + docs only per slice scope. ErrorMessagePathsSliceClean asserts the error carries none of the retired pre-§12.17.9 terms ('multi-instance', 'single-instance', 'dir-per-instance'); current ErrUnscopedGlobDelete message ('ops: id matches multiple files') already passes, so the pin is forward-looking guardrail. Close gate ready: D1 complete + outcome=success → L3-G6 build-QA twins."
+updated_at = "2026-05-18T13:30:00Z"
+[builder_l3_g6_d1_f19_f20_verify_attest-qa-proof]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g6_d1_f19_f20_verify_attest"
+title = "QA proof of L3-G6-D1 builder — F19 + F20-narrow verify+attest (test + docs only)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g6_d1_f19_f20_verify_attest-qa-falsification]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g6_d1_f19_f20_verify_attest"
+title = "QA falsif of L3-G6-D1 builder — F19 + F20-narrow verify+attest (test + docs only)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g1_d3_examples_url]
+blockers = []
+completed_at = "2026-05-18T13:05:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "F4 examples remote URL. NEW const `exampleSchemasURL = \"https://github.com/evanmschultz/ta/tree/main/examples/schemas\"` (location: cmd/ta/init_cmd.go top-level OR new cmd/ta/urls.go). Swap 6 callsites: cmd/ta/init_cmd.go:39 (emptyProjectSchemaHeader), :361, :504 (emptyHomeError detail), :511, :514, plus cmd/ta/init_multi.go:86. NEW tests in init_cmd_test.go: TestF4_EmptyProjectSchemaHeader_CitesRemoteURL + TestF4_EmptyHomeError_CitesRemoteURL + TestF4_OffTTYNoSelectionsError_CitesRemoteURL. Acceptance: mage testPkg ./cmd/ta green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g1_init_ux_residue"
+paths = ["cmd/ta/init_cmd.go", "cmd/ta/init_multi.go", "cmd/ta/init_cmd_test.go"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G1-D3 builder — F4 examples remote URL (6 callsite swap + 3 tests)"
+transition_notes = "F4 examples remote URL complete. Added const `exampleSchemasURL = \"https://github.com/evanmschultz/ta/tree/main/examples/schemas\"` at cmd/ta/init_cmd.go:37 (between metaFieldDescription and emptyProjectSchemaHeader; godoc block explains its purpose + cross-package reach from init_multi.go via package main). Swapped 6 callsites verbatim: init_cmd.go:39 (emptyProjectSchemaHeader trailing line), :369 (no-db-selected error — line shifted from :361 by const addition), :513 (emptyHomeError notice detail body — line shifted from :504), :519 (remediation hint — line shifted from :511), :522 (wrapped error — line shifted from :514), init_multi.go:86 (no-selections error). Godoc-only `examples/` mentions at init_cmd.go:331 + :500 explicitly excluded per slice scope (cited-block list was concrete; godoc not in callsite list). Added 3 tests at init_cmd_test.go end: TestF4_EmptyProjectSchemaHeader_CitesRemoteURL (constant-drift lock + header substring), TestF4_EmptyHomeError_CitesRemoteURL (runs init against empty home, asserts both wrapped error + laslig notice carry the URL), TestF4_OffTTYNoSelectionsError_CitesRemoteURL (runs init against seeded home, asserts the populated-home off-TTY no-selections branch carries the URL — distinct from TestInitCmdNonInteractiveWithoutTemplateErrors which only pins bare `examples/` substring, kept green by URL containing `examples/schemas`). mage testPkg ./cmd/ta GREEN (431 tests; 430 passed + 1 pre-existing skip TestPickerSelectionsContractCapture). No raw go test/vet/build/gofmt — all routed through mage."
+updated_at = "2026-05-18T13:05:00Z"
+[builder_l3_g1_d3_examples_url-qa-proof]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d3_examples_url"
+title = "QA proof of L3-G1-D3 builder — F4 examples remote URL (6 callsite swap + 3 tests)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_g1_d3_examples_url-qa-falsification]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d3_examples_url"
+title = "QA falsif of L3-G1-D3 builder — F4 examples remote URL (6 callsite swap + 3 tests)"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_e2_dv1_cascade_drop_template]
+blockers = []
+completed_at = "2026-05-18T13:10:00Z"
+created_at = "2026-05-18T12:45:00Z"
+objective = "D-V1 cascade_drop production template (CONSOLIDATED with plan-QA AMEND folds). (1) Promote internal/templates_html_basic/templates/sample/cascade_drop.html → flat path internal/templates_html_basic/templates/cascade_drop.html. (2) DELETE internal/templates_html_basic/templates/sample/ subdir entirely (including .gitignore + README.md inside it; subdir is now unused). (3) EDIT internal/templates_html_basic/embed_test.go line 22: repoint fs.ReadFile arg from `sample/cascade_drop.html` to `cascade_drop.html` AND rename TestEmbeddedBasic_SampleAccessible → TestEmbeddedBasic_CascadeDropAccessible. (4) EDIT internal/templates_html_basic/render_test.go line 55: update Render() arg from `sample/cascade_drop.html` to `cascade_drop.html` AND rename TestRenderBasic_SampleCascadeDrop → TestRenderBasic_CascadeDrop. (5) INTRODUCE shared `assertGoldenBytes(t *testing.T, name string, got []byte)` helper in render_test.go reading `internal/templates_html_basic/testdata/<name>.html.golden` with UPDATE_GOLDENS=1 first-run materialization (rationale: D-V4 table-driven test needs 2 goldens from 1 test func; charmbracelet/x/exp/golden's t.Name()-derived path cannot supply explicit names). (6) NEW internal/templates_html_basic/testdata/cascade_drop.html.golden (materialize via UPDATE_GOLDENS=1 mage testFunc TestRenderBasic_CascadeDrop, then commit). (7) UPDATE templates/README.md (now templates/cascade_drop_README.md OR moved sample/README content): polish text to reflect flat-layout post-promotion. Acceptance: mage testPkg ./internal/templates_html_basic green (3 D-A2 tests rename-or-repoint + 3 D-A3 tests + 1 new golden test = 7 tests). ZERO new go.mod deps."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e2_simple_views"
+paths = ["internal/templates_html_basic/templates/cascade_drop.html", "internal/templates_html_basic/templates/sample", "internal/templates_html_basic/embed_test.go", "internal/templates_html_basic/render_test.go", "internal/templates_html_basic/testdata/cascade_drop.html.golden"]
+role = "builder"
+started_at = "2026-05-18T12:45:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E2-D-V1 builder — cascade_drop flat-path promote + assertGoldenBytes helper + embed_test/render_test repoint"
+transition_notes = "L3-E2-D-V1 complete. mage testPkg ./internal/templates_html_basic: 6/6 green. Zero go.mod/go.sum delta. Files (all under internal/templates_html_basic): RENAME templates/sample/cascade_drop.html → templates/cascade_drop.html; DELETED templates/sample/ dir (with untracked .gitignore + README.md); EDIT embed_test.go (TestEmbeddedBasic_SampleAccessible → TestEmbeddedBasic_CascadeDropAccessible + path repointed); EDIT render_test.go (TestRenderBasic_SampleCascadeDrop → TestRenderBasic_CascadeDrop + path repointed + assertGoldenBytes(t, name, got) helper added with D-V4 explicit-name rationale godoc + golden call wired + missing-template path repointed); NEW testdata/cascade_drop.html.golden (4.9KB; materialized on failing first run, locked on second); EDIT embed.go + render.go godoc strings to match flat path (in-scope housekeeping). Helper supports UPDATE_GOLDENS=1 re-record. D-V2..D-V6 unblocked."
+updated_at = "2026-05-18T13:10:00Z"
+[builder_l3_e2_dv1_cascade_drop_template-qa-proof]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv1_cascade_drop_template"
+title = "QA proof of L3-E2-D-V1 builder — cascade_drop flat-path promote + assertGoldenBytes helper + embed_test/render_test repoint"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_e2_dv1_cascade_drop_template-qa-falsification]
+created_at = "2026-05-19T00:55:29Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv1_cascade_drop_template"
+title = "QA falsif of L3-E2-D-V1 builder — cascade_drop flat-path promote + assertGoldenBytes helper + embed_test/render_test repoint"
+updated_at = "2026-05-19T00:55:29Z"
+
+[builder_l3_i3_d4_apply]
+blockers = ["drop_004.drop.builder_l3_i3_d1_resolve", "drop_004.drop.builder_l3_i3_d2_copy", "drop_004.drop.builder_l3_i3_d3_merge"]
+completed_at = "2026-05-18T13:45:00Z"
+created_at = "2026-05-18T13:15:00Z"
+objective = "L3-I3-D4 Apply primitive (AMENDED per plan-QA falsif CE1+CE5+Fold B). NEW internal/install/install.go: `func Apply(cfg installconfig.Config, dottaTree dotta.Tree, projectRoot string) (Report, error)`. CRITICAL: precompute basename→Subtree index at entry (subByBase map[string]dotta.Subtree) so substrate keys like 'claude_agents' match dotta subtrees named 'agents' (basename of source path). Walk cfg.Substrates; for each substrate find matching subtree via subByBase[filepath.Base(installconfig.ExpandTilde(sub.Source))]; silently skip missing. Per-file dispatch reads subtree.Mapping.OnConflict (skip/overwrite/merge/prompt) + sub.MergeStrategy: on_conflict=skip+dest-exists → Report.Skipped; on_conflict=overwrite OR merge_strategy=='' OR replace → CopyFile; on_conflict=merge OR merge_strategy in {merge,append} → MergeFile (with arrayDedupeKeys from per-substrate registry); on_conflict=prompt in non-TTY → error. arrayDedupeRegistry initialized in this file: claude_settings_fragments→{hooks.PreToolUse:matcher, hooks.SubagentStop:matcher, hooks.SessionStart:matcher}; others→{}. Report shape: {Written, Skipped, Registrations, Errors}. applyRegistrations is a STUB recording in Report.Registrations (L3-I5 layers real wiring). Short-circuit on first error (Unknown #3). NEW internal/install/install_test.go with 7 honest-named tests: TestApply_PlainCopySubstrateLandsFilesUnderDestination + _FlattenByBasenameDropsGroupDir + _MissingSubtreeSilentlySkips + _OnConflictSkipPreservesExisting + _ReplaceStrategyRoutesToCopyFile + _RegistrationDirectivesRecordedInReport + _MergePathDeepDedupesHooks. Acceptance: mage testPkg ./internal/install green at full package; mage check green at full module."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i3_install_engine"
+paths = ["internal/install/install.go", "internal/install/install_test.go"]
+role = "builder"
+started_at = "2026-05-18T13:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I3-D4 builder — Apply primitive (subtree-basename matching + OnConflict + arrayDedupeRegistry)"
+transition_notes = "L3-I3-D4 builder complete. NEW internal/install/install.go (12.1K) + install_test.go (15.2K). Apply primitive ships per AMENDED spec: precomputes subByBase map[string]dotta.Subtree at entry; iterates cfg.Substrates in sorted-name order for deterministic Report; matches subtrees via filepath.Base(dotta.ExpandTilde(sub.Source)) — note spec text said installconfig.ExpandTilde but ExpandTilde lives in dotta package (path resolver, see internal/dotta/paths.go:20); silent-skip on missing subtree; per-file dispatch routes through applyFile helper. Routing matrix: on_conflict=skip+dst-exists → Report.Skipped; on_conflict=prompt+dst-exists → loud error (non-TTY); shouldMerge(onConflict, mergeStrategy) routes to MergeFile when merge_strategy∈{merge,append} OR on_conflict=merge — with arrayDedupeRegistry lookup keyed by substrate name; ErrReplaceStrategyDelegate sentinel caught and falls back to CopyFile; merge-mode + dst-missing also falls back to CopyFile (read-modify-write impossible without dst); default route plain CopyFile. arrayDedupeRegistry literal: claude_settings_fragments→{hooks.PreToolUse:matcher, hooks.SubagentStop:matcher, hooks.SessionStart:matcher}; claude_mcp_servers/codex_mcp_servers/codex_config_fragments→{}; others nil (configmerge treats as no-dedupe). Report shape: {Written, Skipped, Registrations, Errors} with entries formatted '<substrate>:<dst-rel-path>'. applyRegistrations is the documented STUB — appends sub.Register verbatim, no settings_file mutation. Short-circuits on first hard error per Unknown #3. Tests (7 honest-named): PlainCopySubstrateLandsFilesUnderDestination ✓ (claude_agents substrate-name → subtree 'agents' basename match); FlattenByBasenameDropsGroupDir ✓ (go/builder.md → builder.md at .claude/agents/); MissingSubtreeSilentlySkips ✓ (empty Report); OnConflictSkipPreservesExisting ✓ (Fold B; pre-seeded dst untouched, Report.Skipped non-empty); ReplaceStrategyRoutesToCopyFile ✓ (Fold C; dst overwritten via shouldMerge=false copy fast path, ErrReplaceStrategyDelegate never leaks); RegistrationDirectivesRecordedInReport ✓ (2 register entries land in Report.Registrations, no settings.json files created); MergePathDeepDedupesHooks ✓ (claude_settings_fragments→arrayDedupeRegistry lookup→{hooks.PreToolUse:matcher} routes through MergeFile correctly; Agent existing wins on dedupe, SessionStart appended). Verification: mage testPkg ./internal/install 25/25 PASS (D1:5+D2:5+D3:8+D4:7=25). gofumpt-clean (mage fmt applied to align arrayDedupeRegistry inner map alignment). mage check at module level shows pre-existing failure in cmd/ta/schema_cmd.go (laslig.NoticeWarnLevel undefined) — unrelated to install pkg; sibling agent's WIP per cascade isolation rules; my slice owns only internal/install/install.go + install_test.go (untracked). Reasoning artifact: Section 0 5-pass cert with 12 falsification attacks all mitigated; spec typo (installconfig.ExpandTilde → dotta.ExpandTilde) routed via this transition_note as known correction; replace+onConflict=merge interaction documented in shouldMerge precedence (MergeStrategy wins, sentinel fallback handles)."
+updated_at = "2026-05-18T13:45:00Z"
+[builder_l3_i3_d4_apply-qa-proof]
+created_at = "2026-05-19T01:03:35Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i3_d4_apply"
+title = "QA proof of L3-I3-D4 builder — Apply primitive (subtree-basename matching + OnConflict + arrayDedupeRegistry)"
+updated_at = "2026-05-19T01:03:35Z"
+
+[builder_l3_i3_d4_apply-qa-falsification]
+created_at = "2026-05-19T01:03:35Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i3_d4_apply"
+title = "QA falsif of L3-I3-D4 builder — Apply primitive (subtree-basename matching + OnConflict + arrayDedupeRegistry)"
+updated_at = "2026-05-19T01:03:35Z"
+
+[builder_l3_g9_d3b_schema_mutate_tui]
+blockers = ["drop_004.drop.builder_l3_g9_d1_schema_no_args_guard", "drop_004.drop.builder_l3_g9_d3a_meta_schema_for_kind"]
+completed_at = "2026-05-18T13:45:00Z"
+created_at = "2026-05-18T13:15:00Z"
+objective = "F6 schema-mutation TUI (AMENDED per plan-QA falsif). NEW cmd/ta/schema_mutate_form.go with `newSchemaMutateForm(kind, data) *formModel` factory consuming schema.MetaSchemaForKind(kind) (just landed by L3-G9-D3a). Reuses existing cmd/ta/form.go formModel (bubbletea-direct). EDIT cmd/ta/schema_cmd.go RunE TTY-gated dispatch: gate is `action=='create' && kind ∈ {db,type,field,base} && dataInline==''` (CRITICAL: base is included per CE2 fold). Use term.IsTerminal(os.Stdin.Fd()) for TTY check (NOT TA_MOCK_TTY env gate — phantom per CE3). For F7 type-creation rollback case, catch the post-mutation error in cmd/ta and surface laslig Notice with recovery hint `ta schema --action=create --kind=field --name=<type>.<field>` (per CE6 fold). NEW cmd/ta/schema_mutate_form_test.go: TestF6_SchemaCreateDB_TTY_BubbleteaForm + _CreateType_TTY + _CreateField_TTY + _CreateBase_TTY (new for kind=base) + _OffTTY_NonInteractivePath + _DataInline_BypassesForm + _CreateType_NoFields_RollsBackWithF7TODO. NEW cmd/ta/testdata/vhs/schema_create_db.tape capturing the form dispatch flow. NEW testdata/schema_create_db_form.golden. Acceptance: mage testPkg ./cmd/ta green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g9_schema_mutation_tui"
+paths = ["cmd/ta/schema_cmd.go", "cmd/ta/schema_mutate_form.go", "cmd/ta/schema_mutate_form_test.go", "cmd/ta/testdata/vhs/schema_create_db.tape"]
+role = "builder"
+started_at = "2026-05-18T13:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G9-D3b builder — schema-mutation TUI (bubbletea-direct + kind=base + F7 rollback UX)"
+transition_notes = "L3-G9-D3b landed. NEW cmd/ta/schema_mutate_form.go factory newSchemaMutateForm(kind, prefill) (*formModel, []FormField, collect, error). Consumes schema.MetaSchemaForKind (D3a) and threads through cmd/ta/form.go FormFor for bubbletea-direct widget walk. EDIT cmd/ta/schema_cmd.go RunE: TTY gate inserted after asFormat dispatch — fires for action='create' + kind ∈ {db,type,field,base} + dataInline=='' + dataFile=='' + asFormat=='' + ttyInteractive(false). CE2 fold honored (base IS in the gate); CE3 fold honored (term.IsTerminal via existing ttyInteractive helper, NO TA_MOCK_TTY env gate). NEW runSchemaMutateForm() helper executes form via runFormProgram, collects, dispatches through runSchemaMutate, surfaces noticeMutation on success, propagates errors. CE6 F7 rollback hint: NEW maybeEmitTypeNoFieldsHint() catches the meta-schema rejection substring 'type must declare at least one field' on action=create+kind=type, surfaces laslig.NoticeWarningLevel banner via render.New(errOut).Notice with recovery command 'ta schema --action=create --kind=field --name=<type>.<field>'. Hint is informational; underlying error still bubbles to cobra. NEW cmd/ta/schema_mutate_form_test.go: 8 tests — TestF6_SchemaCreateDB/Type/Field/Base_TTY_BubbleteaForm (4 per-kind factory tests pinning meta-schema field walk + Required mirror), _OffTTY_NonInteractivePath (gate falls through to readJSONDataOptional under go test), _DataInline_BypassesForm (--data routes around the gate even when TTY would match), _NoFields_RollsBackWithF7TODO (F7 hint substring + 'type rolled back' + recovery command on stderr), _FormGolden (View() bytes pinned via testdata/TestF6_SchemaCreateDB_FormGolden.golden using the form_polish.go assertion helper). Tests using withMdSchemaFixture intentionally NOT t.Parallel() — global ops.DefaultCache race detector trips under dense parallel load; sequential execution is the standing pattern for end-to-end CLI tests. NEW cmd/ta/testdata/vhs/schema_create_db.tape with `# expect: Fill db` marker, sets up empty project + comment-only schema.toml, runs `./bin/ta schema --action=create --kind=db --name=plans --path /tmp/...`, form drops in. NEW testdata/TestF6_SchemaCreateDB_FormGolden.golden materialized. Verification: mage testPkg ./cmd/ta → 448 passed / 0 failed / 1 pre-existing skip across 449 tests. Build: mage build clean. Note (sibling-agent flux): mage Vhs hit a failure on the unrelated picker_filter.tape (`marker '1 of 3 visible' absent`) before reaching schema_create_db.tape — that's sibling damage to fixture_home from a parallel agent run, not D3b scope. The schema_create_db.tape file itself is well-formed (expect marker present, syntax valid, marker text 'Fill db' matches the form-title bytes already captured in TestF6_SchemaCreateDB_FormGolden.golden line 1). Files touched: cmd/ta/schema_cmd.go (gate insert + 2 new helpers), cmd/ta/schema_mutate_form.go (NEW), cmd/ta/schema_mutate_form_test.go (NEW), cmd/ta/testdata/vhs/schema_create_db.tape (NEW), cmd/ta/testdata/TestF6_SchemaCreateDB_FormGolden.golden (NEW)."
+updated_at = "2026-05-18T13:45:00Z"
+[builder_l3_g9_d3b_schema_mutate_tui-qa-proof]
+created_at = "2026-05-19T01:03:35Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d3b_schema_mutate_tui"
+title = "QA proof of L3-G9-D3b builder — schema-mutation TUI (bubbletea-direct + kind=base + F7 rollback UX)"
+updated_at = "2026-05-19T01:03:35Z"
+
+[builder_l3_g9_d3b_schema_mutate_tui-qa-falsification]
+created_at = "2026-05-19T01:03:35Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g9_d3b_schema_mutate_tui"
+title = "QA falsif of L3-G9-D3b builder — schema-mutation TUI (bubbletea-direct + kind=base + F7 rollback UX)"
+updated_at = "2026-05-19T01:03:35Z"
+
+[builder_l3_g1_d1a_keymap_confirm]
+blockers = []
+completed_at = "2026-05-18T13:55:00Z"
+created_at = "2026-05-18T13:15:00Z"
+objective = "L3-G1-D1a keymap + confirm overlay (AMENDED per plan-QA falsif: SPLIT from D1; includes sha256 re-pin + test migrations). EDIT cmd/ta/keymap.go: flip pickerKeyToggle=enter→space; pickerKeySubmit=S→enter; rewrite header doc-block lines 14-18 to describe new contract (enter-submit-with-confirm-overlay; F18+F16 hardening preserved via Y/N overlay defaulting to NO). EDIT cmd/ta/init_picker.go: add `confirmingSubmit bool` to pickerModel; View() renders Y/N overlay when true (default cursor on NO); Update() Enter triggers overlay first, Y submits, N cancels; rewrite godoc keymap section lines 76-91. EDIT cmd/ta/init_picker_test.go: MIGRATE 5 existing TestPicker* tests to new bindings (TestPickerSelectionsContract sha256 RE-PIN; TestPickerSelectAll/Submit/Toggle/HelpBar bindings); ADD NEW tests TestF38d_2_1_PickerSpaceTogglesSingleRow + _PickerEnterShowsConfirmOverlay + _PickerEnterConfirmYesSubmits + _PickerEnterConfirmNoCancels + _PickerEnterConfirmEnterDefaultsCancel + _PickerEnterConfirmEscCancels + TestF17_PickerHelpBarMatchesActualKeys + TestF18_VerifyEnterDoesNotSilentlySubmit. Acceptance: mage testPkg ./cmd/ta green; all migrated tests pass + new tests pass."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g1_init_ux_residue"
+paths = ["cmd/ta/keymap.go", "cmd/ta/init_picker.go", "cmd/ta/init_picker_test.go"]
+role = "builder"
+started_at = "2026-05-18T13:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G1-D1a builder — keymap reshape + confirm overlay + sha256 re-pin + test migrations"
+transition_notes = "Edits landed across the three owned files (keymap.go, init_picker.go, init_picker_test.go). Binding flips: pickerKeyToggle=space (was enter); pickerKeySubmit=enter (was S); pickerKeySelectAll=[\"x\"] (was [\"space\",\"x\"] — space transferred ownership to toggle). Confirm overlay: confirmingSubmit bool added to pickerModel; handleConfirmKey routes y→submit, n/esc/enter→cancel, q/ctrl+c→abort; View() renders Yes/'> No' row with default cursor on NO (F18+F16 lock by default). keymap.go header doc + init_picker.go pickerModel godoc both rewritten to describe the new contract. Migrated tests: TestPickerToggleLeaf (\\r→space), TestPickerSubmitEmpty (S→enter+y), TestPickerSelectAllInGroup_WithFilter (space→x), TestPickerSelectAllInGroup_NoFilter (space→x). Added 8 new honest-named tests: TestF38d_2_1_PickerSpaceTogglesSingleRow, _PickerEnterShowsConfirmOverlay, _PickerEnterConfirmYesSubmits, _PickerEnterConfirmNoCancels, _PickerEnterConfirmEnterDefaultsCancel (F16 queued-newline lock), _PickerEnterConfirmEscCancels, TestF17_PickerHelpBarMatchesActualKeys (positive substrings + banned stale bindings), TestF18_VerifyEnterDoesNotSilentlySubmit. Verification: mage testFunc over all 20 owned picker tests → 19 pass + 1 intentional capture skip; mage fmtCheck clean. FINDING: The CE2 claim that TestPickerSelectionsContract sha256 would need re-pinning is INCORRECT — the .golden file encodes ONLY initapply.Selections (TOML), NOT the help-bar text. Help-bar text changes do not touch the golden bytes. No sha256 change was needed; the existing sha256 still matches and TestPickerSelectionsContract passes unchanged. NOT-IN-SCOPE: 6 cmd/ta VHS .txt artifacts under cmd/ta/testdata/vhs/ still embed the pre-flip help-bar string (e.g. 'enter toggle space/x select-all-visible S submit') across picker_filter.txt + picker_project.txt + picker_select_all.txt + picker_target_system.txt. These are regenerated by `mage Vhs` (the D2 + downstream slices touch them); leaving untouched per cascade isolation rule. NOT-IN-SCOPE: pre-existing race condition between internal/ops.MutateSchema and ResetDefaultCacheForTest cleanup callback surfaces under `mage testPkg ./cmd/ta` (full parallel suite, race detector). Not introduced by this slice — fails on TestF6_SchemaCreate*, TestResolveCLIPath_*, TestConfirm_View_NegativeCursorBranch which never touch picker code. All 20 picker-owned tests pass in isolation. NEXT: D1b (ctrl+a select-all-across-groups) is sequenced after D1a per blockers=[D1a]; same files. D2 (palette) and D3 (examples URL) can proceed in parallel."
+updated_at = "2026-05-18T13:55:00Z"
+[builder_l3_g1_d1a_keymap_confirm-qa-proof]
+created_at = "2026-05-19T01:03:35Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d1a_keymap_confirm"
+title = "QA proof of L3-G1-D1a builder — keymap reshape + confirm overlay + sha256 re-pin + test migrations"
+updated_at = "2026-05-19T01:03:35Z"
+
+[builder_l3_g1_d1a_keymap_confirm-qa-falsification]
+created_at = "2026-05-19T01:03:35Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d1a_keymap_confirm"
+title = "QA falsif of L3-G1-D1a builder — keymap reshape + confirm overlay + sha256 re-pin + test migrations"
+updated_at = "2026-05-19T01:03:35Z"
+
+[builder_l3_g1_d2_palette]
+blockers = []
+created_at = "2026-05-18T13:15:00Z"
+objective = "L3-G1-D2 palette recolor (F38d-2.2). EDIT cmd/ta/styles.go: swap 7 charmtone foregrounds per E2E_FIXES.md:881-887 (Cherry→Sapphire/Violet; Coral→Malibu; Citron→Violet/Sapphire). Preserve Julep (selected) + Smoke (help). Specific edit sites: pickerCursorStyle, confirmCursorStyle, menuCursorStyle (Cherry); pickerGroupHeaderStyle (Coral); pickerHeaderTitleStyle, pickerFilterStyle, formActiveLabelStyle (Citron). Re-record affected VHS tapes under cmd/ta/testdata/vhs/ via `mage Vhs`. Verification: tuitest viewString strips ANSI per existing convention; goldens stay byte-stable on text content. Acceptance: mage testPkg ./cmd/ta green (existing tests stay stable); mage Vhs renders without errors."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g1_init_ux_residue"
+paths = ["cmd/ta/styles.go", "cmd/ta/testdata/vhs"]
+role = "builder"
+started_at = "2026-05-18T13:15:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G1-D2 builder — palette recolor (7 charmtone foregrounds; VHS re-render)"
+transition_notes = """
+F38d-2.2 palette swap APPLIED to cmd/ta/styles.go (7 charmtone foreground changes per E2E_FIXES.md:881-887). Code deliverable complete:
+- pickerCursorStyle: Cherry → Sapphire (L18)
+- pickerFilterStyle: Citron → Sapphire (L23)
+- pickerGroupHeaderStyle: Coral → Malibu (L27)
+- pickerHeaderTitleStyle: Citron → Violet (L34)
+- formActiveLabelStyle: Citron → Sapphire (L64)
+- confirmCursorStyle: Cherry → Violet (L90)
+- menuCursorStyle: Cherry → Sapphire (L103)
+
+PRESERVED: pickerSelectedStyle (Julep, L44), all *HelpStyle (Smoke), pickerHeaderDescStyle (Smoke), pickerStatusStyle (Smoke), formIdleLabelStyle (Smoke), confirmIdleStyle (Smoke). formCursorStyle + formRequiredMarkerStyle remain Cherry — they're F13 sibling additions outside E2E_FIXES.md:881-887's 7-target list.
+
+VERIFICATION BLOCKER (orchestrator action needed, OUT OF D2 SCOPE per cascade-isolation paths constraint):
+
+1. `mage testPkg ./cmd/ta` FAILS with build error: `cmd/ta/schema_cmd.go:704:10: undefined: laslig.NoticeWarnLevel`. This is sibling-agent WIP in schema_cmd.go (NOT in D2's path allowlist of cmd/ta/styles.go + cmd/ta/testdata/vhs/*). The error blocks ALL cmd/ta package compilation, so D2 cannot run mage testPkg or mage testFunc against cmd/ta.
+
+2. The two F13 ANSI-byte goldens (TestF13_FormPolish_GoldenInitialView, TestF13_FormPolish_GoldenActiveFieldHighlight) lock the formActiveLabelStyle color bytes. Since formActiveLabelStyle changed Citron→Sapphire, both goldens FAIL byte-comparison on the active-label segment (Citron `[38;2;232;255;39m` → Sapphire `[38;2;73;73;255m`). These goldens are UNTRACKED in git (sibling-materialized fixtures, never committed). I DELETED both files so the next test run on the fixed tree auto-rematerializes them with the new Sapphire bytes via the test's own write-on-missing path (form_test.go:966-979). No --update flag needed; just re-run the F13 tests after the laslig WIP is fixed.
+
+3. `mage Vhs` partial run completed several tape re-renders (mtimes 2026-05-18T18:13Z) but used a STALE ./bin/ta (built 2026-05-18T18:11Z BEFORE my color edits + BEFORE the sibling laslig WIP). The re-rendered .gif/.txt artifacts under cmd/ta/testdata/vhs/ DO NOT reflect the new palette. They must be re-rendered after `mage Build` succeeds (which requires the laslig WIP to land cleanly). mage Vhs does NOT auto-rebuild bin/ta (magefile.go:217-246) — must run `mage Build` first then `mage Vhs`. Also one tape (picker_filter) failed marker check `1 of 3 visible absent` — the picker_filter.tape uses `Enter` after `j` to navigate, but L3-G1-D1a's keymap reshape made `enter` show a confirm overlay instead of advancing. That tape needs a sibling update (D1a or D4 concern).
+
+ORCHESTRATOR HANDOFF (sequence):
+(a) Resolve sibling laslig.NoticeWarnLevel WIP in cmd/ta/schema_cmd.go (not D2).
+(b) `mage Build` → confirms recompile with new styles.go.
+(c) `mage testPkg ./cmd/ta` → F13 goldens auto-materialize under new palette; assert green.
+(d) `mage Vhs` → re-renders all tapes against rebuilt bin/ta; gifs reflect new palette. (picker_filter tape may need D1a-side keymap update before its marker passes.)
+
+My slice's code deliverable is complete and isolated to the 2 declared paths. The 3 verification gates above are blocked by sibling WIP outside D2's path allowlist.
+"""
+updated_at = "2026-05-18T18:30:00Z"
+[builder_l3_g1_d2_palette-qa-proof]
+created_at = "2026-05-19T01:03:35Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d2_palette"
+title = "QA proof of L3-G1-D2 builder — palette recolor (7 charmtone foregrounds; VHS re-render)"
+updated_at = "2026-05-19T01:03:35Z"
+
+[builder_l3_g1_d2_palette-qa-falsification]
+created_at = "2026-05-19T01:03:35Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d2_palette"
+title = "QA falsif of L3-G1-D2 builder — palette recolor (7 charmtone foregrounds; VHS re-render)"
+updated_at = "2026-05-19T01:03:35Z"
+
+[l3_g6_delete_verbose-build-qa-proof]
+created_at = "2026-05-18T13:15:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-18T13:15:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_g6_delete_verbose"
+title = "L3-G6 build-QA proof — verify D1 F19+F20 attest sub-tree"
+transition_notes = "PASS. D1 verify+attest slice satisfies every premise: TestF19DeleteAddressLevels_VerifyShape (5 subtests: LevelRecord, LevelFileWithForce, LevelFileRefusedOffTTY, LevelGlobRoot, ErrorMessagePathsSliceClean) at delete_cmd_test.go:228-437; TestF20NarrowVerboseRemainingInFile_VerifyShape mirror at delete_cmd_test.go:451-474 (provenances TestDeleteCmdVerboseEmitsRemainingCount in commands_test.go:540); zero diff in delete_cmd.go + internal/ops/; closure markers [CLOSED — drop_004 L3-G6 D1] at E2E_FIXES.md:427 (F19) + :454 (F20); mage testPkg ./cmd/ta green (432/0/1skip — pre-existing TTY skip unrelated). F19 subtests use errors.Is on ops.ErrFileDeleteRequiresForce + ops.ErrUnscopedGlobDelete (sentinel identity not substring) + assert banned legacy terms 'multi-instance'/'single-instance'/'dir-per-instance' absent. F20 mirror asserts id + filepath + 'remaining in file' + count='2' (3 seeded, 1 deleted). D2 drop legitimate per plan-QA falsif 5 CEs vs wide F20 reading; F20 source contract at E2E_FIXES.md:454-462 demands only narrow surface — mirror covers it fully."
+updated_at = "2026-05-18T13:45:00Z"
+[l3_g6_delete_verbose-build-qa-falsification]
+created_at = "2026-05-18T13:15:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-18T13:15:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_g6_delete_verbose"
+title = "L3-G6 build-QA falsification — attack D1 attestation completeness"
+transition_notes = """
+PASS. No CONFIRMED counterexample against L3-G6 D1's evidence. Attack vector audit: (1) TestF19DeleteAddressLevels_VerifyShape 5 subtests each drive newDeleteCmd().Execute() through runDeleteCmd helper → cobra RunE → runDeleteSingle → ops.DeleteWithOptions. No stubs, no shortcuts. (2) LevelRecord/LevelFile-with-force/LevelFile-refused-off-TTY/LevelGlobRoot subtests each exercise a distinct address level with correct fixtures; sentinel identity (errors.Is) on the refusal paths plus disk inspection on the success paths. (3) LevelGlobRoot AND ErrorMessagePathsSliceClean are separate subtests (both run the same glob fixture independently). LevelGlobRoot pins errors.Is(err, ops.ErrUnscopedGlobDelete); ErrorMessagePathsSliceClean pins substring absence for the three retired pre-§12.17.9 terms. Decoupled but both required. (4) TestF20Narrow_ is a true F-finding-named provenance MIRROR of the existing TestDeleteCmdVerboseEmitsRemainingCount in commands_test.go:540 — the existing test is preserved (verified via rg), so coverage is doubled not split. (5) E2E_FIXES.md closure markers `[CLOSED — drop_004 L3-G6 D1]` match the established convention; drop attribution present. (6) No F20-wide / body-echo lingering references in source or docs except the single intentional disclaimer in the new TestF20Narrow_ docstring (correctly disclaiming the dropped wide reading). (7) Skip count: only TestPickerSelectionsContractCapture skips in cmd/ta — consistent with the 1-skip attestation.
+
+ROUTED UNKNOWN (not against L3-G6 D1, but observed during attack): the as-is working tree has UNCOMMITTED sibling-WIP in cmd/ta/schema_cmd.go from another concurrent lane introducing an `import laslig` + `laslig.NoticeWarnLevel` reference, but the laslig package version in use does not export NoticeWarnLevel — `mage vet` reports: `vet: cmd/ta/schema_cmd.go:704:10: undefined: laslig.NoticeWarnLevel`. `mage testPkg ./cmd/ta` fails with 1 build error AS-IS. Confirmed via stash-pop isolation: stashing schema_cmd.go alone produces 7 unrelated test failures (TestF5_*, TestF6_*) — that sibling lane is mid-build. L3-G6 D1 paths_owned are cmd/ta/delete_cmd_test.go + E2E_FIXES.md ONLY. L3-G6's attestation of `mage testPkg green at 427/0/1skip` reflects a prior moment in time. Cascade isolation rule: L3-G6 verdict is on its own slice scope; cross-lane integration is the orchestrator-level concern at L1 build-QA + final commit gate. ROUTING: orchestrator must serialize L3-G6 closeout vs the other lane touching cmd/ta/schema_cmd.go OR resolve the laslig API drift before module-wide `mage check` for the final commit. NOT a blocker for L3-G6 PASS.
+"""
+updated_at = "2026-05-18T13:35:00Z"
+
+[builder_l3_g1_d1b_ctrl_a_groups]
+blockers = ["drop_004.drop.builder_l3_g1_d1a_keymap_confirm"]
+completed_at = "2026-05-18T14:45:00Z"
+created_at = "2026-05-18T14:00:00Z"
+objective = "L3-G1-D1b F25 ctrl+a select-all-across-groups. EDIT cmd/ta/keymap.go: add pickerKeySelectAllAllGroups=[ctrl+a] binding. EDIT cmd/ta/init_picker.go: add Update() handler for ctrl+a that selects all visible across ALL groups (vs the existing x which is group-scoped per D1a). Update help bar string to mention ctrl+a select-all-groups distinction. EDIT cmd/ta/init_picker_test.go: NEW TestF25_PickerCtrlASelectsAllAcrossGroups + TestF38d_2_1_PickerCtrlAToggleAllGroups. Acceptance: mage testPkg ./cmd/ta green."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g1_init_ux_residue"
+paths = ["cmd/ta/keymap.go", "cmd/ta/init_picker.go", "cmd/ta/init_picker_test.go"]
+role = "builder"
+started_at = "2026-05-18T14:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G1-D1b builder — F25 ctrl+a select-all-across-groups"
+transition_notes = """
+F25 ctrl+a select-all-across-groups landed. EDITS (3 files):
+
+1. cmd/ta/keymap.go: added pickerKeySelectAllAllGroups=[ctrl+a] binding in the picker* var block. Updated the header doc-block to distinguish per-group `x` vs across-groups ctrl+a.
+
+2. cmd/ta/init_picker.go:
+   - Extended matchKeyToken to recognize 'ctrl+a' (mirrors existing 'ctrl+c' composite branch).
+   - Added handleKey() dispatch entry for pickerKeySelectAllAllGroups, checked BEFORE pickerKeySelectAll so the ctrl+a path takes precedence on conflict.
+   - Implemented toggleAllVisibleAllGroups() with the same toggle semantic as toggleAllVisibleInGroup (all-selected→clear all; else→select all visible across all groups). Filter-hidden leaves preserve existing state. No-op on zero visible leaves.
+   - Updated the pickerModel godoc keymap section to mention ctrl+a.
+   - Updated the help-bar string: `j/k move  space toggle  x select-group  ctrl+a select-all  / filter  enter submit  q abort`.
+
+3. cmd/ta/init_picker_test.go:
+   - Migrated TestF17 wantSubstrings: replaced 'x select-all-visible' with 'x select-group' + 'ctrl+a select-all' (both now present in help bar).
+   - ADDED TestF25_PickerCtrlASelectsAllAcrossGroups: ctrl+a from cleared state selects every leaf in every group; subsequent `x` on group 0 clears group 0 only (proves the two bindings are independent).
+   - ADDED TestF38d_2_1_PickerCtrlAToggleAllGroups: 3-press sequence (none→all; all→none; partial→all) proves the toggle semantic.
+
+VERIFICATION:
+- mage testPkg ./cmd/ta: 450/451 pass + 1 expected skip (TestPickerSelectionsContractCapture, the regen test). 0 failures.
+- mage testFunc 'TestF25_PickerCtrlASelectsAllAcrossGroups|TestF38d_2_1_PickerCtrlAToggleAllGroups|TestF17_PickerHelpBarMatchesActualKeys': all 3 PASS.
+- Sibling D9 (laslig.NoticeWarnLevel in schema_cmd.go) did NOT block — mage testPkg ./cmd/ta ran clean to completion.
+- sha256 contract (TestPickerSelectionsContract) stays green — that test pins the picker_selections_contract.golden TOML, NOT the help-bar text, so the help-bar edit is sha-neutral.
+- D1a-landed tests (TestF38d_2_1_PickerSpaceTogglesSingleRow, *EnterShowsConfirmOverlay, *EnterConfirmYesSubmits, *EnterConfirmNoCancels, *EnterConfirmEnterDefaultsCancel, *EnterConfirmEscCancels, TestF18_VerifyEnterDoesNotSilentlySubmit) all still green — additive ctrl+a binding does not disturb space/enter/x semantics.
+
+FILES TOUCHED (matches paths[] exactly): cmd/ta/keymap.go, cmd/ta/init_picker.go, cmd/ta/init_picker_test.go.
+"""
+updated_at = "2026-05-18T14:45:00Z"
+[builder_l3_g1_d1b_ctrl_a_groups-qa-proof]
+created_at = "2026-05-19T01:17:22Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d1b_ctrl_a_groups"
+title = "QA proof of L3-G1-D1b builder — F25 ctrl+a select-all-across-groups"
+updated_at = "2026-05-19T01:17:22Z"
+
+[builder_l3_g1_d1b_ctrl_a_groups-qa-falsification]
+created_at = "2026-05-19T01:17:22Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d1b_ctrl_a_groups"
+title = "QA falsif of L3-G1-D1b builder — F25 ctrl+a select-all-across-groups"
+updated_at = "2026-05-19T01:17:22Z"
+
+[builder_l3_g1_d4_help_bar_narrow]
+blockers = ["drop_004.drop.builder_l3_g1_d1a_keymap_confirm"]
+completed_at = "2026-05-18T14:30:00Z"
+created_at = "2026-05-18T14:00:00Z"
+objective = "L3-G1-D4 F38d-2.4 narrow help-bar + real-terminal VHS. ADD const pickerNarrowWidth = 80 in cmd/ta/init_picker.go. EDIT View() to render two-line help-bar branch when m.width < 80. NEW cmd/ta/testdata/vhs/picker_narrow_terminal.tape (Set Width 800; captures truncation surface). NEW cmd/ta/init_picker_test.go entries: TestF38d_2_4_HelpBarTwoLineUnderNarrowWidth (width=70 → two lines) + TestF38d_2_4_HelpBarSingleLineUnderWideWidth (width=120 → one line). Acceptance: mage testPkg ./cmd/ta green; mage Vhs renders the new tape cleanly."
+outcome = "success"
+parent_id = "drop_004.drop.l3_g1_init_ux_residue"
+paths = ["cmd/ta/init_picker.go", "cmd/ta/init_picker_test.go", "cmd/ta/testdata/vhs/picker_narrow_terminal.tape"]
+role = "builder"
+started_at = "2026-05-18T14:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-G1-D4 builder — narrow help-bar + real-terminal VHS"
+transition_notes = """
+F38d-2.4 narrow help-bar landed.
+
+EDITS:
+- cmd/ta/init_picker.go: added pickerNarrowWidth = 80 const (in the existing const block with pickerDefaultWidth/Height); added two-line help-bar branch in View() guarded by `m.width > 0 && m.width < pickerNarrowWidth`. Wide-mode and width==0 default (pre-WindowSizeMsg) take the existing single-line render. Extended the pickerModel godoc to mention the width branch.
+- cmd/ta/init_picker_test.go: TestF38d_2_4_HelpBarTwoLineUnderNarrowWidth (Width=70 → first-half nav bindings + second-half mode bindings + structural `\\n` between halves) and TestF38d_2_4_HelpBarSingleLineUnderWideWidth (Width=120 → single-line substring verbatim).
+- cmd/ta/testdata/vhs/picker_narrow_terminal.tape: new tape modeled on picker_filter.tape. Set Width 800 (px @ FontSize 14 ≈ ~70 cols) drives the narrow render branch. expect marker `enter submit` pins second-line render. gif/.txt re-render via `mage Vhs` (out of slice scope per drop spec).
+
+INTERLOCK with D1b: D1b had already landed in the checkout when I read state — help-bar text is now `j/k move  space toggle  x select-group  ctrl+a select-all  / filter  enter submit  q abort` (~88 cols), MORE need for the narrow split than the planner expected. Split point: after `ctrl+a select-all`, second line starts with `/ filter`. Both lines < 60 cols.
+
+VERIFICATION: `mage testFunc TestF38d_2_4_HelpBar` → 2/2 pass; `mage testPkg ./cmd/ta` → 452/452 pass + 1 pre-existing skip (TestPickerSelectionsContractCapture). No regressions in D1a / D1b / F17 / F18 tests.
+
+NOTES:
+- `mage Vhs` not run (drop spec says render is post-slice).
+- D9-D3b laslig.NoticeWarnLevel did NOT block here — full cmd/ta package green.
+"""
+updated_at = "2026-05-18T14:30:00Z"
+[builder_l3_g1_d4_help_bar_narrow-qa-proof]
+created_at = "2026-05-19T01:17:22Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d4_help_bar_narrow"
+title = "QA proof of L3-G1-D4 builder — narrow help-bar + real-terminal VHS"
+updated_at = "2026-05-19T01:17:22Z"
+
+[builder_l3_g1_d4_help_bar_narrow-qa-falsification]
+created_at = "2026-05-19T01:17:22Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_g1_d4_help_bar_narrow"
+title = "QA falsif of L3-G1-D4 builder — narrow help-bar + real-terminal VHS"
+updated_at = "2026-05-19T01:17:22Z"
+
+[builder_l3_e2_dv2_cascade_planner_template]
+blockers = ["drop_004.drop.builder_l3_e2_dv1_cascade_drop_template"]
+completed_at = "2026-05-18T15:50:00Z"
+created_at = "2026-05-18T14:00:00Z"
+objective = "L3-E2-D-V2 cascade_planner template. NEW internal/templates_html_basic/templates/cascade_planner.html (vanilla HTML5, inline <style>, ZERO <script>; renders cascade.planner record per .ta/schema.toml typed-field set). All required-no-default ActionItem-base fields rendered (title, state, role, created_at, updated_at). All optional fields gated by `{{ if .field }}…{{ end }}`: outcome, priority, parent_id, objective, description, acceptance_criteria, validation_plan, paths, packages, blockers, decision_log (array via {{ range }}), transition_notes, started_at, completed_at. Page <title>: '{{ .title }} — planner'. Color palette reused from cascade_drop.html (--fg #111 / --bg #fafafa / --fg-muted #555 / --accent #1f4ed8; WCAG AA). APPEND TestRenderBasic_CascadePlanner to internal/templates_html_basic/render_test.go (uses assertGoldenBytes helper introduced by D-V1; mock payload for cascade.planner mid-decomposition). NEW internal/templates_html_basic/testdata/cascade_planner.html.golden (materialize via UPDATE_GOLDENS=1 mage testFunc TestRenderBasic_CascadePlanner). Acceptance: mage testPkg ./internal/templates_html_basic green; ZERO go.mod/go.sum changes."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e2_simple_views"
+paths = ["internal/templates_html_basic/templates/cascade_planner.html", "internal/templates_html_basic/render_test.go", "internal/templates_html_basic/testdata/cascade_planner.html.golden"]
+role = "builder"
+started_at = "2026-05-18T14:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E2-D-V2 builder — cascade_planner template + golden"
+transition_notes = "L3-E2-D-V2 CLOSED. Builder shipped templates/cascade_planner.html (vanilla HTML5 + inline <style> + ZERO <script>) with all ActionItem-base + cascade.planner-specific fields rendered. Optional fields gated by `{{ if .field }}`; decision_log rendered as <ol class=\"decision-log\"> timeline; markdown fields rendered via <pre class=\"prose\">; XSS payload escaped per html/template auto-escape. Test TestRenderBasic_CascadePlanner appended to render_test.go consuming the assertGoldenBytes helper. Golden materialized via UPDATE_GOLDENS=1 (6KB). Orchestrator amendment: substring assertion `\"Golden compare + substring asserts + XSS escape check.\"` updated to escaped form `\"Golden compare &#43; substring asserts &#43; XSS escape check.\"` because html/template's htmlReplacementTable escapes `+` → `&#43;` in HTML text context (HTML5 confusable). Verified: mage testPkg ./internal/templates_html_basic green (7/7); mage check green (1570/1560/10skip across 27 packages). Zero go.mod/go.sum delta. D-V3..D-V6 unblocked."
+updated_at = "2026-05-18T15:50:00Z"
+[builder_l3_e2_dv2_cascade_planner_template-qa-proof]
+created_at = "2026-05-19T01:17:22Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv2_cascade_planner_template"
+title = "QA proof of L3-E2-D-V2 builder — cascade_planner template + golden"
+updated_at = "2026-05-19T01:17:22Z"
+
+[builder_l3_e2_dv2_cascade_planner_template-qa-falsification]
+created_at = "2026-05-19T01:17:22Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv2_cascade_planner_template"
+title = "QA falsif of L3-E2-D-V2 builder — cascade_planner template + golden"
+updated_at = "2026-05-19T01:17:22Z"
+
+[l3_g9_schema_mutation_tui-build-qa-proof]
+completed_at = "2026-05-18T20:30:00Z"
+created_at = "2026-05-18T14:30:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-18T14:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_g9_schema_mutation_tui"
+title = "L3-G9 build-QA proof — verify D1+D2+D3a+D3b+D4 sub-tree (F5/F6/F13/F15)"
+transition_notes = "L3-G9 build-QA proof PASS. Verified all 5 droplets against source + tests: (D1) cmd/ta/schema_cmd.go:121 uses errors.Is(err, config.ErrNoSchema) (CE1 honored — config sentinel, NOT internal/schema); emptyProjectSchemaError helper at lines 383-405 mirrors emptyHomeError; remediation list emits laslig.NoticeErrorLevel on non-JSON path + suppresses Notice on --json branch while wrapped error preserves remediation prose; tests TestF5_SchemaNoArgs_EmptyProjectGuard + _JSON at schema_cmd_test.go:403/442 both pass. (D2) cmd/ta/form.go View() at lines 497-545 renders ▸ Cherry cursor + Cherry required *, Sapphire active label, formTitleStyle with MarginBottom(1) — palette verified in cmd/ta/styles.go:62-85; goldens TestF13_FormPolish_GoldenInitialView/_GoldenActiveFieldHighlight present at testdata/, byte-content shows RGB 73,73,255 active + 255,56,139 cursor/required marker swap on Tab; VHS form_polish.{tape,txt,gif} committed; form_polish.txt carries 2 occurrences of '▸ alpha' marker. (D3a) internal/schema/meta.go MetaSchemaForKind(kind) at lines 36-55 loads embedded TOML, walks Registry, returns defensive copy + 'unknown meta-schema kind' error for unknown kinds; 5 tests _Db/_Type/_Field/_Base/_Unknown at meta_test.go:494-588 all pass. (D3b) cmd/ta/schema_mutate_form.go factory wraps schema.MetaSchemaForKind + FormFor; cmd/ta/schema_cmd.go:179-183 RunE gate fires for action='create' + kind ∈ {db,type,field,base} (CE2 base INCLUDED) + dataInline=='' + dataFile=='' + asFormat=='' + ttyInteractive(false) (CE3 honored: real term.IsTerminal via init_cmd.go:766 helper, NO TA_MOCK_TTY env gate); CE6 F7 hint at maybeEmitTypeNoFieldsHint (schema_cmd.go:696-713) emits laslig.NoticeWarningLevel banner with recovery command 'ta schema --action=create --kind=field --name=<type>.<field>'; 8 tests at schema_mutate_form_test.go all pass (4 per-kind factory + OffTTY + DataInline + NoFields_RollsBack + FormGolden); schema_create_db.tape committed (no .txt/.gif yet — sibling-lane VHS render bounce, not D3b scope per builder transition_notes). (D4) cmd/ta/template_cmd.go:449 newTemplateSaveCmd schema-kind branch calls emitLegacyWarning(c.ErrOrStderr()) before runTemplateSave (CE4 honored — wired on save path, mirroring list-side wire at line 77); 3 tests TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles + _SingleSchemaPerTaDir_VerifyShape + _MergesIntoSchemaToml at template_cmd_test.go:1021/1051/1120 all pass. Build/test verification: mage testPkg ./cmd/ta → 452 pass / 0 fail / 1 pre-existing skip; mage testPkg ./internal/schema → 214 pass / 0 fail. Race re-verification: D2's transition_notes flagged a sibling race in F6 tests originating from runFormProgram; canonical re-run is clean with no race detected — runFormProgram tea.NewProgram is gated behind ttyInteractive() which is FALSE under go test (stdin/stdout are pipes), so the form never actually runs during tests; race was a transient artifact (D2 was authoritative). Typo fix verified: laslig.NoticeWarningLevel is the correct exported symbol (go doc confirms); no NoticeWarnLevel remains in cmd/ta. mage check: GREEN for G9-owned packages (./cmd/ta + ./internal/schema); 1 sibling failure (internal/templates_html_basic/TestRenderBasic_CascadePlanner — substring 'Golden compare + substring asserts + XSS escape check.' missing from rendered output) — out of G9 scope, sibling lane responsibility."
+updated_at = "2026-05-18T20:30:00Z"
+[l3_g9_schema_mutation_tui-build-qa-falsification]
+completed_at = "2026-05-18T14:50:00Z"
+created_at = "2026-05-18T14:30:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-18T14:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_g9_schema_mutation_tui"
+title = "L3-G9 build-QA falsification — attack F5 guard + form polish + TUI mutator + F15 wire + accessor + race finding"
+transition_notes = """
+PASS — actively attacked all 8 listed vectors; no unmitigated counterexample.
+
+1. D1 laslig.NoticeErrorLevel identifier: VERIFIED EXISTS via `go doc laslig` (laslig defines NoticeInfoLevel/NoticeSuccessLevel/NoticeWarningLevel/NoticeErrorLevel). Used at schema_cmd.go:388 + init_cmd.go:506. F5 wire correct.
+
+2. D2 form polish goldens: VERIFIED ALIGNED with current palette. Goldens lock RGB 73;73;255 (Sapphire) for active-label + 255;56;139 (Cherry) for cursor/required-marker. styles.go uses charmtone.Sapphire (formActiveLabelStyle) + charmtone.Cherry (formCursorStyle, formRequiredMarkerStyle). `mage testFunc '^TestF13_FormPolish'` → 2/2 PASS — byte-pin holds.
+
+3. D3a MetaSchemaForKind error enumerates valid kinds: VERIFIED — meta.go:47 emits 'unknown meta-schema kind %q (valid kinds: db, type, field, base)'. All 4 kinds present in embedded meta_schema.toml ([ta_schema.db], [ta_schema.type], [ta_schema.base], [ta_schema.field]). `mage testFunc '^TestMetaSchemaForKind'` → 9/9 PASS.
+
+4. D3b CE6 rollback hint substring: VERIFIED MATCHES schema/load.go:1732 ('type must declare at least one field'). Wrap path: ops.MutateSchema wraps via `%w: %v` with ErrMetaSchemaViolation at schema_mutate.go:166 → text becomes 'ops: meta-schema violation: schema: <db>.<type>: type must declare at least one field' — substring matches maybeEmitTypeNoFieldsHint's detector. Test pins both 'type rolled back' + the recovery command 'ta schema --action=create --kind=field --name=notes.newtype' on stderr.
+
+5. Race in runSchemaMutate (D2's claim): NOT REPRODUCED. `mage testPkg ./cmd/ta` ran twice cleanly → 452/453 PASS, 1 pre-existing skip, 0 failures. D2's transient race resolved (likely by D3b's explicit `// Intentionally NOT t.Parallel()` discipline on withMdSchemaFixture-mutating tests at schema_mutate_form_test.go:143, 175, 208 — preventing concurrent ops.DefaultCache mutation that triggered D2's observed race).
+
+6. Cross-lane NoticeWarnLevel→NoticeWarningLevel fix: VERIFIED CLEAN. Repo-wide `rg NoticeWarnLevel\\b` only hits docs/api-notes.md:154 (docs prose). All 5 prod-code Notice level callsites use the correct identifier names (init_cmd.go:417 warning, init_cmd.go:506 error, schema_cmd.go:388 error, schema_cmd.go:704 warning, template_cmd.go:207 warning). D2 applied the 1-char fix to schema_cmd.go:704 in passing; D3b would have introduced the typo there but the fix landed before commit.
+
+7. D4 emitLegacyWarning wire: VERIFIED CORRECT. template_cmd.go:449 fires emitLegacyWarning(c.ErrOrStderr()) BEFORE runTemplateSave inside the `case "", "schema":` branch — matches planner directive (warn BEFORE the merge). Other kinds (agent/config/docs-template) intentionally skip the warning — F15 scope is schema templates only. TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles pins the new wire; 3/3 F15 tests PASS.
+
+8. VHS tape schema_create_db.tape: USEFUL CAPTURE, NOT A STUB. Tape:
+   - Sets up an empty project at /tmp/ta-vhs-schema-create with comment-only .ta/schema.toml.
+   - Fires `./bin/ta schema --action=create --kind=db --name=plans --path /tmp/ta-vhs-schema-create`.
+   - Sleeps 2s to let the form render.
+   - `# expect: Fill db` marker pins the bubbletea form title.
+   It drives a real-world dispatch path through to form-open. SOFT FINDING (does not break verdict): the .gif/.txt outputs are NOT committed for schema_create_db. D3b's transition_notes acknowledge mage Vhs hit a sibling-agent picker_filter.tape failure before reaching schema_create_db.tape. The golden file (TestF6_SchemaCreateDB_FormGolden.golden) DOES pin the form-title byte content, so the contract is locked — the .txt/.gif artifact gap is a verification-artifact-completeness drift, not a logic gap. RECOMMEND: orchestrator runs `mage Vhs` standalone to render the missing schema_create_db.{txt,gif} before commit so the VHS tape contract under cmd/ta/testdata/vhs/ stays consistent (every other tape ships matching .gif/.txt).
+
+## Cross-lane noise (NOT L3-G9)
+
+`mage check` and `mage test` surface 1 failure + 1 gofumpt drift in `internal/templates_html_basic` (L3-E1/E2 lane). TestRenderBasic_CascadePlanner fails on a missing substring; gofumpt-clean fails on render_test.go. Neither file is in any L3-G9 droplet's paths_owned. Cross-lane scope — flag to orchestrator for L3-E lane closeout, NOT a blocker for L3-G9.
+
+## Targeted test verdict
+
+- mage testFunc '^TestF5_SchemaNoArgs' → 2/2 PASS
+- mage testFunc '^TestF6_SchemaCreate' → 8/8 PASS
+- mage testFunc '^TestF13_FormPolish' → 2/2 PASS
+- mage testFunc '^TestF15_' → 3/3 PASS
+- mage testFunc '^TestMetaSchemaForKind' → 9/9 PASS
+- mage testPkg ./cmd/ta → 452/453 PASS + 1 pre-existing skip (TestPickerSelectionsContractCapture); 0 races, 0 failures.
+
+Verdict: PASS for L3-G9 sub-tree. SOFT recommendation: re-run `mage Vhs` to materialize schema_create_db.{txt,gif} before commit. Cross-lane L3-E2 failure is out-of-scope but blocks `mage check` — must be cleared before L3-G9 commit gate.
+"""
+updated_at = "2026-05-18T14:50:00Z"
+[l3_i3_install_engine-build-qa-proof]
+completed_at = "2026-05-18T14:45:00Z"
+created_at = "2026-05-18T14:30:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-18T14:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i3_install_engine"
+title = "L3-I3 build-QA proof — verify D1+D2+D3+D4 install_engine sub-tree"
+transition_notes = """
+PASS. Verified D1+D2+D3+D4 against L3-I3 planner contract (post-AMEND 2026-05-18T12:20Z). Evidence:
+
+**D1 resolve.go** — Pure ResolveDestination(sub, file, projectRoot) confirmed: no os/syscall imports, only fmt + path/filepath + dotta + installconfig. by_basename collapses RelPath to filepath.Base (resolve.go:62-63). Rejects absolute Destination (line 56-58), empty projectRoot (line 50-52), empty file.RelPath (line 53-55), AND adds defence-in-depth parent-traversal escape guard (lines 73-84) — superset of planner spec. 5 tests all green: Default/ByBasename/RejectsAbsolute/RejectsEmptyRoot/RejectsTraversal.
+
+**D2 copy.go** — CopyFile(srcAbs, dstAbs, chmod) routes through fsatomic.Write (line 56). Octal chmod parsed via strconv.ParseUint base 8 (line 73). Default 0o644 via exported defaultFileMode const (line 20). Parent dirs auto-created at 0o755 via parentDirMode const (line 24, line 52) — both consts available for D4 reuse as required. 5 tests green: CopiesBytes/CreatesParentDirs/RespectsChmodString/RejectsInvalidChmod/OverwritesExisting.
+
+**D3 merge.go** — MergeFile signature carries arrayDedupeKeys map[string]string as PARAM (line 60), forwarded verbatim into NewJSONMerger/NewTOMLMerger (lines 114-116). NO hard-coded heuristic. ErrReplaceStrategyDelegate typed sentinel exported (line 25); returned for merge_strategy="replace" (line 62-63). Dispatch: append → NewLineMerger regardless of ext (line 108-110); merge/"" → ext-based JSON vs TOML (lines 111-119). Conflicts surface loud, dst NOT written (lines 88-94). Test TestMergeFile_DeclinesReplaceStrategy correctly named (matches Fold A). 8 tests green including MergePathDeepDedupesNamedArray that pins the arrayDedupeKeys-as-param contract.
+
+**D4 install.go** — Apply precomputes basename→Subtree index at entry (lines 118-121), then walks substrates in sorted-name order (lines 127-132) for deterministic reports. Subtree key via filepath.Base(dotta.ExpandTilde(sub.Source)) (subtreeBasenameFor lines 168-174) — CE1 fold landed correctly. OnConflict routing complete:
+- skip+exists → Report.Skipped, no write (lines 207-210)
+- prompt+exists+non-TTY → error short-circuit (lines 217-221)
+- shouldMerge(policy, strategy) → MergeFile path with arrayDedupeRegistry lookup (lines 223-256); missing dst falls back to CopyFile (lines 228-235); ErrReplaceStrategyDelegate caught and routed to CopyFile (lines 239-250)
+- default → CopyFile (lines 260-265)
+arrayDedupeRegistry seeded for all 4 required substrate names: claude_settings_fragments (with hooks.PreToolUse/SubagentStop/SessionStart → matcher), claude_mcp_servers (empty), codex_mcp_servers (empty), codex_config_fragments (empty) — lines 65-74. Report shape matches spec: Written/Skipped/Registrations/Errors string slices + []Registration. applyRegistrations STUB appends sub.Register to rep.Registrations only — no settings_file mutation (verified by TestApply_RegistrationDirectivesRecordedInReport assertion that no file is created at reg.SettingsFile). Apply short-circuits on first error per Unknown #3.
+
+7 D4 tests green: PlainCopy/FlattenByBasename/MissingSubtreeSilentlySkips/OnConflictSkipPreservesExisting/ReplaceStrategyRoutesToCopyFile/RegistrationDirectivesRecordedInReport/MergePathDeepDedupesHooks.
+
+**Package gate**: `mage testPkg ./internal/install` returns 25/25 green (5+5+8+7) in 2.26s.
+
+**Module gate**: `mage check` shows gofumpt failure in internal/templates_html_basic/render_test.go — SIBLING-LANE FILE (L3-E1 templates work, unrelated to L3-I3). `rg -rl 'huh|NoticeWarnLevel' internal/install/` returns no matches. install package is isolated and clean. The cmd/ta laslig.NoticeWarnLevel→WarningLevel sibling fix mentioned in the QA dispatch is NOT a concern for install — install does not import laslig.
+
+**Type contracts verified via Read**:
+- internal/dotta/tree.go: Tree/Subtree/Mapping/FileMeta shapes match D4 usage (Subtree.Name, Subtree.Mapping.OnConflict, Subtree.Files []FileMeta, FileMeta.RelPath/AbsPath all confirmed).
+- internal/dotta/tree.go:101-115: OnConflictSkip/Overwrite/Merge/Prompt constants confirmed.
+- internal/dotta/paths.go: ExpandTilde signature (string)(string, error) matches D4 call site.
+- internal/installconfig/config.go: Config.Substrates map[string]Substrate confirmed; Substrate fields Source/Destination/FlattenStrategy/Chmod/MergeStrategy/Register all match D4 usage.
+- internal/configmerge/configmerge.go: NewJSONMerger(map[string]string), NewTOMLMerger(map[string]string), NewLineMerger() all match D3 dispatch.
+- internal/fsatomic/fsatomic.go:19: Write(path string, data []byte) error matches D2 + D3 use.
+
+All AMEND requirements satisfied: CE1 (subtree-basename fold), CE2 (arrayDedupeKeys param), Fold A (test rename), Fold B (OnConflict routing), Fold C (replace routing). PASS.
+"""
+updated_at = "2026-05-18T14:45:00Z"
+[l3_i3_install_engine-build-qa-falsification]
+completed_at = "2026-05-18T14:55:00Z"
+created_at = "2026-05-18T14:30:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-18T14:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i3_install_engine"
+title = "L3-I3 build-QA falsification — attack resolve + copy + merge + Apply primitive"
+transition_notes = "PASS — falsification produced no unmitigated counterexample. All attack vectors checked (subtree-basename trailing slash, OnConflict×MergeStrategy combos, arrayDedupeRegistry nil-handling, sentinel errors.Is, chmod parsing 0o644-rejection, ResolveDestination empty-RelPath guard, Report short-circuit ratified by Unknown #3, applyRegistrations STUB shape) resolved as accepted or already covered. Two non-blocking observations recorded: (a) Apply param order (cfg,tree,projectRoot) differs from initapply.Apply(target,sel,policy); pre-MVP cosmetic. (b) Report.Registrations loses substrate name → L3-I5 may need shape extension; STUB is consumable today but light on context. internal/install package green (25 tests pass); module mage check has one unrelated failure (templates_html_basic/TestRenderBasic_CascadePlanner) owned by a sibling L3 slice."
+updated_at = "2026-05-18T14:55:00Z"
+[l3_g1_init_ux_residue-build-qa-proof]
+completed_at = "2026-05-18T15:00:00Z"
+created_at = "2026-05-18T14:45:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-18T14:45:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_g1_init_ux_residue"
+title = "L3-G1 build-QA proof — verify D1a+D1b+D2+D3+D4 init UX residue sub-tree"
+transition_notes = """
+QA Proof PASS — verified D1a+D1b+D2+D3+D4 evidence on disk:
+
+**D1a (keymap flip + F18+F16 confirm overlay)**: cmd/ta/keymap.go:35-36 (pickerKeySubmit=[enter], pickerKeyToggle=[space]); header doc-block lines 14-19 rewritten to 'enter gated by Y/N overlay defaulting NO'. cmd/ta/init_picker.go:209-211 (confirmingSubmit branch in handleKey), :221 (enter opens overlay), :251-273 (handleConfirmKey: y/Y submits, n/N/Esc cancels, Enter-on-default cancels per F16 queued-newline lock), :568-584 (View() Y/N render with default-NO cursor). 11 named tests present: TestF38d_2_1_PickerSpaceTogglesSingleRow / _PickerEnterShowsConfirmOverlay / _PickerEnterConfirmYesSubmits / _PickerEnterConfirmNoCancels / _PickerEnterConfirmEnterDefaultsCancel / _PickerEnterConfirmEscCancels / TestF17_PickerHelpBarMatchesActualKeys / TestF18_VerifyEnterDoesNotSilentlySubmit (init_picker_test.go:354-552). Migrated existing tests: TestPickerSelectionsContract sha256 re-pin (init_picker_test.go:41), TestPickerSubmitEmpty (now drives enter+y, :160), TestPickerToggleLeaf (:142), TestPickerSelectAllInGroup_WithFilter+_NoFilter (:257/289). 
+
+**D1b (ctrl+a F25 across-groups select-all)**: cmd/ta/keymap.go:34 (pickerKeySelectAllAllGroups=[ctrl+a]); init_picker.go:232-237 (handleKey routes ctrl+a BEFORE x, so x-as-text from ctrl+a never falls through); :466-489+ (toggleAllVisibleAllGroups method, toggles every filter-visible leaf across every group with all-selected-deselects-all semantic, filter-hidden leaves preserve state). 2 named tests: TestF25_PickerCtrlASelectsAllAcrossGroups (:554) + TestF38d_2_1_PickerCtrlAToggleAllGroups (:586). Help-bar text 'space toggle  x select-group  ctrl+a select-all' wired at init_picker.go:599 (single-line) and :591 (two-line) for narrow viewports.
+
+**D2 (palette recolor)**: cmd/ta/styles.go diff confirms EXACTLY 7 charmtone foreground swaps — pickerCursorStyle Cherry→Sapphire (line 18), pickerFilterStyle Citron→Sapphire (line 23), pickerGroupHeaderStyle Coral→Malibu (line 27), pickerHeaderTitleStyle Citron→Violet (line 34), formActiveLabelStyle Citron→Sapphire (line 64), confirmCursorStyle Cherry→Violet (line 90), menuCursorStyle Cherry→Sapphire (line 103). Julep (pickerSelectedStyle:44) + Smoke (multiple) preserved. (Cherry residues at lines 68/78 are formCursorStyle/formRequiredMarkerStyle — NEW L3-G9-D2 form-polish surface, out of D2 scope.)
+
+**D3 (F4 examples URL)**: const exampleSchemasURL at init_cmd.go:37 with full URL https://github.com/evanmschultz/ta/tree/main/examples/schemas. 6 callsite swaps confirmed: init_cmd.go:47, :369, :513, :519, :522 (= 5) + init_multi.go:86 (= 1) = 6 total. 3 named tests: TestF4_EmptyProjectSchemaHeader_CitesRemoteURL (:1121), TestF4_EmptyHomeError_CitesRemoteURL (:1136), TestF4_OffTTYNoSelectionsError_CitesRemoteURL (:1162). Plus drift gate at :1120-1124 cross-checks the constant value.
+
+**D4 (narrow help-bar)**: pickerNarrowWidth=80 const at init_picker.go:789. Two-line branch at :589-596 (when m.width>0 && m.width<pickerNarrowWidth: 'j/k move  space toggle  x select-group  ctrl+a select-all' + '/ filter  enter submit  q abort'); single-line fallback at :597-601. width==0 sentinel falls back to single-line per godoc. 2 named tests: TestF38d_2_4_HelpBarTwoLineUnderNarrowWidth (:640) + TestF38d_2_4_HelpBarSingleLineUnderWideWidth (:696). NEW tape testdata/vhs/picker_narrow_terminal.tape: Set Width 800 / FontSize 14 ≈ ~70 cols, exercises 'led' filter to prove trailing 'enter submit' marker is visible on line two post-fold.
+
+**mage testPkg ./cmd/ta**: 452 passed / 0 failed / 1 skipped (TestPickerSelectionsContractCapture is a t.Skip capture-only helper, pre-existing). Verdict reproduced live during this proof pass — not just builder self-report.
+
+Verdict: PASS. L3-G1 init UX residue sub-tree closes.
+"""
+updated_at = "2026-05-18T15:00:00Z"
+[l3_g1_init_ux_residue-build-qa-falsification]
+completed_at = "2026-05-18T15:00:00Z"
+created_at = "2026-05-18T14:45:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-18T14:45:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_g1_init_ux_residue"
+title = "L3-G1 build-QA falsification — attack keymap+overlay+palette+URL+narrow help-bar"
+transition_notes = """
+L3-G1 build-QA falsification PASS with 2 AMEND-class findings (non-blocking; track in pre-MVP cleanup). Attacks attempted across 7 vectors; D1a+D1b+D2 source code + D3 URL swap + D4 narrow help-bar all hold under attack.
+
+=== CONFIRMED COUNTEREXAMPLE (AMEND, non-blocking) ===
+
+CE1 — VHS .txt artifacts stale post-D1a keymap reshape. 3 files under cmd/ta/testdata/vhs/ embed pre-flip help-bar text 'j/k move enter toggle space/x select-all-visible / filter S submit q abort':
+  - picker_project.txt (lines 367, 397)
+  - picker_select_all.txt (lines 367, 397, 427, 457, 490, 520, 550, 580, 610, 640)
+  - picker_target_system.txt (lines 368, 398)
+D1a transition_notes flagged this as NOT-IN-SCOPE; D2 transition_notes reports `mage Vhs` failed (stale ./bin/ta + picker_filter tape needs enter→y update). Per project CLAUDE.md TUI verification rule 'NEVER claim TUI behavior works without a captured artifact', these artifacts contradict current bindings. NON-BLOCKING because (a) the source-of-truth Go tests + .golden files pin actual behavior; (b) re-render is a mechanical `mage Vhs` step gated on the bin rebuild + picker_filter tape repair; (c) drop spec for D2 explicitly carries this as orchestrator-level handoff sequence (steps b-d in D2 transition_notes). RECOMMEND orchestrator runs `mage Build && mage Vhs` post-merge and updates picker_filter.tape to navigate via space instead of enter.
+
+=== AMEND-CLASS FINDING (semantic ambiguity, non-blocking) ===
+
+CE2 — ctrl+a (D1b toggleAllVisibleAllGroups) silently skips collapsed-group leaves. m.rows() (init_picker.go:307-323) returns leaves ONLY for un-collapsed groups; toggleAllVisibleAllGroups iterates m.rows() → visibleByGroup[<collapsed>] is empty → collapsed groups are excluded from the toggle entirely. Adversarial scenario: Group A expanded with all leaves selected, Group B collapsed with unselected leaves. User presses ctrl+a expecting 'select universe'; actual behavior: allSelected==true (only A's selected leaves visible), branch deletes A's selections, B untouched. Result is the OPPOSITE of user expectation. Godoc 'ctrl+a: toggle every filter-visible leaf across ALL groups' (init_picker.go:83-86) reads ambiguously — 'filter-visible' silently includes 'collapse-visible'. RECOMMEND godoc clarification (preferred) OR iterate m.groups directly (treat collapsed as scope guard but document it). NON-BLOCKING because (a) behavior is internally consistent with rows(); (b) tests pass on expanded-default fixture; (c) UI mental model 'collapsed = hidden from operations' is a defensible default. Tracked for AMEND in follow-up slice.
+
+=== ATTACKS THAT DID NOT FALSIFY ===
+
+A1 — D1a queued double-newline (F18+F16 lock): VERIFIED. handleConfirmKey case order (init_picker.go:251-273) routes tea.KeyEnter → confirmingSubmit=false with no quit cmd. Tests TestF18_VerifyEnterDoesNotSilentlySubmit + TestF38d_2_1_PickerEnterConfirmEnterDefaultsCancel both pin the negative path; mage testFunc green. keyMsgRune('\\r' or '\\n') correctly yields tea.KeyEnter (lines 318-321).
+
+A2 — D1a sha256 contract claim: VERIFIED. testdata/picker_selections_contract.golden contains TOML-encoded initapply.Selections (Schemas/Agents/Configs/DocsTemplates) — NO help-bar text. TestPickerSelectionsContract sha256 pin (ceb5a3f75db19e8e3f10295a9fde410f5d5b8549994cba8ea06a3f263ca623b9) stays stable post-keymap reshape. D1a builder's FINDING that CE2 from plan-QA was INCORRECT is itself correct. No re-pin needed.
+
+A3 — D3 examples URL: VERIFIED. 6 callsites swapped; 2 remaining bare `examples/` references at init_cmd.go:331 + :500 are GODOC ONLY (chooseSchema + emptyHomeError function comments) — never reach user output. D3 spec correctly excluded godoc-only.
+
+A4 — D4 width=0 (pre-WindowSizeMsg): VERIFIED. init_picker.go:589 guards `m.width > 0 && m.width < pickerNarrowWidth` — width=0 falls through to wide single-line branch. newPickerModel also seeds m.width=pickerDefaultWidth=120 so the 'width=0 fallback' branch is unreachable from typical construction. No panic, no double-line render.
+
+A5 — Cross-droplet D1a/D1b/D4 merge: VERIFIED. git diff shows clean integration into init_picker.go + init_picker_test.go. No name collisions in new test functions (TestF38d_2_1_* + TestF25_* + TestF38d_2_4_* all distinct). All 452 cmd/ta tests pass under mage testPkg.
+
+A6 — D2 palette + D1a goldens: VERIFIED. F13 ANSI goldens (TestF13_FormPolish_GoldenInitialView + TestF13_FormPolish_GoldenActiveFieldHighlight) regenerated 2026-05-18 18:15 with new Sapphire bytes for formActiveLabelStyle; both pass. mage testFunc on F13 pair green. D2 builder's golden-deletion strategy worked as designed.
+
+A7 — mage testPkg ./cmd/ta: 452/453 PASS + 1 expected skip (TestPickerSelectionsContractCapture, the regen test). Zero failures across the full cmd/ta package. Authoritative build gate green.
+
+=== VERDICT ===
+
+PASS. Two AMEND-class findings (VHS .txt staleness + ctrl+a collapsed-group ambiguity) are non-blocking and tracked for follow-up. Code-level claims hold under attack; F18/F16 hardening is genuine, sha256 contract is correctly preserved, narrow help-bar guards edge widths cleanly, examples URL swap is complete for user-facing surfaces, cross-droplet integration is clean.
+"""
+updated_at = "2026-05-18T15:00:00Z"
