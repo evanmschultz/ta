@@ -696,7 +696,7 @@ Ready for L3-D0 record creation + plan-QA dispatch in Wave 2D-1.
 updated_at = "2026-05-17T04:58:00Z"
 [l2_e_html_template_system]
 blockers = []
-completed_at = "2026-05-15T11:35:00Z"
+completed_at = "2026-05-19T01:05:00Z"
 created_at = "2026-05-15T11:30:00Z"
 description = """
 L2-E decomposition into 4 L3 sub-planners. Templates render FROM ta record data via Astro build (NOT from existing html files via D's backend) — L2-E independent of L2-D.
@@ -760,37 +760,10 @@ outcome = "success"
 parent_id = "drop_004.drop.mvp_substrate"
 role = "planner"
 started_at = "2026-05-16T02:15:00Z"
-state = "in_progress"
+state = "complete"
 title = "L2-E planner — html_template_system (4 L3 sub-planners)"
-transition_notes = """
-AMENDMENTS APPLIED (orchestrator-override on 7 surgical CONFIRMED-CEs from plan-QA proof + falsif twins) — ORIGINAL set:
-
-1. **L3-E1 stil-reconcile PREP DROPLET (D0)** inserted: edit stil sibling repo. (COMPLETE; stil commit 7c1ccb5.)
-2. TemplatesBuildVerifyStable byte-determinism: stil drops generated_at; two consecutive pnpm build produce sha256-identical dist files.
-3. Astro relocation: examples/templates/ → web/templates/.
-4. .gitignore additions for web/templates/ build artifacts.
-5. mage Check pnpm skip-if-absent with verbose WARN.
-6. D3 embed placeholder seed.
-7. Cross-repo SHA recording.
-
-## NEW REFRESH FOLD applied 2026-05-18 (TWO-TRACK substrate):
-
-8. **L3-E1 SPLIT INTO TWO TRACKS** per dev choice (v0.1.0 ships BOTH):
-   - Track A (html-basic): zero-deps plain .html + stdlib html/template; web/templates_basic/ + internal/templates_html_basic/
-   - Track B (html-embed): Astro+pnpm+stil toolchain; web/templates_embed/ + internal/templates_html_embed/
-
-9. **Downstream L3-E2/E3/E4 retargeting** (these records NOT YET CREATED; when created they pick up these refreshed contracts):
-   - L3-E2 (simple views) → Track A consumer: AUTHORS plain .html under web/templates_basic/cascade/{drop,planner,droplet,qa,roadmap_version,schema_browser}.html. ZERO <script>. Inline <style> only. Goldens in internal/templates_html_basic/testdata/.
-   - L3-E3 (stil-driven views) → Track B consumer: AUTHORS .astro under web/templates_embed/src/pages/stil/. Paths shift from examples/templates/ to web/templates_embed/. Content otherwise unchanged.
-   - L3-E4 (Thariq demos) → Track B consumer: AUTHORS .astro under web/templates_embed/src/pages/demos/. Paths shift; content unchanged.
-
-L3-E1 refreshed planner record carries the canonical two-track contract. L2-E description below is now SLIGHTLY STALE on the substrate-track detail (it predates the two-track split). Honoring the dev's 'get things correct' mandate by capturing the refresh in transition_notes rather than rewriting the static description — the description still accurately captures L2-E's overall objective (4 L3 sub-planners for HTML template system); the two-track substrate detail lives in L3-E1's refreshed description for max specificity. When L3-E2/E3/E4 are created, they reference L3-E1's two-track contract.
-
-10. **v0.1.0 launch scope**: Both Track A AND Track B ship for v0.1.0. L3-E2 + L3-E3 + L3-E4 all build their respective consumer views before v0.1.0 tag.
-
-Ready for L3-E1 builder dispatch (D-A1/A2/A3 + D-B1/B2/B3) in a future session, then L3-E2/E3/E4 record creation + plan-QA + builders.
-"""
-updated_at = "2026-05-18T03:52:00Z"
+transition_notes = "L2-E CLOSED — HTML template system complete. All 4 L3 children closed state=complete + outcome=success: L3-E1 substrate (drop_004.drop.l3_e1_astro_substrate, 7 droplets: D0 stil-side + DA1/2/3 Track A + DB1/2/3 Track B); L3-E2 Track A simple views (6 droplets D-V1..D-V6 + 7 goldens); L3-E3 Track B stil-driven views (5 droplets D1..D5 + 7 goldens + StilLayout + stil_records.ts); L3-E4 Track B Thariq demos (5 droplets D1..D5a + 5 stub-tape placeholders). Build-QA twins both PASS at L2-E aggregate: proof verified 7 dimensions (4/4 L3 closure, mage check green 27 packages 10 expected skips, Track A+B coexistence with distinct symbols, v0.1.0 launch scope honoured both tracks ship, cross-cutting tests 13/13 + 27/27, audit trail complete); falsification ran 10 attacks with zero blocking CE (two soft findings routed: SOFT-1 superseded planner record now marked complete; SOFT-2 L3-E4 scope drift queued for CLAUDE.md pre-MVP tracker). Files shipped across L2-E: 6 Track A templates + 7 Track A goldens; 7+1 stil .astro pages + 1 StilLayout + 1 stil_records.ts + 7 stil goldens + 1 views_stil_test.go; 5 thariq .astro pages + 1 thariq_records.ts + 5 .txt stubs + tsconfig.json. mage check green; mage TemplatesBuildEmbed green (14 pages); mage TemplatesBuildVerifyStable green. L2-E close-gate met."
+updated_at = "2026-05-19T01:05:00Z"
 [l2_f_dotta_target_system]
 blockers = []
 completed_at = "2026-05-15T11:40:00Z"
@@ -9196,6 +9169,7 @@ transition_notes = "Plan-QA falsif AMEND with 3 surgical findings (0 unmitigated
 updated_at = "2026-05-18T12:05:00Z"
 [l3_e3_stil_driven_views]
 blockers = []
+completed_at = "2026-05-18T12:36:00Z"
 created_at = "2026-05-18T11:00:00Z"
 description = """
 L3-E3 decomposition: 6 atomic Astro-page builder droplets under web/templates_embed/src/pages/stil/ + Go-side harness under internal/templates_html_embed/. Token import via @hylla/stil/src/styles/tokens.css (NOT dist/). Cross-repo stil edits FORBIDDEN at this level.
@@ -9231,29 +9205,14 @@ D1 → (D2 ∥ D3 ∥ D4 ∥ D5 parallel) → D6 serial close-gate.
 U1 roadmap_version + schema_browser scope — recommend follow-up L3-E5 planner (or fold into D2). U2 stil package.json files/exports gap — stil-side follow-up (orchestrator-direct, cross-repo). U3 bindings.json out of scope (vim keystrokes, not static UI). U4 per-builder pre-flight script-free verification per imported stil component.
 """
 objective = "L2-E L3-E3: stil-driven views (Track B consumer). Author .astro templates under web/templates_embed/src/pages/ consuming stil's design tokens + bindings. Astro build produces dist/ that gets embedded via internal/templates_html_embed/. ~6 view droplets per L2-E plan."
+outcome = "success"
 parent_id = "drop_004.drop.l2_e_html_template_system"
 role = "planner"
 started_at = "2026-05-18T11:00:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-E3 planner — Track B stil-driven views (Astro components + pages)"
-transition_notes = """
-Plan-QA proof PASS + falsif AMEND with 4 surgical CEs. FOLDS APPLIED orchestrator-direct 2026-05-18T12:35Z per drop_003 surgical AMEND precedent. CONSOLIDATED ORCHESTRATOR DIRECTIVES for D1+L3-E3 record creation:
-
-**D1 amendments (CRITICAL)**:
-- DROP stil/src/styles/global.css from StilLayout imports (it forces body[data-sidebar-hidden] mobile drawer that zero-JS site can't toggle — permanent overlay at ≤640px). Keep tokens.css + reset.css ONLY.
-- AUTHOR a local minimal `web/templates_embed/src/styles/stil-shell.css` providing `.app > .app-rail + .app-sidebar + .app-main > .app-main-body > .app-content` layout WITHOUT the drawer behavior (or simpler: drop the .app-* shell entirely and use plain semantic HTML with stil tokens).
-- DROP Topbar from D1 component imports (data-attr hooks wire to Playground.astro's script; zero-JS pages leave aria-promised buttons silent — a11y violation). EITHER: (a) escalate stil-side orchestrator-direct for a `TopbarStatic.astro` component without interactive hooks; (b) skip the Topbar entirely and use Sidebar + NavRail for page chrome.
-- MOVE TokensPresent + ZeroJS + DistinctComponents>=3 invariants forward from D6 to a NEW internal/templates_html_embed/test_invariants_test.go file owned by D1 (foundation harness), so D2-D5 can self-verify zero-JS + tokens + component-presence BEFORE reporting complete.
-
-**Scope expansion (L2-E reconciliation)**: ADD D7 (roadmap_version view) + D8 (schema_browser view) to L3-E3 — L2-E's acceptance demands all 7 views. (L3-E2 already covers cascade_drop/planner/droplet/qa/roadmap_version/schema_browser for Track A; L3-E3 must match for Track B.) Each new droplet authors a single .astro file mirroring D3/D4/D5 shape.
-
-**D6 reshape**: D6a (invariants harness moved to D1 foundation). D6b = NEW: only owns `pages/stil/cascade_qa.astro` + 5 view goldens (cascade_drop / cascade_planner / cascade_droplet / cascade_qa / index) materialized post-D2..D5. Plus D7 + D8 add their own goldens to D6b's testdata directory.
-
-**Orchestrator pre-commit step**: manually inspect dist/stil/*.html before accepting D6b's first-run golden materialization to prevent the visual-regression first-capture trap.
-
-Ready for builder dispatch ONCE the orchestrator creates D1+D2..D5+D6a+D6b+D7+D8 droplet records (8 total post-amend, up from 6). The 4 surgical amendments are dispatch-blocking but tractable.
-"""
-updated_at = "2026-05-18T12:35:00Z"
+transition_notes = "SUPERSEDED on 2026-05-18T12:36:00Z by drop_004.drop.l3_e3_stil_views after plan-QA AMEND reshape (cascade_qa role-variant split; 5-droplet decomposition vs 8-droplet original; 7-view scope vs 6-view). Original decomposition replaced; this record retained for audit-trail history. The canonical L3-E3 sub-planner record is drop_004.drop.l3_e3_stil_views which closed 2026-05-19T00:25:00Z with all 5 droplets state=complete+outcome=success. State set to complete + outcome success here as a supersession marker per L2-E build-QA falsif SOFT-1 finding. Closure timestamp set to the supersession moment, not the original record's first close."
+updated_at = "2026-05-19T01:00:00Z"
 [l3_e3_stil_driven_views-plan-qa-proof]
 created_at = "2026-05-19T00:35:39Z"
 outcome = "success"
@@ -11236,3 +11195,52 @@ target_id = "drop_004.drop.l3_e3_stil_views"
 title = "L3-E3 build-QA falsification"
 transition_notes = "L3-E3 build-QA falsification PASS. 12 attacks executed; 10 REFUTED with concrete evidence, 1 ACCEPTED-by-design (Attack 8 viewport 768/1280 — design is desktop-first with 880px single-axis collapse + 640/420 mobile refinements; the named breakpoints fall inside the envelope), 1 RECORDED-AS-UNKNOWN (Attack 9 TokensPresent regex permissive — no concrete reproducer today; tighten to var\\(--(stil|space|text|bg)- in follow-up if false-pass ever surfaces). Evidence: mage testPkg ./internal/templates_html_embed = 27/27 pass WITHOUT UPDATE_GOLDENS; rg confirms 0 <script + 0 dynamic Date/Math.random across 7 dist html; per-view a11y landmarks all present (title=1, h1=1, main=1, aria-label≥2); Sidebar/Topbar zero transitive forbidden-component imports; .pill-role--proof/--falsif Astro-scoped via data-astro-cid (no collision); zero @container declarations in stil pages; tsconfig.json=3 lines D1 owner format; git status confined to allowed scopes. No CE blocks close. L3-E3 ready. Orchestrator follow-up: ta-fe-qa-falsification missing mcp__ta__* at runtime; orchestrator closed."
 updated_at = "2026-05-19T00:15:00Z"
+
+[build_qa_proof_l2_e]
+blockers = []
+completed_at = "2026-05-19T00:55:00Z"
+created_at = "2026-05-19T00:30:00Z"
+objective = "Proof-oriented review of L2-E (HTML template system) completed sub-tree. All 4 L3 children closed: L3-E1 (substrate, implicit in L2-E description — work committed to disk pre-this-session per handoff: Astro/pnpm + web/templates_basic & web/templates_embed + magefile TemplatesBuildEmbed + internal/templates_html_basic & _embed packages); L3-E2 (Track A simple views, 6 droplets D-V1..D-V6); L3-E3 (Track B stil views, 5 droplets D1..D5); L3-E4 (Track B Thariq demos, 5 droplets D1..D5a). Verify: (1) all 4 L3 records in expected state (E1 implicit; E2/E3/E4 state=complete+outcome=success); (2) both build tracks compose: mage check green (full module gate); mage TemplatesBuildEmbed green; mage TemplatesBuildVerifyStable green; (3) Track A + Track B coexist without naming/path collisions; (4) v0.1.0 launch scope honoured: BOTH tracks shipping; (5) cross-cutting tests (TestEmbeddedBasic_NoScriptTagsRegex for Track A, TestTemplatesHtmlEmbed_Stil_ZeroJS for Track B stil, TestTemplatesHtmlEmbed_Stil_TokensPresent) all green; (6) no shared files between L3-E* lanes that would cause merge conflicts; (7) cascade record audit trail complete in drop.toml."
+outcome = "success"
+parent_id = "drop_004.drop.l2_e_html_template_system"
+role = "qa-proof"
+started_at = "2026-05-19T00:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_e_html_template_system"
+title = "L2-E build-QA proof"
+transition_notes = """
+L2-E build-QA PROOF PASS — 7 verification dimensions evidence-backed.
+
+(1) L3 child closure 4/4: L3-E1 substrate IS a real cascade record (drop_004.drop.l3_e1_astro_substrate; state=complete; outcome=success; 7 droplets D0+DA1/2/3+DB1/2/3 all closed). Task brief said 'no separate sub-planner record' — incorrect; record exists. L3-E2 (state=complete; outcome=success; 6 droplets D-V1..D-V6), L3-E3 (state=complete; outcome=success; 5 droplets D1..D5), L3-E4 (state=complete; outcome=success; 5 droplets D1..D5a) all verified via mcp__ta__get.
+
+(2) mage check green: 27 packages; 10 skipped tests; ZERO failures; Astro post-build emitted 14 page(s) in 947ms (7 stil + 5 thariq + 2 indices). Matches task-brief expectation exactly.
+
+(3) Track A + Track B coexist without naming/path collisions: distinct packages (internal/templates_html_basic vs internal/templates_html_embed); distinct exports (EmbeddedBasicHTML() fs.FS vs EmbeddedEmbedHTML() fs.FS); distinct embed roots (templates/ vs dist/). Note: actual Track A source location is internal/templates_html_basic/templates/ (NOT web/templates_basic/ as task brief listed) — post-Option-A fold documented in L3-E1 transition_notes. The web/templates_basic/ dir does NOT exist; this is by design, not a regression.
+
+(4) v0.1.0 launch scope honoured BOTH tracks ship: Track A — 6 templates (cascade_drop, cascade_droplet, cascade_planner, cascade_qa, roadmap_version, schema_browser) + 7 goldens (cascade_qa splits into qa_proof + qa_falsification). Track B stil — 7 .astro pages + 7 goldens at internal/templates_html_embed/testdata/stil/. Track B thariq — 5 .astro pages (index, drop-dashboard, planner-detail, droplet-kanban, qa-twins) + 5 .txt stubs.
+
+(5) Cross-cutting tests green: mage testPkg ./internal/templates_html_basic = 13/13 passed (TestEmbeddedBasic_CascadeDropAccessible, _NoScriptTagsRegex, _FieldPlaceholdersParse + 6 TestRenderBasic_<view> + cascade_qa table-driven + 2 error-path tests). mage testPkg ./internal/templates_html_embed = 27/27 passed (TestEmbeddedEmbed_*, TestTemplatesHtmlEmbed_Stil with 7 sub-tests, _TokensPresent, _ZeroJS, etc).
+
+(6) No shared-file collisions across L3-E* lanes — ONE cosmetic exception (NON-BLOCKING): commit 3a5934f (L3-E3) modified internal/templates_html_basic/render_test.go with 37 inserts / 37 deletes; pure gofmt re-alignment of struct literals (no logic / no test addition / no behavior change); Track A tests stayed green post-edit. Otherwise lane separation is clean: L3-E1 substrate at internal/templates_html_basic/ + internal/templates_html_embed/ + magefile + .gitignore; L3-E2 at internal/templates_html_basic/templates/ + testdata/ + render_test.go (lane-owner); L3-E3 at web/templates_embed/src/pages/stil/ + layouts/ + mock/ + internal/templates_html_embed/views_stil_test.go + testdata/stil/*.golden; L3-E4 at web/templates_embed/src/pages/thariq/ + mock/ + testdata/thariq/*.txt + tsconfig.json. Per-lane commit footprints: L3-E1 (11dd4c1), L3-E2 (dbb1444 + 128b262), L3-E3 (3a5934f), L3-E4 (5c48ac8).
+
+(7) Cascade audit trail complete: docs(cascade) commits for every close — 8a56c6c (L3-E1 + L2-E refresh), 8f46fca (L3-E2), 9ea7369 (L3-E4 close + L3-E3 dispatch), dcf710a (L3-E3 close). drop.toml + .ta/index.toml committed up through L3-E3 close.
+
+Falsification attack vectors run (5): A1 mage-check flakiness — green on this run; A2 L3-E1 substrate empty — populated; A3 export-name collision — distinct identifiers; A4 cross-lane file overlap — one cosmetic whitespace touch documented; A5 10-skip count divergence — exact match. ZERO CONFIRMED counterexamples.
+
+VERDICT PASS: L2-E HTML template system aggregate ready for L2-E close + L1 build-QA scope inclusion. Soft observation routed: post-MVP-feature-complete cleanup — the cross-lane whitespace edit at 3a5934f suggests the L3-E3 builder ran `gofumpt` over the render_test.go file as a side-effect; non-blocking but worth a memory-rule reminder for builders to scope formatter runs to their own files.
+"""
+updated_at = "2026-05-19T00:55:00Z"
+[build_qa_falsif_l2_e]
+blockers = []
+completed_at = "2026-05-19T00:55:00Z"
+created_at = "2026-05-19T00:30:00Z"
+objective = "Falsification attack on L2-E completed sub-tree. Probe cross-cutting concerns: (1) Track A + Track B coexistence — do they share import paths/symbol names that could shadow each other?; (2) magefile target naming — TemplatesBuildEmbed only builds Track B; is there a TemplatesBuildBasic counterpart, or does Track A skip build entirely (stdlib html/template no-build)?; (3) embed.go duplication — internal/templates_html_basic/embed.go + internal/templates_html_embed/embed.go both expose embedded FS; verify export names differ (EmbeddedBasicHTML vs EmbeddedEmbedHTML or equivalent); (4) cascade record state contract — L2-E sub-planner currently state=in_progress + outcome=success; is this a valid terminal state per the cascade methodology, or must state=complete?; (5) any L3 child still in todo/in_progress; (6) MOCK_* exports across Track A test fixtures + Track B mock TS files — do they share record IDs in a way that breaks single-source-of-truth claims?; (7) future L3-E5 / post-tag carve-out for the original 'Thariq-style template categories' (spec / code-review / report / custom-editor / design-exploration) which L3-E4 deferred — is the scope-drift documented?; (8) cross-tree leakage at L2-E level; (9) dist/stil/ + dist/thariq/ output coexistence in internal/templates_html_embed/dist/ — both built by single Astro pipeline, no path collision; (10) Track A's 6 templates vs Track B's 7 stil pages vs Track B's 5 thariq pages — inconsistent record-view coverage across tracks (Track A doesn't have a thariq counterpart). Is this acceptable per v0.1.0 spec?"
+outcome = "success"
+parent_id = "drop_004.drop.l2_e_html_template_system"
+role = "qa-falsification"
+started_at = "2026-05-19T00:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l2_e_html_template_system"
+title = "L2-E build-QA falsification"
+transition_notes = "L2-E build-QA falsification PASS. 10 attack vectors probed, ZERO blocking CE. Mitigated: (1) Track A/B distinct symbols (EmbeddedBasicHTML vs EmbeddedEmbedHTML) + distinct packages/embed-roots; (2) magefile asymmetry by-design (Track A stdlib runtime, Track B has TemplatesBuildEmbed/VerifyStable); (3) planner state contract per cascade-methodology §4.2 — build-QA twins gate state=complete; (4) all 4 L3 primaries CLOSED (L3-E1/E2/E3/E4); (5) MOCK_* ID namespaces disjoint (drop_004.* vs drop_042.* vs untyped); (7) git log scope clean within {internal/templates_html_*, web/templates_embed, .claude/agents/ta-fe-*, .ta/cascade}; (8) dist subdir collision REFUTED; (9) coverage count inconsistency is by-design (E4 different axis); (10) mage check green 1590/1600 + 10 expected skips. Two SOFT findings routed (non-blocking): SOFT-1 stale planner record drop_004.drop.l3_e3_stil_driven_views (superseded by drop_004.drop.l3_e3_stil_views after plan-QA reshape — still state=in_progress, should be marked complete with supersession note OR deleted); SOFT-2 L3-E4 scope drift (L2-E description listed page-archetypes spec/code-review/report/custom-editor/design-exploration; L3-E4 shipped cascade-record demos drop-dashboard/planner-detail/droplet-kanban/qa-twins instead — dev-approved at L3-E4 close, but drift undocumented in L2-E parent or pre-MVP tracker; route to CLAUDE.md tracker). Orchestrator follow-up: ta-fe-qa-falsification missing mcp__ta__* at runtime; orchestrator closed."
+updated_at = "2026-05-19T00:55:00Z"
