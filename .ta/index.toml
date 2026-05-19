@@ -725,22 +725,22 @@ updated = 2026-05-16T23:58:27.137695Z
 [drop_004.drop.builder_l3_e1_d1_astro_skeleton]
 created = 2026-05-16T18:18:57.533056Z
 type = 'droplet'
-updated = 2026-05-16T18:18:57.533056Z
+updated = 2026-05-18T23:13:41.427726Z
 
 [drop_004.drop.builder_l3_e1_d1_astro_skeleton-qa-falsification]
 created = 2026-05-16T18:18:57.556529Z
 type = 'qa_falsification'
-updated = 2026-05-16T18:18:57.556529Z
+updated = 2026-05-18T23:13:41.397965Z
 
 [drop_004.drop.builder_l3_e1_d1_astro_skeleton-qa-proof]
 created = 2026-05-16T18:18:57.544092Z
 type = 'qa_proof'
-updated = 2026-05-16T18:18:57.544092Z
+updated = 2026-05-18T23:11:26.755262Z
 
 [drop_004.drop.builder_l3_e1_d2_magefile_targets]
 created = 2026-05-16T18:18:57.568565Z
 type = 'droplet'
-updated = 2026-05-16T18:18:57.568565Z
+updated = 2026-05-18T23:14:32.575471Z
 
 [drop_004.drop.builder_l3_e1_d2_magefile_targets-qa-falsification]
 created = 2026-05-16T18:18:57.592212Z
@@ -755,7 +755,7 @@ updated = 2026-05-16T18:18:57.580176Z
 [drop_004.drop.builder_l3_e1_d3_go_embed]
 created = 2026-05-16T18:18:57.605237Z
 type = 'droplet'
-updated = 2026-05-16T18:18:57.605237Z
+updated = 2026-05-18T23:30:30.658876Z
 
 [drop_004.drop.builder_l3_e1_d3_go_embed-qa-falsification]
 created = 2026-05-16T18:18:57.631206Z
@@ -766,6 +766,261 @@ updated = 2026-05-16T18:18:57.631206Z
 created = 2026-05-16T18:18:57.617448Z
 type = 'qa_proof'
 updated = 2026-05-16T18:18:57.617448Z
+
+[drop_004.drop.builder_l3_e1_da1_basic_skeleton]
+created = 2026-05-18T22:47:35.283389Z
+type = 'droplet'
+updated = 2026-05-18T23:25:01.753861Z
+
+[drop_004.drop.builder_l3_e1_da1_basic_skeleton-qa-falsification]
+created = 2026-05-18T22:47:35.314332Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:11:26.739403Z
+
+[drop_004.drop.builder_l3_e1_da1_basic_skeleton-qa-proof]
+created = 2026-05-18T22:47:35.298086Z
+type = 'qa_proof'
+updated = 2026-05-18T23:11:26.723432Z
+
+[drop_004.drop.builder_l3_e1_da2_basic_embed]
+created = 2026-05-18T23:06:27.425377Z
+type = 'droplet'
+updated = 2026-05-18T23:25:01.778768Z
+
+[drop_004.drop.builder_l3_e1_da2_basic_embed-qa-falsification]
+created = 2026-05-18T23:06:27.450849Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:06:27.450849Z
+
+[drop_004.drop.builder_l3_e1_da2_basic_embed-qa-proof]
+created = 2026-05-18T23:06:27.439276Z
+type = 'qa_proof'
+updated = 2026-05-18T23:06:27.439276Z
+
+[drop_004.drop.builder_l3_e1_da3_basic_render]
+created = 2026-05-18T23:28:39.441658Z
+type = 'droplet'
+updated = 2026-05-18T23:29:33.176611Z
+
+[drop_004.drop.builder_l3_e1_da3_basic_render-qa-falsification]
+created = 2026-05-18T23:28:39.471379Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:28:39.471379Z
+
+[drop_004.drop.builder_l3_e1_da3_basic_render-qa-proof]
+created = 2026-05-18T23:28:39.454341Z
+type = 'qa_proof'
+updated = 2026-05-18T23:28:39.454341Z
+
+[drop_004.drop.builder_l3_g3_d1_cache_bareroot]
+created = 2026-05-18T23:34:20.458482Z
+type = 'droplet'
+updated = 2026-05-18T23:38:30.046981Z
+
+[drop_004.drop.builder_l3_g3_d1_cache_bareroot-qa-falsification]
+created = 2026-05-18T23:34:20.486288Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:34:20.486288Z
+
+[drop_004.drop.builder_l3_g3_d1_cache_bareroot-qa-proof]
+created = 2026-05-18T23:34:20.473413Z
+type = 'qa_proof'
+updated = 2026-05-18T23:34:20.473413Z
+
+[drop_004.drop.builder_l3_g3_d2_validation_envelope]
+created = 2026-05-18T23:34:20.501641Z
+type = 'droplet'
+updated = 2026-05-18T23:43:52.203022Z
+
+[drop_004.drop.builder_l3_g3_d2_validation_envelope-qa-falsification]
+created = 2026-05-18T23:34:20.526239Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:34:20.526239Z
+
+[drop_004.drop.builder_l3_g3_d2_validation_envelope-qa-proof]
+created = 2026-05-18T23:34:20.514201Z
+type = 'qa_proof'
+updated = 2026-05-18T23:34:20.514201Z
+
+[drop_004.drop.builder_l3_g4_d1_closure_attestation]
+created = 2026-05-18T23:45:45.469569Z
+type = 'droplet'
+updated = 2026-05-18T23:45:45.469569Z
+
+[drop_004.drop.builder_l3_g4_d1_closure_attestation-qa-falsification]
+created = 2026-05-18T23:45:45.500034Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:45:45.500034Z
+
+[drop_004.drop.builder_l3_g4_d1_closure_attestation-qa-proof]
+created = 2026-05-18T23:45:45.48526Z
+type = 'qa_proof'
+updated = 2026-05-18T23:45:45.48526Z
+
+[drop_004.drop.builder_l3_g4_d2_search_positional_alias]
+created = 2026-05-18T23:45:45.51617Z
+type = 'droplet'
+updated = 2026-05-18T23:48:53.155638Z
+
+[drop_004.drop.builder_l3_g4_d2_search_positional_alias-qa-falsification]
+created = 2026-05-18T23:45:45.544087Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:45:45.544087Z
+
+[drop_004.drop.builder_l3_g4_d2_search_positional_alias-qa-proof]
+created = 2026-05-18T23:45:45.530567Z
+type = 'qa_proof'
+updated = 2026-05-18T23:45:45.530567Z
+
+[drop_004.drop.builder_l3_g4_d3_mcp_search_query_doc]
+created = 2026-05-18T23:45:45.560132Z
+type = 'droplet'
+updated = 2026-05-18T23:47:13.802291Z
+
+[drop_004.drop.builder_l3_g4_d3_mcp_search_query_doc-qa-falsification]
+created = 2026-05-18T23:45:45.587945Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:45:45.587945Z
+
+[drop_004.drop.builder_l3_g4_d3_mcp_search_query_doc-qa-proof]
+created = 2026-05-18T23:45:45.573549Z
+type = 'qa_proof'
+updated = 2026-05-18T23:45:45.573549Z
+
+[drop_004.drop.builder_l3_g7_d1_reserved_namespace_guard]
+created = 2026-05-18T23:45:45.602978Z
+type = 'droplet'
+updated = 2026-05-18T23:48:28.855991Z
+
+[drop_004.drop.builder_l3_g7_d1_reserved_namespace_guard-qa-falsification]
+created = 2026-05-18T23:45:45.63117Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:45:45.63117Z
+
+[drop_004.drop.builder_l3_g7_d1_reserved_namespace_guard-qa-proof]
+created = 2026-05-18T23:45:45.617499Z
+type = 'qa_proof'
+updated = 2026-05-18T23:45:45.617499Z
+
+[drop_004.drop.builder_l3_g7_d2_f10_address_attestation]
+created = 2026-05-18T23:45:45.648235Z
+type = 'droplet'
+updated = 2026-05-18T23:48:45.101904Z
+
+[drop_004.drop.builder_l3_g7_d2_f10_address_attestation-qa-falsification]
+created = 2026-05-18T23:45:45.675707Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:45:45.675707Z
+
+[drop_004.drop.builder_l3_g7_d2_f10_address_attestation-qa-proof]
+created = 2026-05-18T23:45:45.662536Z
+type = 'qa_proof'
+updated = 2026-05-18T23:45:45.662536Z
+
+[drop_004.drop.builder_l3_g7_d3_f11_list_walker_attestation]
+created = 2026-05-18T23:45:45.691471Z
+type = 'droplet'
+updated = 2026-05-18T23:53:58.520194Z
+
+[drop_004.drop.builder_l3_g7_d3_f11_list_walker_attestation-qa-falsification]
+created = 2026-05-18T23:45:45.719285Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:45:45.719285Z
+
+[drop_004.drop.builder_l3_g7_d3_f11_list_walker_attestation-qa-proof]
+created = 2026-05-18T23:45:45.70543Z
+type = 'qa_proof'
+updated = 2026-05-18T23:45:45.70543Z
+
+[drop_004.drop.builder_l3_g7_d4_f11_literal_multipath_fix]
+created = 2026-05-19T00:09:14.223613Z
+type = 'droplet'
+updated = 2026-05-19T00:18:59.376205Z
+
+[drop_004.drop.builder_l3_g7_d4_f11_literal_multipath_fix-qa-falsification]
+created = 2026-05-19T00:09:14.252831Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:09:14.252831Z
+
+[drop_004.drop.builder_l3_g7_d4_f11_literal_multipath_fix-qa-proof]
+created = 2026-05-19T00:09:14.239841Z
+type = 'qa_proof'
+updated = 2026-05-19T00:09:14.239841Z
+
+[drop_004.drop.builder_l3_g8_d1_rebuild_preserves_created]
+created = 2026-05-18T23:34:20.539213Z
+type = 'droplet'
+updated = 2026-05-18T23:43:12.000185Z
+
+[drop_004.drop.builder_l3_g8_d1_rebuild_preserves_created-qa-falsification]
+created = 2026-05-18T23:34:20.563017Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:34:20.563017Z
+
+[drop_004.drop.builder_l3_g8_d1_rebuild_preserves_created-qa-proof]
+created = 2026-05-18T23:34:20.550967Z
+type = 'qa_proof'
+updated = 2026-05-18T23:34:20.550967Z
+
+[drop_004.drop.builder_l3_g8_d2_index_entry_dbname]
+created = 2026-05-18T23:34:20.576029Z
+type = 'droplet'
+updated = 2026-05-18T23:43:59.895384Z
+
+[drop_004.drop.builder_l3_g8_d2_index_entry_dbname-qa-falsification]
+created = 2026-05-18T23:34:20.600387Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:34:20.600387Z
+
+[drop_004.drop.builder_l3_g8_d2_index_entry_dbname-qa-proof]
+created = 2026-05-18T23:34:20.588349Z
+type = 'qa_proof'
+updated = 2026-05-18T23:34:20.588349Z
+
+[drop_004.drop.builder_l3_g8_d3_three_seg_shadow_disambig]
+created = 2026-05-18T23:34:20.613132Z
+type = 'droplet'
+updated = 2026-05-18T23:49:14.950013Z
+
+[drop_004.drop.builder_l3_g8_d3_three_seg_shadow_disambig-qa-falsification]
+created = 2026-05-18T23:34:20.637207Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:34:20.637207Z
+
+[drop_004.drop.builder_l3_g8_d3_three_seg_shadow_disambig-qa-proof]
+created = 2026-05-18T23:34:20.624962Z
+type = 'qa_proof'
+updated = 2026-05-18T23:34:20.624962Z
+
+[drop_004.drop.builder_l3_g8_d4_index_cmd_rebuild_json_fields]
+created = 2026-05-19T00:09:14.266906Z
+type = 'droplet'
+updated = 2026-05-19T00:12:31.536689Z
+
+[drop_004.drop.builder_l3_g8_d4_index_cmd_rebuild_json_fields-qa-falsification]
+created = 2026-05-19T00:09:14.292023Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:09:14.292023Z
+
+[drop_004.drop.builder_l3_g8_d4_index_cmd_rebuild_json_fields-qa-proof]
+created = 2026-05-19T00:09:14.278977Z
+type = 'qa_proof'
+updated = 2026-05-19T00:09:14.278977Z
+
+[drop_004.drop.builder_l3_g8_d5_rebuild_dbname_populated]
+created = 2026-05-19T00:09:14.305701Z
+type = 'droplet'
+updated = 2026-05-19T00:09:14.305701Z
+
+[drop_004.drop.builder_l3_g8_d5_rebuild_dbname_populated-qa-falsification]
+created = 2026-05-19T00:09:14.329796Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:09:14.329796Z
+
+[drop_004.drop.builder_l3_g8_d5_rebuild_dbname_populated-qa-proof]
+created = 2026-05-19T00:09:14.317687Z
+type = 'qa_proof'
+updated = 2026-05-19T00:09:14.317687Z
 
 [drop_004.drop.builder_l3_i1_d1_config_struct]
 created = 2026-05-16T18:18:57.3526Z
@@ -826,6 +1081,36 @@ updated = 2026-05-16T23:54:06.088394Z
 created = 2026-05-16T18:18:57.474116Z
 type = 'qa_proof'
 updated = 2026-05-16T23:54:06.073635Z
+
+[drop_004.drop.builder_l3_i2_d1_defaults_toml]
+created = 2026-05-18T23:14:28.935433Z
+type = 'droplet'
+updated = 2026-05-18T23:16:15.204941Z
+
+[drop_004.drop.builder_l3_i2_d1_defaults_toml-qa-falsification]
+created = 2026-05-18T23:14:28.970031Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:14:28.970031Z
+
+[drop_004.drop.builder_l3_i2_d1_defaults_toml-qa-proof]
+created = 2026-05-18T23:14:28.949074Z
+type = 'qa_proof'
+updated = 2026-05-18T23:14:28.949074Z
+
+[drop_004.drop.builder_l3_i2_d2_defaults_go]
+created = 2026-05-18T23:14:28.983445Z
+type = 'droplet'
+updated = 2026-05-18T23:21:44.195802Z
+
+[drop_004.drop.builder_l3_i2_d2_defaults_go-qa-falsification]
+created = 2026-05-18T23:14:29.008322Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:14:29.008322Z
+
+[drop_004.drop.builder_l3_i2_d2_defaults_go-qa-proof]
+created = 2026-05-18T23:14:28.996302Z
+type = 'qa_proof'
+updated = 2026-05-18T23:14:28.996302Z
 
 [drop_004.drop.builder_l3f1_d1_types_and_paths]
 created = 2026-05-16T00:42:26.906756Z
@@ -1215,7 +1500,17 @@ updated = 2026-05-17T02:12:49.315233Z
 [drop_004.drop.l3_e1_astro_substrate]
 created = 2026-05-16T07:02:54.741268Z
 type = 'planner'
-updated = 2026-05-18T22:31:16.834103Z
+updated = 2026-05-18T23:55:18.641352Z
+
+[drop_004.drop.l3_e1_astro_substrate-build-qa-falsification]
+created = 2026-05-18T23:34:20.442945Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:40:41.395639Z
+
+[drop_004.drop.l3_e1_astro_substrate-build-qa-proof]
+created = 2026-05-18T23:34:20.429209Z
+type = 'qa_proof'
+updated = 2026-05-18T23:43:44.045362Z
 
 [drop_004.drop.l3_e1_astro_substrate-plan-qa-falsification]
 created = 2026-05-16T07:02:54.767002Z
@@ -1252,6 +1547,121 @@ created = 2026-05-16T00:36:53.666773Z
 type = 'qa_proof'
 updated = 2026-05-16T00:42:22.409833Z
 
+[drop_004.drop.l3_g3_mcp_polish]
+created = 2026-05-18T23:17:03.511452Z
+type = 'planner'
+updated = 2026-05-18T23:54:22.967048Z
+
+[drop_004.drop.l3_g3_mcp_polish-build-qa-falsification]
+created = 2026-05-18T23:45:45.747539Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:52:58.961604Z
+
+[drop_004.drop.l3_g3_mcp_polish-build-qa-proof]
+created = 2026-05-18T23:45:45.733432Z
+type = 'qa_proof'
+updated = 2026-05-18T23:48:06.104306Z
+
+[drop_004.drop.l3_g3_mcp_polish-plan-qa-falsification]
+created = 2026-05-18T23:17:03.540961Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:31:10.55369Z
+
+[drop_004.drop.l3_g3_mcp_polish-plan-qa-proof]
+created = 2026-05-18T23:17:03.524146Z
+type = 'qa_proof'
+updated = 2026-05-18T23:27:01.139036Z
+
+[drop_004.drop.l3_g4_cli_error_envelope]
+created = 2026-05-18T23:17:03.553927Z
+type = 'planner'
+updated = 2026-05-19T00:09:31.933168Z
+
+[drop_004.drop.l3_g4_cli_error_envelope-build-qa-falsification]
+created = 2026-05-18T23:55:31.320122Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:00:21.670311Z
+
+[drop_004.drop.l3_g4_cli_error_envelope-build-qa-proof]
+created = 2026-05-18T23:55:31.304641Z
+type = 'qa_proof'
+updated = 2026-05-18T23:58:03.24042Z
+
+[drop_004.drop.l3_g4_cli_error_envelope-plan-qa-falsification]
+created = 2026-05-18T23:17:03.578967Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:32:47.95628Z
+
+[drop_004.drop.l3_g4_cli_error_envelope-plan-qa-proof]
+created = 2026-05-18T23:17:03.566193Z
+type = 'qa_proof'
+updated = 2026-05-18T23:27:28.941973Z
+
+[drop_004.drop.l3_g5_type_system]
+created = 2026-05-18T22:47:35.370563Z
+type = 'planner'
+updated = 2026-05-18T23:16:30.045638Z
+
+[drop_004.drop.l3_g5_type_system-plan-qa-falsification]
+created = 2026-05-18T22:47:35.393897Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:14:32.299137Z
+
+[drop_004.drop.l3_g5_type_system-plan-qa-proof]
+created = 2026-05-18T22:47:35.382134Z
+type = 'qa_proof'
+updated = 2026-05-18T23:12:02.99044Z
+
+[drop_004.drop.l3_g7_address_reserved_namespace]
+created = 2026-05-18T23:17:03.593329Z
+type = 'planner'
+updated = 2026-05-19T00:21:52.005418Z
+
+[drop_004.drop.l3_g7_address_reserved_namespace-build-qa-falsification]
+created = 2026-05-18T23:55:31.349574Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:09:31.893829Z
+
+[drop_004.drop.l3_g7_address_reserved_namespace-build-qa-proof]
+created = 2026-05-18T23:55:31.335327Z
+type = 'qa_proof'
+updated = 2026-05-18T23:59:16.323856Z
+
+[drop_004.drop.l3_g7_address_reserved_namespace-plan-qa-falsification]
+created = 2026-05-18T23:17:03.616903Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:35:27.554219Z
+
+[drop_004.drop.l3_g7_address_reserved_namespace-plan-qa-proof]
+created = 2026-05-18T23:17:03.604865Z
+type = 'qa_proof'
+updated = 2026-05-18T23:27:38.354712Z
+
+[drop_004.drop.l3_g8_search_index_polish]
+created = 2026-05-18T23:17:03.629866Z
+type = 'planner'
+updated = 2026-05-19T00:21:52.028661Z
+
+[drop_004.drop.l3_g8_search_index_polish-build-qa-falsification]
+created = 2026-05-18T23:55:31.374204Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:09:31.914372Z
+
+[drop_004.drop.l3_g8_search_index_polish-build-qa-proof]
+created = 2026-05-18T23:55:31.36206Z
+type = 'qa_proof'
+updated = 2026-05-18T23:58:00.783933Z
+
+[drop_004.drop.l3_g8_search_index_polish-plan-qa-falsification]
+created = 2026-05-18T23:17:03.654037Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:29:15.470875Z
+
+[drop_004.drop.l3_g8_search_index_polish-plan-qa-proof]
+created = 2026-05-18T23:17:03.642004Z
+type = 'qa_proof'
+updated = 2026-05-18T23:28:03.133022Z
+
 [drop_004.drop.l3_i1_config_schema_and_loader]
 created = 2026-05-16T07:02:54.630398Z
 type = 'planner'
@@ -1276,6 +1686,31 @@ updated = 2026-05-16T07:08:57.949722Z
 created = 2026-05-16T07:02:54.642297Z
 type = 'qa_proof'
 updated = 2026-05-16T07:06:57.523059Z
+
+[drop_004.drop.l3_i2_embedded_defaults]
+created = 2026-05-18T22:47:35.331403Z
+type = 'planner'
+updated = 2026-05-18T23:33:40.073026Z
+
+[drop_004.drop.l3_i2_embedded_defaults-build-qa-falsification]
+created = 2026-05-18T23:25:06.342481Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:32:47.921109Z
+
+[drop_004.drop.l3_i2_embedded_defaults-build-qa-proof]
+created = 2026-05-18T23:25:06.330984Z
+type = 'qa_proof'
+updated = 2026-05-18T23:29:04.607134Z
+
+[drop_004.drop.l3_i2_embedded_defaults-plan-qa-falsification]
+created = 2026-05-18T22:47:35.356983Z
+type = 'qa_falsification'
+updated = 2026-05-18T23:12:34.22179Z
+
+[drop_004.drop.l3_i2_embedded_defaults-plan-qa-proof]
+created = 2026-05-18T22:47:35.34427Z
+type = 'qa_proof'
+updated = 2026-05-18T23:09:55.847474Z
 
 [drop_004.drop.mvp_substrate]
 created = 2026-05-15T21:57:13.223048Z
