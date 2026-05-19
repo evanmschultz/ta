@@ -929,20 +929,20 @@ func TestFormatLegacyWarning_WithFiles(t *testing.T) {
 	}
 }
 
-// ---- F32 --target-system tests -------------------------------------
+// ---- F32 --bootstrap-home tests -------------------------------------
 
-// TestInitTarget_TargetSystemFlag_ResolvesToHome locks the F32
-// `--target-system` flag: when set, `resolveInitTarget` returns
+// TestInitTarget_BootstrapHomeFlag_ResolvesToHome locks the F32
+// `--bootstrap-home` flag: when set, `resolveInitTarget` returns
 // $HOME/.ta regardless of `--path`.
-func TestInitTarget_TargetSystemFlag_ResolvesToHome(t *testing.T) {
+func TestInitTarget_BootstrapHomeFlag_ResolvesToHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cmd := newInitCmd()
-	cmd.SetArgs([]string{"--target-system"})
-	if err := cmd.ParseFlags([]string{"--target-system"}); err != nil {
+	cmd.SetArgs([]string{"--bootstrap-home"})
+	if err := cmd.ParseFlags([]string{"--bootstrap-home"}); err != nil {
 		t.Fatalf("ParseFlags: %v", err)
 	}
-	got, err := resolveInitTarget(cmd, initFlags{targetSystem: true})
+	got, err := resolveInitTarget(cmd, initFlags{bootstrapHome: true})
 	if err != nil {
 		t.Fatalf("resolveInitTarget: %v", err)
 	}
@@ -952,25 +952,25 @@ func TestInitTarget_TargetSystemFlag_ResolvesToHome(t *testing.T) {
 	}
 }
 
-// TestInitTarget_TargetSystemAndTargetMutuallyExclusive locks the
-// mutual-exclusion: passing both `--target-system` and `--target` is an
+// TestInitTarget_BootstrapHomeAndTargetMutuallyExclusive locks the
+// mutual-exclusion: passing both `--bootstrap-home` and `--target` is an
 // error so the user cannot accidentally double-route the bootstrap.
-func TestInitTarget_TargetSystemAndTargetMutuallyExclusive(t *testing.T) {
+func TestInitTarget_BootstrapHomeAndTargetMutuallyExclusive(t *testing.T) {
 	cmd := newInitCmd()
-	_, err := resolveInitTarget(cmd, initFlags{target: "/tmp/x", targetSystem: true})
+	_, err := resolveInitTarget(cmd, initFlags{target: "/tmp/x", bootstrapHome: true})
 	if err == nil {
-		t.Fatal("expected error when both --target and --target-system set")
+		t.Fatal("expected error when both --target and --bootstrap-home set")
 	}
-	if !strings.Contains(err.Error(), "target-system") || !strings.Contains(err.Error(), "target") {
+	if !strings.Contains(err.Error(), "bootstrap-home") || !strings.Contains(err.Error(), "target") {
 		t.Errorf("error should name both flags: %v", err)
 	}
 }
 
-// TestEmptyHomeError_HintsTargetSystem locks the F32 update to the
+// TestEmptyHomeError_HintsBootstrapHome locks the F32 update to the
 // laslig empty-home notice: the remediation list must lead with
-// `ta init --target-system` so the canonical bootstrap path surfaces
+// `ta init --bootstrap-home` so the canonical bootstrap path surfaces
 // first.
-func TestEmptyHomeError_HintsTargetSystem(t *testing.T) {
+func TestEmptyHomeError_HintsBootstrapHome(t *testing.T) {
 	emptyRoot := t.TempDir()
 	restore := templates.SetRootForTest(emptyRoot)
 	t.Cleanup(restore)
@@ -980,22 +980,22 @@ func TestEmptyHomeError_HintsTargetSystem(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error when home is empty; stderr=%s", errOut)
 	}
-	if !strings.Contains(errOut, "ta init --target-system") {
-		t.Errorf("stderr should lead with `ta init --target-system` hint: %s", errOut)
+	if !strings.Contains(errOut, "ta init --bootstrap-home") {
+		t.Errorf("stderr should lead with `ta init --bootstrap-home` hint: %s", errOut)
 	}
 	// The first remediation bullet (after the description body) should
-	// be the target-system pointer; verify lead by index of the substring.
-	idxTarget := strings.Index(errOut, "ta init --target-system")
+	// be the bootstrap-home pointer; verify lead by index of the substring.
+	idxTarget := strings.Index(errOut, "ta init --bootstrap-home")
 	idxExamples := strings.Index(errOut, "examples/")
 	if idxTarget < 0 {
-		t.Fatalf("missing target-system pointer: %s", errOut)
+		t.Fatalf("missing bootstrap-home pointer: %s", errOut)
 	}
 	if idxExamples >= 0 && idxExamples < idxTarget {
 		// examples/ pointer is allowed in the body, but the remediation
-		// list MUST lead with target-system. Guard against accidental
+		// list MUST lead with bootstrap-home. Guard against accidental
 		// re-ordering of the bullet list.
 		// Detect lead by checking that the first bullet line containing
-		// "ta init --target-system" precedes any other "Or" bullet.
+		// "ta init --bootstrap-home" precedes any other "Or" bullet.
 		bullets := strings.Split(errOut, "\n")
 		var firstBullet string
 		for _, line := range bullets {
@@ -1005,19 +1005,19 @@ func TestEmptyHomeError_HintsTargetSystem(t *testing.T) {
 				break
 			}
 		}
-		if !strings.Contains(firstBullet, "ta init --target-system") {
-			t.Errorf("first remediation bullet should mention target-system, got %q", firstBullet)
+		if !strings.Contains(firstBullet, "ta init --bootstrap-home") {
+			t.Errorf("first remediation bullet should mention bootstrap-home, got %q", firstBullet)
 		}
 	}
 }
 
-// TestInitCmdTargetSystemBootstrapsHomeFromBinary is the end-to-end
-// version of the `--target-system` flow: target resolves to $HOME/.ta,
+// TestInitCmdBootstrapHomeBootstrapsFromBinary is the end-to-end
+// version of the `--bootstrap-home` flow: target resolves to $HOME/.ta,
 // empty-provenance selections resolve from binary, the home library is
 // populated.
-func TestInitCmdTargetSystemBootstrapsHomeFromBinary(t *testing.T) {
+func TestInitCmdBootstrapHomeBootstrapsFromBinary(t *testing.T) {
 	// seedTemplateLibrary points templates.Root at a tmpdir; we want
-	// $HOME/.ta to BE that root so `--target-system` lands in the same
+	// $HOME/.ta to BE that root so `--bootstrap-home` lands in the same
 	// place ListItems / ShowItem read from.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1029,7 +1029,7 @@ func TestInitCmdTargetSystemBootstrapsHomeFromBinary(t *testing.T) {
 	t.Cleanup(restore)
 
 	sel := writeSelectionsFile(t, `{"schemas":["plans"]}`)
-	_, _, err := runInitCmd(t, "--target-system", "--selections-file", sel, "--on-conflict", "overwrite", "--json")
+	_, _, err := runInitCmd(t, "--bootstrap-home", "--selections-file", sel, "--on-conflict", "overwrite", "--json")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1088,7 +1088,7 @@ func TestRunMultiCategoryPicker_ProjectTargetFiltersBinaryItems(t *testing.T) {
 }
 
 // TestRunMultiCategoryPicker_HomeTargetFiltersHomeItems locks the
-// inverse: --target-system (target == $HOME/.ta) keeps ProvenanceBinary
+// inverse: --bootstrap-home (target == $HOME/.ta) keeps ProvenanceBinary
 // items only — that path bootstraps the home library FROM the binary,
 // so home items would be a self-referential no-op.
 func TestRunMultiCategoryPicker_HomeTargetFiltersHomeItems(t *testing.T) {

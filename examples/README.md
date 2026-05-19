@@ -209,9 +209,9 @@ Interactive bubbletea surfaces driven by `ta init` (and friends)
 have animated VHS recordings under [`../cmd/ta/testdata/vhs/`](../cmd/ta/testdata/vhs/).
 Two demos most relevant to the `ta init` walkthrough above:
 
-- [`picker_target_system.gif`](../cmd/ta/testdata/vhs/picker_target_system.gif) /
-  [`.txt`](../cmd/ta/testdata/vhs/picker_target_system.txt) — the
-  `ta init --target-system` bootstrap picker drives the multi-category
+- [`picker_bootstrap_home.gif`](../cmd/ta/testdata/vhs/picker_bootstrap_home.gif) /
+  [`.txt`](../cmd/ta/testdata/vhs/picker_bootstrap_home.txt) — the
+  `ta init --bootstrap-home` bootstrap picker drives the multi-category
   selection of which `examples/` defaults to copy into the target project.
 - [`picker_filter.gif`](../cmd/ta/testdata/vhs/picker_filter.gif) /
   [`.txt`](../cmd/ta/testdata/vhs/picker_filter.txt) — `/` enters

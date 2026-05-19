@@ -889,7 +889,7 @@ Re-color targets in `cmd/ta/styles.go`:
 
 ### F38d-2.3 Duplicate `ta init` on pre-existing `.claude/agents/`
 
-User flow: `rm -rf ~/.ta .ta` (only the `.ta/` dirs, NOT `.claude/agents/`) → `ta init --target-system` → `ta init` in `ta/main` → 9 agent conflicts because `.claude/agents/*.md` was never removed (it lives outside `.ta/`).
+User flow: `rm -rf ~/.ta .ta` (only the `.ta/` dirs, NOT `.claude/agents/`) → `ta init --bootstrap-home` → `ta init` in `ta/main` → 9 agent conflicts because `.claude/agents/*.md` was never removed (it lives outside `.ta/`).
 
 Two UX gaps:
 1. The error message is correct but doesn't tell the user that `.claude/agents/` IS the conflict source. User sees `agent:ta/closeout` and may not know that maps to `<project>/.claude/agents/closeout.md`. Error should name the on-disk path explicitly: `Init: 9 conflict(s) at <project>/.claude/agents/{closeout,fe-builder,...}.md; re-run with --on-conflict=skip|overwrite|force`.

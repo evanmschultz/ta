@@ -333,7 +333,7 @@
 ────────────────────────────────────────────────────────────────────────────────
 > rm -rf /tmp/ta-vhs-picker-target && mkdir -p /tmp/ta-vhs-picker-target
 > export HOME=/tmp/ta-vhs-picker-target
-> ./bin/ta init --target-system
+> ./bin/ta init --bootstrap-home
 
 
 
@@ -361,17 +361,17 @@
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap home library — pick items to install
+> rm -rf /tmp/ta-vhs-picker-target && mkdir -p /tmp/ta-vhs-picker-target
+> export HOME=/tmp/ta-vhs-picker-target
+> ./bin/ta init --bootstrap-home
 
-▶ Agents (ta) (0/9)
-▶ Schemas (0/17)
-j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
+   ERROR
 
+  Unknown flag: --bootstrap-home.
 
+  Try --help for usage.
 
-
-
-
+>
 
 
 
@@ -391,17 +391,17 @@ j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap home library — pick items to install
+> rm -rf /tmp/ta-vhs-picker-target && mkdir -p /tmp/ta-vhs-picker-target
+> export HOME=/tmp/ta-vhs-picker-target
+> ./bin/ta init --bootstrap-home
 
-▶ Agents (ta) (0/9)
-▶ Schemas (0/17)
-j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
+   ERROR
 
+  Unknown flag: --bootstrap-home.
 
+  Try --help for usage.
 
-
-
-
+>
 
 
 

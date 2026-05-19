@@ -215,7 +215,7 @@ Bare `ta` (no args) drops into the root subcommand menu — the entry point most
 - [`picker_project.gif`](cmd/ta/testdata/vhs/picker_project.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_project.txt) — multi-category picker initial render.
 - [`picker_filter.gif`](cmd/ta/testdata/vhs/picker_filter.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_filter.txt) — filter mode narrowing leaves.
 - [`picker_select_all.gif`](cmd/ta/testdata/vhs/picker_select_all.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_select_all.txt) — `space` toggling all visible leaves in a group.
-- [`picker_target_system.gif`](cmd/ta/testdata/vhs/picker_target_system.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_target_system.txt) — `ta init --target-system` bootstrap picker.
+- [`picker_bootstrap_home.gif`](cmd/ta/testdata/vhs/picker_bootstrap_home.gif) / [`.txt`](cmd/ta/testdata/vhs/picker_bootstrap_home.txt) — `ta init --bootstrap-home` bootstrap picker.
 - [`confirm_overwrite.gif`](cmd/ta/testdata/vhs/confirm_overwrite.gif) / [`.txt`](cmd/ta/testdata/vhs/confirm_overwrite.txt) — confirm prompt for overwrite.
 - [`form_create.gif`](cmd/ta/testdata/vhs/form_create.gif) / [`.txt`](cmd/ta/testdata/vhs/form_create.txt) — `ta create` interactive form.
 

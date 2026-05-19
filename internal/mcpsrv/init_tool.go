@@ -39,7 +39,7 @@ func initTool() mcp.Tool {
 				"Each entry accepts either a bare-string name (resolves to home only when target is a project, to binary only when target is $HOME/.ta) "+
 				"or an object {name, provenance} where provenance ∈ {ta, home, \"\"} pins the source. "+
 				"Use {name, provenance: \"ta\"} to force the binary-shipped fragment when a home item shares the name. "+
-				"Empty-provenance + project target + empty home library surfaces a friendly error pointing at `ta init --target-system` (F32).\n"+
+				"Empty-provenance + project target + empty home library surfaces a friendly error pointing at `ta init --bootstrap-home` (F32).\n"+
 				"  schemas:        [\"<db>\" | {name, provenance}, ...]\n"+
 				"  agents:         [{group, name, provenance?}, ...]\n"+
 				"  configs:        [\"<filename>\" | {name, provenance}, ...]\n"+

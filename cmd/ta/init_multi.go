@@ -61,7 +61,7 @@ func runInitMultiCategory(out, errOut io.Writer, target string, f initFlags) err
 // resolve under strict-provenance to "binary" and write into the
 // project — which is the opposite of the curated user-side library
 // the home root is meant to be. The fail-fast pushes the user toward
-// `ta init --target-system` first.
+// `ta init --bootstrap-home` first.
 func resolveSelections(errOut io.Writer, target string, f initFlags) (initapply.Selections, error) {
 	if f.selectionsFile != "" {
 		return readSelectionsFile(f.selectionsFile)
@@ -139,7 +139,7 @@ type pickerBucket struct {
 
 // filterByTargetProvenance keeps only the items whose Provenance
 // matches the target's provenance scope: home target keeps binary
-// items (the --target-system bootstrap path); project target keeps
+// items (the --bootstrap-home bootstrap path); project target keeps
 // home items (F32 strict-provenance at LIST time).
 func filterByTargetProvenance(items []templates.Item, target string) []templates.Item {
 	var keep templates.Provenance
@@ -189,7 +189,7 @@ func buildPickerBuckets(items []templates.Item, target string) []pickerBucket {
 // (category, group) bucket. Empty buckets are omitted. Returns the
 // composed selections payload. Items are filtered by target provenance
 // (F32 strict-provenance at LIST time): home target sees only binary
-// items (the --target-system bootstrap path), project target sees
+// items (the --bootstrap-home bootstrap path), project target sees
 // only home items. The picker submits via "S" (shift+s); abort via
 // "q" or ctrl+c returns errInitAborted. The pre-F38d-2 post-pick F16
 // confirm is gone — explicit submit IS the confirm.

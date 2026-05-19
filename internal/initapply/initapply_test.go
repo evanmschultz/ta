@@ -317,7 +317,7 @@ func TestApplyAgents_FlattenCollision_Errors(t *testing.T) {
 	}
 }
 
-// TestApplyAgents_HomeTarget_StaysNested locks the `--target-system`
+// TestApplyAgents_HomeTarget_StaysNested locks the `--bootstrap-home`
 // path: home target keeps the nested layout because home IS the nested
 // shape. No flatten, no frontmatter rewrite.
 func TestApplyAgents_HomeTarget_StaysNested(t *testing.T) {
@@ -833,7 +833,7 @@ func TestSelectionsFromJSON_ProvenanceObjectForm(t *testing.T) {
 // TestApply_EmptyHome_ProjectInit_Errors locks the F32 strict-provenance
 // rule: empty-provenance + project target requires a populated home.
 // Empty home + project target must fail-fast with a friendly error
-// pointing at `ta init --target-system`, never silently fall back to
+// pointing at `ta init --bootstrap-home`, never silently fall back to
 // the binary library.
 func TestApply_EmptyHome_ProjectInit_Errors(t *testing.T) {
 	setupBinary(t)
@@ -849,13 +849,13 @@ func TestApply_EmptyHome_ProjectInit_Errors(t *testing.T) {
 	if !strings.Contains(msg, "home library is empty") {
 		t.Errorf("error should name the empty-home condition: %v", err)
 	}
-	if !strings.Contains(msg, "ta init --target-system") {
-		t.Errorf("error should point at `ta init --target-system`: %v", err)
+	if !strings.Contains(msg, "ta init --bootstrap-home") {
+		t.Errorf("error should point at `ta init --bootstrap-home`: %v", err)
 	}
 }
 
 // TestApply_EmptyHome_HomeInit_PopulatesFromBinary covers the canonical
-// `ta init --target-system` flow: target IS $HOME/.ta, empty-provenance
+// `ta init --bootstrap-home` flow: target IS $HOME/.ta, empty-provenance
 // resolves to binary-only so the home library can be bootstrapped from
 // shipped defaults.
 func TestApply_EmptyHome_HomeInit_PopulatesFromBinary(t *testing.T) {
@@ -922,7 +922,7 @@ func TestApply_PopulatedHome_ProjectInit_UsesHomeOnly(t *testing.T) {
 }
 
 // TestApply_PopulatedHome_TargetingHome_OverwritesPolicyApplies
-// confirms `--target-system` against an already-populated home respects
+// confirms `--bootstrap-home` against an already-populated home respects
 // `--on-conflict`. Default error policy must surface a conflict; an
 // explicit overwrite refreshes the home copy from binary.
 func TestApply_PopulatedHome_TargetingHome_OverwritesPolicyApplies(t *testing.T) {

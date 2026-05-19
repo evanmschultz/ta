@@ -6,8 +6,8 @@
 # multi-cat picker title line — proves the target-system flow
 # reaches the same bubbletea picker model.
 
-Output cmd/ta/testdata/vhs/picker_target_system.gif
-Output cmd/ta/testdata/vhs/picker_target_system.txt
+Output cmd/ta/testdata/vhs/picker_bootstrap_home.gif
+Output cmd/ta/testdata/vhs/picker_bootstrap_home.txt
 
 Set Shell "bash"
 Set FontSize 14
@@ -25,6 +25,6 @@ Enter
 Sleep 500ms
 Show
 
-Type "./bin/ta init --target-system"
+Type "./bin/ta init --bootstrap-home"
 Enter
 Sleep 2s

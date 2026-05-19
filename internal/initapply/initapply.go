@@ -270,7 +270,7 @@ func snapshotAvailable() (*Available, error) {
 // F32 strict-provenance precondition: when target is a project (not
 // IsHomeRoot) AND any selection carries empty provenance for category
 // X AND the home library is empty for X, fail fast with a friendly
-// error pointing at `ta init --target-system`. This kills the
+// error pointing at `ta init --bootstrap-home`. This kills the
 // pre-F32 home→binary fallback that silently borrowed binary defaults
 // into project trees, which obscured the home library's role as the
 // curated user-side source.
@@ -308,7 +308,7 @@ func Apply(target string, sel Selections, policy Policy) (Report, error) {
 // For each category that has at least one empty-provenance selection,
 // the home library must be non-empty for that category. If any
 // category fails the check, return the friendly error so the user is
-// pushed toward `ta init --target-system` instead of debugging an
+// pushed toward `ta init --bootstrap-home` instead of debugging an
 // opaque resolver-not-found error per item.
 func preflightEmptyHome(sel Selections) error {
 	// Iterate via templates.AllKinds() so adding a new templates.Kind
@@ -401,10 +401,10 @@ func homeIsEmpty(k templates.Kind) (bool, error) {
 
 // emptyHomeFriendlyError wraps the generic "home is empty for kind X"
 // condition into a user-facing message that names the canonical fix
-// (`ta init --target-system`). The message embeds the category so
+// (`ta init --bootstrap-home`). The message embeds the category so
 // callers can tell which slice of the home library is missing.
 func emptyHomeFriendlyError(k templates.Kind) error {
-	return fmt.Errorf("initapply: home library is empty for %s — run `ta init --target-system` to populate it from binary defaults, or pin selections with `provenance: \"ta\"` to read from binary explicitly", k)
+	return fmt.Errorf("initapply: home library is empty for %s — run `ta init --bootstrap-home` to populate it from binary defaults, or pin selections with `provenance: \"ta\"` to read from binary explicitly", k)
 }
 
 // AggregateConflicts returns one flattened sorted list of conflict
@@ -446,12 +446,12 @@ func IsHomeRoot(target string) bool {
 // provenance from a caller is rewritten based on the target: a project
 // target reads from home only (the curated user-side library), and a
 // home target reads from binary only (the binary-defaults bootstrap
-// path used by `ta init --target-system`). Non-empty provenance passes
+// path used by `ta init --bootstrap-home`). Non-empty provenance passes
 // through unchanged so explicit pins continue to work.
 //
 // The previous home→binary fallback was killed because it silently
 // borrowed binary defaults into project trees, hiding the home
-// library's role and breaking the `--target-system` opt-in semantics.
+// library's role and breaking the `--bootstrap-home` opt-in semantics.
 func effectiveProvenance(target, raw string) string {
 	if raw != "" {
 		return raw
@@ -554,7 +554,7 @@ func resolveSchemaBytes(name, provenance string) ([]byte, error) {
 		})
 		if err != nil {
 			if errors.Is(err, templates.ErrItemNotFound) || errors.Is(err, templates.ErrDBNotFound) {
-				return nil, fmt.Errorf("initapply: schema %q not found in home library — run `ta init --target-system` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", name)
+				return nil, fmt.Errorf("initapply: schema %q not found in home library — run `ta init --bootstrap-home` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", name)
 			}
 			return nil, fmt.Errorf("initapply: schema %q not found in home library: %w", name, err)
 		}
@@ -690,7 +690,7 @@ func resolveAgentBytes(sel AgentSelection) ([]byte, error) {
 		})
 		if err != nil {
 			if errors.Is(err, templates.ErrItemNotFound) {
-				return nil, fmt.Errorf("initapply: agent %s not found in home library — run `ta init --target-system` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", agentKey(sel))
+				return nil, fmt.Errorf("initapply: agent %s not found in home library — run `ta init --bootstrap-home` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", agentKey(sel))
 			}
 			return nil, fmt.Errorf("initapply: agent %s not found in home library: %w", agentKey(sel), err)
 		}
@@ -814,7 +814,7 @@ func resolveConfigBytes(sel ConfigSelection) ([]byte, error) {
 		})
 		if err != nil {
 			if errors.Is(err, templates.ErrItemNotFound) {
-				return nil, fmt.Errorf("initapply: config %q not found in home library — run `ta init --target-system` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", sel.Name)
+				return nil, fmt.Errorf("initapply: config %q not found in home library — run `ta init --bootstrap-home` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", sel.Name)
 			}
 			return nil, fmt.Errorf("initapply: config %q not found in home library: %w", sel.Name, err)
 		}
@@ -927,7 +927,7 @@ func resolveDocsTemplateBytes(sel DocsSelection) ([]byte, error) {
 		})
 		if err != nil {
 			if errors.Is(err, templates.ErrItemNotFound) {
-				return nil, fmt.Errorf("initapply: docs-template %q not found in home library — run `ta init --target-system` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", sel.Name)
+				return nil, fmt.Errorf("initapply: docs-template %q not found in home library — run `ta init --bootstrap-home` to populate ~/.ta from binary defaults, or pin selection with `provenance: \"ta\"`", sel.Name)
 			}
 			return nil, fmt.Errorf("initapply: docs-template %q not found in home library: %w", sel.Name, err)
 		}
