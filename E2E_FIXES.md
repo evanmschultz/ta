@@ -1285,7 +1285,10 @@ mcp__ta__get(items=[{id: "drop_001.drop.X"}])  // returns found:false
 
 **Dependency**: blocked on drop_002 closure (the helper must exist first).
 
-### F38d-2.19 [MAJOR] CLI error responses ignore `--json` flag
+### F38d-2.19 [CLOSED — drop_002 (B1 helper + B4 callsites + B6 tests)] CLI error responses ignore `--json` flag
+
+**Verified at**: helper `runWithJSONErrEnvelope` at `cmd/ta/commands.go:38`; 7 read-side RunE wrap callsites at `cmd/ta/get_cmd.go:89` + `cmd/ta/list_sections_cmd.go:41` + `cmd/ta/schema_cmd.go:94` (action=get only) + `cmd/ta/search_cmd.go:55` + `cmd/ta/index_cmd.go:59` + `cmd/ta/template_cmd.go:78` + `cmd/ta/template_cmd.go:246`; 8 pinning tests at `cmd/ta/commands_test.go:2154,2318,2354,2376,2396` + `cmd/ta/template_cmd_test.go:971,987` + `cmd/ta/index_cmd_test.go:16`. Attestation by L3-G4-D1 orchestrator-direct fold 2026-05-18 (drop_004).
+
 
 **Surfaced by**: live CLI dogfood after F38d-2.17 landed.
 
@@ -1301,7 +1304,10 @@ Repro:
 
 **Tests required**: `TestCLI_SearchInvalidScopeJSON`, `TestCLI_GetNotFoundJSON`, symmetric for `list-sections`/`update`/`delete`.
 
-### F38d-2.20 [MAJOR] `ta get <nonexistent>` returns confusing "type unresolved" error
+### F38d-2.20 [CLOSED — drop_002 (B1 ops uniform errors)] `ta get <nonexistent>` returns confusing "type unresolved" error
+
+**Verified at**: `internal/ops/errors.go:8-28` declares `ErrRecordNotFound` + `ErrRecordNotFoundFormat`; uniform-pin at `internal/ops/errors_uniform_test.go:38` (`TestOps_ErrRecordNotFoundFormat_AllEmittersUniform`); CLI surface verified by `TestCLI_GetNotFoundCleanError` at `cmd/ta/commands_test.go:2154`. Attestation by L3-G4-D1 orchestrator-direct fold 2026-05-18 (drop_004).
+
 
 **Surfaced by**: live CLI dogfood (same pass as F38d-2.19).
 

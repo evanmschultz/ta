@@ -85,7 +85,13 @@ func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	c.mu.RLock()
 	entry, bound := c.entry, c.projectPath
 	c.mu.RUnlock()
-	if bound != "" && bound != abs {
+	// Bare-root tolerance (F9): when an earlier Resolve failed at the
+	// loader, the slow path binds c.projectPath but leaves c.entry nil.
+	// That bind is a placeholder, not a real single-project commitment,
+	// so a different abs path must be allowed to rebind. The
+	// single-project-per-process invariant only applies once a
+	// successful resolve has populated entry.
+	if bound != "" && bound != abs && entry != nil {
 		return config.Resolution{}, fmt.Errorf(
 			"ops: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
 			bound, abs,
@@ -100,7 +106,11 @@ func (c *schemaCache) Resolve(projectPath string) (config.Resolution, error) {
 	// Lock.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.projectPath != "" && c.projectPath != abs {
+	// Bare-root tolerance (F9): symmetric to the fast-path predicate
+	// above. A bound projectPath with nil entry is a failure-path
+	// placeholder; permit rebind so a real project can land in the
+	// cache slot after a malformed-cwd boot.
+	if c.projectPath != "" && c.projectPath != abs && c.entry != nil {
 		return config.Resolution{}, fmt.Errorf(
 			"ops: cache is bound to project %q; cannot resolve %q (single-project-per-process)",
 			c.projectPath, abs,

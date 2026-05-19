@@ -36,24 +36,31 @@ func newSearchCmd() *cobra.Command {
 	var all bool
 	var asFormat string
 	cmd := &cobra.Command{
-		Use:   "search",
+		Use:   "search [query]",
 		Short: "Structured + regex search across records; mirrors MCP tool `search`.",
 		Long: "Walks declared records under --scope, applies --match exact-match " +
 			"filters on typed scalar fields (JSON object), then optionally " +
 			"applies --query regex against string fields (restricted to " +
-			"--field when set). One laslig card per hit — or, with --json, " +
-			"a structured hits array for agent consumption. --limit caps the " +
-			"hit count (default 10, -n shorthand); --all returns every match. " +
-			"--path defaults to cwd; relative or absolute accepted.",
+			"--field when set). Query may be supplied as the positional " +
+			"argument or via --query; passing both is an error. One laslig " +
+			"card per hit — or, with --json, a structured hits array for " +
+			"agent consumption. --limit caps the hit count (default 10, -n " +
+			"shorthand); --all returns every match. --path defaults to cwd; " +
+			"relative or absolute accepted.",
 		Example: "  ta search --scope=plans --match '{\"status\":\"todo\"}'\n" +
+			"  ta search 'TODO' --scope=plans --field=body\n" +
 			"  ta search --path /abs/proj --scope=plans --query='TODO' --field=body\n" +
 			"  ta search --scope=plans --all --json",
-		Args:          cobra.NoArgs,
+		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
 			return runWithJSONErrEnvelope(c, asJSON, func() error {
 				path, err := resolveCLIPath(c)
+				if err != nil {
+					return err
+				}
+				resolvedQuery, err := resolveSearchQuery(args, query)
 				if err != nil {
 					return err
 				}
@@ -63,7 +70,7 @@ func newSearchCmd() *cobra.Command {
 						return fmt.Errorf("parse --match JSON: %w", err)
 					}
 				}
-				hits, err := ops.Search(path, scope, typeName, match, query, field, limit, all)
+				hits, err := ops.Search(path, scope, typeName, match, resolvedQuery, field, limit, all)
 				if err != nil {
 					return err
 				}
@@ -194,6 +201,30 @@ func emitSearchJSON(w io.Writer, hits []ops.SearchHit) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(map[string]any{"hits": out})
+}
+
+// resolveSearchQuery reconciles the `--query` flag with the optional
+// positional query argument. The positional is a convenience for
+// --query; supplying both forms at once is ambiguous and errors. Empty
+// query (neither form set) means "no regex filter" and is returned as
+// "" — ops.Search short-circuits the regex compile in that case.
+//
+// Byte-mirrors resolveListScope at cmd/ta/list_sections_cmd.go:86-99
+// per the L3-G4 planner contract; the helper deliberately stays in
+// search_cmd.go to firewall the L3-G6 commands.go promotion concern.
+func resolveSearchQuery(args []string, flagQuery string) (string, error) {
+	var positional string
+	if len(args) == 1 {
+		positional = args[0]
+	}
+	switch {
+	case flagQuery != "" && positional != "":
+		return "", fmt.Errorf("pass query once: supply either the positional or --query, not both")
+	case flagQuery != "":
+		return flagQuery, nil
+	default:
+		return positional, nil
+	}
 }
 
 func renderSearchHits(w io.Writer, path string, hits []ops.SearchHit) error {

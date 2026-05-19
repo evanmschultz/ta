@@ -2,7 +2,6 @@ package mcpsrv
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -230,7 +229,7 @@ func searchTool() mcp.Tool {
 		),
 		mcp.WithString(
 			"query",
-			mcp.Description("Optional: Go RE2 regex matched against string fields."),
+			mcp.Description("Optional: Go RE2 regex matched against string fields. MCP-side `query` arg; CLI-side `ta search [query]` positional or `--query` flag accepts the same regex/literal pattern."),
 		),
 		mcp.WithString(
 			"field",
@@ -611,11 +610,15 @@ func handleListSections(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 }
 
 // createResultItem mirrors one entry of the F37 universal results[]
-// response for the `create` tool.
+// response for the `create` tool. ValidationFailures carries the
+// structured per-field detail from *schema.ValidationError so agent
+// clients can branch on field-level kind/message without parsing the
+// (now-summary) Error string.
 type createResultItem struct {
-	ID    string `json:"id"`
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	ID                 string                 `json:"id"`
+	OK                 bool                   `json:"ok"`
+	Error              string                 `json:"error,omitempty"`
+	ValidationFailures []*schema.FieldFailure `json:"validation_failures,omitempty"`
 }
 
 // createResult is the {path, results: [...]} envelope.
@@ -727,10 +730,17 @@ func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		}
 		_, _, err := ops.CreateWithOptions(path, it.id, it.typeName, it.data, ops.CreateOptions{NoSpawn: it.noSpawn})
 		if err != nil {
-			// Validation errors stringify to JSON for backwards
-			// parity with the pre-F37 single-create error shape so
-			// agents that branched on the validation JSON keep working.
-			entry.Error = errorString(err)
+			// F38d-2.13: validation failures travel as structured JSON
+			// on `validation_failures`; the `error` field carries a
+			// stable short sentinel so callers can branch on it without
+			// parsing escaped-JSON-in-a-string (the pre-F38d-2.13 shape).
+			var vErr *schema.ValidationError
+			if errors.As(err, &vErr) {
+				entry.Error = "validation failed"
+				entry.ValidationFailures = vErr.Failures
+			} else {
+				entry.Error = err.Error()
+			}
 		} else {
 			entry.OK = true
 		}
@@ -740,11 +750,15 @@ func handleCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 }
 
 // updateResultItem mirrors one entry of the F37 universal results[]
-// response for the `update` tool.
+// response for the `update` tool. ValidationFailures carries the
+// structured per-field detail from *schema.ValidationError so agent
+// clients can branch on field-level kind/message without parsing the
+// (now-summary) Error string.
 type updateResultItem struct {
-	ID    string `json:"id"`
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	ID                 string                 `json:"id"`
+	OK                 bool                   `json:"ok"`
+	Error              string                 `json:"error,omitempty"`
+	ValidationFailures []*schema.FieldFailure `json:"validation_failures,omitempty"`
 }
 
 // updateResult is the {path, results: [...]} envelope.
@@ -829,7 +843,15 @@ func handleUpdate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		}
 		_, _, err := ops.Update(path, it.id, it.typeName, it.data)
 		if err != nil {
-			entry.Error = errorString(err)
+			// F38d-2.13: validation failures travel as structured JSON
+			// on `validation_failures`; see handleCreate for the rationale.
+			var vErr *schema.ValidationError
+			if errors.As(err, &vErr) {
+				entry.Error = "validation failed"
+				entry.ValidationFailures = vErr.Failures
+			} else {
+				entry.Error = err.Error()
+			}
 		} else {
 			entry.OK = true
 		}
@@ -937,20 +959,6 @@ func handleDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		results[i] = entry
 	}
 	return mustJSON(deleteResultBatch{Path: path, Results: results}), nil
-}
-
-// errorString flattens an error into the wire-side string. ValidationErrors
-// stringify to JSON for the create/update batch result entries so MCP
-// callers can still branch on field-level validation detail without losing
-// the per-item err string envelope.
-func errorString(err error) string {
-	if vErr, ok := errors.AsType[*schema.ValidationError](err); ok {
-		raw, jerr := json.Marshal(vErr)
-		if jerr == nil {
-			return string(raw)
-		}
-	}
-	return err.Error()
 }
 
 // moveItemResult mirrors one entry of the universal results[] response

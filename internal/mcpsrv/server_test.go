@@ -498,6 +498,60 @@ func TestSearchHits(t *testing.T) {
 	}
 }
 
+// TestSearchTool_QueryArgRoundTrip exercises the MCP `query` arg
+// end-to-end through the in-process client: it seeds three records
+// with DISTINCT status values (`todo` / `doing` / `done`), then
+// invokes the `search` tool with query="todo" and asserts that ONLY
+// the matching record appears in the envelope body. Pins F38d-2.7's
+// genuine `query` plumbing — not a structure-mirror — per the
+// F38d-2.14b lesson that round-trip tests must drive the real field.
+func TestSearchTool_QueryArgRoundTrip(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	seeds := []struct {
+		id     string
+		status string
+	}{
+		{"plans.q1", "todo"},
+		{"plans.q2", "doing"},
+		{"plans.q3", "done"},
+	}
+	for _, s := range seeds {
+		res := callTool(t, c, "create", map[string]any{
+			"path": fx.projectRoot,
+			"items": []any{
+				map[string]any{
+					"id":   s.id,
+					"type": "plans.task",
+					"data": map[string]any{"id": s.id, "status": s.status},
+				},
+			},
+		})
+		if res.IsError {
+			t.Fatalf("create %s errored: %s", s.id, firstText(t, res))
+		}
+	}
+	res := callTool(t, c, "search", map[string]any{
+		"path":  fx.projectRoot,
+		"scope": "plans",
+		"query": "todo",
+		"all":   true,
+	})
+	if res.IsError {
+		t.Fatalf("search errored: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+	if !strings.Contains(body, "plans.q1") {
+		t.Errorf("query=todo must match plans.q1 (status=todo):\n%s", body)
+	}
+	if strings.Contains(body, "plans.q2") {
+		t.Errorf("query=todo must NOT match plans.q2 (status=doing):\n%s", body)
+	}
+	if strings.Contains(body, "plans.q3") {
+		t.Errorf("query=todo must NOT match plans.q3 (status=done):\n%s", body)
+	}
+}
+
 // TestDeleteToolFileLevelRequiresForce locks F19's MCP rule under the
 // F37 items[] shape: file-level delete (bare file-relpath) refuses
 // without per-item `force=true`. The refusal surfaces as a per-item
@@ -3996,5 +4050,255 @@ func TestE2EMCP_RoundTripByteFidelity(t *testing.T) {
 	// as a content drift.
 	if strings.TrimRight(got, "\n") != strings.TrimRight(body, "\n") {
 		t.Errorf("MCP round-trip body mismatch:\n got: %q\nwant: %q", got, body)
+	}
+}
+
+// TestCreate_ValidationErrorEmitsStructuredFailures pins the F38d-2.13
+// envelope: create with a missing required field produces a per-item
+// `error: "validation failed"` AND a structured `validation_failures`
+// array carrying the field-level FailureKind ("missing_required") +
+// field name. Pre-F38d-2.13 the per-field detail was JSON-encoded into
+// the Error string (double-encoding); the new shape exposes it directly.
+func TestCreate_ValidationErrorEmitsStructuredFailures(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-missing-status",
+				"type": "plans.task",
+				// `id` is present; `status` (required) is intentionally
+				// omitted so Validate emits a FailureMissingRequired.
+				"data": map[string]any{"id": "demo-missing-status"},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("envelope-level error (per-item failures must NOT bubble to envelope): %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+
+	var payload struct {
+		Path    string `json:"path"`
+		Results []struct {
+			ID                 string `json:"id"`
+			OK                 bool   `json:"ok"`
+			Error              string `json:"error"`
+			ValidationFailures []struct {
+				Field        string `json:"field"`
+				Kind         string `json:"kind"`
+				Message      string `json:"message"`
+				ExpectedType string `json:"expected_type"`
+			} `json:"validation_failures"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("decode create result: %v\nbody: %s", err, body)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("results length = %d, want 1; body: %s", len(payload.Results), body)
+	}
+	entry := payload.Results[0]
+	if entry.OK {
+		t.Errorf("results[0].ok = true, want false; body: %s", body)
+	}
+	if entry.Error != "validation failed" {
+		t.Errorf("results[0].error = %q, want %q; body: %s", entry.Error, "validation failed", body)
+	}
+	if len(entry.ValidationFailures) == 0 {
+		t.Fatalf("results[0].validation_failures is empty; body: %s", body)
+	}
+	// At least one failure must name the missing `status` field with
+	// kind=missing_required.
+	var sawStatusMissing bool
+	for _, f := range entry.ValidationFailures {
+		if f.Field == "status" && f.Kind == "missing_required" {
+			sawStatusMissing = true
+			break
+		}
+	}
+	if !sawStatusMissing {
+		t.Errorf("expected a missing_required failure on field=status; got: %+v\nbody: %s",
+			entry.ValidationFailures, body)
+	}
+	// The Error string MUST NOT itself be JSON-encoded validation
+	// payload — the double-encoding regression this slice retires.
+	if strings.HasPrefix(entry.Error, "{") {
+		t.Errorf("results[0].error looks like the old JSON-encoded shape (regression): %q", entry.Error)
+	}
+}
+
+// TestUpdate_ValidationErrorEmitsStructuredFailures mirrors the create
+// envelope contract on the update path. The fixture seeds a valid
+// record, then patches a required string-typed field with a non-string
+// value — overlayPatch happily merges the wrong-typed overlay, then
+// schema.Validate emits a FailureTypeMismatch *ValidationError.
+//
+// NOTE on the chosen failure shape: clearing a required field with
+// `null` is rejected EARLIER (overlayPatch -> ErrCannotClearRequired,
+// fmt.Errorf-wrapped, not a *ValidationError), so it does NOT exercise
+// this slice's structured-envelope branch. Type-mismatch is the
+// reachable Validate-tree path for the update handler.
+func TestUpdate_ValidationErrorEmitsStructuredFailures(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+
+	// Seed a valid record so update has something to patch.
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-update-target",
+				"type": "plans.task",
+				"data": map[string]any{"id": "demo-update-target", "status": "todo"},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("seed create errored at envelope: %s", firstText(t, res))
+	}
+	if !strings.Contains(firstText(t, res), `"ok":true`) {
+		t.Fatalf("seed create per-item not OK: %s", firstText(t, res))
+	}
+
+	// Patch `status` (declared type=string, required=true) with an int
+	// value. overlayPatch accepts the overlay; Validate rejects it with
+	// a FailureTypeMismatch leaf inside *schema.ValidationError.
+	res = callTool(t, c, "update", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-update-target",
+				"type": "plans.task",
+				"data": map[string]any{"status": 42},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("envelope-level error: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+
+	var payload struct {
+		Results []struct {
+			ID                 string `json:"id"`
+			OK                 bool   `json:"ok"`
+			Error              string `json:"error"`
+			ValidationFailures []struct {
+				Field string `json:"field"`
+				Kind  string `json:"kind"`
+			} `json:"validation_failures"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("decode update result: %v\nbody: %s", err, body)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("results length = %d, want 1; body: %s", len(payload.Results), body)
+	}
+	entry := payload.Results[0]
+	if entry.OK {
+		t.Errorf("results[0].ok = true, want false; body: %s", body)
+	}
+	if entry.Error != "validation failed" {
+		t.Errorf("results[0].error = %q, want %q; body: %s", entry.Error, "validation failed", body)
+	}
+	if len(entry.ValidationFailures) == 0 {
+		t.Fatalf("results[0].validation_failures is empty; body: %s", body)
+	}
+	var sawStatusMismatch bool
+	for _, f := range entry.ValidationFailures {
+		if f.Field == "status" && f.Kind == "type_mismatch" {
+			sawStatusMismatch = true
+			break
+		}
+	}
+	if !sawStatusMismatch {
+		t.Errorf("expected a type_mismatch failure on field=status; got: %+v\nbody: %s",
+			entry.ValidationFailures, body)
+	}
+}
+
+// TestCreate_NonValidationErrorKeepsRawString verifies the OTHER
+// branch of the per-item error setter: when err is NOT a
+// *schema.ValidationError, entry.Error carries the raw err.Error()
+// verbatim and validation_failures is OMITTED (omitempty). Re-creating
+// the same id surfaces ErrRecordExists which is the canonical non-
+// validation per-item failure.
+func TestCreate_NonValidationErrorKeepsRawString(t *testing.T) {
+	fx := newFixtureWith(t, tomlTaskSchema)
+	c := newClient(t, fx.projectRoot)
+
+	// First create lands.
+	res := callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-dup",
+				"type": "plans.task",
+				"data": map[string]any{"id": "demo-dup", "status": "todo"},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("seed create errored at envelope: %s", firstText(t, res))
+	}
+
+	// Second create with the same id collides → ErrRecordExists,
+	// which is NOT a *schema.ValidationError.
+	res = callTool(t, c, "create", map[string]any{
+		"path": fx.projectRoot,
+		"items": []any{
+			map[string]any{
+				"id":   "plans.demo-dup",
+				"type": "plans.task",
+				"data": map[string]any{"id": "demo-dup", "status": "todo"},
+			},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("envelope-level error: %s", firstText(t, res))
+	}
+	body := firstText(t, res)
+
+	var payload struct {
+		Results []struct {
+			ID                 string `json:"id"`
+			OK                 bool   `json:"ok"`
+			Error              string `json:"error"`
+			ValidationFailures []any  `json:"validation_failures"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("decode create result: %v\nbody: %s", err, body)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("results length = %d, want 1; body: %s", len(payload.Results), body)
+	}
+	entry := payload.Results[0]
+	if entry.OK {
+		t.Errorf("results[0].ok = true, want false; body: %s", body)
+	}
+	if entry.Error == "" {
+		t.Errorf("results[0].error is empty; body: %s", body)
+	}
+	// Must NOT be the validation sentinel.
+	if entry.Error == "validation failed" {
+		t.Errorf("results[0].error = %q, want raw ops error (validation sentinel is reserved for *schema.ValidationError)",
+			entry.Error)
+	}
+	// The raw error from ops.CreateWithOptions must travel verbatim.
+	// Pin the recognizable substring rather than the full string so
+	// later ops-side rewording doesn't break the test for the wrong
+	// reason.
+	if !strings.Contains(entry.Error, "already exists") {
+		t.Errorf("results[0].error = %q, want substring %q (ErrRecordExists path); body: %s",
+			entry.Error, "already exists", body)
+	}
+	// omitempty: with the non-validation branch we never set
+	// ValidationFailures, so the JSON key is absent (decoded as nil).
+	if entry.ValidationFailures != nil {
+		t.Errorf("results[0].validation_failures = %v, want absent (omitempty)", entry.ValidationFailures)
 	}
 }

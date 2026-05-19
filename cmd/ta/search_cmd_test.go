@@ -197,6 +197,129 @@ func TestSearch_AsUnknownFormatError(t *testing.T) {
 	}
 }
 
+// TestSearchCmd_PositionalQueryAlias — L3-G4-D2 (F38d-2.7): the
+// positional `[query]` form of `ta search 'todo'` produces the same
+// hit set as the flag form `ta search --query 'todo'`. Both routes
+// go through resolveSearchQuery and end up calling ops.Search with
+// identical `queryRegex` arguments. Asserts the --json hit ids match
+// across the two invocations, including count + order.
+func TestSearchCmd_PositionalQueryAlias(t *testing.T) {
+	root, _ := withMdSearchFixture(t)
+
+	// Positional form: ta search 'notes\.' --path <root> --scope notes --all --json
+	positionalOut, positionalErr, err := runSearchCmd(
+		t,
+		`notes\.`,
+		"--path", root,
+		"--scope", "notes",
+		"--all",
+		"--json",
+	)
+	if err != nil {
+		t.Fatalf("positional execute: %v; stderr=%s; stdout=%s", err, positionalErr, positionalOut)
+	}
+
+	// Flag form: ta search --query 'notes\.' --path <root> --scope notes --all --json
+	flagOut, flagErr, err := runSearchCmd(
+		t,
+		"--query", `notes\.`,
+		"--path", root,
+		"--scope", "notes",
+		"--all",
+		"--json",
+	)
+	if err != nil {
+		t.Fatalf("flag execute: %v; stderr=%s; stdout=%s", err, flagErr, flagOut)
+	}
+
+	type hit struct {
+		ID string `json:"id"`
+	}
+	var positional struct {
+		Hits []hit `json:"hits"`
+	}
+	var flagged struct {
+		Hits []hit `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(positionalOut), &positional); err != nil {
+		t.Fatalf("unmarshal positional: %v; stdout=%s", err, positionalOut)
+	}
+	if err := json.Unmarshal([]byte(flagOut), &flagged); err != nil {
+		t.Fatalf("unmarshal flag: %v; stdout=%s", err, flagOut)
+	}
+	if len(positional.Hits) == 0 {
+		t.Fatalf("positional form returned 0 hits; expected >0; stdout=%s", positionalOut)
+	}
+	if len(positional.Hits) != len(flagged.Hits) {
+		t.Fatalf("hit count mismatch: positional=%d flag=%d; positional=%s flag=%s",
+			len(positional.Hits), len(flagged.Hits), positionalOut, flagOut)
+	}
+	for i := range positional.Hits {
+		if positional.Hits[i].ID != flagged.Hits[i].ID {
+			t.Errorf("hits[%d].id mismatch: positional=%q flag=%q",
+				i, positional.Hits[i].ID, flagged.Hits[i].ID)
+		}
+	}
+}
+
+// TestSearchCmd_PositionalAndFlagCollision — L3-G4-D2 (F38d-2.7):
+// passing the positional `[query]` AND `--query` simultaneously is
+// ambiguous and must surface the planner-pinned "pass query once"
+// error template. Byte-mirrors resolveListScope's collision shape.
+func TestSearchCmd_PositionalAndFlagCollision(t *testing.T) {
+	root, _ := withMdSearchFixture(t)
+	stdout, _, err := runSearchCmd(
+		t,
+		"todo",
+		"--query", "urgent",
+		"--path", root,
+		"--scope", "notes",
+	)
+	if err == nil {
+		t.Fatalf("expected collision error; stdout=%s", stdout)
+	}
+	wantSub := "pass query once: supply either the positional or --query, not both"
+	if !strings.Contains(err.Error(), wantSub) {
+		t.Errorf("error = %q, want substring %q", err.Error(), wantSub)
+	}
+}
+
+// TestSearchCmd_EmptyPositionalIsNotASubcommand — L3-G4-D2 (F38d-2.7):
+// `ta search ” --json` must run cleanly (NOT trigger cobra's
+// "Unknown command" error). An empty positional collapses to
+// queryRegex="", which ops.Search short-circuits before regex
+// compile (see ops.go:1338). The --json envelope must be present
+// without an "error" key.
+func TestSearchCmd_EmptyPositionalIsNotASubcommand(t *testing.T) {
+	root, _ := withMdSearchFixture(t)
+	stdout, errOut, err := runSearchCmd(
+		t,
+		"",
+		"--path", root,
+		"--scope", "notes",
+		"--json",
+	)
+	if err != nil {
+		t.Fatalf("execute: %v; stderr=%s; stdout=%s", err, errOut, stdout)
+	}
+	// Negative check on the cobra-level error message — if Args were
+	// still NoArgs, cobra would refuse the empty positional. Also
+	// negative on the JSON error envelope.
+	if strings.Contains(stdout, "Unknown command") || strings.Contains(errOut, "Unknown command") {
+		t.Errorf("unexpected 'Unknown command'; stdout=%s; stderr=%s", stdout, errOut)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("unmarshal: %v; stdout=%s", err, stdout)
+	}
+	if _, hasError := payload["error"]; hasError {
+		t.Errorf("--json envelope should not contain error key; payload=%v", payload)
+	}
+	if _, hasHits := payload["hits"]; !hasHits {
+		t.Errorf("--json envelope should contain hits key; payload=%v", payload)
+	}
+}
+
 // TestSearch_AsPreservesHitOrder verifies the multi-hit pass-through:
 // hits are emitted in the same order ops.Search returned them. With
 // --as=md + --json, the {"hits": [...]} envelope preserves the seeded

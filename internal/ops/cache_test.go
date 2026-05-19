@@ -320,6 +320,75 @@ func TestStartupPreWarmsValidCascade(t *testing.T) {
 	}
 }
 
+// TestResolve_RebindsWhenBoundEntryIsNil pins F9 bare-root tolerance.
+// When the first Resolve targets a directory with no .ta/schema.toml
+// the loader returns ErrNoSchema; cache.go's failure-bind leaves
+// c.projectPath set but c.entry nil. A subsequent Resolve against a
+// real project MUST be allowed to rebind — both the fast-path RLock
+// check and the slow-path Lock check must permit the rebind when
+// entry is nil.
+//
+// The repeated Resolve calls below exercise BOTH bound checks: the
+// first real-project Resolve hits the fast-path predicate with a
+// stale bare-root bound + nil entry (falls through), then the
+// slow-path predicate with the same (also falls through) before
+// landing in the loader. The second real-project Resolve hits the
+// fast-path predicate with bound == abs (skipped entirely).
+func TestResolve_RebindsWhenBoundEntryIsNil(t *testing.T) {
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
+
+	// Bare root: no .ta/schema.toml. ResolveProject loader path
+	// returns ErrNoSchema; cache.go binds projectPath but leaves
+	// entry nil.
+	bareRoot := t.TempDir()
+	if _, err := ops.ResolveProject(bareRoot); err == nil {
+		t.Fatalf("bare-root resolve: want error, got nil")
+	}
+
+	// Real project: valid schema. With the F9 fix, this must
+	// succeed even though the cache is bound to bareRoot with
+	// entry=nil.
+	realRoot := seedProject(t, cacheTestSchema)
+	res, err := ops.ResolveProject(realRoot)
+	if err != nil {
+		t.Fatalf("real-project resolve after bare-root failure: %v", err)
+	}
+	if _, ok := res.Registry.DBs["plans"]; !ok {
+		t.Fatalf("plans db missing after rebind: %+v", res.Registry.DBs)
+	}
+
+	// Second resolve of the same real project must hit cache (proves
+	// rebind landed cleanly with entry populated).
+	if _, err := ops.ResolveProject(realRoot); err != nil {
+		t.Fatalf("second real-project resolve: %v", err)
+	}
+}
+
+// TestResolve_RejectsRebindWhenBoundEntryIsPopulated pins the F9
+// relaxation as gated on entry==nil. Two distinct real projects in
+// one process still triggers the single-project-per-process error;
+// the bare-root tolerance MUST NOT relax the structural invariant
+// for successfully-resolved projects.
+func TestResolve_RejectsRebindWhenBoundEntryIsPopulated(t *testing.T) {
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
+
+	rootA := seedProject(t, cacheTestSchema)
+	if _, err := ops.ResolveProject(rootA); err != nil {
+		t.Fatalf("first project resolve: %v", err)
+	}
+
+	rootB := seedProject(t, cacheTestSchema)
+	_, err := ops.ResolveProject(rootB)
+	if err == nil {
+		t.Fatalf("second-project resolve: want single-project-per-process error, got nil")
+	}
+	if !strings.Contains(err.Error(), "single-project-per-process") {
+		t.Errorf("error missing single-project-per-process marker; got %v", err)
+	}
+}
+
 // TestStartupTolerantOfMissingSchema proves New succeeds on a fresh
 // project (no .ta/schema.toml yet). Individual tool calls will surface
 // ErrNoSchema when they try to read — but startup itself must not
