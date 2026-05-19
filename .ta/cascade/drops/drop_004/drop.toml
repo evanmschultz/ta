@@ -9128,6 +9128,7 @@ transition_notes = "FAIL with 2 hard counterexamples + 2 soft (folds) + 3 routed
 updated_at = "2026-05-19T00:35:39Z"
 [l3_e2_simple_views]
 blockers = []
+completed_at = "2026-05-18T22:40:00Z"
 created_at = "2026-05-18T11:00:00Z"
 description = """
 L3-E2 decomposition: 6 atomic builder droplets for Track A simple views.
@@ -9167,26 +9168,14 @@ All 6 builders edit internal/templates_html_basic/render_test.go (append-only). 
 - Existing TestEmbeddedBasic_NoScriptTagsRegex + _FieldPlaceholdersParse continue to gate all new templates automatically (zero per-droplet duplication of those rules).
 """
 objective = "L2-E L3-E2: simple views (Track A consumer). Author plain .html templates under internal/templates_html_basic/templates/<type>.html (or sample/<type>.html depending on layout decision) for cascade.drop/planner/droplet/qa/roadmap_version/schema_browser. Zero <script>. Inline <style> only. Golden snapshots in internal/templates_html_basic/testdata/. ~6 view droplets per L2-E plan. Track A canonical location is internal/templates_html_basic/templates/ post-Option-A fold."
+outcome = "success"
 parent_id = "drop_004.drop.l2_e_html_template_system"
 role = "planner"
 started_at = "2026-05-18T11:00:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-E2 planner — Track A simple views (6 record-type templates)"
-transition_notes = """
-Plan-QA both halves complete. proof PASS (with 1 AMEND fold) + falsif AMEND (with 3 surgical findings). CONSOLIDATED ORCHESTRATOR DIRECTIVES for D-V1..D-V6 record creation:
-
-**D-V1 paths must include** (in addition to render_test.go + templates/cascade_drop.html + testdata/cascade_drop.html.golden):
-  - internal/templates_html_basic/embed_test.go (repoint TestEmbeddedBasic_SampleAccessible line 22 fs.ReadFile arg from sample/cascade_drop.html to flat cascade_drop.html OR rename to TestEmbeddedBasic_CascadeDropAccessible)
-  - internal/templates_html_basic/render_test.go (existing path; explicitly update Render() call site at line 55 from `sample/cascade_drop.html` to `cascade_drop.html` AND rename TestRenderBasic_SampleCascadeDrop → _CascadeDrop)
-  - internal/templates_html_basic/templates/README.md (optional polish: update sample/ references)
-
-**D-V1 should also include one-sentence rationale** for the custom assertGoldenBytes helper (vs charmbracelet/x/exp/golden): D-V4's table-driven test needs 2 goldens from 1 test function (cascade_qa_proof.golden + cascade_qa_falsification.golden), which golden.RequireEqual's t.Name()-derived path cannot supply directly.
-
-**D-V2..D-V6 sibling-blocking enforcement** (CRITICAL): all 6 droplets append to internal/templates_html_basic/render_test.go. blockers=[D-V1] alone is INSUFFICIENT — it serializes only D-V2..D-V6 BEHIND D-V1, not D-V2..D-V6 relative to each other. Choose ONE: (a) declare paths=[`internal/templates_html_basic/render_test.go`, ...] on each D-V2..D-V6 droplet so orchestrator's paths-overlap serialization fires (preferred; preserves parallelism for path-disjoint future additions); OR (b) chain blockers: D-V3 blockers=[D-V2], D-V4=[D-V3], D-V5=[D-V4], D-V6=[D-V5] (structural backstop).
-
-Ready for D-V1 builder dispatch with the consolidated path-list + explicit edits + sibling-blocking enforcement.
-"""
-updated_at = "2026-05-18T12:05:00Z"
+transition_notes = "L3-E2 CLOSED — Track A simple views complete. All 6 droplets (D-V1..D-V6) state=complete + outcome=success. Build-QA twins both PASS: proof confirmed all 8 verification dimensions evidence-backed (droplet closure, file existence, test inventory, fresh mage testPkg green 13/13, zero-JS rule, substring escape discipline, a11y baseline, go.mod stability); falsification ran 12 attack vectors with zero CONFIRMED-CE (no golden drift, no script smuggling, no name collisions, no CRLF drift, XSS auto-escape coverage complete per template, no contract-breaking escape misuse). Two soft non-blocking observations from falsif: cascade_planner.html + roadmap_version.html have minor cosmetic unconditional renders that emit empty markup for empty fields — currently-passing tests cover this; post-MVP-feature-complete cleanup. Files shipped: 6 templates + 7 goldens + 1 helper (assertGoldenBytes with explicit-name design) under internal/templates_html_basic/. ZERO go.mod/go.sum delta. L3-E2 close-gate met."
+updated_at = "2026-05-18T22:40:00Z"
 [l3_e2_simple_views-plan-qa-proof]
 created_at = "2026-05-19T00:35:39Z"
 outcome = "success"
@@ -9285,6 +9274,7 @@ transition_notes = "AMEND with 4 confirmed CEs (token-import path + 6/7 stil com
 updated_at = "2026-05-18T12:35:00Z"
 [l3_e4_thariq_demos]
 blockers = []
+completed_at = "2026-05-18T22:45:00Z"
 created_at = "2026-05-18T11:00:00Z"
 description = """
 L3-E4 decomposition: 5 atomic Astro-demo builder droplets under web/templates_embed/src/pages/thariq/ + visual-regression substrate under web/templates_embed/testdata/thariq/. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable. Cross-repo stil edits FORBIDDEN.
@@ -9318,46 +9308,14 @@ D1 → (D2 ∥ D3 ∥ D4 parallel) → D5 serial close-gate.
 U1 mock data source (hand-curated default; live-seed from drop_004/drop.toml is follow-up). U2 `mage ThariqDemoVhs` target deferred (VHS needs TTY; ad-hoc capture per README for now). U3 markdown rendering as <pre> to stay zero-JS; astro:components markdown is follow-up. U4 D5 audits repo-root .gitignore for testdata/ masking; amend if needed.
 """
 objective = "L2-E L3-E4: Thariq demos (Track B consumer). Author Astro pages under web/templates_embed/src/pages/thariq/ exercising stil's component library against ta-record demo data. ~5 demo droplets per L2-E plan."
+outcome = "success"
 parent_id = "drop_004.drop.l2_e_html_template_system"
 role = "planner"
 started_at = "2026-05-18T11:00:00Z"
-state = "in_progress"
+state = "complete"
 title = "L3-E4 planner — Track B Thariq demos (stil component library against ta records)"
-transition_notes = """
-Plan-QA proof PASS + falsif AMEND with 2 CONFIRMED CEs + 5 surgical amendments — ORCHESTRATOR-FOLDED. Revised 6-droplet decomposition (was 5; D5 split):
-
-**D1 (mocks + index)** — UNCHANGED + AMEND: add `web/templates_embed/tsconfig.json` extending astro/tsconfigs/strict (shared with L3-E3 D1; one of them owns it; orchestrator coordinates). thariq_records.ts gets snapshot-date header comment ('// Snapshot of cascade.* fields as of 2026-05-18 .ta/schema.toml; refresh on schema change').
-
-**D2 (drop dashboard)** — AMENDED: DROP RightAside import (has stil-side <script>). Component list now: Sidebar + NavRail + Topbar + MailRow + BottomTabs (5 components; still >=4 gate).
-
-**D3 (planner detail)** — AMENDED: add Sidebar as 4th stil component (was 3: ComponentCard+Swatch+Button). Component list: Sidebar + ComponentCard + Swatch + Button (4 components).
-
-**D4 (droplet kanban)** — UNCHANGED.
-
-**D5a (qa-twins page + stub .txt markers)** — NEW SPLIT. paths_owned: web/templates_embed/src/pages/thariq/qa-twins.astro + web/templates_embed/testdata/thariq/{index,drop-dashboard,planner-detail,droplet-kanban,qa-twins}.txt (stub markers with one-line description). NO .tape, NO .gif (those are D5b). Gate: mage TemplatesBuildEmbed + TemplatesBuildVerifyStable green.
-
-**D5b (orchestrator-direct VHS capture)** — OUT OF DROPLET SCOPE. Tracked as till.attention_item: 'Run VHS locally against dist/thariq/*.html, commit .tape + .gif + populate .txt artifacts under web/templates_embed/testdata/thariq/'. NOT a builder droplet; orchestrator-direct (per L3-E1-D0 cross-repo precedent). Close gate for L3-E4 does NOT block on D5b artifacts; v0.x-tag-time work.
-
-## L2-E scope clarification
-
-L2-E description references 'Thariq-style template categories: 5 templates — spec, code-review, report, custom-editor, design-exploration'. L3-E4 SHIPS 5 cascade-record demos (drop-dashboard, planner-detail, droplet-kanban, qa-twins + index). This is a scope-drift acceptance: 'Thariq demos' = cascade-record gallery for MVP-feature-complete; original 5-template-categories surface defer to a future L3-E5 or post-tag slice. Recorded in L3-E4 description; L2-E should be amended at L2-E close to formalize.
-
-## Wave plan
-
-Wave 1 (no blockers): D1.
-Wave 2 (after D1 close): D2, D3, D4 parallel.
-Wave 3 (after D2+D3+D4 close): D5a.
-Post-L3-E4-close: D5b (orchestrator-direct VHS capture; till.attention_item).
-
-## Close gate (L3-E4)
-
-- D1+D2+D3+D4+D5a all state=complete + outcome=success.
-- mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green.
-- ZERO new inline `<script>` in any dist/thariq/*.html (literal-reading per cleaner close gate).
-- L3-E4 build-QA twins both PASS.
-- D5b VHS capture tracked as attention_item, NOT a blocker on L3-E4 close.
-"""
-updated_at = "2026-05-18T12:40:00Z"
+transition_notes = "L3-E4 CLOSED — Track B Thariq demos complete. All 5 droplets state=complete + outcome=success: D1 foundation (StilLayout substrate + thariq_records.ts mocks + tsconfig.json + index gallery), D2 drop-dashboard (5 stil components, MOCK_DROP[0] + 8 MailRow descendants), D3 planner-detail (4 stil components, Swatch state pill), D4 droplet-kanban (4-column CSS Grid + @container collapse, 8 droplets partitioned by state), D5a qa-twins + .txt stubs (2-col grid + 5 .txt stubs for D5b orchestrator-direct VHS capture). Build-QA twins both PASS: proof confirmed 8 verification dimensions (closure, files, schema match, allowlist, build gates, script audit, single-owner tsconfig, frozen mock); falsification ran 12 attacks with zero CE. Single non-blocking observation: planner-detail.astro dead-CSS @container (redundant @media fallback preserves behavior); routed to post-close cleanup. D5b VHS capture remains till.attention_item (orchestrator-direct, NOT droplet scope, NOT a blocker on L3-E4 close per planner transition_notes). Files shipped: 5 .astro + 1 mock TS + 5 .txt stubs + tsconfig.json under web/templates_embed/. mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable both green. L3-E4 close-gate met."
+updated_at = "2026-05-18T22:45:00Z"
 [l3_e4_thariq_demos-plan-qa-proof]
 created_at = "2026-05-19T00:35:40Z"
 outcome = "success"
@@ -10580,3 +10538,669 @@ A7 — mage testPkg ./cmd/ta: 452/453 PASS + 1 expected skip (TestPickerSelectio
 PASS. Two AMEND-class findings (VHS .txt staleness + ctrl+a collapsed-group ambiguity) are non-blocking and tracked for follow-up. Code-level claims hold under attack; F18/F16 hardening is genuine, sha256 contract is correctly preserved, narrow help-bar guards edge widths cleanly, examples URL swap is complete for user-facing surfaces, cross-droplet integration is clean.
 """
 updated_at = "2026-05-18T15:00:00Z"
+
+[builder_l3_e2_dv3_cascade_droplet_template]
+blockers = ["drop_004.drop.builder_l3_e2_dv2_cascade_planner_template"]
+completed_at = "2026-05-18T16:35:00Z"
+created_at = "2026-05-18T16:00:00Z"
+objective = "L3-E2-D-V3 cascade_droplet template. NEW internal/templates_html_basic/templates/cascade_droplet.html (vanilla HTML5 + inline <style> + ZERO <script>; renders cascade.droplet record). ActionItem-base fields (title, state, role, created_at, updated_at) unconditional. Optional gated by {{ if .field }}: outcome, priority, parent_id, started_at, completed_at, objective, description, transition_notes. cascade.droplet-specific: irreducible (boolean pill rendered ONLY when truthy), paths (array, prominent top-of-card placement as sibling-blocking surface), packages (array), blockers (array). Page <title>: '{{ .title }} — droplet'. Color palette + a11y baseline reused from cascade_drop.html / cascade_planner.html. APPEND TestRenderBasic_CascadeDroplet to internal/templates_html_basic/render_test.go using assertGoldenBytes helper. Mock payload: mid-build droplet with paths=[2 paths], packages=[1], blockers=[1], irreducible=true, transition_notes set. NEW internal/templates_html_basic/testdata/cascade_droplet.html.golden materialized via UPDATE_GOLDENS=1 mage testFunc TestRenderBasic_CascadeDroplet, then commit. Substring asserts MUST account for html/template escape ('+' → '&#43;' in HTML text context). Acceptance: mage testPkg ./internal/templates_html_basic green; ZERO go.mod/go.sum changes."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e2_simple_views"
+paths = ["internal/templates_html_basic/templates/cascade_droplet.html", "internal/templates_html_basic/render_test.go", "internal/templates_html_basic/testdata/cascade_droplet.html.golden"]
+role = "builder"
+started_at = "2026-05-18T16:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E2-D-V3 builder — cascade_droplet template + golden"
+transition_notes = "L3-E2-D-V3 complete. Landed: (1) NEW internal/templates_html_basic/templates/cascade_droplet.html — vanilla HTML5 + inline <style> + ZERO <script>, palette reused from cascade_planner.html, droplet-specific surface includes prominent <ul class=\"paths\"> placed directly after header pills (before Identifiers section), irreducible pill rendered ONLY when truthy (.pill.irreducible token, purple), packages/blockers as <ul class=\"flat\">, <pre class=\"prose\"> for objective+description, dual-footer transition_notes pattern matching planner. ActionItem-base fields (title/state/role/created_at/updated_at) unconditional; outcome/priority/parent_id/started_at/completed_at/objective/description/transition_notes gated by {{ if .field }}. (2) APPENDED TestRenderBasic_CascadeDroplet to render_test.go — mid-build droplet payload with paths=[2], packages=[1], blockers=[1], irreducible=true, XSS <script> payload in objective. Asserts (a) field substrings (with html/template &#43; escape for '+' in HTML text context), (b) Paths-section-before-Identifiers ordering via strings.Index, (c) empty-field conditional absence (outcome/priority pills, completed_at row, Description section), (d) XSS auto-escape (no literal <script>, escaped &lt;script&gt; present), (e) golden compare via assertGoldenBytes. (3) NEW internal/templates_html_basic/testdata/cascade_droplet.html.golden materialized via mage testFunc first-run path (the env-var-prefixed form was sandbox-blocked; bare mage testFunc hit the materialization branch on first run as documented). Gates passed: `mage testFunc TestRenderBasic_CascadeDroplet` → 1 passed (final command output: '[SUCCESS] All tests passed / 1 test passed across 27 packages'). `mage testPkg ./internal/templates_html_basic` → 8 passed 0 failed (final: '[SUCCESS] All tests passed / 8 tests passed across 1 package'). ZERO go.mod/go.sum changes — template auto-discovered via existing embed.FS at internal/templates_html_basic/embed.go (no registration edit needed). Follow-up: none — droplet QA twins (auto-spawned by F23 if/when enabled, manual today per orchestrator) own the next gate."
+updated_at = "2026-05-18T16:35:00Z"
+[builder_l3_e2_dv3_cascade_droplet_template-qa-proof]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv3_cascade_droplet_template"
+title = "QA proof of L3-E2-D-V3 builder — cascade_droplet template + golden"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e2_dv3_cascade_droplet_template-qa-falsification]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv3_cascade_droplet_template"
+title = "QA falsif of L3-E2-D-V3 builder — cascade_droplet template + golden"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e2_dv4_cascade_qa_template]
+blockers = ["drop_004.drop.builder_l3_e2_dv3_cascade_droplet_template"]
+completed_at = "2026-05-18T17:55:00Z"
+created_at = "2026-05-18T16:00:00Z"
+objective = "L3-E2-D-V4 cascade_qa template (single template covers cascade.qa_proof + cascade.qa_falsification per schema html_template.cascade_qa_view). NEW internal/templates_html_basic/templates/cascade_qa.html (vanilla HTML5 + inline <style> + ZERO <script>). ActionItem-base fields unconditional. cascade.qa-specific: target_id rendered prominently at header; role pill differentiated by color (neutral blue for qa-proof / warm orange for qa-falsification). Optional gated: outcome (pass/fail/blocked pill), priority, parent_id, started_at, completed_at, objective, description, findings (markdown <pre class=\"prose\">), counterexamples (array), transition_notes. Page <title>: '{{ .title }} — {{ .role }}'. APPEND TestRenderBasic_CascadeQA (table-driven over 2 cases: qa-proof + qa-falsification) to internal/templates_html_basic/render_test.go using assertGoldenBytes(t, name, got) with explicit name per case. Mock payloads: 1 qa-proof + 1 qa-falsification. TWO NEW goldens: testdata/cascade_qa_proof.html.golden + testdata/cascade_qa_falsification.html.golden materialized via UPDATE_GOLDENS=1 mage testFunc TestRenderBasic_CascadeQA. Substring asserts MUST account for html/template escape. Color differentiation via per-case CSS variable override. Acceptance: mage testPkg ./internal/templates_html_basic green (TWO goldens locked); ZERO go.mod/go.sum changes."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e2_simple_views"
+paths = ["internal/templates_html_basic/templates/cascade_qa.html", "internal/templates_html_basic/render_test.go", "internal/templates_html_basic/testdata/cascade_qa_proof.html.golden", "internal/templates_html_basic/testdata/cascade_qa_falsification.html.golden"]
+role = "builder"
+started_at = "2026-05-18T16:40:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E2-D-V4 builder — cascade_qa template + table-driven test + 2 goldens"
+transition_notes = "L3-E2-D-V4 complete. Authored internal/templates_html_basic/templates/cascade_qa.html (single template; role pill differentiated by `pill-role-{{ .role }}` class — neutral blue for qa-proof, warm orange for qa-falsification; target_id rendered prominently under title via .qa-target wrapper; outcome pill extended with pass/success/fail/failure/blocked color selectors; findings (markdown <pre class=\"prose\">) and counterexamples (array <ul class=\"flat\">) gated by {{ if }}; page <title> uses '{{ .title }} — {{ .role }}'). Appended table-driven TestRenderBasic_CascadeQA over 2 cases (qa_proof + qa_falsification) using t.Run + assertGoldenBytes(t, fmt.Sprintf(\"cascade_%s.html\", tc.name), out) per case; substring asserts pin role-pill class differentiation, outcome pill, XSS auto-escape on objective, target_id, and per-case absent assertions to prevent cross-case leak. Two new goldens locked: testdata/cascade_qa_proof.html.golden + testdata/cascade_qa_falsification.html.golden. Gates passed: `mage testFunc TestRenderBasic_CascadeQA` → 3 tests passed (parent + 2 sub-cases); `mage testPkg ./internal/templates_html_basic` → 11 tests passed (no regression in sibling Drop/Planner/Droplet tests + error-path + embed tests). Zero go.mod/go.sum delta. Scope discipline clean — no edits to embed.go/render.go/sibling templates."
+updated_at = "2026-05-18T17:55:00Z"
+[builder_l3_e2_dv4_cascade_qa_template-qa-proof]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv4_cascade_qa_template"
+title = "QA proof of L3-E2-D-V4 builder — cascade_qa template + table-driven test + 2 goldens"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e2_dv4_cascade_qa_template-qa-falsification]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv4_cascade_qa_template"
+title = "QA falsif of L3-E2-D-V4 builder — cascade_qa template + table-driven test + 2 goldens"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e2_dv5_roadmap_version_template]
+blockers = ["drop_004.drop.builder_l3_e2_dv4_cascade_qa_template"]
+completed_at = "2026-05-18T17:35:00Z"
+created_at = "2026-05-18T16:00:00Z"
+objective = "L3-E2-D-V5 roadmap_version template. NEW internal/templates_html_basic/templates/roadmap_version.html (vanilla HTML5 + inline <style> + ZERO <script>; renders roadmap.version record). Required fields: version (e.g. 'v0.1.0'), vision_summary (primary prose), status (enum pill: planning=neutral, in_progress=accent, landed=success, punted=muted), target_date_band (subtitle under title). Optional gated: rationale, scope, milestones (array), risks (array), transition_notes. Page <title>: '{{ .version }} — roadmap'. APPEND TestRenderBasic_RoadmapVersion to internal/templates_html_basic/render_test.go using assertGoldenBytes. Mock payload: v0.1.0 mid-flight. NEW internal/templates_html_basic/testdata/roadmap_version.html.golden materialized via UPDATE_GOLDENS=1 mage testFunc TestRenderBasic_RoadmapVersion. Substring asserts MUST account for html/template escape. Acceptance: mage testPkg ./internal/templates_html_basic green; ZERO go.mod/go.sum changes."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e2_simple_views"
+paths = ["internal/templates_html_basic/templates/roadmap_version.html", "internal/templates_html_basic/render_test.go", "internal/templates_html_basic/testdata/roadmap_version.html.golden"]
+role = "builder"
+started_at = "2026-05-18T17:10:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E2-D-V5 builder — roadmap_version template + golden"
+transition_notes = "Added internal/templates_html_basic/templates/roadmap_version.html (vanilla HTML5, inline <style>, zero <script>; unconditional version + vision_summary + status + target_date_band; gated rationale/scope/milestones/risks/created_at/updated_at/transition_notes; status-pill palette selectors for planning/in_progress/landed/punted). Appended TestRenderBasic_RoadmapVersion to render_test.go covering field render, conditional suppression of empty risks/timestamps/transition_notes, <script> auto-escape (vision_summary payload), and golden compare. Materialized testdata/roadmap_version.html.golden via mage testFunc (first run wrote+fatal, second run locked). Gates: mage testFunc TestRenderBasic_RoadmapVersion -> 1 passed; mage testPkg ./internal/templates_html_basic -> 12 passed (all siblings intact). Zero go.mod/go.sum delta."
+updated_at = "2026-05-18T17:35:00Z"
+[builder_l3_e2_dv5_roadmap_version_template-qa-proof]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv5_roadmap_version_template"
+title = "QA proof of L3-E2-D-V5 builder — roadmap_version template + golden"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e2_dv5_roadmap_version_template-qa-falsification]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv5_roadmap_version_template"
+title = "QA falsif of L3-E2-D-V5 builder — roadmap_version template + golden"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e2_dv6_schema_browser_template]
+blockers = ["drop_004.drop.builder_l3_e2_dv5_roadmap_version_template"]
+completed_at = "2026-05-18T21:55:00Z"
+created_at = "2026-05-18T16:00:00Z"
+objective = "L3-E2-D-V6 schema_browser meta-view template. NEW internal/templates_html_basic/templates/schema_browser.html (vanilla HTML5 + inline <style> + ZERO <script>; renders the schema scope→type→field hierarchy). Mock data shape: { scopes: [{ name, description, types: [{ name, extends, description, fields: [{ name, type, required, default, enum, description }] }] }] }. Scopes as <section>; types as nested <article>; fields as <table> rows. 'required' rendered as pill (red true / grey false). 'enum' as comma-joined chip list. NO runtime data-extractor (future slice). Page <title>: 'Schema Browser'. APPEND TestRenderBasic_SchemaBrowser to internal/templates_html_basic/render_test.go using assertGoldenBytes. Mock payload: 1 scope 'cascade' with 2 types ('drop' + 'planner' extends 'ActionItem'). NEW internal/templates_html_basic/testdata/schema_browser.html.golden materialized via UPDATE_GOLDENS=1 mage testFunc TestRenderBasic_SchemaBrowser. Substring asserts MUST account for html/template escape. Acceptance: mage testPkg ./internal/templates_html_basic green; ZERO go.mod/go.sum changes."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e2_simple_views"
+paths = ["internal/templates_html_basic/templates/schema_browser.html", "internal/templates_html_basic/render_test.go", "internal/templates_html_basic/testdata/schema_browser.html.golden"]
+role = "builder"
+started_at = "2026-05-18T21:35:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E2-D-V6 builder — schema_browser template + golden"
+transition_notes = "schema_browser.html authored (vanilla HTML5 + inline <style>, zero <script>, sibling cascade palette). Mock meta-view payload: 1 scope 'cascade', 2 types (drop + planner, both extends ActionItem), fields covering string/boolean/array<string>/enum-string axis. Required pill uses red #b91c1c (true) / grey #6b7280 (false) via CSS data-attribute selectors. Enum rendered as <span class=\"chip-list\"><span class=\"chip\">...</span></span>. Empty default/enum/description -> muted-dash <span class=\"muted-dash\">-</span>. a11y: <main aria-labelledby>, <section aria-label>, <table><thead><th scope=\"col\">. TestRenderBasic_SchemaBrowser appended to render_test.go: substring asserts pin both pill variants, all enum chips, escaped <script>, escaped array&lt;string&gt;, muted-dash placeholders. Golden materialized via first-run path (assertGoldenBytes self-bootstraps when testdata missing). Gates: `mage testFunc TestRenderBasic_SchemaBrowser` green; `mage testPkg ./internal/templates_html_basic` green (13/13). Zero go.mod/go.sum delta - stdlib html/template only."
+updated_at = "2026-05-18T21:55:00Z"
+[builder_l3_e2_dv6_schema_browser_template-qa-proof]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv6_schema_browser_template"
+title = "QA proof of L3-E2-D-V6 builder — schema_browser template + golden"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e2_dv6_schema_browser_template-qa-falsification]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e2_dv6_schema_browser_template"
+title = "QA falsif of L3-E2-D-V6 builder — schema_browser template + golden"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e4_d1_thariq_mock_index]
+blockers = []
+completed_at = "2026-05-18T21:12:00Z"
+created_at = "2026-05-18T16:00:00Z"
+objective = "L3-E4-D1 Track B Thariq foundation. NEW web/templates_embed/src/pages/thariq/index.astro (gallery page linking to 4 demo pages: drop-dashboard, planner-detail, droplet-kanban, qa-twins). Uses Playground + Sidebar + Topbar imports from @hylla/stil. ZERO new inline <script> (Playground's existing scripts allowed). NEW web/templates_embed/src/mock/thariq_records.ts (hand-curated TS fixtures mirroring cascade.{drop,planner,droplet,qa_proof,qa_falsification} ActionItem shape from .ta/schema.toml). All mock data frozen — NO `new Date()`, NO `Math.random()`. Snapshot-date header comment: '// Snapshot of cascade.* fields as of 2026-05-18 .ta/schema.toml; refresh on schema change'. NEW web/templates_embed/testdata/thariq/.gitkeep + README.md (VHS capture procedure for D5b orchestrator-direct). AMEND: add web/templates_embed/tsconfig.json extending astro/tsconfigs/strict if not already present (shared coordination with L3-E3 D1 — whichever lands first owns it). Build gate: mage TemplatesBuildEmbed green; mage TemplatesBuildVerifyStable byte-deterministic. Acceptance: index.astro renders the 4-demo gallery; thariq_records.ts exports MOCK_DROP / MOCK_PLANNERS / MOCK_DROPLETS / MOCK_QA_PROOF / MOCK_QA_FALSIFICATION constants; mage TemplatesBuildEmbed succeeds; mage TemplatesBuildVerifyStable green. ZERO new <script> elements."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e4_thariq_demos"
+paths = ["web/templates_embed/src/pages/thariq/index.astro", "web/templates_embed/src/mock/thariq_records.ts", "web/templates_embed/testdata/thariq/.gitkeep", "web/templates_embed/testdata/thariq/README.md", "web/templates_embed/tsconfig.json"]
+role = "builder"
+started_at = "2026-05-18T16:05:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E4-D1 builder — thariq mock data + index gallery"
+transition_notes = "L3-E4-D1 builder complete. 5 NEW files: src/pages/thariq/index.astro (Playground-wrapped gallery linking 4 demos; imports Playground+Sidebar+Topbar via @hylla/stil/src/{layouts,components} deep paths; ZERO authored <script>), src/mock/thariq_records.ts (frozen TS fixtures with snapshot-date header per AMEND — MOCK_DROP, MOCK_PLANNERS [3 items: complete/in_progress/todo], MOCK_DROPLETS [8 items spanning todo/in_progress/complete/failed], MOCK_QA_PROOF, MOCK_QA_FALSIFICATION; no Date()/Math.random()), testdata/thariq/.gitkeep (empty), testdata/thariq/README.md (D5b VHS capture procedure incl. sandbox-PTY caveat), tsconfig.json (extends astro/tsconfigs/strict; CREATED HERE — L3-E3 D1 had not landed at droplet start; if it lands later it should treat the file as already-owned). Gates: mage TemplatesBuildEmbed green (2 pages /index.html + /thariq/index.html, ~651ms); mage TemplatesBuildVerifyStable green (EXIT=0, byte-identical across two rebuilds). Script audit: dist/thariq/index.html holds 2 <script> tags, both inherited from @hylla/stil/src/layouts/Playground.astro; ZERO authored in this droplet. Orchestrator follow-ups: (1) ta-fe-builder agent definition missing mcp__ta__update / _get etc. in tools allowlist — FE builders cannot close their own droplet records; the orchestrator closes for them today. Project-local agent definition update needed pre-MVP. (2) L3-E3 D1 must SKIP tsconfig.json when dispatched (owned here). (3) @hylla/stil v0.0.1 has no `exports` field; consumers use deep paths under @hylla/stil/src/{layouts,components}/...; future stil tag should add `exports` for cleaner consumer imports."
+updated_at = "2026-05-18T21:12:00Z"
+[builder_l3_e4_d1_thariq_mock_index-qa-proof]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d1_thariq_mock_index"
+title = "QA proof of L3-E4-D1 builder — thariq mock data + index gallery"
+updated_at = "2026-05-19T04:05:25Z"
+
+[builder_l3_e4_d1_thariq_mock_index-qa-falsification]
+created_at = "2026-05-19T04:05:25Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d1_thariq_mock_index"
+title = "QA falsif of L3-E4-D1 builder — thariq mock data + index gallery"
+updated_at = "2026-05-19T04:05:25Z"
+
+[l3_e3_stil_views]
+blockers = []
+created_at = "2026-05-18T16:45:00Z"
+description = """
+L3-E3 decomposition: Track B Astro pages consuming stil component library + tokens. Same 6 view types as L3-E2 but rendered via stil's design system.
+
+## Per-droplet shape
+
+**D1** (drop_004.drop.builder_l3_e3_d1_stil_layout_mock): foundation. NEW web/templates_embed/src/layouts/StilLayout.astro (imports stil tokens.css/global.css/reset.css; sets up stil shell components like Sidebar+Topbar at layout level). NEW web/templates_embed/src/mock/stil_records.ts (hand-curated TS fixtures mirroring cascade.* + roadmap.* + schema.* shapes per .ta/schema.toml; FROZEN data; snapshot-date header comment). NEW web/templates_embed/src/pages/stil/index.astro (gallery linking to 6 view pages). AMEND: coordinate web/templates_embed/tsconfig.json with L3-E4 D1 — whichever lands first owns it. Blockers: none (L3-E4 D1 ownership coordination is runtime, not blocker).
+
+**D2** (drop_004.drop.builder_l3_e3_d2_drop_planner_views): NEW web/templates_embed/src/pages/stil/{cascade_drop,cascade_planner}.astro. Both consume StilLayout. Uses Sidebar + Topbar + at least 1 more stil component (e.g. ComponentCard for objective/description). Renders ALL ActionItem-base fields + cascade.drop/planner-specific fields. Blockers: [D1].
+
+**D3** (drop_004.drop.builder_l3_e3_d3_droplet_qa_views): NEW web/templates_embed/src/pages/stil/{cascade_droplet,cascade_qa}.astro. Both consume StilLayout. Uses Sidebar + Topbar + 2 more stil components (e.g. NavRail + RightAside). cascade_qa renders BOTH role variants via Astro page-level branching. Blockers: [D1].
+
+**D4** (drop_004.drop.builder_l3_e3_d4_roadmap_schema_views): NEW web/templates_embed/src/pages/stil/{roadmap_version,schema_browser}.astro. Both consume StilLayout. Uses Sidebar + Topbar + 2 more stil components (e.g. Topbar + BottomTabs). schema_browser renders the scope→type→field hierarchy via stil's table/card primitives. Blockers: [D1].
+
+**D5** (drop_004.drop.builder_l3_e3_d5_test_gates): NEW internal/templates_html_embed/views_stil_test.go + testdata/stil/*.golden (6 goldens, one per view). Tests: TestTemplatesHtmlEmbed_Stil_<view> (6 golden compares), TestTemplatesHtmlEmbed_Stil_TokensPresent (regex over rendered dist/ html for --stil-* tokens), TestTemplatesHtmlEmbed_Stil_ZeroJS (regex over all 6 dist/stil/*.html for absence of <script>). Blockers: [D2, D3, D4].
+
+## Track B constraints (inherited from L3-E1)
+
+- Astro + @hylla/stil consumption.
+- ZERO new inline <script>.
+- Stil-token CSS custom properties consumed (--stil-* surface).
+- ≥3 distinct stil components across the 6 views.
+- a11y: stil's components carry the baseline; new pages add semantic landmarks where needed.
+
+## Dispatch order
+
+D1 (foundation) → (D2 ∥ D3 ∥ D4 parallel) → D5 (test gates aggregator).
+
+## Close gate (L3-E3)
+
+- All 5 droplets state=complete + outcome=success.
+- mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green.
+- ZERO new <script> in any new file or any dist/stil/*.html.
+- 6 stil view goldens locked in internal/templates_html_embed/testdata/stil/.
+- TestTemplatesHtmlEmbed_Stil_TokensPresent + _ZeroJS green.
+- L3-E3 build-QA twins both PASS.
+
+## Routed unknowns
+
+U1 stil bindings.json vs baseline.json fallback (per L2-E reality-check).
+U2 stil component import path stability (4-dot file: path fix from L3-E1 D-B1).
+U3 tsconfig.json coordination with L3-E4 D1.
+"""
+objective = "L2-E L3-E3: stil-token-driven full-featured views (Track B consumer). AUTHORS .astro under web/templates_embed/src/pages/stil/ for the same 6 record types as L3-E2 (cascade.drop, cascade.planner, cascade.droplet, cascade.qa, roadmap.version, schema.browser). Consumes stil --stil-* CSS custom properties + uses ≥3 distinct stil components (Sidebar/Topbar/NavRail/RightAside/etc.). ZERO <script> inline or src. Build gates: mage TemplatesBuildEmbed + TemplatesBuildVerifyStable. Cross-repo stil edits FORBIDDEN."
+parent_id = "drop_004.drop.l2_e_html_template_system"
+role = "planner"
+started_at = "2026-05-18T16:45:00Z"
+state = "todo"
+structural_type = "segment"
+title = "L3-E3 planner — Track B stil-driven full-featured views"
+transition_notes = """
+Plan-QA twins both complete: proof PASS (no gaps) + falsif AMEND (2 confirmed CEs + 2 soft amends). CONSOLIDATED ORCHESTRATOR DIRECTIVES for D1..D5 dispatch:
+
+**AMEND-1 (CE-1 stil component allowlist)**: All D2/D3/D4 stil component imports MUST be drawn from the script-free set: {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}. The script-bearing set is FORBIDDEN for v0.1.0 Track B: {RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles}. Reason: Astro auto-bundles imported component scripts (verified at stil/main/dist/index.html + stil/main/dist/_astro/RightAside.astro_astro_type_script_index_0_lang.*.js); the ZERO <script> gate would break.
+
+**AMEND-2 (CE-2 cascade_qa role-variant split)**: D3 splits into THREE files: cascade_droplet.astro + cascade_qa_proof.astro + cascade_qa_falsification.astro (each .astro consumes shared cascade.qa mock fixture; role field differs). Reason: Astro static build emits 1 HTML per .astro unless getStaticPaths() returns multiple; L3-E2 peer ships 2 goldens via Go html/template RUNTIME which Track B cannot mirror without 2 files. D5 goldens count BUMPS from 6 to 7: cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser.
+
+**AMEND-3 (U1 bindings.json source-path pin)**: D1 consumes /Users/evanschultz/Documents/Code/hylla/stil/main/src/bindings/baseline.json (source, NOT dist/bindings.json) so changes to bindings don't require a stil rebuild before Track B dist is regenerated. If baseline.json absent, fallback to dist/bindings.json. (Pre-rebuild-cycle preference.)
+
+**AMEND-4 (D1 mock-freeze header explicit)**: D1 stil_records.ts top-of-file MUST include the verbatim comment: '// Snapshot of cascade.* + roadmap.* + schema.* fields as of 2026-05-18 .ta/schema.toml; refresh on schema change. FROZEN data — NO new Date(), NO Math.random(). All timestamps are hardcoded RFC3339 literals.' Mirror the L3-E4 D1 thariq_records.ts pattern.
+
+**ORCHESTRATOR BRIEF at D1 dispatch**: web/templates_embed/tsconfig.json is ALREADY OWNED by L3-E4 D1 (closed 2026-05-18T21:12:00Z). L3-E3 D1 builder must NOT recreate or modify it. Update D1 paths list to drop tsconfig.json; if builder finds the file already present, no-op + log in transition_notes.
+
+Ready for L3-E3 D1 builder dispatch with the consolidated amends baked into the dispatch prompt.
+"""
+updated_at = "2026-05-18T21:30:00Z"
+[l3_e3_stil_views-plan-qa-proof]
+created_at = "2026-05-19T04:12:03Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.l3_e3_stil_views"
+title = "Plan-QA proof of L3-E3 planner — Track B stil-driven full-featured views"
+updated_at = "2026-05-19T04:12:03Z"
+
+[l3_e3_stil_views-plan-qa-falsification]
+created_at = "2026-05-19T04:12:03Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.l3_e3_stil_views"
+title = "Plan-QA falsif of L3-E3 planner — Track B stil-driven full-featured views"
+updated_at = "2026-05-19T04:12:03Z"
+
+[plan_qa_proof_l3_e3]
+blockers = []
+completed_at = "2026-05-18T21:15:00Z"
+created_at = "2026-05-18T16:45:00Z"
+objective = "Proof-oriented review of L3-E3 sub-planner decomposition. Verify: (1) all 5 droplets cover the L2-E spec for Track B stil-driven views (6 record-type views + foundation + test-gates); (2) blockers chain serializes correctly (D2/D3/D4 parallel post-D1; D5 aggregates); (3) paths-disjoint claim for D2/D3/D4 parallel holds (each owns 2 distinct .astro files); (4) stil component count gate (≥3 distinct across 6 views) achievable; (5) build gates correctly named per magefile; (6) cross-repo stil edits ban consistent with L3-E1 D0 precedent; (7) tsconfig.json coordination with L3-E4 D1 clean."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e3_stil_views"
+role = "qa-proof"
+started_at = "2026-05-18T16:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e3_stil_views"
+title = "L3-E3 plan-QA proof"
+transition_notes = "L3-E3 plan-QA proof PASS. (1.1) Droplet coverage: D2 covers cascade_drop + cascade_planner; D3 covers cascade_droplet + cascade_qa (Astro page-level branching for both qa role variants); D4 covers roadmap_version + schema_browser; D1 stil/index.astro landing; D5 test-gates aggregator. (1.2) Blocker chain D1→{D2∥D3∥D4}→D5 consistent with cascade-methodology §5/§7. (1.3) Paths disjoint under web/templates_embed/src/pages/stil/; StilLayout.astro + stil_records.ts read-only imports for D2/D3/D4. (1.4) Stil components Sidebar/Topbar/ComponentCard/NavRail/RightAside/BottomTabs all exist in stil/main/src/components/. (1.5) TemplatesBuildEmbed (magefile.go:432) + TemplatesBuildVerifyStable (line 468) exist; Check() incorporates with skip-on-pnpm-absent fallback. (1.6) Cross-repo stil ban consistent with L3-E1 D0 precedent (commit 7c1ccb5). (1.7) tsconfig.json: L3-E4 D1 already owns it; NON-BLOCKING ORCHESTRATOR BRIEF — at L3-E3 D1 dispatch, builder must SKIP tsconfig.json. (1.8) 5 droplets within ~10-droplet emit ceiling. (1.9) Record types cascade.{drop,planner,droplet,qa_proof,qa_falsification} + roadmap.version exist in schema.toml; schema_browser is a UI view, not a record kind. Outcome: success; dispatch-ready. Orchestrator follow-up: ta-fe-qa-proof was missing mcp__ta__update at time of this review (orchestrator updated post-dispatch); next invocation should self-close."
+updated_at = "2026-05-18T21:15:00Z"
+[plan_qa_falsif_l3_e3]
+blockers = []
+completed_at = "2026-05-18T21:25:00Z"
+created_at = "2026-05-18T16:45:00Z"
+objective = "Falsification-oriented attack on L3-E3 sub-planner decomposition. Look for: (1) hidden path collisions between D2/D3/D4; (2) missing stil component(s) in @hylla/stil exports that a droplet assumes exist; (3) mage TemplatesBuildEmbed verifies stil sibling at file:../../../../stil/main — 4-dot path holds post-L3-E1-D-B1; (4) bindings.json / baseline.json fallback testable; (5) ZERO <script> claim achievable when consuming interactive stil components; (6) view count drift — L2-E says 6; verify each named view exists in scope; (7) cascade.qa role-color differentiation handled cleanly by single-template-per-role (D3); (8) goldens via Astro static build byte-deterministic ONLY if mock data frozen."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e3_stil_views"
+role = "qa-falsification"
+started_at = "2026-05-18T16:50:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e3_stil_views"
+title = "L3-E3 plan-QA falsification"
+transition_notes = """
+Falsification PASS-with-AMENDS (outcome=success per schema enum; AMEND folds captured below + applied to L3-E3 sub-planner transition_notes). Two CONFIRMED-CEs + 2 soft amends.
+
+CE-1 (D3+D5 amend): 6 stil components ship inline <script> (RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles at /Users/evanschultz/Documents/Code/hylla/stil/main/src/components/). Astro auto-bundles imported component scripts — stil/main/dist/index.html contains 4 <script> tags + dist/_astro/RightAside.astro_astro_type_script_index_0_lang.onJBYZYd.js proves bundling. D3 spec names RightAside as example; ZeroJS regex over dist/stil/*.html will fail if any script-bearing component imported. FIX: D3 forbids script-bearing set, allows {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}.
+
+CE-2 (D3+D5 amend): cascade_qa role-variant golden count incoherent with Astro static-build semantics. D3 says 'BOTH role variants via Astro page-level branching'; D5 says '6 goldens'. Astro emits 1 HTML per .astro unless getStaticPaths() returns multiple. Peer L3-E2 D-V4 ships 2 goldens via Go html/template RUNTIME parameterization. FIX: D3 splits cascade_qa into 2 .astro files (cascade_qa_proof.astro + cascade_qa_falsification.astro); D5 bumps from 6 to 7 goldens.
+
+Soft amend U1 (bindings.json source-path): both stil/main/src/bindings/baseline.json (source) + stil/main/dist/bindings.json (built) exist. FIX: pin baseline.json source.
+
+Soft amend D1 (mock-freeze header): explicit verbatim comment forbidding new Date()/Math.random() at top of stil_records.ts.
+
+Mitigated attacks: hidden path collisions D2/D3/D4 (StilLayout READ-only); component existence (all 6 named exist); 4-dot file: path verified; view count consistent.
+
+Orchestrator follow-up: ta-fe-qa-falsification was missing mcp__ta__update at dispatch (orchestrator updated post-dispatch); next invocation should self-close.
+"""
+updated_at = "2026-05-18T21:25:00Z"
+[builder_l3_e4_d2_drop_dashboard]
+blockers = ["drop_004.drop.builder_l3_e4_d1_thariq_mock_index"]
+completed_at = "2026-05-18T21:18:00Z"
+created_at = "2026-05-18T16:55:00Z"
+objective = "L3-E4-D2 Thariq drop dashboard. NEW web/templates_embed/src/pages/thariq/drop-dashboard.astro. App-shell dashboard rendering MOCK_DROP[0] (single drop) with descendants as MailRow list. Stil components: Sidebar + NavRail + Topbar + MailRow + BottomTabs (≥5 distinct components; >=4 gate). Back-link to /thariq/ via <a href=\"/thariq/\">. Imports MOCK_DROP + MOCK_DROPLETS from ../../mock/thariq_records.ts. Per L3-E4 AMEND: DROP RightAside import (has stil-side <script>). ZERO new inline <script> (any tag count comes only from inherited stil components). Page <title>: 'Drop dashboard — thariq demos'. a11y baseline: stil components carry, plus semantic <main> landmark + <h1> for page heading. Build gates: mage TemplatesBuildEmbed green + mage TemplatesBuildVerifyStable byte-deterministic. Acceptance: dist/thariq/drop-dashboard.html renders the drop + descendants; ZERO new <script> elements authored."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e4_thariq_demos"
+paths = ["web/templates_embed/src/pages/thariq/drop-dashboard.astro"]
+role = "builder"
+started_at = "2026-05-18T17:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E4-D2 builder — thariq drop dashboard"
+transition_notes = "Landed web/templates_embed/src/pages/thariq/drop-dashboard.astro (single new file, 255 lines). Imports Playground + Sidebar + NavRail + Topbar + MailRow + BottomTabs from @hylla/stil deep paths (5 distinct stil components, satisfies ≥4 gate; RightAside excluded per L3-E4 AMEND). Renders MOCK_DROP[0] with full ActionItem-base fields + drop-specific (drop_number, structural_type, outcome) in dl/dt/dd field grid. Renders all 8 MOCK_DROPLETS as <MailRow> entries with state→tag mapping and todo/in_progress→unread marker. Back-link to /thariq/ near top, semantic <main> landmark + <h1>. mage TemplatesBuildEmbed green; mage TemplatesBuildVerifyStable EXIT=0 (byte-stable). Authored-script audit: dist/thariq/drop-dashboard/index.html contains 2 <script> tags, both inherited from Playground (theme-before-paint + chrome focus-mode) — ZERO authored scripts. Astro emits dist as drop-dashboard/index.html (folder/index.html pattern, NOT flat). Orchestrator follow-up: ta-fe-builder tool allowlist update happened mid-flight — this agent dispatched before the update so couldn't self-close. Subsequent dispatches will have the updated allowlist."
+updated_at = "2026-05-18T21:18:00Z"
+[builder_l3_e4_d2_drop_dashboard-qa-proof]
+created_at = "2026-05-19T04:15:01Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d2_drop_dashboard"
+title = "QA proof of L3-E4-D2 builder — thariq drop dashboard"
+updated_at = "2026-05-19T04:15:01Z"
+
+[builder_l3_e4_d2_drop_dashboard-qa-falsification]
+created_at = "2026-05-19T04:15:01Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d2_drop_dashboard"
+title = "QA falsif of L3-E4-D2 builder — thariq drop dashboard"
+updated_at = "2026-05-19T04:15:01Z"
+
+[builder_l3_e4_d3_planner_detail]
+blockers = ["drop_004.drop.builder_l3_e4_d1_thariq_mock_index"]
+completed_at = "2026-05-18T21:30:00Z"
+created_at = "2026-05-18T16:55:00Z"
+objective = "L3-E4-D3 Thariq planner detail. NEW web/templates_embed/src/pages/thariq/planner-detail.astro. ComponentCard detail view of MOCK_PLANNERS[0] (objective + description + decision_log). Stil components per L3-E4 AMEND: Sidebar + ComponentCard + Swatch + Button (4 components; >=4 gate). Swatch state pill (todo→neutral / in_progress→accent / complete→success / failed→danger). Button back-link to /thariq/. Imports MOCK_PLANNERS from ../../mock/thariq_records.ts. Page <title>: 'Planner detail — thariq demos'. ZERO new inline <script>. a11y: semantic <main> + <h1> + <section> for the detail panes. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green. Acceptance: dist/thariq/planner-detail.html renders the planner's full text fields; ZERO new <script> elements authored."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e4_thariq_demos"
+paths = ["web/templates_embed/src/pages/thariq/planner-detail.astro"]
+role = "builder"
+started_at = "2026-05-18T17:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E4-D3 builder — thariq planner detail"
+transition_notes = "Landed web/templates_embed/src/pages/thariq/planner-detail.astro (single new file). Imports 4 stil components via deep @hylla/stil/src/... paths: Sidebar + ComponentCard + Swatch + Button. Renders MOCK_PLANNERS[0] with all ActionItem-base fields + planner-specific (objective/description/decision_log array/acceptance_criteria/paths). State pill via Swatch hex map: todo→#8c8f99, in_progress→#dd9f57, complete→#5a8f5d, failed→#b85a4e, archived→#6e7280. Stil has no success/danger semantic tokens — chose brand-coherent hues + documented in source comments; FOLLOW-UP routed: if future stil drop adds --success/--danger tokens, swap STATE_HEX to var(--success) etc. Back-link is <a href=/thariq/> wrap of <Button variant=ghost> since stil Button has no href prop. mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green (byte-identical across 2 builds). Authored-script audit: 0 in source, 2 in dist HTML — both inherited from Playground (same as D1). a11y: semantic <main> + <h1> + per-pane <section aria-labelledby>; state pill aria-label; <time datetime=...>; back-link is real <a>. Decision log via <ol>; paths via <ul role=list>. tsconfig.json untouched (owned by L3-E4 D1). Cascade-record self-close blocked: ta-fe-builder allowlist update happened mid-flight; this agent dispatched pre-update; orchestrator closed."
+updated_at = "2026-05-18T21:30:00Z"
+[builder_l3_e4_d3_planner_detail-qa-proof]
+created_at = "2026-05-19T04:15:01Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d3_planner_detail"
+title = "QA proof of L3-E4-D3 builder — thariq planner detail"
+updated_at = "2026-05-19T04:15:01Z"
+
+[builder_l3_e4_d3_planner_detail-qa-falsification]
+created_at = "2026-05-19T04:15:01Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d3_planner_detail"
+title = "QA falsif of L3-E4-D3 builder — thariq planner detail"
+updated_at = "2026-05-19T04:15:01Z"
+
+[builder_l3_e4_d4_droplet_kanban]
+blockers = ["drop_004.drop.builder_l3_e4_d1_thariq_mock_index"]
+completed_at = "2026-05-18T21:30:00Z"
+created_at = "2026-05-18T16:55:00Z"
+objective = "L3-E4-D4 Thariq droplet kanban. NEW web/templates_embed/src/pages/thariq/droplet-kanban.astro. 4-column kanban (todo / in_progress / complete / failed) of MOCK_DROPLETS partitioned by state. Layout: CSS grid-template-columns: repeat(4, 1fr) at 1280px+; @container (max-width: 768px) collapse to 1 column. Stil components: Sidebar + Topbar + at least 1 stil card-like component (≥3 distinct; >=4 not strictly required but recommended). 8+ MOCK_DROPLETS already exist (D1 shipped); partition into the 4 states. Imports MOCK_DROPLETS from ../../mock/thariq_records.ts. Page <title>: 'Droplet kanban — thariq demos'. ZERO new inline <script>. a11y: semantic <main> + <h1> + <section aria-label=\"...\"> per column. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green. Acceptance: dist/thariq/droplet-kanban.html renders 4 columns with droplets distributed by state; ZERO new <script> elements authored; @container collapse verified by reading the CSS in dist/ output."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e4_thariq_demos"
+paths = ["web/templates_embed/src/pages/thariq/droplet-kanban.astro"]
+role = "builder"
+started_at = "2026-05-18T17:00:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E4-D4 builder — thariq droplet kanban"
+transition_notes = "Landed web/templates_embed/src/pages/thariq/droplet-kanban.astro (single new file, ~330 lines). Imports 4 distinct stil components: Playground (layout) + Sidebar + Topbar + ComponentCard. Layout: CSS Grid grid-template-columns:repeat(4,1fr) at desktop; @container kanban (max-width: 768px) collapses to 1 column via container-type:inline-size + container-name:kanban on .app-main-body. MOCK_DROPLETS partitioned by state — todo:3, in_progress:2, complete:2, failed:1 = 8 total. Each droplet rendered inside ComponentCard with <dl> showing role + irreducible flag (when true; visible on D5a) + first 1-2 paths. a11y: semantic <main>, single <h1> 'Droplet kanban', per-column <section aria-label='<state> column'>. ZERO authored <script> in source. Dist HTML carries 2 <script> tags both inherited from Playground (theme persistence + chrome shortcuts) — counted against L3-E4 parent close-gate per D1 convention. Gates: mage TemplatesBuildEmbed green (~709ms, 5 pages); mage TemplatesBuildVerifyStable green (byte-identical across 2 rebuilds). @container rule + container-type/name verified in dist via rg. Cascade-record self-close blocked: same pre-allowlist-update timing as D3; orchestrator closed."
+updated_at = "2026-05-18T21:30:00Z"
+[builder_l3_e4_d4_droplet_kanban-qa-proof]
+created_at = "2026-05-19T04:15:01Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d4_droplet_kanban"
+title = "QA proof of L3-E4-D4 builder — thariq droplet kanban"
+updated_at = "2026-05-19T04:15:01Z"
+
+[builder_l3_e4_d4_droplet_kanban-qa-falsification]
+created_at = "2026-05-19T04:15:01Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d4_droplet_kanban"
+title = "QA falsif of L3-E4-D4 builder — thariq droplet kanban"
+updated_at = "2026-05-19T04:15:01Z"
+
+[builder_l3_e4_d5a_qa_twins_and_stubs]
+blockers = ["drop_004.drop.builder_l3_e4_d2_drop_dashboard", "drop_004.drop.builder_l3_e4_d3_planner_detail", "drop_004.drop.builder_l3_e4_d4_droplet_kanban"]
+completed_at = "2026-05-18T21:45:00Z"
+created_at = "2026-05-18T16:55:00Z"
+objective = "L3-E4-D5a Thariq qa-twins + VHS marker stubs. NEW web/templates_embed/src/pages/thariq/qa-twins.astro. qa_proof + qa_falsification side-by-side rendering MOCK_QA_PROOF + MOCK_QA_FALSIFICATION. Layout: 2-column CSS grid at 1280px+; @container (max-width: 768px) collapse to 1 column. Stil components: Sidebar + Topbar + ComponentCard (or similar; ≥3 distinct). Imports MOCK_QA_PROOF + MOCK_QA_FALSIFICATION from ../../mock/thariq_records.ts. Page <title>: 'QA twins — thariq demos'. NEW web/templates_embed/testdata/thariq/{index,drop-dashboard,planner-detail,droplet-kanban,qa-twins}.txt — each stub a one-line marker '# expect: thariq <view> rendered' (placeholder for D5b orchestrator-direct VHS replay). NO .tape, NO .gif (those are D5b orchestrator-direct work). ZERO new inline <script>. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green. Acceptance: dist/thariq/qa-twins.html renders the 2-column twin layout; 5 .txt stubs committed under testdata/thariq/; ZERO new <script> elements authored."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e4_thariq_demos"
+paths = ["web/templates_embed/src/pages/thariq/qa-twins.astro", "web/templates_embed/testdata/thariq/index.txt", "web/templates_embed/testdata/thariq/drop-dashboard.txt", "web/templates_embed/testdata/thariq/planner-detail.txt", "web/templates_embed/testdata/thariq/droplet-kanban.txt", "web/templates_embed/testdata/thariq/qa-twins.txt"]
+role = "builder"
+started_at = "2026-05-18T21:35:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-E4-D5a builder — thariq qa-twins page + .txt marker stubs"
+transition_notes = "Landed web/templates_embed/src/pages/thariq/qa-twins.astro + 5 .txt stubs under testdata/thariq/. qa-twins.astro: 2-col CSS Grid at 1280px+; @container twins (max-width: 768px) collapses to 1 column; stil components Playground + Sidebar + Topbar + ComponentCard (4 distinct, all in allowed-set per AMEND). Imports MOCK_QA_PROOF + MOCK_QA_FALSIFICATION from ../../mock/thariq_records.ts. Semantic <main> + <h1> + <section aria-label='qa-proof pane'>/<section aria-label='qa-falsification pane'>. Page <title>='QA twins — thariq demos'. ZERO authored <script>. Dist HTML has 2 <script> tags (Playground-inherited; parity with siblings). 5 .txt stubs: index/drop-dashboard/planner-detail/droplet-kanban/qa-twins (placeholder for D5b VHS replay). Gates: mage TemplatesBuildEmbed green (6 pages: root + 5 thariq); mage TemplatesBuildVerifyStable green (byte-identical 2 builds). Forbidden components per parent AMEND verified absent. Cascade-record self-close blocked: ta-fe-builder tool allowlist update doesn't propagate to running agents; orchestrator closed."
+updated_at = "2026-05-18T21:45:00Z"
+[builder_l3_e4_d5a_qa_twins_and_stubs-qa-proof]
+created_at = "2026-05-19T04:15:01Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d5a_qa_twins_and_stubs"
+title = "QA proof of L3-E4-D5a builder — thariq qa-twins page + .txt marker stubs"
+updated_at = "2026-05-19T04:15:01Z"
+
+[builder_l3_e4_d5a_qa_twins_and_stubs-qa-falsification]
+created_at = "2026-05-19T04:15:01Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e4_d5a_qa_twins_and_stubs"
+title = "QA falsif of L3-E4-D5a builder — thariq qa-twins page + .txt marker stubs"
+updated_at = "2026-05-19T04:15:01Z"
+
+[builder_l3_e3_d1_stil_layout_mock]
+blockers = []
+created_at = "2026-05-18T17:30:00Z"
+objective = "L3-E3-D1 Track B stil foundation. NEW web/templates_embed/src/layouts/StilLayout.astro (imports stil tokens.css + global.css + reset.css; sets up shell components like Sidebar+Topbar at layout level; D2/D3/D4 import this as READ-only). NEW web/templates_embed/src/mock/stil_records.ts (hand-curated TS fixtures mirroring cascade.{drop,planner,droplet,qa_proof,qa_falsification} + roadmap.version + schema.browser shapes per .ta/schema.toml). NEW web/templates_embed/src/pages/stil/index.astro (gallery linking to 6 view pages: cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser — 7 link cards reflecting the AMEND-2 7-view split). AMEND-3 (U1): consume /Users/evanschultz/Documents/Code/hylla/stil/main/src/bindings/baseline.json as the source-path; fallback to dist/bindings.json if absent. AMEND-4 (D1 mock-freeze header): stil_records.ts top-of-file MUST include verbatim: '// Snapshot of cascade.* + roadmap.* + schema.* fields as of 2026-05-18 .ta/schema.toml; refresh on schema change. FROZEN data — NO new Date(), NO Math.random(). All timestamps are hardcoded RFC3339 literals.' ORCHESTRATOR BRIEF: web/templates_embed/tsconfig.json ALREADY OWNED by L3-E4 D1 — DO NOT recreate or modify. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green. Acceptance: dist/stil/index.html renders the 7-card gallery; ZERO new authored <script>."
+parent_id = "drop_004.drop.l3_e3_stil_views"
+paths = ["web/templates_embed/src/layouts/StilLayout.astro", "web/templates_embed/src/mock/stil_records.ts", "web/templates_embed/src/pages/stil/index.astro"]
+role = "builder"
+started_at = "2026-05-18T22:50:00Z"
+state = "in_progress"
+structural_type = "droplet"
+title = "L3-E3-D1 builder — stil layout + mock + index foundation"
+updated_at = "2026-05-18T22:50:00Z"
+[builder_l3_e3_d1_stil_layout_mock-qa-proof]
+created_at = "2026-05-19T04:21:45Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d1_stil_layout_mock"
+title = "QA proof of L3-E3-D1 builder — stil layout + mock + index foundation"
+updated_at = "2026-05-19T04:21:45Z"
+
+[builder_l3_e3_d1_stil_layout_mock-qa-falsification]
+created_at = "2026-05-19T04:21:45Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d1_stil_layout_mock"
+title = "QA falsif of L3-E3-D1 builder — stil layout + mock + index foundation"
+updated_at = "2026-05-19T04:21:45Z"
+
+[builder_l3_e3_d2_drop_planner_views]
+blockers = ["drop_004.drop.builder_l3_e3_d1_stil_layout_mock"]
+created_at = "2026-05-18T17:30:00Z"
+objective = "L3-E3-D2 stil cascade_drop + cascade_planner views. NEW web/templates_embed/src/pages/stil/cascade_drop.astro + web/templates_embed/src/pages/stil/cascade_planner.astro. Both consume StilLayout (read-only import). Renders ALL ActionItem-base + cascade.drop/cascade.planner-specific fields. AMEND-1 (CE-1 component allowlist): stil components MUST be drawn from {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}. FORBIDDEN: {RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles}. Use Sidebar + Topbar + at least 1 more (e.g. ComponentCard for objective/description). Imports MOCK_DROP + MOCK_PLANNERS from ../../mock/stil_records.ts. Page titles: 'cascade.drop view — stil' + 'cascade.planner view — stil'. ZERO new authored <script>. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green."
+parent_id = "drop_004.drop.l3_e3_stil_views"
+paths = ["web/templates_embed/src/pages/stil/cascade_drop.astro", "web/templates_embed/src/pages/stil/cascade_planner.astro"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-E3-D2 builder — stil cascade_drop + cascade_planner views"
+updated_at = "2026-05-18T17:30:00Z"
+
+[builder_l3_e3_d2_drop_planner_views-qa-proof]
+created_at = "2026-05-19T04:21:45Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d2_drop_planner_views"
+title = "QA proof of L3-E3-D2 builder — stil cascade_drop + cascade_planner views"
+updated_at = "2026-05-19T04:21:45Z"
+
+[builder_l3_e3_d2_drop_planner_views-qa-falsification]
+created_at = "2026-05-19T04:21:45Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d2_drop_planner_views"
+title = "QA falsif of L3-E3-D2 builder — stil cascade_drop + cascade_planner views"
+updated_at = "2026-05-19T04:21:45Z"
+
+[builder_l3_e3_d3_droplet_qa_views]
+blockers = ["drop_004.drop.builder_l3_e3_d1_stil_layout_mock"]
+created_at = "2026-05-18T17:30:00Z"
+objective = "L3-E3-D3 stil cascade_droplet + cascade_qa_proof + cascade_qa_falsification views. AMEND-2 (CE-2 role-variant split): D3 ships THREE .astro files instead of two: cascade_droplet.astro + cascade_qa_proof.astro + cascade_qa_falsification.astro (last two consume shared cascade.qa mock fixture; role field differs at page level). Reason: Astro static build emits 1 HTML per .astro; need 2 .astro for 2 cascade_qa goldens. All three consume StilLayout (read-only import). AMEND-1 (CE-1 component allowlist): stil components drawn from {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}. FORBIDDEN: {RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles}. Use Sidebar + Topbar + 2 more (e.g. NavRail + BottomTabs). Imports MOCK_DROPLETS + MOCK_QA_PROOF + MOCK_QA_FALSIFICATION from ../../mock/stil_records.ts. ZERO new authored <script>. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green."
+parent_id = "drop_004.drop.l3_e3_stil_views"
+paths = ["web/templates_embed/src/pages/stil/cascade_droplet.astro", "web/templates_embed/src/pages/stil/cascade_qa_proof.astro", "web/templates_embed/src/pages/stil/cascade_qa_falsification.astro"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-E3-D3 builder — stil cascade_droplet + qa_proof + qa_falsification views"
+updated_at = "2026-05-18T17:30:00Z"
+
+[builder_l3_e3_d3_droplet_qa_views-qa-proof]
+created_at = "2026-05-19T04:21:46Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d3_droplet_qa_views"
+title = "QA proof of L3-E3-D3 builder — stil cascade_droplet + qa_proof + qa_falsification views"
+updated_at = "2026-05-19T04:21:46Z"
+
+[builder_l3_e3_d3_droplet_qa_views-qa-falsification]
+created_at = "2026-05-19T04:21:46Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d3_droplet_qa_views"
+title = "QA falsif of L3-E3-D3 builder — stil cascade_droplet + qa_proof + qa_falsification views"
+updated_at = "2026-05-19T04:21:46Z"
+
+[builder_l3_e3_d4_roadmap_schema_views]
+blockers = ["drop_004.drop.builder_l3_e3_d1_stil_layout_mock"]
+created_at = "2026-05-18T17:30:00Z"
+objective = "L3-E3-D4 stil roadmap_version + schema_browser views. NEW web/templates_embed/src/pages/stil/roadmap_version.astro + web/templates_embed/src/pages/stil/schema_browser.astro. Both consume StilLayout (read-only import). roadmap_version renders ALL roadmap.version fields (version, vision_summary, status, target_date_band, rationale, scope, milestones, risks). schema_browser renders scope→type→field hierarchy via stil's table/card primitives. AMEND-1 (CE-1 component allowlist): stil components drawn from {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button, Swatch}. FORBIDDEN: {RightAside, MobileCommandFab, SettingsOptions, ThemeToggle, TokenEditor, InputStyles}. Use Sidebar + Topbar + 2 more (e.g. BottomTabs + ComponentCard). Imports MOCK_ROADMAP_VERSION + MOCK_SCHEMA_BROWSER from ../../mock/stil_records.ts. ZERO new authored <script>. Build gates: mage TemplatesBuildEmbed + mage TemplatesBuildVerifyStable green."
+parent_id = "drop_004.drop.l3_e3_stil_views"
+paths = ["web/templates_embed/src/pages/stil/roadmap_version.astro", "web/templates_embed/src/pages/stil/schema_browser.astro"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-E3-D4 builder — stil roadmap_version + schema_browser views"
+updated_at = "2026-05-18T17:30:00Z"
+
+[builder_l3_e3_d4_roadmap_schema_views-qa-proof]
+created_at = "2026-05-19T04:21:46Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d4_roadmap_schema_views"
+title = "QA proof of L3-E3-D4 builder — stil roadmap_version + schema_browser views"
+updated_at = "2026-05-19T04:21:46Z"
+
+[builder_l3_e3_d4_roadmap_schema_views-qa-falsification]
+created_at = "2026-05-19T04:21:46Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d4_roadmap_schema_views"
+title = "QA falsif of L3-E3-D4 builder — stil roadmap_version + schema_browser views"
+updated_at = "2026-05-19T04:21:46Z"
+
+[builder_l3_e3_d5_test_gates]
+blockers = ["drop_004.drop.builder_l3_e3_d2_drop_planner_views", "drop_004.drop.builder_l3_e3_d3_droplet_qa_views", "drop_004.drop.builder_l3_e3_d4_roadmap_schema_views"]
+created_at = "2026-05-18T17:30:00Z"
+objective = "L3-E3-D5 Track B stil test gates. NEW internal/templates_html_embed/views_stil_test.go (Go test consuming the embedded dist/ FS). Tests: (1) TestTemplatesHtmlEmbed_Stil_<view> per view — 7 GOLDENS per AMEND-2: cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser. Each golden = full byte-match of dist/stil/<view>/index.html. NEW internal/templates_html_embed/testdata/stil/*.html.golden (7 files). (2) TestTemplatesHtmlEmbed_Stil_TokensPresent — regex over the 7 dist HTML files asserts at least one --stil-* CSS custom property reference. (3) TestTemplatesHtmlEmbed_Stil_ZeroJS — regex over the 7 dist HTML files asserts ZERO <script> tags (with explicit allowance only for the gallery /stil/index.html which inherits Playground scripts — OR pin allowance to N=2 inherited). Materialize goldens via UPDATE_GOLDENS=1 mage testFunc TestTemplatesHtmlEmbed_Stil_<view> (run once per view OR run all together). Acceptance: mage testPkg ./internal/templates_html_embed green; ZERO new go.mod/go.sum delta."
+parent_id = "drop_004.drop.l3_e3_stil_views"
+paths = ["internal/templates_html_embed/views_stil_test.go", "internal/templates_html_embed/testdata/stil/cascade_drop.html.golden", "internal/templates_html_embed/testdata/stil/cascade_planner.html.golden", "internal/templates_html_embed/testdata/stil/cascade_droplet.html.golden", "internal/templates_html_embed/testdata/stil/cascade_qa_proof.html.golden", "internal/templates_html_embed/testdata/stil/cascade_qa_falsification.html.golden", "internal/templates_html_embed/testdata/stil/roadmap_version.html.golden", "internal/templates_html_embed/testdata/stil/schema_browser.html.golden"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L3-E3-D5 builder — stil test gates + 7 goldens"
+updated_at = "2026-05-18T17:30:00Z"
+
+[builder_l3_e3_d5_test_gates-qa-proof]
+created_at = "2026-05-19T04:21:46Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d5_test_gates"
+title = "QA proof of L3-E3-D5 builder — stil test gates + 7 goldens"
+updated_at = "2026-05-19T04:21:46Z"
+
+[builder_l3_e3_d5_test_gates-qa-falsification]
+created_at = "2026-05-19T04:21:46Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_e3_d5_test_gates"
+title = "QA falsif of L3-E3-D5 builder — stil test gates + 7 goldens"
+updated_at = "2026-05-19T04:21:46Z"
+
+[build_qa_proof_l3_e4]
+blockers = []
+completed_at = "2026-05-18T21:35:00Z"
+created_at = "2026-05-18T21:45:00Z"
+objective = "Proof-oriented review of L3-E4 (Track B Thariq demos) completed sub-tree. Verify: (1) all 5 droplets state=complete + outcome=success; (2) all 5 .astro pages at spec'd paths; (3) MOCK_* exports match cascade.* schema field names; (4) stil-component imports in allowed-set; (5) mage TemplatesBuildEmbed + TemplatesBuildVerifyStable green; (6) authored-script audit clean; (7) testdata stubs present; (8) tsconfig.json single-owner; (9) frozen mock data."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e4_thariq_demos"
+role = "qa-proof"
+started_at = "2026-05-18T21:48:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e4_thariq_demos"
+title = "L3-E4 build-QA proof"
+transition_notes = """
+L3-E4 build-QA proof PASS. 8 verification dimensions evidence-backed.
+
+(1.1) Droplet closure 5/5: builder_l3_e4_{d1_thariq_mock_index, d2_drop_dashboard, d3_planner_detail, d4_droplet_kanban, d5a_qa_twins_and_stubs} all state=complete+outcome=success.
+
+(1.2) File existence 12/12: 5 .astro pages under web/templates_embed/src/pages/thariq/ (index 5.6K, drop-dashboard 7.3K, planner-detail 11.2K, droplet-kanban 9.2K, qa-twins 13.2K); mock TS at web/templates_embed/src/mock/thariq_records.ts (15.4K); 5 .txt stubs + .gitkeep + README.md under web/templates_embed/testdata/thariq/; tsconfig.json 3-line extends astro/tsconfigs/strict.
+
+(1.3) MOCK_* exports match .ta/schema.toml field shapes for cascade.{drop,planner,droplet,qa_proof,qa_falsification}; CascadeRole TS union matches ActionItem.role enum.
+
+(1.4) Stil component allowlist: 22 import lines, all in {Playground, Sidebar, Topbar, NavRail, BottomTabs, MailRow, ComponentCard, Swatch, Button}. ZERO forbidden imports.
+
+(1.5) Build gates fresh: mage TemplatesBuildEmbed (6 pages in 773ms, Complete!); mage TemplatesBuildVerifyStable (sha256 cross-build compare green).
+
+(1.6) Authored-script audit clean: 7 grep hits, all inside // doc comments. Dist <script> tags are Playground-inherited (theme + chrome) per L3-E4 AMEND.
+
+(1.7) tsconfig.json single-owner: L3-E4 D1 created 2026-05-18T21:12:00Z; L3-E3 D1 todo with brief to skip.
+
+(1.8) Frozen mock data: 1 grep hit, the freeze-header docstring. Zero executable Date/Math.random calls.
+
+D5b VHS capture is out-of-droplet-scope per L3-E4 planner transition_notes — till.attention_item, NOT a blocker. Orchestrator follow-up: ta-fe-* agent allowlist self-close gap tracked for pre-MVP refresh.
+"""
+updated_at = "2026-05-18T21:35:00Z"
+[build_qa_falsif_l3_e4]
+blockers = []
+completed_at = "2026-05-18T22:15:00Z"
+created_at = "2026-05-18T21:45:00Z"
+objective = "Falsification-oriented attack on L3-E4 completed sub-tree. Probe: hidden script-bearing imports; @container parent context; mock-freeze bypass; a11y gaps; build-determinism gate soundness; Astro emit pattern; partition coverage; viewport gaps; tsconfig race; inherited script payloads; cross-tree leakage; cascade record drift."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e4_thariq_demos"
+role = "qa-falsification"
+started_at = "2026-05-18T21:48:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e4_thariq_demos"
+title = "L3-E4 build-QA falsification"
+transition_notes = "L3-E4 build-QA falsification PASS. 12 attack vectors probed against disk evidence; ZERO unmitigated counterexamples. Single non-blocking cleanup observation: planner-detail.astro:359 has unnamed @container (max-width:640px) with NO container-type ancestor (stil Playground also lacks it) — the rule never matches but immediately-following @media (max-width:640px) at 374-383 has identical rules preserving the responsive outcome (dead-CSS redundancy, NOT a runtime CE). Routed as post-close cleanup. All other attacks mitigated: forbidden-component imports clean (3 hits, all in comments); container-type set on .app-main-body for kanban + qa-twins; mock data frozen (1 grep hit = header docstring); a11y verified (title, single h1, main, aria-labels); TemplatesBuildVerifyStable real impl (sha256 dist hash + retry); Astro emit pattern matches D2 claim; MOCK_DROPLETS partition exact (todo:3/in_progress:2/complete:2/failed:1); responsive bands per planner contract; tsconfig single file; inherited scripts passive chrome only (no demo-data interactivity); cross-tree git changes belong to sibling lanes + cascade-record CRUD, NOT L3-E4 droplet leakage; record drift verified clean. Verdict: PASS."
+updated_at = "2026-05-18T22:15:00Z"
+[build_qa_proof_l3_e2]
+blockers = []
+completed_at = "2026-05-18T22:25:00Z"
+created_at = "2026-05-18T21:55:00Z"
+objective = "Proof-oriented review of L3-E2 (Track A simple views) completed sub-tree. All 6 droplets D-V1..D-V6 closed state=complete+outcome=success. Verify: (1) all 6 droplet records closed; (2) all 6 + sample-promote files exist at spec'd paths under internal/templates_html_basic/templates/; (3) 7 goldens locked at testdata/ (cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser); (4) render_test.go contains 6 sibling TestRenderBasic_<view> tests + table-driven for cascade_qa; (5) assertGoldenBytes helper signature stable; (6) mage testPkg ./internal/templates_html_basic green (13 tests per latest D-V6 run); (7) zero <script> in any new .html template (Track A zero-JS rule); (8) substring-escape rule applied (+, <, >, &, ', \", ` escaped per htmlReplacementTable); (9) ZERO go.mod/go.sum delta across L3-E2; (10) a11y baseline (lang=en, semantic landmarks, <title>)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e2_simple_views"
+role = "qa-proof"
+started_at = "2026-05-18T22:00:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e2_simple_views"
+title = "L3-E2 build-QA proof"
+transition_notes = """
+L3-E2 build-QA PROOF: PASS. All 8 verification points verified.
+
+(1) Droplet closure — all 6 D-V1..D-V6 droplet records carry state=complete+outcome=success (mcp__ta__get confirmed): D-V1 closed 13:10, D-V2 15:50, D-V3 16:35, D-V4 17:55, D-V5 17:35, D-V6 21:55.
+
+(2) File existence — all 6 templates present at flat path internal/templates_html_basic/templates/: cascade_drop.html (6.0K, promoted from sample/), cascade_planner.html (6.5K), cascade_droplet.html (6.0K), cascade_qa.html (6.4K), roadmap_version.html (5.1K), schema_browser.html (6.1K). All 7 goldens present under testdata/: cascade_drop (4.9K), cascade_droplet (5.5K), cascade_planner (6.0K), cascade_qa_falsification (6.2K), cascade_qa_proof (5.9K), roadmap_version (4.7K), schema_browser (9.3K).
+
+(3) Test coverage — render_test.go contains: TestRenderBasic_CascadeDrop (line 31), _CascadePlanner (146), _CascadeDroplet (280), _CascadeQA (425, table-driven over qa_proof + qa_falsification sub-cases at 437/488), _RoadmapVersion (642), _SchemaBrowser (783), plus _MissingTemplateReturnsError (999) and _EmptyTemplateNameReturnsError (1018). assertGoldenBytes helper at line 1050 with signature `func assertGoldenBytes(t *testing.T, name string, got []byte)` — stable, supports UPDATE_GOLDENS=1, materializes on first run.
+
+(4) Build gate fresh — `mage testPkg ./internal/templates_html_basic` PASSED: 13 tests / 13 passed / 0 failed / 1 package (1.33s). Matches D-V6 transition_notes expectation of 13 tests.
+
+(5) Zero-JS rule — rg `<script` against templates/ found ZERO matches inside .html files; only hit was templates/README.md:29 (markdown documentation, intentionally exempt per TestEmbeddedBasic_NoScriptTagsRegex godoc at embed_test.go:57 which skips non-.html files). Track A's TestEmbeddedBasic_NoScriptTagsRegex (embed_test.go:43) still present and exercises the regex over the entire embedded tree.
+
+(6) Substring escape discipline — verified post-escape forms used where source data contains escape-sensitive chars: `&#43;` for literal `+` (lines 208, 332, 337, 467; html/template escapes `+` to `&#43;` in HTML text context per htmlReplacementTable), `&lt;script&gt;` for XSS payload (lines 114, 248, 391, 569, 603, 746, 985), `&lt;ol&gt;` (line 213), `&lt;ul class=&#34;flat&#34;&gt;` (line 523, also escapes `"` to `&#34;`), `&lt;string&gt;` (line 915). Bare `<`, `"`, `'` substrings only appear when asserting template-body markup the template ITSELF emits (e.g. `<!DOCTYPE html>`, `<ol class="decision-log">`, `aria-label="..."`, `<h2>...</h2>`) — those reach the output unescaped because the template is the trusted source. No pre-escape character leaks in user-data assertion strings.
+
+(7) a11y baseline — all 6 templates carry: `<!DOCTYPE html>` (line 1 each), `<html lang="en">` (line 2 each), `<title>...</title>` (line 6 each, unique per template). cascade_drop.html has `<main aria-labelledby="drop-title">` plus multiple `<section aria-label="Identifiers...">` / `<section aria-label="Paths owned">` / etc. The other 5 templates each contain `<main` AND `aria-label` per rg -l match.
+
+(8) go.mod/go.sum stability — `git diff --stat go.mod go.sum` returned empty (zero delta). All 6 droplet transition_notes report ZERO go.mod/go.sum changes; matches disk truth. Stdlib html/template + fmt only.
+
+Falsification sweep (no unmitigated CE): (a) stale tests masking → fresh mage testPkg run satisfies hedge; (b) corrupt golden masking template breakage → each test does substring asserts BEFORE golden compare, so a corrupted golden alone could not pass; (c) cross-case golden leak in CascadeQA → explicit name via fmt.Sprintf at line 613 + per-case extraAbsent at lines 482-485/537-540 pins OTHER role's pill class MUST NOT appear; (d) <script in README.md → embed_test.go:57 godoc + code explicitly skip non-.html files; (e) flat-path embed reachability → TestEmbeddedBasic_CascadeDropAccessible (embed_test.go:17) reads cascade_drop.html off embed and verifies non-empty DOCTYPE; (f) sibling test interference → t.Parallel + independent data maps + distinct golden names + 13/13 green; (g) go.sum delta without go.mod delta → git diff --stat covers BOTH and was empty.
+
+L3-E2 sub-tree READY FOR CLOSE.
+"""
+updated_at = "2026-05-18T22:25:00Z"
+[build_qa_falsif_l3_e2]
+blockers = []
+completed_at = "2026-05-18T22:35:00Z"
+created_at = "2026-05-18T21:55:00Z"
+objective = "Falsification attack on L3-E2 completed sub-tree. Probe: (1) hidden <script> in any template (regex over templates/ dir); (2) goldens may have drifted from current render output — re-run mage testPkg without UPDATE_GOLDENS=1; (3) substring assertions may miss escape rules (look for raw < > & + chars in wantContains that should be entity-encoded); (4) assertGoldenBytes name-derivation collisions; (5) XSS auto-escape coverage — each template renders user-controlled data; verify {{ . }} actions are auto-escaped contextually (HTML text vs HTML attribute vs URL); (6) F23-style runtime-fill semantics: do any templates assume fields exist that schema marks optional/required-no-default?; (7) cascade.qa role-color CSS specificity — .pill[data-key=role][data-value=qa-falsification] override may collide with other pill selectors; (8) golden line endings (LF vs CRLF) drift across OS; (9) substring assertions are EXHAUSTIVE — a renamed template field could silently break with no test failure; (10) cross-tree leakage outside internal/templates_html_basic/."
+outcome = "success"
+parent_id = "drop_004.drop.l3_e2_simple_views"
+role = "qa-falsification"
+started_at = "2026-05-18T22:00:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_e2_simple_views"
+title = "L3-E2 build-QA falsification"
+transition_notes = """
+Falsification attacks (12 vectors) all PASS — no CE blocking L3-E2 close.
+
+Attack results:
+1. Hidden <script>: NONE in any of 5 new templates (cascade_planner/droplet/qa/roadmap_version/schema_browser). TestEmbeddedBasic_NoScriptTagsRegex enforces gate; mage testPkg green.
+2. Golden drift: mage testPkg ./internal/templates_html_basic returned 13/13 PASS without UPDATE_GOLDENS=1. No drift.
+3. Substring escape rule: every wantContains with `+` uses `&#43;`; `<`/`>` uses `&lt;`/`&gt;`; `"` uses `&#34;`. No raw-vs-escaped mismatches.
+4. XSS coverage: all 6 TestRenderBasic_* inject <script>alert('xss')</script> in a user-controlled field AND assert both absence of <script> AND presence of &lt;script&gt;. cascade_qa applies per case.
+5. assertGoldenBytes name collisions: 7 distinct names (cascade_drop, cascade_planner, cascade_droplet, cascade_qa_proof, cascade_qa_falsification, roadmap_version, schema_browser), 7 distinct testdata/*.golden files. No collisions.
+6. Required-field assumptions: cascade_planner unconditionally renders <span data-key="structural_type" data-value="{{.structural_type}}"> and roadmap_version unconditionally renders <div class="target-band">{{.target_date_band}}</div>. When optional/empty produces an empty pill/band (cosmetic only). Not a hard CE.
+7. Pill CSS specificity: .pill-role-qa-proof (0,1,0) vs .pill[data-key="state"][data-value=...] (0,3,0) target different elements (role pill vs state pill); no conflict.
+8. Golden line endings: `file -b` reports `HTML document text, Unicode text, UTF-8 text` for all 7 goldens — no CRLF.
+9. Substring exhaustiveness: tests assert on field VALUES + structural landmarks + golden byte-compare. Field rename would fail on all three surfaces.
+10. Cross-tree leakage: .claude/agents/ta-fe-*.md (4 files) modified and web/templates_embed/ untracked items exist outside L3-E2 scope, BUT all pre-date L3-E2 (last committed at 11dd4c1 L3-E1). Not L3-E2 builders' output; pre-existing dirty working-tree inherited from earlier lane. Observed, not confirmed CE.
+11. D-V4 golden filenames: tc.name=qa_proof/qa_falsification (underscore); fmt.Sprintf produces cascade_qa_proof.html / cascade_qa_falsification.html; both goldens on disk. PASS.
+12. Escape contexts: cascade_qa.html L154 `class="pill pill-role-{{.role}}"` is attribute context — html/template applies attribute-escape; trusted enum role values safe. No URL or CSS interpolations (no href={{...}} or style=...{{...}}). All other {{.}} actions in text or attribute contexts handled by html/template.
+
+Non-blocking observations routed:
+- cosmetic empty pill (cascade_planner.structural_type) / empty band (roadmap_version.target_date_band) when optional unconditional fields empty
+- pre-existing dirty working tree outside L3-E2 scope (.claude/agents/ta-fe-*, web/templates_embed/)
+
+Verdict: L3-E2 ready to close.
+"""
+updated_at = "2026-05-18T22:35:00Z"
