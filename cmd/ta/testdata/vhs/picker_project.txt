@@ -364,7 +364,7 @@
 Bootstrap /tmp/ta-vhs-picker-project — pick items to install
 
 ▶ Schemas (0/3)
-j/k move  enter toggle  space/x select-all-visible  / filter  S submit  q abort
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 
@@ -394,7 +394,7 @@ j/k move  enter toggle  space/x select-all-visible  / filter  S submit  q abort
 Bootstrap /tmp/ta-vhs-picker-project — pick items to install
 
 ▶ Schemas (0/3)
-j/k move  enter toggle  space/x select-all-visible  / filter  S submit  q abort
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 

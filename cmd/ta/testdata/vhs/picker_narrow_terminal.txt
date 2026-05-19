@@ -302,7 +302,7 @@
 
 ────────────────────────────────────────────────────────────────────────────────
 > export HOME="$(pwd)/cmd/ta/testdata/vhs/fixture_home"
-> rm -rf /tmp/ta-vhs-picker-filter && mkdir -p /tmp/ta-vhs-picker-filter
+> rm -rf /tmp/ta-vhs-picker-narrow && mkdir -p /tmp/ta-vhs-picker-narrow
 >
 
 
@@ -332,8 +332,8 @@
 
 ────────────────────────────────────────────────────────────────────────────────
 > export HOME="$(pwd)/cmd/ta/testdata/vhs/fixture_home"
-> rm -rf /tmp/ta-vhs-picker-filter && mkdir -p /tmp/ta-vhs-picker-filter
-> ./bin/ta init --path /tmp/ta-vhs-picker-filter
+> rm -rf /tmp/ta-vhs-picker-narrow && mkdir -p /tmp/ta-vhs-picker-narrow
+> ./bin/ta init --path /tmp/ta-vhs-picker-narrow
 
 
 
@@ -361,10 +361,10 @@
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▶ Schemas (0/3)
-j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q
 
 
 
@@ -391,10 +391,10 @@ j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▶ Schemas (0/3)
-j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q
 
 
 
@@ -421,10 +421,10 @@ j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▶ Schemas (0/3)
-j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q
 
 
 
@@ -451,10 +451,10 @@ j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▶ Schemas (0/3)
-j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q
 
 
 
@@ -481,13 +481,13 @@ j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▼ Schemas (0/3)
   [ ] bookmarks — Project bookmarks.
   [ ] ledger — Lightweight project ledger.
   [ ] plans — Plan documents pinned for fixture-home smoke.
-j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q
 
 
 
@@ -511,13 +511,13 @@ j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▼ Schemas (0/3)
   [ ] bookmarks — Project bookmarks.
   [ ] ledger — Lightweight project ledger.
   [ ] plans — Plan documents pinned for fixture-home smoke.
-j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q
 
 
 
@@ -541,37 +541,7 @@ j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
-
-▼ Schemas (0/3)
-  [ ] bookmarks — Project bookmarks.
-  [ ] ledger — Lightweight project ledger.
-  [ ] plans — Plan documents pinned for fixture-home smoke.
-/ _
-3 of 3 visible
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▼ Schemas (0/3)
   [ ] bookmarks — Project bookmarks.
@@ -601,7 +571,37 @@ Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
+
+▼ Schemas (0/3)
+  [ ] bookmarks — Project bookmarks.
+  [ ] ledger — Lightweight project ledger.
+  [ ] plans — Plan documents pinned for fixture-home smoke.
+/ _
+3 of 3 visible
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▼ Schemas (0/3)
   [ ] ledger — Lightweight project ledger.
@@ -631,7 +631,7 @@ Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Bootstrap /tmp/ta-vhs-picker-filter — pick items to install
+Bootstrap /tmp/ta-vhs-picker-narrow — pick items to install
 
 ▼ Schemas (0/3)
   [ ] ledger — Lightweight project ledger.

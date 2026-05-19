@@ -83,7 +83,7 @@ func resolveSelections(errOut io.Writer, target string, f initFlags) (initapply.
 		// branch handles populated-home off-TTY (user just needs a
 		// selections file or a TTY) and the home-target off-TTY case.
 		emitInitLegacyWarning(errOut)
-		return initapply.Selections{}, errors.New("init: no selections; pass --selections-file or run on a TTY for the picker. Sample schemas live in the ta repo under examples/, or run `ta template save` from a project to populate ~/.ta/")
+		return initapply.Selections{}, errors.New("init: no selections; pass --selections-file or run on a TTY for the picker. Sample schemas live in the ta repo under " + exampleSchemasURL + ", or run `ta template save` from a project to populate ~/.ta/")
 	}
 	return runMultiCategoryPicker(target)
 }

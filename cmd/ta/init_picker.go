@@ -77,35 +77,47 @@ type pickerRow struct {
 //
 //   - j/k or down/up: move cursor through visible rows.
 //   - h/l or left/right: collapse / expand the group under cursor.
-//   - enter: toggle the leaf under cursor; on a header, expand/collapse.
-//   - space / x: toggle every filter-visible leaf in the cursor's group.
+//   - space: toggle the leaf under cursor; on a header, expand/collapse.
+//   - x: toggle every filter-visible leaf in the cursor's group.
 //     Filter-hidden leaves preserve their existing selection.
+//   - ctrl+a: toggle every filter-visible leaf across ALL groups. Same
+//     filter-hidden preservation rule as `x`. Toggle semantic mirrors
+//     `x` — if every visible leaf in every group is already selected,
+//     ctrl+a clears them all; else it selects everything visible.
 //   - "/": enter filter mode; typed runes narrow the visible leaves
 //     (case-insensitive substring match against Display); enter exits
 //     filter mode keeping the pattern; esc clears the pattern.
-//   - S (shift+s): submit. Returns the current selection set via
-//     Selections(). Keystroke is intentionally explicit (not enter)
-//     so a queued newline cannot silently submit — the F18+F16
-//     hardening rule applies.
+//   - enter: open the submit-confirm overlay. The overlay cursor
+//     defaults to NO so a queued newline lands on cancel — the F18+F16
+//     hardening rule "the dangerous path is never the default" applies
+//     here too. In overlay state: y submits, n / esc / enter (default
+//     NO) cancels and returns to the picker.
 //   - q or ctrl+c: abort. Sets the aborted flag; Err() returns
 //     errInitAborted; Selections() returns nil.
+//
+// View() renders the help bar on one line when the terminal is at least
+// pickerNarrowWidth columns wide (or when no WindowSizeMsg has arrived
+// yet — the default-width fallback assumes a wide terminal). Below the
+// threshold the bar folds to two lines so 80-col viewports never
+// truncate trailing bindings.
 type pickerModel struct {
-	groups         []pickerGroup
-	collapsed      []bool
-	selected       []map[int]bool // selected[groupIdx][leafIdx] = true
-	cursor         int            // index into rows()
-	filter         string
-	filterMode     bool
-	title          string
-	headerTitle    string
-	headerDesc     string
-	startCollapsed bool
-	width          int
-	height         int
-	altScreen      bool
-	aborted        bool
-	submitted      bool
-	err            error
+	groups           []pickerGroup
+	collapsed        []bool
+	selected         []map[int]bool // selected[groupIdx][leafIdx] = true
+	cursor           int            // index into rows()
+	filter           string
+	filterMode       bool
+	confirmingSubmit bool // F38d-2.1: enter opens a Y/N overlay defaulting to NO
+	title            string
+	headerTitle      string
+	headerDesc       string
+	startCollapsed   bool
+	width            int
+	height           int
+	altScreen        bool
+	aborted          bool
+	submitted        bool
+	err              error
 }
 
 // newPickerModel constructs a pickerModel from groups + options. Caller
@@ -187,12 +199,15 @@ func (m *pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey routes key presses through filter-mode and normal-mode
-// branches. Keeping the dispatch in one method makes the keymap section
-// the single source of truth for behavior.
+// handleKey routes key presses through filter-mode, confirm-overlay,
+// and normal-mode branches. Keeping the dispatch in one method makes
+// the keymap section the single source of truth for behavior.
 func (m *pickerModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.filterMode {
 		return m.handleFilterKey(k)
+	}
+	if m.confirmingSubmit {
+		return m.handleConfirmKey(k)
 	}
 	switch {
 	case keyMatches(k, pickerKeyAbort):
@@ -200,8 +215,10 @@ func (m *pickerModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.err = errInitAborted
 		return m, tea.Quit
 	case keyMatches(k, pickerKeySubmit):
-		m.submitted = true
-		return m, tea.Quit
+		// F38d-2.1: enter opens the submit-confirm overlay. The
+		// overlay defaults to NO so a queued newline cancels — the
+		// F18+F16 hardening rule applies to in-picker submit too.
+		m.confirmingSubmit = true
 	case keyMatches(k, pickerKeyDown):
 		m.moveCursor(1)
 	case keyMatches(k, pickerKeyUp):
@@ -212,10 +229,45 @@ func (m *pickerModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.collapseUnderCursor()
 	case keyMatches(k, pickerKeyToggle):
 		m.toggleUnderCursor()
+	case keyMatches(k, pickerKeySelectAllAllGroups):
+		// F25: ctrl+a toggles every filter-visible leaf across ALL
+		// groups. Checked BEFORE pickerKeySelectAll so 'x'-as-text
+		// from a ctrl+a keypress (unlikely but defensive) never
+		// falls through to the per-group branch.
+		m.toggleAllVisibleAllGroups()
 	case keyMatches(k, pickerKeySelectAll):
 		m.toggleAllVisibleInGroup()
 	case keyMatches(k, pickerKeyFilter):
 		m.filterMode = true
+	}
+	return m, nil
+}
+
+// handleConfirmKey runs while the submit-confirm overlay is active.
+// The default cursor is NO (cancel) — a queued newline lands on
+// cancel by construction (F16 queued-newline lock). y submits; n or
+// esc cancels. q / ctrl+c still abort the whole picker so the user
+// can always escape regardless of overlay state.
+func (m *pickerModel) handleConfirmKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case keyMatches(k, pickerKeyAbort):
+		m.aborted = true
+		m.err = errInitAborted
+		return m, tea.Quit
+	case k.Code == 'y' || k.Code == 'Y' || k.Text == "y" || k.Text == "Y":
+		m.submitted = true
+		m.confirmingSubmit = false
+		return m, tea.Quit
+	case k.Code == 'n' || k.Code == 'N' || k.Text == "n" || k.Text == "N":
+		m.confirmingSubmit = false
+		return m, nil
+	case k.Code == tea.KeyEscape || k.Code == tea.KeyEsc:
+		m.confirmingSubmit = false
+		return m, nil
+	case k.Code == tea.KeyEnter:
+		// Default cursor is NO — enter on default cancels.
+		m.confirmingSubmit = false
+		return m, nil
 	}
 	return m, nil
 }
@@ -411,6 +463,60 @@ func (m *pickerModel) toggleAllVisibleInGroup() {
 	}
 }
 
+// toggleAllVisibleAllGroups (F25) flips every filter-visible leaf across
+// EVERY group at once. Toggle semantic mirrors toggleAllVisibleInGroup:
+// if every filter-visible leaf across every group is already selected,
+// the call deselects them all; otherwise it selects every visible leaf
+// in every group. Filter-hidden leaves preserve their existing state —
+// the contract is "select-all-visible-everywhere", not "select-the-
+// universe". No-op when there are zero visible leaves.
+func (m *pickerModel) toggleAllVisibleAllGroups() {
+	rows := m.rows()
+	// visibleByGroup[groupIdx] is the slice of filter-visible leaf
+	// indices in that group. Empty entries are kept so the all-selected
+	// check stays consistent if a group has zero visible leaves.
+	visibleByGroup := make([][]int, len(m.groups))
+	for i := range visibleByGroup {
+		visibleByGroup[i] = []int{}
+	}
+	totalVisible := 0
+	for _, r := range rows {
+		if r.leafIdx < 0 || r.hidden {
+			continue
+		}
+		visibleByGroup[r.groupIdx] = append(visibleByGroup[r.groupIdx], r.leafIdx)
+		totalVisible++
+	}
+	if totalVisible == 0 {
+		return
+	}
+	allSelected := true
+	for gi, leaves := range visibleByGroup {
+		for _, li := range leaves {
+			if !m.selected[gi][li] {
+				allSelected = false
+				break
+			}
+		}
+		if !allSelected {
+			break
+		}
+	}
+	if allSelected {
+		for gi, leaves := range visibleByGroup {
+			for _, li := range leaves {
+				delete(m.selected[gi], li)
+			}
+		}
+		return
+	}
+	for gi, leaves := range visibleByGroup {
+		for _, li := range leaves {
+			m.selected[gi][li] = true
+		}
+	}
+}
+
 // View renders the model. Two-section layout: optional banner header
 // (legacy-warning / MCP-toggle prelude), then title, then group list,
 // then filter prompt (or help bar).
@@ -459,9 +565,40 @@ func (m *pickerModel) View() tea.View {
 		))
 		b.WriteByte('\n')
 	}
-	b.WriteString(pickerHelpStyle.Render(
-		"j/k move  enter toggle  space/x select-all-visible  / filter  S submit  q abort",
-	))
+	if m.confirmingSubmit {
+		// F38d-2.1: Y/N overlay below the group list. Cursor defaults
+		// to NO so a queued newline cancels. The overlay reuses the
+		// confirm widget palette for byte-stable visual continuity
+		// with the post-pick confirm prompt.
+		b.WriteByte('\n')
+		b.WriteString(confirmIdleStyle.Render("  Yes") +
+			"  " +
+			confirmCursorStyle.Render("> No"))
+		b.WriteByte('\n')
+		b.WriteString(pickerHelpStyle.Render(
+			"y submit  n / esc / enter cancel  q abort",
+		))
+		v := tea.NewView(b.String())
+		v.AltScreen = m.altScreen
+		return v
+	}
+	// F38d-2.4: fold the help bar to two lines on terminals narrower
+	// than pickerNarrowWidth so 80-col viewports never truncate the
+	// binding list. width==0 means no WindowSizeMsg has arrived yet —
+	// fall back to the single-line layout (pickerDefaultWidth is wide).
+	if m.width > 0 && m.width < pickerNarrowWidth {
+		b.WriteString(pickerHelpStyle.Render(
+			"j/k move  space toggle  x select-group  ctrl+a select-all",
+		))
+		b.WriteByte('\n')
+		b.WriteString(pickerHelpStyle.Render(
+			"/ filter  enter submit  q abort",
+		))
+	} else {
+		b.WriteString(pickerHelpStyle.Render(
+			"j/k move  space toggle  x select-group  ctrl+a select-all  / filter  enter submit  q abort",
+		))
+	}
 	v := tea.NewView(b.String())
 	v.AltScreen = m.altScreen
 	return v
@@ -621,6 +758,8 @@ func matchKeyToken(k tea.KeyPressMsg, token string) bool {
 		return k.Code == tea.KeySpace || k.Text == " "
 	case "ctrl+c":
 		return k.Mod&tea.ModCtrl != 0 && k.Code == 'c'
+	case "ctrl+a":
+		return k.Mod&tea.ModCtrl != 0 && k.Code == 'a'
 	}
 	if len(token) == 1 {
 		r := rune(token[0])
@@ -638,7 +777,14 @@ func matchKeyToken(k tea.KeyPressMsg, token string) bool {
 // used when no WindowSizeMsg has arrived yet. Production tea.Program
 // dispatches a real WindowSizeMsg on startup; tests that drive Update
 // directly inherit these.
+//
+// pickerNarrowWidth is the column threshold below which the help bar
+// folds to two lines. The single-line text is ~88 columns including
+// padding; narrower terminals truncate the trailing bindings. F38d-2.4
+// splits the help into two halves at this boundary so every binding
+// stays readable on standard 80-col terminals and tighter.
 const (
 	pickerDefaultWidth  = 120
 	pickerDefaultHeight = 40
+	pickerNarrowWidth   = 80
 )

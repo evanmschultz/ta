@@ -363,7 +363,7 @@
 ────────────────────────────────────────────────────────────────────────────────
 Fill task
 
-▶ id *
+▸ id *
     > i
 
   status *
@@ -393,7 +393,7 @@ tab next  shift+tab prev  enter advance/submit  ctrl+enter submit textarea  esc 
 ────────────────────────────────────────────────────────────────────────────────
 Fill task
 
-▶ id *
+▸ id *
     > i
 
   status *

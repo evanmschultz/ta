@@ -30,7 +30,7 @@ Sleep 1500ms
 
 Type "j"
 Sleep 200ms
-Enter
+Type "l"
 Sleep 300ms
 
 Type "/"

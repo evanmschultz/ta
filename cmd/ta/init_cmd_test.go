@@ -1111,3 +1111,64 @@ func TestRunMultiCategoryPicker_HomeTargetFiltersHomeItems(t *testing.T) {
 		}
 	}
 }
+
+// TestF4_EmptyProjectSchemaHeader_CitesRemoteURL pins F4 pre-MVP cleanup:
+// the comment-only header written to `<project>/.ta/schema.toml` when a
+// user selects zero dbs from the picker MUST embed the canonical
+// remote-URL pointer (https://github.com/evanmschultz/ta/tree/main/examples/schemas)
+// so off-disk readers can open it directly. Locks both the bare URL and
+// the source-of-truth `exampleSchemasURL` constant.
+func TestF4_EmptyProjectSchemaHeader_CitesRemoteURL(t *testing.T) {
+	const wantURL = "https://github.com/evanmschultz/ta/tree/main/examples/schemas"
+	if exampleSchemasURL != wantURL {
+		t.Errorf("exampleSchemasURL drift: got %q want %q", exampleSchemasURL, wantURL)
+	}
+	if !strings.Contains(emptyProjectSchemaHeader, wantURL) {
+		t.Errorf("emptyProjectSchemaHeader missing remote URL %q; got: %s", wantURL, emptyProjectSchemaHeader)
+	}
+}
+
+// TestF4_EmptyHomeError_CitesRemoteURL pins F4 pre-MVP cleanup: the
+// `home library is empty` laslig notice + returned Go error both cite
+// the canonical remote URL — not a bare `examples/` path. Covers two
+// of the three emptyHomeError callsites that quote the URL (notice
+// detail body + remediation hint + wrapped error message).
+func TestF4_EmptyHomeError_CitesRemoteURL(t *testing.T) {
+	const wantURL = "https://github.com/evanmschultz/ta/tree/main/examples/schemas"
+
+	emptyRoot := t.TempDir()
+	restore := templates.SetRootForTest(emptyRoot)
+	t.Cleanup(restore)
+
+	target := t.TempDir()
+	_, errOut, err := runInitCmd(t, "--path", target, "--no-claude", "--no-codex")
+	if err == nil {
+		t.Fatalf("expected empty-home error; stderr=%s", errOut)
+	}
+	if !strings.Contains(err.Error(), wantURL) {
+		t.Errorf("wrapped error missing remote URL %q: %v", wantURL, err)
+	}
+	if !strings.Contains(errOut, wantURL) {
+		t.Errorf("laslig notice missing remote URL %q: %s", wantURL, errOut)
+	}
+}
+
+// TestF4_OffTTYNoSelectionsError_CitesRemoteURL pins F4 pre-MVP
+// cleanup: the populated-home off-TTY no-selections error path (in
+// init_multi.go's resolveSelections) cites the canonical remote URL.
+// Distinct from TestInitCmdNonInteractiveWithoutTemplateErrors which
+// pins the bare-`examples/`-substring check that the new URL still
+// satisfies (because the URL itself contains `examples/`).
+func TestF4_OffTTYNoSelectionsError_CitesRemoteURL(t *testing.T) {
+	const wantURL = "https://github.com/evanmschultz/ta/tree/main/examples/schemas"
+
+	seedTemplateLibrary(t)
+	target := t.TempDir()
+	_, _, err := runInitCmd(t, "--path", target, "--no-claude", "--no-codex")
+	if err == nil {
+		t.Fatal("expected off-TTY no-selections error")
+	}
+	if !strings.Contains(err.Error(), wantURL) {
+		t.Errorf("off-TTY error missing remote URL %q: %v", wantURL, err)
+	}
+}

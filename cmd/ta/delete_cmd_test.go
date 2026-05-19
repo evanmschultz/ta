@@ -224,3 +224,251 @@ func TestDelete_AsUnknownFormatAbortsDelete(t *testing.T) {
 	}
 	assertRecordExists(t, root, id)
 }
+
+// TestF19DeleteAddressLevels_VerifyShape — drop_004 L3-G6 D1 verify+attest
+// for F19 (E2E_FIXES.md §F19 "Delete shape ... §12.17.9"). F19's source
+// contract defines three delete address levels under the paths-slice
+// model — Record (`<file-relpath>.<type>.<id-tail>`), File (bare
+// file-relpath uniquely identifying one concrete file), Glob-rooted db
+// (bare file-relpath that resolves via glob to >1 concrete file,
+// refused with ErrUnscopedGlobDelete) — PLUS a paths-slice-clean error
+// message contract (no legacy "multi-instance" / "single-instance db"
+// / "dir-per-instance" terminology). This test pins ALL FIVE existing
+// behaviours that close F19. It is a verify-shape mirror; it does NOT
+// add new behaviour, and it does NOT supersede the focused tests
+// already in commands_test.go — it anchors grep / Hylla on a single
+// F-finding-named entry point so future agents can locate the F19
+// closure in one search.
+func TestF19DeleteAddressLevels_VerifyShape(t *testing.T) {
+	t.Run("LevelRecord", func(t *testing.T) {
+		// Record-level delete: `<file-relpath>.<id-tail>` removes one
+		// bracket from one file; sibling records survive. No --force
+		// needed at record level — only file-level mutation triggers
+		// the safety gate.
+		root := newSchemaFixture(t)
+		dataPath := filepath.Join(root, "plans.toml")
+		body := "[plans.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.b]\nid = \"B\"\nstatus = \"todo\"\n"
+		if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		if _, _, err := runDeleteCmd(t, "--path", root, "plans.a"); err != nil {
+			t.Fatalf("record-level delete: %v", err)
+		}
+		raw, _ := os.ReadFile(dataPath)
+		if strings.Contains(string(raw), "[plans.a]") {
+			t.Errorf("record-level delete did not remove plans.a:\n%s", raw)
+		}
+		if !strings.Contains(string(raw), "[plans.b]") {
+			t.Errorf("record-level delete removed sibling plans.b:\n%s", raw)
+		}
+	})
+
+	t.Run("LevelFileWithForce", func(t *testing.T) {
+		// File-level delete: bare file-relpath plus --force removes the
+		// whole file. Off-TTY (the test harness's case), --force is the
+		// only way to authorize the file-level branch.
+		root := newSchemaFixture(t)
+		dataPath := filepath.Join(root, "plans.toml")
+		if err := os.WriteFile(dataPath, []byte("[plans.a]\nid = \"A\"\nstatus = \"todo\"\n"), 0o644); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		if _, _, err := runDeleteCmd(t, "--path", root, "--force", "plans"); err != nil {
+			t.Fatalf("file-level delete with --force: %v", err)
+		}
+		if _, err := os.Stat(dataPath); !os.IsNotExist(err) {
+			t.Errorf("plans.toml still exists after --force file-level delete: err=%v", err)
+		}
+	})
+
+	t.Run("LevelFileRefusedOffTTY", func(t *testing.T) {
+		// File-level delete: bare file-relpath WITHOUT --force off-TTY
+		// refuses with ErrFileDeleteRequiresForce and does NOT touch
+		// disk. The error sentinel identity (errors.Is) is load-bearing
+		// — substring matching would let a rename slip through.
+		root := newSchemaFixture(t)
+		dataPath := filepath.Join(root, "plans.toml")
+		body := []byte("[plans.a]\nid = \"A\"\nstatus = \"todo\"\n")
+		if err := os.WriteFile(dataPath, body, 0o644); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		_, _, err := runDeleteCmd(t, "--path", root, "plans")
+		if err == nil {
+			t.Fatalf("expected error for off-TTY file-level delete without --force")
+		}
+		if !errors.Is(err, ops.ErrFileDeleteRequiresForce) {
+			t.Errorf("err = %v, want ErrFileDeleteRequiresForce", err)
+		}
+		got, _ := os.ReadFile(dataPath)
+		if string(got) != string(body) {
+			t.Errorf("plans.toml mutated despite refusal:\nbefore: %s\nafter: %s", body, got)
+		}
+	})
+
+	t.Run("LevelGlobRoot", func(t *testing.T) {
+		// Glob-rooted db: a bare file-relpath that resolves via glob
+		// expansion to MULTIPLE concrete files refuses with
+		// ErrUnscopedGlobDelete and does NOT touch disk. Two glob
+		// mounts that both yield a file named `shared/db.toml` produce
+		// the multi-match condition.
+		root := t.TempDir()
+		t.Cleanup(ops.ResetDefaultCacheForTest)
+		ops.ResetDefaultCacheForTest()
+		taDir := filepath.Join(root, ".ta")
+		if err := os.MkdirAll(taDir, 0o755); err != nil {
+			t.Fatalf("mkdir .ta: %v", err)
+		}
+		schema := `
+[a]
+paths = ["one/*/db.toml"]
+
+[a.entry]
+description = "a"
+
+[a.entry.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["two/*/db.toml"]
+
+[b.entry]
+description = "b"
+
+[b.entry.fields.id]
+type = "string"
+required = true
+`
+		if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(schema), 0o644); err != nil {
+			t.Fatalf("write schema: %v", err)
+		}
+		for _, sub := range []string{"one/shared", "two/shared"} {
+			if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
+				t.Fatalf("mkdir %s: %v", sub, err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(root, "one", "shared", "db.toml"), []byte("[a.x]\nid = \"x\"\n"), 0o644); err != nil {
+			t.Fatalf("seed one: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "two", "shared", "db.toml"), []byte("[b.x]\nid = \"x\"\n"), 0o644); err != nil {
+			t.Fatalf("seed two: %v", err)
+		}
+		_, _, err := runDeleteCmd(t, "--path", root, "--force", "shared.db")
+		if err == nil {
+			t.Fatalf("expected ErrUnscopedGlobDelete on glob-root multi-match, got nil")
+		}
+		if !errors.Is(err, ops.ErrUnscopedGlobDelete) {
+			t.Errorf("err = %v, want ErrUnscopedGlobDelete", err)
+		}
+		for _, p := range []string{
+			filepath.Join(root, "one", "shared", "db.toml"),
+			filepath.Join(root, "two", "shared", "db.toml"),
+		} {
+			if _, statErr := os.Stat(p); statErr != nil {
+				t.Errorf("file %s missing after refused glob-root delete: %v", p, statErr)
+			}
+		}
+	})
+
+	t.Run("ErrorMessagePathsSliceClean", func(t *testing.T) {
+		// Paths-slice-clean error contract: F19's third bug was legacy
+		// terminology bleeding into the delete-error message
+		// ("multi-instance db", "single-instance db", "dir-per-instance").
+		// Under the paths-slice model none of those concepts exist.
+		// This case exercises the glob-root refusal path (the highest-
+		// surface error site for the old terminology) and asserts the
+		// returned error carries NONE of the retired terms.
+		root := t.TempDir()
+		t.Cleanup(ops.ResetDefaultCacheForTest)
+		ops.ResetDefaultCacheForTest()
+		taDir := filepath.Join(root, ".ta")
+		if err := os.MkdirAll(taDir, 0o755); err != nil {
+			t.Fatalf("mkdir .ta: %v", err)
+		}
+		schema := `
+[a]
+paths = ["one/*/db.toml"]
+
+[a.entry]
+description = "a"
+
+[a.entry.fields.id]
+type = "string"
+required = true
+
+[b]
+paths = ["two/*/db.toml"]
+
+[b.entry]
+description = "b"
+
+[b.entry.fields.id]
+type = "string"
+required = true
+`
+		if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(schema), 0o644); err != nil {
+			t.Fatalf("write schema: %v", err)
+		}
+		for _, sub := range []string{"one/shared", "two/shared"} {
+			if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
+				t.Fatalf("mkdir %s: %v", sub, err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(root, "one", "shared", "db.toml"), []byte("[a.x]\nid = \"x\"\n"), 0o644); err != nil {
+			t.Fatalf("seed one: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "two", "shared", "db.toml"), []byte("[b.x]\nid = \"x\"\n"), 0o644); err != nil {
+			t.Fatalf("seed two: %v", err)
+		}
+		_, _, err := runDeleteCmd(t, "--path", root, "--force", "shared.db")
+		if err == nil {
+			t.Fatalf("expected error for glob-root multi-match, got nil")
+		}
+		msg := err.Error()
+		for _, banned := range []string{
+			"multi-instance",
+			"single-instance",
+			"dir-per-instance",
+		} {
+			if strings.Contains(msg, banned) {
+				t.Errorf("error message carries retired pre-§12.17.9 term %q: %s", banned, msg)
+			}
+		}
+	})
+}
+
+// TestF20NarrowVerboseRemainingInFile_VerifyShape — drop_004 L3-G6 D1
+// verify+attest for F20 (E2E_FIXES.md §F20 "--verbose flag missing on
+// ta delete"). F20's source contract demands three things on a
+// successful single-id record-level delete with --verbose: the deleted
+// id, the file path it lived in, and the count of records remaining
+// in that file. This is an F-finding-named provenance mirror for the
+// existing TestDeleteCmdVerboseEmitsRemainingCount in commands_test.go
+// — same fixture, same assertions, named for grep / Hylla lookup on
+// "TestF20Narrow_". The narrow shape (record id + file path + remaining
+// count, NO body echo) is the FULL F20 contract per
+// E2E_FIXES.md:454-462; the wide "echo the deleted record body" reading
+// was a misinterpretation dropped per L3-G6 plan-QA falsification.
+func TestF20NarrowVerboseRemainingInFile_VerifyShape(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := "[plans.a]\nid = \"A\"\nstatus = \"todo\"\n\n[plans.b]\nid = \"B\"\nstatus = \"todo\"\n\n[plans.c]\nid = \"C\"\nstatus = \"todo\"\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Seed the index so the file-scoped count is accurate post-delete.
+	for _, id := range []string{"plans.a", "plans.b", "plans.c"} {
+		if _, _, err := ops.Update(root, id, "", map[string]any{}); err != nil {
+			t.Fatalf("seed index for %q: %v", id, err)
+		}
+	}
+	stdout, errOut, err := runDeleteCmd(t, "--path", root, "--verbose", "plans.a")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	// F20 contract surface: id + file path + remaining count.
+	for _, want := range []string{"plans.a", "plans.toml", "remaining in file", "2"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout missing %q (F20 verbose-narrow contract):\n%s", want, stdout)
+		}
+	}
+}

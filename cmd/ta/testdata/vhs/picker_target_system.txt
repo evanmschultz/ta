@@ -364,8 +364,8 @@
 Bootstrap home library — pick items to install
 
 ▶ Agents (ta) (0/9)
-▶ Schemas (0/9)
-j/k move  enter toggle  space/x select-all-visible  / filter  S submit  q abort
+▶ Schemas (0/17)
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 
@@ -394,8 +394,8 @@ j/k move  enter toggle  space/x select-all-visible  / filter  S submit  q abort
 Bootstrap home library — pick items to install
 
 ▶ Agents (ta) (0/9)
-▶ Schemas (0/9)
-j/k move  enter toggle  space/x select-all-visible  / filter  S submit  q abort
+▶ Schemas (0/17)
+j/k move  space toggle  x select-all-visible  / filter  enter submit  q abort
 
 
 

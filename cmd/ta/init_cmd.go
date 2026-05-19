@@ -28,6 +28,14 @@ import (
 // just to avoid the duplicate literal.
 const metaFieldDescription = "description"
 
+// exampleSchemasURL is the canonical remote pointer to the ta repo's
+// sample-schemas directory. Used in user-facing init remediation copy
+// (comment headers + error messages) so off-disk readers — Claude/Codex
+// reading a `--json` error, anyone without a local checkout — get a
+// URL they can open instead of a bare `examples/` path they cannot
+// resolve. F4 pre-MVP cleanup; single source of truth for the URL.
+const exampleSchemasURL = "https://github.com/evanmschultz/ta/tree/main/examples/schemas"
+
 // emptyProjectSchemaHeader is the comment-only body written to
 // `<project>/.ta/schema.toml` when the user selects zero dbs from the
 // Phase 9.5 db-multi-select. The cascade resolver tolerates a registry
@@ -36,7 +44,7 @@ const metaFieldDescription = "description"
 // `ta schema --action=create` or hand-editing.
 const emptyProjectSchemaHeader = "# Project schema — no dbs declared yet.\n" +
 	"# Run `ta schema --action=create --kind=db --name=<name> --data='{...}'`\n" +
-	"# to declare a db, or copy from examples/ in the ta repo.\n"
+	"# to declare a db, or copy from " + exampleSchemasURL + ".\n"
 
 // claudeMCPFileName is the canonical `.mcp.json` filename Claude Code
 // reads from the project root (V2-PLAN §14.4).
@@ -358,7 +366,7 @@ func chooseSchema(in io.Reader, out, errOut io.Writer, f initFlags, cfg bootstra
 			}
 			return cfg.Bootstrap.DefaultTemplate, body, nil
 		}
-		return "", nil, errors.New("init: no db selected. Populate ~/.ta/schema.toml first (see examples/ in the ta repo, or run `ta template save` from a project), or run on a TTY for the picker.")
+		return "", nil, errors.New("init: no db selected. Populate ~/.ta/schema.toml first (see " + exampleSchemasURL + ", or run `ta template save` from a project), or run on a TTY for the picker.")
 	}
 
 	bodies, infos, err := homeDBPickerInputs(raw)
@@ -501,17 +509,17 @@ func emptyHomeError(errOut io.Writer, root string) error {
 			"library has no declared items. The fastest fix is "+
 			"`ta init --target-system` to populate %s from the binary "+
 			"defaults shipped with this build. Manual paths still work: "+
-			"copy from examples/, build via CLI, or promote a project "+
-			"library with `ta template save`.", root, root),
+			"copy from %s, build via CLI, or promote a project "+
+			"library with `ta template save`.", root, root, exampleSchemasURL),
 		[]string{
 			"Run `ta init --target-system` to bootstrap " + root + " from binary defaults",
 			"Or hand-edit: $EDITOR " + schemaPath,
 			"Or build via CLI: ta schema --action=create --kind=db --name=<name> --data='{...}'",
 			"Or promote from a project: ta template save (after building schema in a project)",
-			"Sample schemas live in the ta repo under examples/",
+			"Sample schemas live in the ta repo under " + exampleSchemasURL,
 		},
 	)
-	return fmt.Errorf("init: home library is empty at %s; run `ta init --target-system` to populate from binary defaults, or see examples/ in the ta repo", root)
+	return fmt.Errorf("init: home library is empty at %s; run `ta init --target-system` to populate from binary defaults, or see %s", root, exampleSchemasURL)
 }
 
 // dbPickerInfo carries one row of the multi-select option list: the
