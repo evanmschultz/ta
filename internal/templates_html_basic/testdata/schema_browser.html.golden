@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schema Browser</title>
+<style>
+  :root {
+    --fg: #111;
+    --fg-muted: #555;
+    --bg: #fafafa;
+    --bg-card: #fff;
+    --border: #d6d6d6;
+    --accent: #1f4ed8;
+    --pill-bg: #eef1f8;
+    --pill-fg: #1f4ed8;
+    --required-bg: #fee2e2;
+    --required-fg: #b91c1c;
+    --optional-bg: #e5e7eb;
+    --optional-fg: #6b7280;
+    --chip-bg: #ede9fe;
+    --chip-fg: #5b21b6;
+    --code-bg: #f3f4f6;
+  }
+  html { color-scheme: light; }
+  body {
+    margin: 0;
+    padding: 1.5rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 1rem/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  main {
+    max-width: 64rem;
+    margin: 0 auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1.5rem 1.75rem 2rem;
+  }
+  header {
+    display: grid;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    line-height: 1.25;
+  }
+  .meta-tag {
+    font-size: 0.875rem;
+    color: var(--fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  section.scope {
+    margin-block: 1.5rem;
+  }
+  section.scope > h2 {
+    font-size: 1.15rem;
+    margin: 0 0 0.25rem;
+    color: var(--fg);
+  }
+  section.scope > p.scope-desc {
+    margin: 0 0 0.75rem;
+    color: var(--fg-muted);
+    font-size: 0.9375rem;
+  }
+  article.type {
+    margin-block: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    padding: 0.85rem 1rem 1rem;
+    background: var(--bg);
+  }
+  article.type > h3 {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+    color: var(--fg);
+  }
+  article.type > h3 code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.05rem 0.4rem;
+    border-radius: 0.25rem;
+    font-size: 0.95rem;
+  }
+  article.type .extends {
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  article.type > p.type-desc {
+    margin: 0.35rem 0 0.65rem;
+    color: var(--fg);
+    font-size: 0.9375rem;
+  }
+  table.fields {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  table.fields thead th {
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    padding: 0.4rem 0.55rem;
+    color: var(--fg-muted);
+    font-weight: 600;
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  table.fields tbody td {
+    padding: 0.5rem 0.55rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.fields tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  table.fields code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.05rem 0.35rem;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+  }
+  .pill {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+  .pill[data-key="required"][data-value="true"] {
+    background: var(--required-bg);
+    color: var(--required-fg);
+  }
+  .pill[data-key="required"][data-value="false"] {
+    background: var(--optional-bg);
+    color: var(--optional-fg);
+  }
+  .chip-list {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+  .chip {
+    display: inline-block;
+    padding: 0.05rem 0.45rem;
+    border-radius: 0.25rem;
+    background: var(--chip-bg);
+    color: var(--chip-fg);
+    font-size: 0.8rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .muted-dash {
+    color: var(--fg-muted);
+  }
+  footer {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+    color: var(--fg-muted);
+  }
+  @media (max-width: 40rem) {
+    body { padding: 0.75rem; }
+    main { padding: 1rem; }
+    table.fields { font-size: 0.85rem; }
+  }
+</style>
+</head>
+<body>
+<main aria-labelledby="schema-title">
+  <header>
+    <div class="meta-tag">schema browser</div>
+    <h1 id="schema-title">Schema Browser</h1>
+  </header>
+
+  
+  <section class="scope" aria-label="Scope cascade">
+    <h2>cascade</h2>
+    <p class="scope-desc">Cascade orchestration records (drops, planners, droplets, QA).</p>
+
+    
+    <article class="type" aria-label="Type drop">
+      <h3><code>drop</code> <span class="extends">extends ActionItem</span></h3>
+      <p class="type-desc">Top-level lane container; groups planners &#43; droplets under a single drop_NNN namespace.</p>
+      <table class="fields">
+        <thead>
+          <tr>
+            <th scope="col">name</th>
+            <th scope="col">type</th>
+            <th scope="col">required</th>
+            <th scope="col">default</th>
+            <th scope="col">enum</th>
+            <th scope="col">description</th>
+          </tr>
+        </thead>
+        <tbody>
+          
+          <tr>
+            <td><code>drop_number</code></td>
+            <td><code>string</code></td>
+            <td>
+              <span class="pill" data-key="required" data-value="true">required</span>
+            </td>
+            <td><span class="muted-dash">—</span></td>
+            <td>
+              <span class="muted-dash">—</span>
+            </td>
+            <td>Zero-padded drop sequence number, e.g. 004.</td>
+          </tr>
+          
+          <tr>
+            <td><code>structural_type</code></td>
+            <td><code>string</code></td>
+            <td>
+              <span class="pill" data-key="required" data-value="true">required</span>
+            </td>
+            <td><code>drop</code></td>
+            <td>
+              <span class="chip-list"><span class="chip">drop</span><span class="chip">planner</span><span class="chip">droplet</span><span class="chip">qa_proof</span><span class="chip">qa_falsification</span></span>
+            </td>
+            <td>Discriminator for the cascade record family.</td>
+          </tr>
+          
+          <tr>
+            <td><code>irreducible</code></td>
+            <td><code>boolean</code></td>
+            <td>
+              <span class="pill" data-key="required" data-value="false">optional</span>
+            </td>
+            <td><code>false</code></td>
+            <td>
+              <span class="muted-dash">—</span>
+            </td>
+            <td>Marks a drop as not further decomposable.</td>
+          </tr>
+          
+          <tr>
+            <td><code>paths</code></td>
+            <td><code>array&lt;string&gt;</code></td>
+            <td>
+              <span class="pill" data-key="required" data-value="false">optional</span>
+            </td>
+            <td><span class="muted-dash">—</span></td>
+            <td>
+              <span class="muted-dash">—</span>
+            </td>
+            <td>Code paths owned by this drop. Attack payload: &lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </article>
+    
+    <article class="type" aria-label="Type planner">
+      <h3><code>planner</code> <span class="extends">extends ActionItem</span></h3>
+      <p class="type-desc">Decomposition node; emits child planners or terminal droplets.</p>
+      <table class="fields">
+        <thead>
+          <tr>
+            <th scope="col">name</th>
+            <th scope="col">type</th>
+            <th scope="col">required</th>
+            <th scope="col">default</th>
+            <th scope="col">enum</th>
+            <th scope="col">description</th>
+          </tr>
+        </thead>
+        <tbody>
+          
+          <tr>
+            <td><code>role</code></td>
+            <td><code>string</code></td>
+            <td>
+              <span class="pill" data-key="required" data-value="true">required</span>
+            </td>
+            <td><code>planner</code></td>
+            <td>
+              <span class="chip-list"><span class="chip">planner</span></span>
+            </td>
+            <td>Fixed to &#39;planner&#39; for this record type.</td>
+          </tr>
+          
+          <tr>
+            <td><code>decision_log</code></td>
+            <td><code>array&lt;string&gt;</code></td>
+            <td>
+              <span class="pill" data-key="required" data-value="false">optional</span>
+            </td>
+            <td><span class="muted-dash">—</span></td>
+            <td>
+              <span class="muted-dash">—</span>
+            </td>
+            <td>Ordered timeline of planner decisions.</td>
+          </tr>
+          
+          <tr>
+            <td><code>priority</code></td>
+            <td><code>string</code></td>
+            <td>
+              <span class="pill" data-key="required" data-value="false">optional</span>
+            </td>
+            <td><span class="muted-dash">—</span></td>
+            <td>
+              <span class="chip-list"><span class="chip">low</span><span class="chip">normal</span><span class="chip">high</span></span>
+            </td>
+            <td><span class="muted-dash">—</span></td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </article>
+    
+  </section>
+  
+
+  <footer>
+    Rendered from ta schema metadata. Track A (zero-deps) meta-view template.
+  </footer>
+</main>
+</body>
+</html>

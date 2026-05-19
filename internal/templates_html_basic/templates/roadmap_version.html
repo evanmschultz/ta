@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ .version }} — roadmap</title>
+<style>
+  :root {
+    --fg: #111;
+    --fg-muted: #555;
+    --bg: #fafafa;
+    --bg-card: #fff;
+    --border: #d6d6d6;
+    --accent: #1f4ed8;
+    --pill-bg: #eef1f8;
+    --pill-fg: #1f4ed8;
+    --status-planning: #4b5563;
+    --status-in_progress: #1f4ed8;
+    --status-landed: #047857;
+    --status-punted: #6b7280;
+  }
+  html { color-scheme: light; }
+  body {
+    margin: 0;
+    padding: 1.5rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 1rem/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  main {
+    max-width: 56rem;
+    margin: 0 auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1.5rem 1.75rem 2rem;
+  }
+  header {
+    display: grid;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    line-height: 1.25;
+  }
+  .version-tag {
+    font-size: 0.875rem;
+    color: var(--fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .target-band {
+    font-size: 0.95rem;
+    color: var(--fg-muted);
+    margin-top: 0.15rem;
+  }
+  .pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.25rem;
+  }
+  .pill {
+    display: inline-block;
+    padding: 0.125rem 0.55rem;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    background: var(--pill-bg);
+    color: var(--pill-fg);
+    font-weight: 500;
+  }
+  .pill[data-key="status"][data-value="planning"] { background: #e5e7eb; color: var(--status-planning); }
+  .pill[data-key="status"][data-value="in_progress"] { background: #dbeafe; color: var(--status-in_progress); }
+  .pill[data-key="status"][data-value="landed"] { background: #d1fae5; color: var(--status-landed); }
+  .pill[data-key="status"][data-value="punted"] { background: #e5e7eb; color: var(--status-punted); }
+  section {
+    margin-block: 1.25rem;
+  }
+  section h2 {
+    font-size: 1.05rem;
+    margin: 0 0 0.5rem;
+    color: var(--fg);
+  }
+  dl.meta {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 1rem;
+    row-gap: 0.35rem;
+    margin: 0;
+  }
+  dl.meta dt {
+    color: var(--fg-muted);
+    font-size: 0.875rem;
+  }
+  dl.meta dd {
+    margin: 0;
+    font-size: 0.9375rem;
+    word-break: break-word;
+  }
+  ul.flat {
+    margin: 0;
+    padding-left: 1.25rem;
+  }
+  ul.flat li { margin-block: 0.1rem; }
+  pre.prose {
+    white-space: pre-wrap;
+    font-size: 0.9375rem;
+    color: var(--fg);
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  footer {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+    color: var(--fg-muted);
+  }
+  @media (max-width: 32rem) {
+    body { padding: 0.75rem; }
+    main { padding: 1rem; }
+    dl.meta { grid-template-columns: 1fr; }
+    dl.meta dt { margin-top: 0.5rem; }
+  }
+</style>
+</head>
+<body>
+<main aria-labelledby="version-title">
+  <header>
+    <div class="version-tag">roadmap.version</div>
+    <h1 id="version-title">{{ .version }}</h1>
+    <div class="target-band">{{ .target_date_band }}</div>
+    <div class="pills" aria-label="Version metadata">
+      <span class="pill" data-key="status" data-value="{{ .status }}">{{ .status }}</span>
+    </div>
+  </header>
+
+  <section aria-label="Vision summary">
+    <h2>Vision</h2>
+    <pre class="prose">{{ .vision_summary }}</pre>
+  </section>
+
+  {{ if .rationale }}
+  <section aria-label="Rationale">
+    <h2>Rationale</h2>
+    <pre class="prose">{{ .rationale }}</pre>
+  </section>
+  {{ end }}
+
+  {{ if .scope }}
+  <section aria-label="Scope">
+    <h2>Scope</h2>
+    <pre class="prose">{{ .scope }}</pre>
+  </section>
+  {{ end }}
+
+  {{ if .milestones }}
+  <section aria-label="Milestones">
+    <h2>Milestones</h2>
+    <ul class="flat">
+      {{ range .milestones }}<li>{{ . }}</li>{{ end }}
+    </ul>
+  </section>
+  {{ end }}
+
+  {{ if .risks }}
+  <section aria-label="Risks">
+    <h2>Risks</h2>
+    <ul class="flat">
+      {{ range .risks }}<li>{{ . }}</li>{{ end }}
+    </ul>
+  </section>
+  {{ end }}
+
+  {{ if or .created_at .updated_at }}
+  <section aria-label="Timestamps">
+    <h2>Timestamps</h2>
+    <dl class="meta">
+      {{ if .created_at }}<dt>created_at</dt><dd><time datetime="{{ .created_at }}">{{ .created_at }}</time></dd>{{ end }}
+      {{ if .updated_at }}<dt>updated_at</dt><dd><time datetime="{{ .updated_at }}">{{ .updated_at }}</time></dd>{{ end }}
+    </dl>
+  </section>
+  {{ end }}
+
+  {{ if .transition_notes }}
+  <footer aria-label="Transition notes">
+    <strong>Transition notes:</strong> {{ .transition_notes }}
+  </footer>
+  {{ end }}
+
+  {{ if not .transition_notes }}
+  <footer>
+    Rendered from ta record <code>roadmap.version</code>. Track A (zero-deps) template.
+  </footer>
+  {{ end }}
+</main>
+</body>
+</html>
