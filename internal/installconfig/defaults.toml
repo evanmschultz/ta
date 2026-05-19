@@ -1,0 +1,143 @@
+# Canonical default install-substrate map embedded into the ta binary.
+#
+# This file is the source-of-truth shipped via go:embed in defaults.go (see
+# the //go:embed directive there). At runtime installconfig.Defaults() parses
+# this document and returns a fresh *Config; consumers (install engine, init
+# integration) layer user overrides on top via Config.MergeDefaults.
+#
+# Structural sibling: internal/installconfig/testdata/install.toml (the L3-I1
+# fixture). That file covers 6 of these 12 substrates as a parse exemplar;
+# this file extends the same shape to the full 12-substrate registry plus
+# every merger path (line / JSON / TOML) the installconfig stack supports.
+#
+# Source paths point at ~/.ta/<name> — the dotta tree the install engine
+# walks at apply time. Destination paths target either the Claude Code
+# project layout (.claude/<name>) or the Codex project layout (.codex/<name>)
+# or the project-root context files (CLAUDE.md, AGENTS.md).
+
+# --- 1. claude_agents -------------------------------------------------------
+# Agent .md files live in ~/.ta/agents/<group>/<file>.md but land flat under
+# .claude/agents/<file>.md on the target project. flatten_strategy=by_basename
+# drops the <group>/ middle directory. Plain copy, no merge.
+[substrate.claude_agents]
+source = "~/.ta/agents"
+destination = ".claude/agents"
+flatten_strategy = "by_basename"
+
+# --- 2. claude_hooks --------------------------------------------------------
+# Hook scripts copied verbatim and chmodded executable. Each register entry
+# wires a Claude Code event → settings file binding. The triple below covers
+# the PreToolUse/Bash + PreToolUse/Agent + SessionStart/* surfaces ta uses
+# today.
+[substrate.claude_hooks]
+source = "~/.ta/hooks"
+destination = ".claude/hooks"
+chmod = "0755"
+
+  [[substrate.claude_hooks.register]]
+  event = "PreToolUse"
+  matcher = "Bash"
+  settings_file = ".claude/settings.local.json"
+
+  [[substrate.claude_hooks.register]]
+  event = "PreToolUse"
+  matcher = "Agent"
+  settings_file = ".claude/settings.local.json"
+
+  [[substrate.claude_hooks.register]]
+  event = "SessionStart"
+  matcher = ""
+  settings_file = ".claude/settings.json"
+
+# --- 3. claude_skills -------------------------------------------------------
+# Claude Code skill bundles. Each skill is a subdirectory whose name carries
+# identity, so NO flatten. No merge — plain directory copy.
+[substrate.claude_skills]
+source = "~/.ta/skills"
+destination = ".claude/skills"
+
+# --- 4. claude_output_styles ------------------------------------------------
+# Claude Code output-style .md files. Plain copy into .claude/output-styles/.
+[substrate.claude_output_styles]
+source = "~/.ta/output-styles"
+destination = ".claude/output-styles"
+
+# --- 5. claude_plugins ------------------------------------------------------
+# Claude Code plugin bundles. Plain copy; per-plugin enable wiring lives in
+# settings.json fragments (substrate 6), NOT here.
+[substrate.claude_plugins]
+source = "~/.ta/plugins"
+destination = ".claude/plugins"
+
+# --- 6. claude_settings_fragments ------------------------------------------
+# JSON merge into .claude/settings.json under the "hooks" sub-path. Fragments
+# contribute hook-registration entries that the JSON merger deep-merges with
+# whatever the target already has (the merger dedupes array entries by
+# matcher key).
+[substrate.claude_settings_fragments]
+source = "~/.ta/claude-settings"
+destination = ".claude/settings.json"
+destination_merge = ".claude/settings.json"
+merge_strategy = "merge"
+merge_path = "hooks"
+
+# --- 7. claude_md_fragments ------------------------------------------------
+# Line merge appended to the project's CLAUDE.md. merge_strategy=append
+# routes through configmerge.NewLineMerger which dedupes by exact line match.
+# NO merge_path — CLAUDE.md is flat text, not a nested document.
+[substrate.claude_md_fragments]
+source = "~/.ta/claude-md"
+destination = "CLAUDE.md"
+destination_merge = "CLAUDE.md"
+merge_strategy = "append"
+
+# --- 8. claude_mcp_servers --------------------------------------------------
+# JSON merge into .mcp.json under the "mcpServers" sub-path. This is the
+# Claude Code MCP registry shape ({"mcpServers": {"<name>": {...}}}). Fragments
+# add server entries without clobbering existing ones.
+[substrate.claude_mcp_servers]
+source = "~/.ta/claude-mcp"
+destination = ".mcp.json"
+destination_merge = ".mcp.json"
+merge_strategy = "merge"
+merge_path = "mcpServers"
+
+# --- 9. codex_agents --------------------------------------------------------
+# Codex per-agent TOML bodies. Each agent ships as .codex/agents/<name>.toml
+# with a top-level name/description/model/developer_instructions block. NO
+# flatten (the file name is the agent identity). NO register — agent visibility
+# in Codex flows from [agents.<name>] blocks in config.toml, contributed via
+# substrate 10 (codex_config_fragments).
+[substrate.codex_agents]
+source = "~/.ta/codex-agents"
+destination = ".codex/agents"
+
+# --- 10. codex_config_fragments --------------------------------------------
+# TOML merge into .codex/config.toml at the document root. NO merge_path —
+# fragments may contribute [agents.X], [profiles.X], or any other top-level
+# table; the TOML merger deep-merges from the root.
+[substrate.codex_config_fragments]
+source = "~/.ta/codex-config"
+destination = ".codex/config.toml"
+destination_merge = ".codex/config.toml"
+merge_strategy = "merge"
+
+# --- 11. codex_mcp_servers --------------------------------------------------
+# TOML merge into .codex/config.toml under the "mcp_servers" sub-path. Codex
+# uses [mcp_servers.<name>] tables (snake_case) for its MCP registry, mirroring
+# Claude's mcpServers (camelCase) but at a different top-level key.
+[substrate.codex_mcp_servers]
+source = "~/.ta/codex-mcp"
+destination = ".codex/config.toml"
+destination_merge = ".codex/config.toml"
+merge_strategy = "merge"
+merge_path = "mcp_servers"
+
+# --- 12. agents_md ---------------------------------------------------------
+# Line merge appended to the project's AGENTS.md (the Codex-side equivalent
+# of CLAUDE.md). Same merger as substrate 7 but targeting AGENTS.md.
+[substrate.agents_md]
+source = "~/.ta/agents-md"
+destination = "AGENTS.md"
+destination_merge = "AGENTS.md"
+merge_strategy = "append"
