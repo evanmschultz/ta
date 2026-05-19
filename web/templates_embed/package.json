@@ -1,0 +1,18 @@
+{
+  "name": "@ta/templates-embed",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ta HTML template substrate: Astro build feeding internal/templates_html_embed/dist for go:embed at compile time.",
+  "scripts": {
+    "build": "astro build",
+    "dev": "astro dev",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@hylla/stil": "file:../../../../stil/main"
+  },
+  "devDependencies": {
+    "astro": "6.1.10"
+  }
+}

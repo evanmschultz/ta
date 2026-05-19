@@ -7,8 +7,18 @@ ta is a tiny MCP server that lets LLM coding agents read and write structured TO
 - **mage-first**. All build / test / lint / format goes through mage targets; never invoke raw `go build`, `go test`, `go vet`, `gofmt`, or `gofumpt`.
 - **Test output is TTY-aware**: `mage test` / `mage check` / `mage cover` route through `laslig/gotestout` which auto-renders styled summaries on terminals and plain text for agents / CI pipes. No env-var gymnastics — just call the target.
 - **Format**: `mage fmt` runs `gofumpt` (latest, auto-installed via `go install mvdan.cc/gofumpt@latest` if missing). gofumpt is a strict superset of `gofmt -s`.
-- **The authoritative gate**: `mage check`. FmtCheck + Vet + Test (with race) + Tidy. Must pass before any commit.
+- **The authoritative gate**: `mage check`. FmtCheck + Vet + Test (with race) + Tidy + TemplatesBuildEmbed (skip-on-pnpm-absent). Must pass before any commit.
 - **Coverage gate**: ≥ 70% line coverage on touched packages.
+
+### Track B Astro templates — pnpm workflow
+
+Track B of the HTML-template substrate (`web/templates_embed/` → `internal/templates_html_embed/dist/`) is an Astro build that feeds the Go `//go:embed` package at compile time. It is driven by `pnpm`. The discipline:
+
+- **pnpm install once per checkout**: `pnpm install -C web/templates_embed`. This materializes `node_modules/` (gitignored) so the Astro build has its toolchain.
+- **`mage templatesBuildEmbed`** — runs `pnpm run build` inside `web/templates_embed/`. Fails loud if pnpm is not on PATH OR if the Astro build returns non-zero. This is the prerequisite of the full embedded build for Track B; anything that depends on `internal/templates_html_embed/dist/` must run this first.
+- **`mage templatesBuildVerifyStable`** — rebuilds the Astro dist tree twice (then once more on a flake) and sha256-compares the directory contents. Retry-once-then-fail flake policy: tolerates a single non-deterministic build, surfaces persistent drift as a hard failure with divergent-hash summary.
+- **`mage check` skip semantics**: if `pnpm` is NOT on PATH, `mage check` prints a verbose WARN line ("pnpm not on PATH; skipping TemplatesBuildEmbed for Track B; mage Check passes WITHOUT Track B build verification") and continues. The Go-only contributor path stays green without a Node toolchain. **If pnpm IS on PATH but `pnpm install` has not been run**, the Astro build will fail and `mage check` will fail too — this is intentional. The skip is for pnpm-absence only, not for incomplete-pnpm-environments.
+- **Why Astro / pnpm**: the embed-side dist tree is generated, not hand-authored, so ta ships statically-rendered HTML produced by stil-themed Astro templates without dragging Node into the runtime. The Go `//go:embed` line pulls the generated artifact at compile time; end users never need pnpm.
 
 ### Scope-narrowed test runs (cascade discipline)
 
