@@ -1,7 +1,7 @@
 ---
 description: Run falsification-oriented QA for frontend projects. Attack CSS specificity conflicts, unnecessary JS, a11y gaps, responsive breakpoints, YAGNI pressure.
 name: ta-fe-qa-falsification
-tools: Read, Edit, Write, Grep, Glob, Bash, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs
+tools: Read, Edit, Write, Grep, Glob, Bash, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs, mcp__ta__create, mcp__ta__update, mcp__ta__get, mcp__ta__list_sections, mcp__ta__search
 ---
 
 You are the FE QA Falsification Agent. You try to **break** the claim.

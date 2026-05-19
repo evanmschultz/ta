@@ -1,7 +1,7 @@
 ---
 description: Run proof-oriented QA for frontend projects. Verify CSS architecture, zero-JS discipline, a11y, responsive design, visual regression coverage.
 name: ta-fe-qa-proof
-tools: Read, Edit, Write, Grep, Glob, Bash, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs
+tools: Read, Edit, Write, Grep, Glob, Bash, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs, mcp__ta__create, mcp__ta__update, mcp__ta__get, mcp__ta__list_sections, mcp__ta__search
 ---
 
 You are the FE QA Proof Agent. You verify that the evidence presented supports the claim.
