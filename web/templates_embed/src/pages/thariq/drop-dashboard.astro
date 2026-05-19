@@ -1,0 +1,262 @@
+---
+// L3-E4-D2 — Drop dashboard (app-shell view of a cascade.drop).
+//
+// Renders MOCK_DROP[0] (single cascade.drop) plus all 8 MOCK_DROPLETS as
+// descendants in a MailRow list. Exercises 5 distinct stil components:
+// Sidebar, NavRail, Topbar, MailRow, BottomTabs — all imported via the
+// deep @hylla/stil/src/... paths (stil v0.0.1 has no `exports` field).
+//
+// Per L3-E4 AMEND: RightAside is excluded — it carries a stil-side <script>
+// that would inflate the dist script-tag count beyond the inherited
+// Playground theme + chrome substrate.
+//
+// ZERO new authored <script> tags. Theme + chrome scripts that surface in
+// dist trace to the Playground layout, NOT to this file.
+
+import Playground from "@hylla/stil/src/layouts/Playground.astro";
+import Sidebar from "@hylla/stil/src/components/Sidebar.astro";
+import NavRail from "@hylla/stil/src/components/NavRail.astro";
+import Topbar from "@hylla/stil/src/components/Topbar.astro";
+import MailRow from "@hylla/stil/src/components/MailRow.astro";
+import BottomTabs from "@hylla/stil/src/components/BottomTabs.astro";
+
+import { MOCK_DROP, MOCK_DROPLETS } from "../../mock/thariq_records";
+
+const drop = MOCK_DROP;
+
+const navRailItems = [
+  { icon: "✦", label: "Cascade", selected: true },
+  { icon: "❀", label: "Records" },
+  { icon: "◇", label: "Mocks" },
+  { icon: "⌗", label: "Testdata" },
+];
+
+const sidebarItems = [
+  { icon: "✦", label: "Drop dashboard", selected: true },
+  { icon: "❀", label: "Planner detail" },
+  { icon: "◇", label: "Droplet kanban" },
+  { icon: "⌗", label: "QA twins" },
+];
+
+const bottomTabsItems = [
+  { icon: "✦", label: "Drop", selected: true },
+  { icon: "❀", label: "Planner" },
+  { icon: "◇", label: "Droplet" },
+  { icon: "⌗", label: "QA" },
+];
+
+// Map droplet state → MailRow tag string (lowercase via component CSS).
+function stateTag(state: string): string {
+  return state;
+}
+
+// MailRow expects date — use updated_at trimmed to YYYY-MM-DD for stability.
+function shortDate(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+// "Unread" marker reused as "in-flight" (todo + in_progress) signal so the
+// stil MailRow visual semantics map onto cascade-record lifecycle without
+// repurposing the component contract.
+function inFlight(state: string): boolean {
+  return state === "todo" || state === "in_progress";
+}
+---
+
+<Playground title="Drop dashboard — thariq demos">
+  <div class="app" data-app-shell>
+    <div class="app-navrail">
+      <NavRail items={navRailItems} />
+    </div>
+
+    <div class="app-sidebar">
+      <Sidebar title="Thariq demos" items={sidebarItems} />
+    </div>
+
+    <main class="app-main">
+      <Topbar title="Drop dashboard — thariq demos" />
+
+      <div class="app-main-body">
+        <div class="app-content">
+          <p class="back-link">
+            <a href="/thariq/">← back to thariq demos</a>
+          </p>
+
+          <h1 class="page-title">Drop dashboard</h1>
+
+          <section class="drop-card" aria-labelledby="drop-heading">
+            <header class="drop-card-head">
+              <span class="drop-number">drop #{drop.drop_number}</span>
+              <h2 id="drop-heading" class="drop-title">{drop.title}</h2>
+            </header>
+
+            <dl class="drop-fields">
+              <div class="drop-field">
+                <dt>state</dt>
+                <dd><code>{drop.state}</code></dd>
+              </div>
+              <div class="drop-field">
+                <dt>role</dt>
+                <dd><code>{drop.role}</code></dd>
+              </div>
+              <div class="drop-field">
+                <dt>structural_type</dt>
+                <dd><code>{drop.structural_type}</code></dd>
+              </div>
+              <div class="drop-field">
+                <dt>outcome</dt>
+                <dd><code>{drop.outcome || "—"}</code></dd>
+              </div>
+              <div class="drop-field">
+                <dt>created_at</dt>
+                <dd><code>{drop.created_at}</code></dd>
+              </div>
+              <div class="drop-field">
+                <dt>updated_at</dt>
+                <dd><code>{drop.updated_at}</code></dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="descendants" aria-labelledby="descendants-heading">
+            <h2 id="descendants-heading" class="descendants-heading">
+              Descendants ({MOCK_DROPLETS.length})
+            </h2>
+
+            <ul class="mail-list" role="list">
+              {MOCK_DROPLETS.map((droplet) => (
+                <li class="mail-list-item">
+                  <MailRow
+                    sender={droplet.role}
+                    subject={droplet.title}
+                    preview={droplet.objective ?? ""}
+                    date={shortDate(droplet.updated_at)}
+                    unread={inFlight(droplet.state)}
+                    tag={stateTag(droplet.state)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </div>
+
+      <div class="app-bottom-tabs">
+        <BottomTabs items={bottomTabsItems} />
+      </div>
+    </main>
+  </div>
+</Playground>
+
+<style>
+  .back-link {
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .back-link a {
+    color: var(--text-secondary);
+    text-decoration: none;
+  }
+
+  .back-link a:hover,
+  .back-link a:focus-visible {
+    color: var(--text-primary);
+    text-decoration: underline;
+  }
+
+  .page-title {
+    font-family: var(--font-serif);
+    font-size: var(--text-3xl);
+    font-weight: var(--weight-regular);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    color: var(--text-primary);
+    margin: 0 0 var(--space-5);
+  }
+
+  .drop-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    background: var(--bg-surface);
+    border-radius: var(--radius-3);
+    margin-bottom: var(--space-6);
+  }
+
+  .drop-card-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .drop-number {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .drop-title {
+    font-family: var(--font-serif);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-regular);
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  .drop-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--space-3) var(--space-4);
+    margin: 0;
+  }
+
+  .drop-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .drop-field dt {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .drop-field dd {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+  }
+
+  .drop-field dd code {
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+  }
+
+  .descendants-heading {
+    font-family: var(--font-serif);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-regular);
+    color: var(--text-primary);
+    margin: 0 0 var(--space-3);
+  }
+
+  .mail-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .mail-list-item {
+    display: contents;
+  }
+</style>
