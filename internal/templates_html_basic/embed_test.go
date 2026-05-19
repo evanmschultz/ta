@@ -8,25 +8,26 @@ import (
 	"testing"
 )
 
-// TestEmbeddedBasic_SampleAccessible verifies that the smoke-test
-// template authored by D-A1 (sample/cascade_drop.html) is reachable
-// through the embed.FS surface returned by EmbeddedBasicHTML, and that
-// it contains non-empty bytes. This is the minimum signal that the
-// //go:embed directive picked up the templates tree.
-func TestEmbeddedBasic_SampleAccessible(t *testing.T) {
+// TestEmbeddedBasic_CascadeDropAccessible verifies that the cascade.drop
+// template (cascade_drop.html, promoted out of the historical sample/
+// subdir by L3-E2-D-V1) is reachable through the embed.FS surface
+// returned by EmbeddedBasicHTML, and that it contains non-empty bytes.
+// This is the minimum signal that the //go:embed directive picked up
+// the templates tree.
+func TestEmbeddedBasic_CascadeDropAccessible(t *testing.T) {
 	t.Parallel()
 
 	fsys := EmbeddedBasicHTML()
 
-	body, err := fs.ReadFile(fsys, "sample/cascade_drop.html")
+	body, err := fs.ReadFile(fsys, "cascade_drop.html")
 	if err != nil {
-		t.Fatalf("fs.ReadFile sample/cascade_drop.html: %v", err)
+		t.Fatalf("fs.ReadFile cascade_drop.html: %v", err)
 	}
 	if len(body) == 0 {
-		t.Fatalf("sample/cascade_drop.html is empty (embed pulled no bytes)")
+		t.Fatalf("cascade_drop.html is empty (embed pulled no bytes)")
 	}
 	if !strings.Contains(string(body), "<!DOCTYPE html>") {
-		t.Errorf("sample/cascade_drop.html missing DOCTYPE; got first 80 bytes %q", truncate(string(body), 80))
+		t.Errorf("cascade_drop.html missing DOCTYPE; got first 80 bytes %q", truncate(string(body), 80))
 	}
 }
 

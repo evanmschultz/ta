@@ -11,7 +11,7 @@ import (
 // Render executes the Track A template identified by templateName
 // against data and returns the rendered HTML bytes. The template name
 // is an fs.FS-relative path rooted at the EmbeddedBasicHTML() filesystem
-// (i.e. "sample/cascade_drop.html"), not the on-disk source path under
+// (i.e. "cascade_drop.html"), not the on-disk source path under
 // internal/templates_html_basic/templates/.
 //
 // Rendering is performed via stdlib html/template, which applies

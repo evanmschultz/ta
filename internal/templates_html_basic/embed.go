@@ -16,8 +16,8 @@ var embeddedFS embed.FS
 
 // EmbeddedBasicHTML returns the read-only filesystem holding the Track
 // A HTML templates. The returned fs.FS is rooted at the templates/
-// directory — i.e. callers see "sample/cascade_drop.html" directly, not
-// "templates/sample/cascade_drop.html".
+// directory — i.e. callers see "cascade_drop.html" directly, not
+// "templates/cascade_drop.html".
 //
 // The filesystem is safe to share across goroutines; embed.FS values
 // are immutable and concurrency-safe by construction.

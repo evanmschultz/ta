@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L3 sub-planner: cascade_planner template authoring — planner</title>
+<style>
+  :root {
+    --fg: #111;
+    --fg-muted: #555;
+    --bg: #fafafa;
+    --bg-card: #fff;
+    --border: #d6d6d6;
+    --accent: #1f4ed8;
+    --pill-bg: #eef1f8;
+    --pill-fg: #1f4ed8;
+    --state-todo: #6b7280;
+    --state-in_progress: #b45309;
+    --state-complete: #047857;
+    --state-failed: #b91c1c;
+    --state-archived: #4b5563;
+  }
+  html { color-scheme: light; }
+  body {
+    margin: 0;
+    padding: 1.5rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 1rem/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  main {
+    max-width: 56rem;
+    margin: 0 auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1.5rem 1.75rem 2rem;
+  }
+  header {
+    display: grid;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    line-height: 1.25;
+  }
+  .planner-tag {
+    font-size: 0.875rem;
+    color: var(--fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.25rem;
+  }
+  .pill {
+    display: inline-block;
+    padding: 0.125rem 0.55rem;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    background: var(--pill-bg);
+    color: var(--pill-fg);
+    font-weight: 500;
+  }
+  .pill[data-key="state"][data-value="todo"] { background: #e5e7eb; color: var(--state-todo); }
+  .pill[data-key="state"][data-value="in_progress"] { background: #fef3c7; color: var(--state-in_progress); }
+  .pill[data-key="state"][data-value="complete"] { background: #d1fae5; color: var(--state-complete); }
+  .pill[data-key="state"][data-value="failed"] { background: #fee2e2; color: var(--state-failed); }
+  .pill[data-key="state"][data-value="archived"] { background: #e5e7eb; color: var(--state-archived); }
+  section {
+    margin-block: 1.25rem;
+  }
+  section h2 {
+    font-size: 1.05rem;
+    margin: 0 0 0.5rem;
+    color: var(--fg);
+  }
+  dl.meta {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 1rem;
+    row-gap: 0.35rem;
+    margin: 0;
+  }
+  dl.meta dt {
+    color: var(--fg-muted);
+    font-size: 0.875rem;
+  }
+  dl.meta dd {
+    margin: 0;
+    font-size: 0.9375rem;
+    word-break: break-word;
+  }
+  ul.flat {
+    margin: 0;
+    padding-left: 1.25rem;
+  }
+  ul.flat li { margin-block: 0.1rem; }
+  ol.decision-log {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+  ol.decision-log li {
+    margin-block: 0.35rem;
+    padding-left: 0.25rem;
+  }
+  pre.prose {
+    white-space: pre-wrap;
+    font-size: 0.9375rem;
+    color: var(--fg);
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  footer {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+    color: var(--fg-muted);
+  }
+  @media (max-width: 32rem) {
+    body { padding: 0.75rem; }
+    main { padding: 1rem; }
+    dl.meta { grid-template-columns: 1fr; }
+    dl.meta dt { margin-top: 0.5rem; }
+  }
+</style>
+</head>
+<body>
+<main aria-labelledby="planner-title">
+  <header>
+    <div class="planner-tag">cascade.planner</div>
+    <h1 id="planner-title">L3 sub-planner: cascade_planner template authoring</h1>
+    <div class="pills" aria-label="Planner metadata">
+      <span class="pill" data-key="structural_type" data-value=""></span>
+      <span class="pill" data-key="role" data-value="planner">planner</span>
+      <span class="pill" data-key="state" data-value="in_progress">in_progress</span>
+      
+      <span class="pill" data-key="priority" data-value="high">high</span>
+    </div>
+  </header>
+
+  <section aria-label="Identifiers and timestamps">
+    <h2>Identifiers</h2>
+    <dl class="meta">
+      <dt>parent_id</dt><dd>drop_004.drop.l3_e2_simple_views</dd>
+      <dt>created_at</dt><dd><time datetime="2026-05-18T10:00:00Z">2026-05-18T10:00:00Z</time></dd>
+      <dt>updated_at</dt><dd><time datetime="2026-05-18T10:30:00Z">2026-05-18T10:30:00Z</time></dd>
+      <dt>started_at</dt><dd><time datetime="2026-05-18T10:00:00Z">2026-05-18T10:00:00Z</time></dd>
+      
+    </dl>
+  </section>
+
+  
+  <section aria-label="Objective">
+    <h2>Objective</h2>
+    <pre class="prose">Author cascade.planner Track A template. Attack payload: &lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</pre>
+  </section>
+  
+
+  
+
+  
+  <section aria-label="Decision log">
+    <h2>Decision log</h2>
+    <ol class="decision-log">
+      <li>Reuse cascade_drop palette verbatim — no new tokens.</li><li>Render decision_log as &lt;ol&gt; timeline (planner-specific emphasis).</li><li>Use &lt;pre class=&#34;prose&#34;&gt; for markdown fields per Track A zero-JS rule.</li>
+    </ol>
+  </section>
+  
+
+  
+  <section aria-label="Acceptance criteria">
+    <h2>Acceptance criteria</h2>
+    <pre class="prose">All planner fields rendered; goldens stable; mage testPkg green.</pre>
+  </section>
+  
+
+  
+  <section aria-label="Validation plan">
+    <h2>Validation plan</h2>
+    <pre class="prose">Golden compare &#43; substring asserts &#43; XSS escape check.</pre>
+  </section>
+  
+
+  
+  <section aria-label="Paths owned">
+    <h2>Paths</h2>
+    <ul class="flat">
+      <li>internal/templates_html_basic/templates/cascade_planner.html</li><li>internal/templates_html_basic/render_test.go</li>
+    </ul>
+  </section>
+  
+
+  
+  <section aria-label="Packages affected">
+    <h2>Packages</h2>
+    <ul class="flat">
+      <li>internal/templates_html_basic</li>
+    </ul>
+  </section>
+  
+
+  
+
+  
+  <footer aria-label="Transition notes">
+    <strong>Transition notes:</strong> L3-E2-D-V2 complete; ready for build-QA twins.
+  </footer>
+  
+
+  
+</main>
+</body>
+</html>
