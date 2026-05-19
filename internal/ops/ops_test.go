@@ -114,8 +114,8 @@ func TestCreateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("index.Load: %v", err)
 	}
-	if idx.FormatVersion != 2 {
-		t.Errorf("index format_version = %d, want 2", idx.FormatVersion)
+	if idx.FormatVersion != index.FormatVersion {
+		t.Errorf("index format_version = %d, want %d", idx.FormatVersion, index.FormatVersion)
 	}
 	entry, ok := idx.Get("plans.demo-1")
 	if !ok {
@@ -1698,6 +1698,49 @@ func TestOpsListSections_TypeScopeUnderShadowingSchema(t *testing.T) {
 	}
 }
 
+// TestOpsListSections_ThreeSegShadowDisambig locks F38d-2.18 at the ops
+// wire boundary: a 3-segment scope `<db>.<type>.<id-prefix>` under the
+// shadowing-glob schema must resolve through ListSections to exactly
+// the drops whose id starts with `<id-prefix>` AND whose indexed type
+// is `<type>`. The regression-twin to the search-package test of the
+// same name; ensures the new `len(parts) >= 3` branch in search's
+// parseScope is wired through ops.ListSections end-to-end.
+func TestOpsListSections_ThreeSegShadowDisambig(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, cascadeShadowedByGlobMDSchema)
+
+	if _, _, err := ops.Create(root, "drop_001.drop.id123_alpha", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+		"title":           "id123 alpha",
+	}); err != nil {
+		t.Fatalf("Create id123_alpha: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_002.drop.other_drop", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     2,
+		"title":           "other drop",
+	}); err != nil {
+		t.Fatalf("Create other_drop: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_003.drop.id123_planner", "cascade.planner", map[string]any{
+		"title": "id123 planner",
+	}); err != nil {
+		t.Fatalf("Create id123_planner: %v", err)
+	}
+
+	sections, err := ops.ListSections(root, "cascade.drop.id123", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections: %v", err)
+	}
+	if len(sections) != 1 {
+		t.Fatalf("got %d sections, want 1: %v", len(sections), sections)
+	}
+	if sections[0] != "drop_001.drop.id123_alpha" {
+		t.Errorf("sections[0] = %q, want drop_001.drop.id123_alpha", sections[0])
+	}
+}
+
 // hitIDs is a small helper that returns the id of every search hit
 // for friendlier error messages in the F38d-2.16 cluster.
 func hitIDs(hits []search.Result) []string {
@@ -1715,4 +1758,321 @@ func opsSearchIDs(hits []ops.SearchHit) []string {
 		out[i] = h.ID
 	}
 	return out
+}
+
+// f11MultiDBMixedPathsSchema reproduces the original F11 repro shape
+// (E2E_FIXES.md:178, "list_sections and search both surfaces miss
+// records that ARE in the index"): one single-file mount db (plans)
+// alongside one multi-path glob-TOML db (notes) whose second declared
+// glob mount expands to an absent on-disk directory. Pre-fix the
+// walker short-circuited on the missing path and returned only the
+// single-file db's records; F11 was RETIRED in commit c467803 along
+// with the broader bracket=id refactor (and the F38d-2.16 glob-TOML
+// top-level-bracket fix) that collapsed the per-mount-shape decision
+// the walker had to make. The notes shape mirrors the cascade db
+// (`.ta/cascade/drops/drop_*/drop.toml`) so the post-fix
+// NewBackendWithTopLevel walker actually exercises the glob-TOML
+// enumeration path.
+const f11MultiDBMixedPathsSchema = `
+[notes]
+paths = [".ta/notes/note_*/n.toml", ".ta/archive/note_*/n.toml"]
+description = "Multi-path glob-TOML db; the archive mount expands to an absent directory to reproduce the F11 walker repro shape."
+
+[notes.note]
+description = "A note."
+
+[notes.note.fields.title]
+type = "string"
+required = true
+
+[plans]
+paths = ["plans.toml"]
+description = "Single-file mount db."
+
+[plans.task]
+description = "A task."
+
+[plans.task.fields.title]
+type = "string"
+required = true
+`
+
+// TestF11_ListSectionsAcrossMultiDBIndexEntries is the regression
+// anchor for F11 retired in commit c467803 (see E2E_FIXES.md:178).
+// The original repro: a project with one multi-path db whose second
+// declared path was missing on disk (notes.paths = ["notes.toml",
+// "archive/notes.toml"]) plus one single-file mount db (plans). On
+// both surfaces (CLI ta list-sections, MCP list_sections), the read
+// path enumerated ONLY the single-file db's records — three notes
+// records were indexed but invisible to enumeration. Direct `ta get`
+// on each notes id returned the bytes, confirming the index entries
+// were correct and the bug lived in the list/search walker.
+//
+// The F10/F11 retirement (commit c467803) realigned bracket=id and
+// collapsed the per-mount-shape decision the walker had been making,
+// dissolving the entire bug class. This test pins the post-fix
+// behavior: list-sections enumerates EVERY record across BOTH dbs,
+// AND sub-scopes (db-only, db.type) work correctly even when one
+// declared path of a multi-path db is absent on disk.
+func TestF11_ListSectionsAcrossMultiDBIndexEntries(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, f11MultiDBMixedPathsSchema)
+
+	// Three notes records: each lands in its own .ta/notes/note_NNN/n.toml
+	// (the first declared glob mount expands per-create). The archive
+	// glob (`.ta/archive/note_*/n.toml`) never has a matching directory
+	// on disk; the walker must still enumerate every notes record.
+	noteIDs := []string{
+		"note_001.n.entry",
+		"note_002.n.entry",
+		"note_003.n.entry",
+	}
+	for i, id := range noteIDs {
+		if _, _, err := ops.Create(root, id, "notes.note", map[string]any{
+			"title": "note " + strings.TrimPrefix(strings.TrimSuffix(id, ".n.entry"), "note_"),
+		}); err != nil {
+			t.Fatalf("Create %s: %v (iter %d)", id, err, i)
+		}
+	}
+
+	// One plans record on the single-file mount.
+	if _, _, err := ops.Create(root, "plans.demo-1", "plans.task", map[string]any{
+		"title": "demo task",
+	}); err != nil {
+		t.Fatalf("Create plans.demo-1: %v", err)
+	}
+
+	// The archive mount MUST remain absent on disk — that is the
+	// load-bearing shape of the F11 repro. Sanity-check the assumption
+	// so a future refactor that auto-creates declared paths during
+	// Create cannot silently invalidate this test.
+	if _, err := os.Stat(filepath.Join(root, ".ta", "archive")); !os.IsNotExist(err) {
+		t.Fatalf(".ta/archive unexpectedly present (err=%v); F11 repro shape requires the second declared mount to be missing on disk", err)
+	}
+
+	// Whole-project enumeration sees ALL 4 records.
+	all, err := ops.ListSections(root, "", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections root: %v", err)
+	}
+	allWant := map[string]bool{
+		"note_001.n.entry": true,
+		"note_002.n.entry": true,
+		"note_003.n.entry": true,
+		"plans.demo-1":     true,
+	}
+	if len(all) != len(allWant) {
+		t.Fatalf("root scope: got %d sections, want %d: %v", len(all), len(allWant), all)
+	}
+	for _, id := range all {
+		if !allWant[id] {
+			t.Errorf("root scope: unexpected id %q in %v", id, all)
+		}
+		delete(allWant, id)
+	}
+	for missing := range allWant {
+		t.Errorf("root scope: missing id %q from enumeration", missing)
+	}
+
+	// notes db scope: enumerates the 3 notes records despite the
+	// missing archive mount. This is THE F11 read-path regression
+	// — pre-fix it returned []; post-fix it returns 3.
+	notesSections, err := ops.ListSections(root, "notes", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections notes: %v", err)
+	}
+	if len(notesSections) != 3 {
+		t.Fatalf("notes scope: got %d sections, want 3: %v", len(notesSections), notesSections)
+	}
+	notesWant := map[string]bool{
+		"note_001.n.entry": true,
+		"note_002.n.entry": true,
+		"note_003.n.entry": true,
+	}
+	for _, id := range notesSections {
+		if !notesWant[id] {
+			t.Errorf("notes scope: unexpected id %q in %v", id, notesSections)
+		}
+	}
+
+	// plans db scope: enumerates the 1 plans record. Regression-twin
+	// — pre-fix this was the ONLY thing list-sections returned for the
+	// whole project (the single-file db worked, the multi-path db did
+	// not). Post-fix it returns exactly what plans owns.
+	plansSections, err := ops.ListSections(root, "plans", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections plans: %v", err)
+	}
+	if len(plansSections) != 1 || plansSections[0] != "plans.demo-1" {
+		t.Errorf("plans scope: got %v, want [plans.demo-1]", plansSections)
+	}
+
+	// notes.note type sub-scope: enumerates the 3 notes by indexed
+	// type, exercising the multi-mount + missing-path shape against
+	// the post-walk type filter.
+	notesTypeSections, err := ops.ListSections(root, "notes.note", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections notes.note: %v", err)
+	}
+	if len(notesTypeSections) != 3 {
+		t.Fatalf("notes.note scope: got %d sections, want 3: %v", len(notesTypeSections), notesTypeSections)
+	}
+	for _, id := range notesTypeSections {
+		if !notesWant[id] {
+			t.Errorf("notes.note scope: unexpected id %q in %v", id, notesTypeSections)
+		}
+	}
+}
+
+// f11LiteralMultiPathSchema reproduces the VERBATIM E2E_FIXES.md:178
+// F11 repro shape: a notes db declared with TWO literal single-file
+// mount paths (`notes.toml` + `archive/notes.toml`) where the archive
+// path is absent on disk. Sibling plans db on a single-file mount.
+//
+// This shape is structurally distinct from f11MultiDBMixedPathsSchema
+// (which uses glob-TOML mounts). The bug — closed by threading
+// per-instance SingleFileMount through db.Resolver.Instances and
+// search.searchFile — was that `schema.IsSingleFileDB(dbDecl)`
+// returned false for multi-literal-path dbs (len(Paths) != 1) so the
+// search walker routed every record through the glob-TOML backend
+// (`toml.NewBackendWithTopLevel` with type names), which mis-anchored
+// against on-disk brackets shaped `[<file-relpath>.<bracket-key>]`
+// and returned an empty List.
+const f11LiteralMultiPathSchema = `
+[notes]
+paths = ["notes.toml", "archive/notes.toml"]
+description = "Multi-literal-path notes db; the archive mount is absent on disk to reproduce the verbatim F11 repro shape."
+
+[notes.note]
+description = "A note."
+
+[notes.note.fields.title]
+type = "string"
+required = true
+
+[plans]
+paths = ["plans.toml"]
+description = "Single-file mount db."
+
+[plans.task]
+description = "A task."
+
+[plans.task.fields.title]
+type = "string"
+required = true
+`
+
+// TestF11_ListSectionsAcrossMultiLiteralPathMounts pins the
+// literal-multi-path residual closure (L3-G7-D4). The original
+// E2E_FIXES.md:178 F11 repro is `notes.paths = ["notes.toml",
+// "archive/notes.toml"]` with archive absent on disk — exactly the
+// shape pinned here. Pre-fix the read walker returned ZERO of three
+// notes records even though the on-disk file held all three and the
+// index correctly listed every entry (the writer routes through
+// per-instance resolved.SingleFileMount; the reader was using
+// per-DB schema.IsSingleFileDB which incorrectly reports false for
+// multi-literal-path).
+//
+// Post-fix every read surface (root, db-scope, db.type-scope) returns
+// the full record set across BOTH the literal-multi-path db and the
+// sibling single-file db. Companion to TestF11_-
+// ListSectionsAcrossMultiDBIndexEntries (which covers the glob-TOML
+// shape via F38d-2.16) — together the two tests anchor the F11
+// retirement across both multi-file mount shapes.
+func TestF11_ListSectionsAcrossMultiLiteralPathMounts(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, f11LiteralMultiPathSchema)
+
+	// Three notes records all land in notes.toml (the first declared
+	// literal path). The second literal path (`archive/notes.toml`)
+	// is never written to and the `archive/` directory remains absent
+	// on disk — that is the load-bearing shape of the F11 repro.
+	noteIDs := []string{
+		"notes.note-1",
+		"notes.note-2",
+		"notes.note-3",
+	}
+	for i, id := range noteIDs {
+		if _, _, err := ops.Create(root, id, "notes.note", map[string]any{
+			"title": "note " + strings.TrimPrefix(id, "notes.note-"),
+		}); err != nil {
+			t.Fatalf("Create %s: %v (iter %d)", id, err, i)
+		}
+	}
+
+	// One plans record on the single-file plans mount.
+	if _, _, err := ops.Create(root, "plans.demo-1", "plans.task", map[string]any{
+		"title": "demo task",
+	}); err != nil {
+		t.Fatalf("Create plans.demo-1: %v", err)
+	}
+
+	// The archive mount MUST remain absent on disk — verbatim F11
+	// repro shape. Sanity-check the assumption so a future refactor
+	// that auto-creates declared paths during Create cannot silently
+	// invalidate this test.
+	if _, err := os.Stat(filepath.Join(root, "archive")); !os.IsNotExist(err) {
+		t.Fatalf("archive/ unexpectedly present (err=%v); F11 repro shape requires the second declared mount to be missing on disk", err)
+	}
+
+	// Whole-project enumeration sees ALL 4 records.
+	all, err := ops.ListSections(root, "", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections root: %v", err)
+	}
+	allWant := map[string]bool{
+		"notes.note-1": true,
+		"notes.note-2": true,
+		"notes.note-3": true,
+		"plans.demo-1": true,
+	}
+	if len(all) != len(allWant) {
+		t.Fatalf("root scope: got %d sections, want %d: %v", len(all), len(allWant), all)
+	}
+	for _, id := range all {
+		if !allWant[id] {
+			t.Errorf("root scope: unexpected id %q in %v", id, all)
+		}
+		delete(allWant, id)
+	}
+	for missing := range allWant {
+		t.Errorf("root scope: missing id %q from enumeration", missing)
+	}
+
+	// notes db scope: enumerates the 3 notes records despite the
+	// missing second literal mount. THE literal-multi-path F11
+	// regression — pre-fix it returned []; post-fix it returns 3.
+	notesSections, err := ops.ListSections(root, "notes", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections notes: %v", err)
+	}
+	if len(notesSections) != 3 {
+		t.Fatalf("notes scope: got %d sections, want 3: %v", len(notesSections), notesSections)
+	}
+	notesWant := map[string]bool{
+		"notes.note-1": true,
+		"notes.note-2": true,
+		"notes.note-3": true,
+	}
+	for _, id := range notesSections {
+		if !notesWant[id] {
+			t.Errorf("notes scope: unexpected id %q in %v", id, notesSections)
+		}
+	}
+
+	// notes.note type sub-scope: enumerates the 3 notes by indexed
+	// type, exercising the literal-multi-path + missing-path shape
+	// against the post-walk type filter.
+	notesTypeSections, err := ops.ListSections(root, "notes.note", 0, true)
+	if err != nil {
+		t.Fatalf("ListSections notes.note: %v", err)
+	}
+	if len(notesTypeSections) != 3 {
+		t.Fatalf("notes.note scope: got %d sections, want 3: %v", len(notesTypeSections), notesTypeSections)
+	}
+	for _, id := range notesTypeSections {
+		if !notesWant[id] {
+			t.Errorf("notes.note scope: unexpected id %q in %v", id, notesTypeSections)
+		}
+	}
 }

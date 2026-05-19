@@ -20,12 +20,26 @@ import (
 // to `schema.toml` inside the project's `.ta/` directory.
 const IndexFileName = "index.toml"
 
-// FormatVersion is the only `format_version` value this package writes
-// or reads. F10 (PLAN §12.17.9) bumps to 2: brackets on disk are now
-// the id verbatim (no type segment), and index keys mirror that shape.
-// The loader rejects every other value loudly so stale on-disk files
-// cannot silently masquerade as the current shape.
-const FormatVersion = 2
+// FormatVersion is the `format_version` value this package writes.
+// F10 (PLAN §12.17.9) bumped to 2: brackets on disk are now the id
+// verbatim (no type segment), and index keys mirror that shape.
+// F38d-2.14c bumps to 3: each Entry carries the resolving db name so
+// reads can constrain ResolveID to one db without scanning, fixing
+// alphabetical-swallow ambiguity (e.g. claude_agents glob vs plans
+// single-file). Load ALSO accepts legacy v=2 entries (DBName="") and
+// immediately coerces the in-memory FormatVersion to the current
+// value so a subsequent Save emits v=3. The loader rejects every
+// OTHER value loudly so stale on-disk files cannot silently
+// masquerade as the current shape.
+const FormatVersion = 3
+
+// legacyFormatVersion is the previous on-disk shape Load accepts as a
+// read-time shim. v=2 entries lack the `db_name` field; loaded
+// in-memory entries default DBName="" and downstream callers fall
+// back to alphabetical scan + plain ResolveID for legacy records.
+// Save always writes the current FormatVersion (3); there is no
+// downgrade path.
+const legacyFormatVersion = 2
 
 // formatVersionKey is the literal TOML key for the top-level scalar.
 const formatVersionKey = "format_version"
@@ -39,8 +53,16 @@ var ErrUnknownFormatVersion = errors.New("index: unknown format_version")
 // Entry is one record's index data. Type is the declared record type
 // name (the second segment of the full canonical address); Created and
 // Updated are RFC3339 timestamps preserved across Save/Load round-trips.
+//
+// DBName (F38d-2.14c) is the resolving db that owns the record on
+// disk. It enables read-path disambiguation when two dbs accept the
+// same id namespace: resolveIDWithIndexHint passes DBName to
+// ResolveIDInDB to constrain mount selection. Legacy v=2 entries
+// load with DBName="" — callers fall back to the alphabetical scan
+// + plain ResolveID path. New writes always populate DBName.
 type Entry struct {
 	Type    string
+	DBName  string
 	Created time.Time
 	Updated time.Time
 }
@@ -114,12 +136,18 @@ func parseBytes(buf []byte, sourcePath string) (*Index, error) {
 		return nil, fmt.Errorf("index: %s: %s must be an integer, got %T",
 			sourcePath, formatVersionKey, rawVersion)
 	}
-	if idx.FormatVersion != FormatVersion {
+	// F38d-2.14c shim: accept legacy v=2 entries (which lack the
+	// `db_name` field per-entry — decodeEntry handles the absence by
+	// leaving Entry.DBName=""). Anything outside {legacy, current} is
+	// rejected loudly. Immediately coerce in-memory to the current
+	// FormatVersion so any subsequent Save writes v=3.
+	if idx.FormatVersion != FormatVersion && idx.FormatVersion != legacyFormatVersion {
 		return nil, fmt.Errorf(
 			"%w: %s declares %d, this build supports %d (run `ta index rebuild`)",
 			ErrUnknownFormatVersion, sourcePath, idx.FormatVersion, FormatVersion,
 		)
 	}
+	idx.FormatVersion = FormatVersion
 
 	// Walk the remaining tree; flatten each leaf entry into a dotted
 	// canonical address. Leaves are detected by the presence of a "type"
@@ -181,15 +209,29 @@ func isEntryNode(node map[string]any) bool {
 	return isString
 }
 
-// decodeEntry pulls type/created/updated out of an Entry-shaped node.
-// Missing or wrong-typed fields produce wrapped errors that name the
-// canonical address.
+// decodeEntry pulls type/db_name/created/updated out of an Entry-shaped
+// node. Missing or wrong-typed fields produce wrapped errors that name
+// the canonical address. The `db_name` field is optional for legacy
+// v=2 entries — absence yields Entry.DBName="" so the read-path
+// disambiguator can fall back to alphabetical scan.
 func decodeEntry(node map[string]any, prefix []string, sourcePath string) (Entry, error) {
 	canonical := strings.Join(prefix, ".")
 
 	typ, ok := node["type"].(string)
 	if !ok {
 		return Entry{}, fmt.Errorf("index: %s: %q: type must be a string", sourcePath, canonical)
+	}
+
+	var dbName string
+	if raw, present := node["db_name"]; present {
+		s, ok := raw.(string)
+		if !ok {
+			return Entry{}, fmt.Errorf(
+				"index: %s: %q: db_name must be a string, got %T",
+				sourcePath, canonical, raw,
+			)
+		}
+		dbName = s
 	}
 
 	created, err := decodeTime(node, "created", canonical, sourcePath)
@@ -200,7 +242,7 @@ func decodeEntry(node map[string]any, prefix []string, sourcePath string) (Entry
 	if err != nil {
 		return Entry{}, err
 	}
-	return Entry{Type: typ, Created: created, Updated: updated}, nil
+	return Entry{Type: typ, DBName: dbName, Created: created, Updated: updated}, nil
 }
 
 // decodeTime reads a time-typed field. go-toml/v2 decodes RFC3339
@@ -344,12 +386,20 @@ func nestEntry(root map[string]any, canonical string, entry Entry) error {
 }
 
 // entryToMap converts an Entry to its TOML-marshalable map form.
+// The `db_name` field is emitted only when non-empty so legacy v=2
+// entries round-trip cleanly (load with DBName="" → save without a
+// db_name key). New writes that populate DBName always emit the
+// field.
 func entryToMap(e Entry) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"type":    e.Type,
 		"created": e.Created.UTC(),
 		"updated": e.Updated.UTC(),
 	}
+	if e.DBName != "" {
+		m["db_name"] = e.DBName
+	}
+	return m
 }
 
 // Get returns the Entry for canonical. The bool is false when the entry

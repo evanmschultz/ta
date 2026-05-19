@@ -31,10 +31,23 @@ func NewResolver(root string, registry schema.Registry) *Resolver {
 // Instance is one resolved database instance: Slug is the dotted
 // file-relpath (the file's id-prefix); FilePath is the absolute path
 // of the backing file; DirPath is filepath.Dir(FilePath).
+//
+// SingleFileMount records the mount-shape of the specific declared
+// path entry that produced this instance. Per F10 the on-disk bracket
+// form is the SAME `<file-relpath>.<bracket-key>` shape for every
+// instance whose mount is single-file (`paths = ["notes.toml"]` or
+// `paths = ["archive/notes.toml"]`) regardless of how many other
+// mounts the db declares. Read-side walkers (search, index rebuild)
+// use this flag to pick the per-file bracket-anchoring rule —
+// `schema.IsSingleFileDB(dbDecl)` is a per-DB approximation and
+// incorrectly returns false for multi-literal-path mounts where every
+// declared path IS single-file. The F11 literal-multi-path walker
+// regression closed by this field's introduction.
 type Instance struct {
-	Slug     string
-	DirPath  string
-	FilePath string
+	Slug            string
+	DirPath         string
+	FilePath        string
+	SingleFileMount bool
 }
 
 // Instances enumerates every concrete file backing dbName by expanding
@@ -128,9 +141,10 @@ func (r *Resolver) expandMount(dbDecl schema.DB, mount string) ([]Instance, erro
 		residualPath = strings.TrimSuffix(residualPath, ext)
 		slug := strings.ReplaceAll(residualPath, "/", ".")
 		out = append(out, Instance{
-			Slug:     slug,
-			DirPath:  filepath.Dir(filePath),
-			FilePath: filePath,
+			Slug:            slug,
+			DirPath:         filepath.Dir(filePath),
+			FilePath:        filePath,
+			SingleFileMount: schema.SingleFileMount(mount),
 		})
 	}
 	return out, nil
@@ -265,9 +279,10 @@ func (r *Resolver) ResolveRead(id string) (schema.DB, Instance, string, error) {
 		)
 	}
 	inst := Instance{
-		Slug:     res.FileRelPath,
-		DirPath:  filepath.Dir(res.FilePath),
-		FilePath: res.FilePath,
+		Slug:            res.FileRelPath,
+		DirPath:         filepath.Dir(res.FilePath),
+		FilePath:        res.FilePath,
+		SingleFileMount: res.SingleFileMount,
 	}
 	return dbDecl, inst, res.FilePath, nil
 }
@@ -431,9 +446,10 @@ func (r *Resolver) ResolveWrite(id, pathHint string) (schema.DB, Instance, strin
 		)
 	}
 	inst := Instance{
-		Slug:     res.FileRelPath,
-		DirPath:  filepath.Dir(res.FilePath),
-		FilePath: res.FilePath,
+		Slug:            res.FileRelPath,
+		DirPath:         filepath.Dir(res.FilePath),
+		FilePath:        res.FilePath,
+		SingleFileMount: res.SingleFileMount,
 	}
 	return dbDecl, inst, res.FilePath, nil
 }

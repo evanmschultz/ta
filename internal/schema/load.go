@@ -264,6 +264,22 @@ var (
 	ErrMixedRecordModes = errors.New(
 		"schema: db cannot mix section-mode and file-as-record types",
 	)
+
+	// ErrReservedDBName is returned when a user-defined top-level db
+	// name uses the `ta_` prefix. Per F27.3 the `ta_` namespace is
+	// reserved for ta-internal use so future ta-internal dbs
+	// (`ta_audit`, `ta_diag`, `ta_runtime`, …) can be added without
+	// risk of colliding with user schemas. Broader-is-safer: blocking
+	// the whole prefix at define time is cheap insurance against a
+	// future name clash that would otherwise demand a breaking
+	// migration. The single legitimate exception is the literal
+	// `ta_schema`, which is the meta-schema's documented top-level
+	// table and predates the reservation; the guard carves it out by
+	// exact-match so the meta-schema continues to load through the
+	// public entry points unchanged.
+	ErrReservedDBName = errors.New(
+		"schema: db names with the `ta_` prefix are reserved for ta-internal use (only `ta_schema` is allowed)",
+	)
 )
 
 // formatFromPath returns the format inferred from path's file
@@ -322,6 +338,25 @@ func buildRegistry(raw map[string]any) (Registry, error) {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+
+	// F27.3 — reserved-namespace guard. The `ta_` prefix is reserved
+	// for ta-internal use so future ta-internal dbs (`ta_audit`,
+	// `ta_diag`, `ta_runtime`, …) can be added without colliding with
+	// user schemas. Broader-is-safer: rejecting the whole prefix at
+	// define time is cheap insurance against a future name clash that
+	// would otherwise demand a breaking migration. The single
+	// legitimate exception is the literal `ta_schema`, the
+	// meta-schema's documented top-level table per meta-schema
+	// convention; the guard carves it out by exact-match so
+	// `LoadBytes(MetaSchemaTOML)` keeps loading through the public
+	// entry point unchanged.
+	for _, name := range names {
+		if strings.HasPrefix(name, "ta_") && name != "ta_schema" {
+			return Registry{}, fmt.Errorf(
+				"schema: %s: %w", name, ErrReservedDBName,
+			)
+		}
+	}
 
 	// Phase A.0 — collect base declarations. Each [<db>.bases.<name>]
 	// block is a reusable field-bundle body (description + optional

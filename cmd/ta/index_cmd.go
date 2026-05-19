@@ -80,22 +80,31 @@ func newIndexRebuildCmd() *cobra.Command {
 // emitIndexRebuildJSON writes the agent-facing payload. Shape matches
 // the project convention (see `ta search` / `ta list-sections`):
 // indented JSON with explicit fields. records_indexed mirrors the field
-// surfaced in the laslig notice.
+// surfaced in the laslig notice. preserved + fresh decompose
+// records_indexed by F14 prior-Created provenance: preserved counts
+// entries whose Created stamp was carried over from the prior on-disk
+// index, fresh counts entries stamped with the rebuild's `now`.
+// preserved + fresh == records_indexed.
 func emitIndexRebuildJSON(cmd *cobra.Command, res *index.RebuildResult) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(map[string]any{
 		"records_indexed": res.RecordsIndexed,
+		"preserved":       res.PreservedCount,
+		"fresh":           res.FreshCount,
 		"path":            res.IndexPath,
 	})
 }
 
-// emitIndexRebuildNotice writes a laslig success notice with the two
-// salient facts: how many records went into the index, and where the
-// index file landed.
+// emitIndexRebuildNotice writes a laslig success notice with the
+// salient facts: how many records went into the index, the preserved /
+// fresh split (F14 prior-Created provenance), and where the index file
+// landed.
 func emitIndexRebuildNotice(cmd *cobra.Command, res *index.RebuildResult) error {
 	r := render.New(cmd.OutOrStdout())
 	body := "records indexed: " + strconv.Itoa(res.RecordsIndexed) +
+		" (" + strconv.Itoa(res.PreservedCount) + " preserved, " +
+		strconv.Itoa(res.FreshCount) + " fresh)" +
 		"\noutput: " + res.IndexPath
 	return r.Notice(laslig.NoticeSuccessLevel, "index rebuild", body, nil)
 }

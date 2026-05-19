@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/search"
 )
 
@@ -914,4 +915,272 @@ func TestSearchUnconstrainedScopeUnknownFieldErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not declared on any type in scope") {
 		t.Errorf("error should mention 'not declared on any type in scope': %v", err)
 	}
+}
+
+// ---- F38d-2.18: 3+ segment shadow disambig ---------------------------
+
+// cascadeShadowedByGlobMDSchema mirrors the ops_test.go fixture of the
+// same name: a glob-TOML cascade db (declared types `drop`, `planner`)
+// plus a glob-only claude_agents-style MD db (`agents/*/*.md` +
+// `.claude/agents/*.md`). The all-`*` residual segs match ANY parts[i],
+// so pre-F38d-2.17 a 2-seg `cascade.drop` scope was silently swallowed
+// as a phantom file-relpath under claude_agents. F38d-2.18 generalizes
+// the disambig to 3+ segments — without the fix `cascade.drop.id123`
+// and `cascade.drop.id123.tail` continue to be swallowed.
+const cascadeShadowedByGlobMDSchema = `
+[cascade]
+paths = [".ta/cascade/drops/drop_*/drop.toml"]
+description = "Cascade trees."
+
+[cascade.drop]
+description = "L1 cascade root."
+
+[cascade.drop.fields.structural_type]
+type = "string"
+required = true
+enum = ["drop"]
+
+[cascade.drop.fields.drop_number]
+type = "integer"
+required = true
+
+[cascade.drop.fields.title]
+type = "string"
+
+[cascade.planner]
+description = "Planner action item."
+
+[cascade.planner.fields.title]
+type = "string"
+
+[claude_agents]
+paths = ["agents/*/*.md", ".claude/agents/*.md"]
+description = "Claude Code subagent definitions (shadows cascade.drop)."
+
+[claude_agents.agent]
+record_per = "file"
+body_field = "prompt"
+description = "One subagent record."
+
+[claude_agents.agent.fields.name]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.description]
+type = "string"
+required = true
+
+[claude_agents.agent.fields.prompt]
+type = "string"
+format = "markdown"
+required = true
+`
+
+// hitIDsLocal is a search-package mirror of ops_test.go's hitIDs helper
+// so error messages stay readable without importing across test packages.
+func hitIDsLocal(hits []search.Result) []string {
+	out := make([]string, len(hits))
+	for i, h := range hits {
+		out[i] = h.ID
+	}
+	return out
+}
+
+// TestSearch_ThreeSegShadowDisambig_TypeFilterWins locks F38d-2.18 at
+// depth 3: under the shadowing-glob schema, a 3-segment scope
+// `<db>.<type>.<id-prefix>` must resolve as typeFilter + idPrefix and
+// return only the records whose id starts with `<id-prefix>` AND whose
+// indexed type is `<type>`. Pre-fix the glob-only MD mount silently
+// swallowed parts[2] as a phantom third file-relpath segment, returning
+// zero hits.
+func TestSearch_ThreeSegShadowDisambig_TypeFilterWins(t *testing.T) {
+	// Cache isolation: the single-project-per-process schema cache must
+	// be reset before AND after this test runs so sibling search tests
+	// using their own tempdirs do not collide on the defaultCache
+	// singleton. Mirrors notfound_testhelpers_test.go's pattern.
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
+
+	root := t.TempDir()
+	taDir := filepath.Join(root, ".ta")
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"),
+		[]byte(cascadeShadowedByGlobMDSchema), 0o644); err != nil {
+		t.Fatalf("seed schema: %v", err)
+	}
+
+	// drop_001: matching drop with id-prefix `id123_*`.
+	if _, _, err := ops.Create(root, "drop_001.drop.id123_alpha", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+		"title":           "id123 alpha",
+	}); err != nil {
+		t.Fatalf("Create id123_alpha: %v", err)
+	}
+	// drop_002: drop whose id does NOT start with `id123` (must NOT match).
+	if _, _, err := ops.Create(root, "drop_002.drop.other_drop", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     2,
+		"title":           "other drop",
+	}); err != nil {
+		t.Fatalf("Create other_drop: %v", err)
+	}
+	// drop_003: planner-type record sharing the `id123` prefix — must be
+	// filtered out by typeFilter even though it satisfies idPrefix.
+	if _, _, err := ops.Create(root, "drop_003.drop.id123_planner", "cascade.planner", map[string]any{
+		"title": "id123 planner",
+	}); err != nil {
+		t.Fatalf("Create id123_planner: %v", err)
+	}
+
+	hits, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade.drop.id123",
+		All:   true,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("got %d hits, want 1 (the matching drop): %v", len(hits), hitIDsLocal(hits))
+	}
+	if hits[0].ID != "drop_001.drop.id123_alpha" {
+		t.Errorf("hit = %q, want drop_001.drop.id123_alpha", hits[0].ID)
+	}
+}
+
+// TestSearch_ThreeSegShadow_TypoRejected locks the F38d-2.18 typo
+// surface at depth 3+: `<db>.<not-a-type>.<anything>` under the
+// shadowing-glob schema must return ErrInvalidScope rather than be
+// silently swallowed by the glob-only mount as a phantom 3-seg file-
+// relpath. Mirrors the 2-seg case enforced by F38d-2.17.
+func TestSearch_ThreeSegShadow_TypoRejected(t *testing.T) {
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
+
+	root := t.TempDir()
+	taDir := filepath.Join(root, ".ta")
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"),
+		[]byte(cascadeShadowedByGlobMDSchema), 0o644); err != nil {
+		t.Fatalf("seed schema: %v", err)
+	}
+	if _, _, err := ops.Create(root, "drop_001.drop.dogfood", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+	}); err != nil {
+		t.Fatalf("Create drop: %v", err)
+	}
+
+	_, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "cascade.nonexistent.id123",
+		All:   true,
+	})
+	if err == nil {
+		t.Fatal("Run cascade.nonexistent.id123: expected error, got nil")
+	}
+	if !errors.Is(err, search.ErrInvalidScope) {
+		t.Errorf("err = %v, want ErrInvalidScope", err)
+	}
+}
+
+// TestSearch_NonShadowFallthrough verifies that a 3+-segment scope
+// whose first part is NOT a declared db falls through to the existing
+// no-match / final ErrInvalidScope tail (the F38d-2.18 branch must
+// not eat scopes it has no jurisdiction over). The singleInstance
+// fixture has `plans` as the only db; `nope.foo.bar` short-circuits
+// at the registry lookup and reaches the final `if best == nil` arm.
+func TestSearch_NonShadowFallthrough(t *testing.T) {
+	root := writeSchemaProject(t, singleInstanceTOMLSchema)
+	_, err := search.Run(search.Query{
+		Path:  root,
+		Scope: "nope.foo.bar",
+		All:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown 3-seg scope")
+	}
+	if !errors.Is(err, search.ErrInvalidScope) {
+		t.Errorf("err = %v, want ErrInvalidScope", err)
+	}
+}
+
+// TestSearch_FourSegDeepIdPrefix folds the CE2 reproduction
+// (`cascade.drop.id123.tail` at depth 4 under
+// cascadeShadowedByGlobMDSchema). The fix MUST work at every depth
+// above 2 — pinning depth 4 here proves the `len(parts) >= 3` trigger
+// (not `== 3`) is honored. Pre-fix the 4-segment scope was silently
+// swallowed by the glob-only `agents/*/*.md` mount (slug =
+// `cascade.drop`, idPrefix = `id123.tail` against the shadowing db) →
+// search returned 0 hits with no signal. Post-fix the scope routes
+// through the typeFilter path: parseScope returns plan with
+// dbOrder=[cascade], typeFilter=drop, idPrefix=`id123.tail`. Under
+// F38d-2.15's dot-free top-level-bracket invariant a 4-seg scope's
+// idPrefix CANNOT match any real on-disk bracket (every glob-TOML
+// bracket is single-segment), so the assertion is: walked the right
+// db, filtered to zero, AND surfaced no error. A 3-seg sibling scope
+// against the same fixture returning 1 hit demonstrates the
+// `id123*`-prefix logic is working and the 4-seg zero is the dotted-
+// prefix narrowing, not a swallowed shadow.
+func TestSearch_FourSegDeepIdPrefix(t *testing.T) {
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
+
+	root := t.TempDir()
+	taDir := filepath.Join(root, ".ta")
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"),
+		[]byte(cascadeShadowedByGlobMDSchema), 0o644); err != nil {
+		t.Fatalf("seed schema: %v", err)
+	}
+
+	// One drop whose bracket-key starts with `id123` (matches a 3-seg
+	// scope `cascade.drop.id123`) but cannot match a 4-seg scope
+	// `cascade.drop.id123.tail` (idPrefix `id123.tail` contains a dot
+	// and on-disk brackets are dot-free per F38d-2.15).
+	if _, _, err := ops.Create(root, "drop_001.drop.id123_alpha", "cascade.drop", map[string]any{
+		"structural_type": "drop",
+		"drop_number":     1,
+		"title":           "id123 alpha",
+	}); err != nil {
+		t.Fatalf("Create id123_alpha: %v", err)
+	}
+
+	t.Run("3seg-sibling-hits-one", func(t *testing.T) {
+		hits, err := search.Run(search.Query{
+			Path:  root,
+			Scope: "cascade.drop.id123",
+			All:   true,
+		})
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if len(hits) != 1 || hits[0].ID != "drop_001.drop.id123_alpha" {
+			t.Errorf("3-seg hits = %v, want [drop_001.drop.id123_alpha]", hitIDsLocal(hits))
+		}
+	})
+
+	t.Run("4seg-disambig-fires-zero-hits", func(t *testing.T) {
+		hits, err := search.Run(search.Query{
+			Path:  root,
+			Scope: "cascade.drop.id123.tail",
+			All:   true,
+		})
+		if err != nil {
+			t.Fatalf("Run: %v (4-seg disambig branch must fire, not error)", err)
+		}
+		// Zero hits here proves: disambig fired (no silent swallow),
+		// idPrefix=`id123.tail` was applied (the lone candidate has
+		// bracket-key `id123_alpha`, no dot, fails prefix match).
+		if len(hits) != 0 {
+			t.Errorf("4-seg hits = %v, want [] (idPrefix narrows out the lone candidate)", hitIDsLocal(hits))
+		}
+	})
 }

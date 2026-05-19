@@ -2,6 +2,7 @@ package index_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,8 +103,9 @@ func TestSaveEmitsFormatVersionAtTop(t *testing.T) {
 		t.Fatalf("read back: %v", err)
 	}
 	body := string(buf)
-	if !strings.Contains(body, "format_version = 2") {
-		t.Errorf("missing format_version scalar in:\n%s", body)
+	wantScalar := fmt.Sprintf("format_version = %d", index.FormatVersion)
+	if !strings.Contains(body, wantScalar) {
+		t.Errorf("missing %q in:\n%s", wantScalar, body)
 	}
 	// format_version must precede any bracket-table header so a future
 	// reader can stop reading after it on a version mismatch. go-toml's
@@ -445,5 +447,195 @@ func TestCountByFile(t *testing.T) {
 	}
 	if got := idx.CountByFile("unknown"); got != 0 {
 		t.Errorf("CountByFile(unknown) = %d, want 0", got)
+	}
+}
+
+// TestIndexEntry_DBNameRoundTrip locks F38d-2.14c's per-Entry DBName
+// field: Save serializes the `db_name` key and Load decodes it back
+// into Entry.DBName so resolveIDWithIndexHint's fast path has the
+// resolving db name available without a registry scan.
+func TestIndexEntry_DBNameRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	created := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC)
+	updated := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
+	idx := &index.Index{
+		FormatVersion: index.FormatVersion,
+		Records: map[string]index.Entry{
+			"plans.dogfood": {
+				Type:    "plan",
+				DBName:  "plans",
+				Created: created,
+				Updated: updated,
+			},
+		},
+	}
+	if err := idx.Save(root); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	buf, err := os.ReadFile(index.Path(root))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	// go-toml/v2 emits strings with single quotes by default; tolerate
+	// either quoting style so this lock isn't brittle against the
+	// emitter's preferences.
+	body := string(buf)
+	if !strings.Contains(body, `db_name = "plans"`) && !strings.Contains(body, `db_name = 'plans'`) {
+		t.Errorf("on-disk body missing db_name key; got:\n%s", body)
+	}
+
+	loaded, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	entry, ok := loaded.Get("plans.dogfood")
+	if !ok {
+		t.Fatal("entry missing after Load")
+	}
+	if entry.DBName != "plans" {
+		t.Errorf("DBName = %q, want %q", entry.DBName, "plans")
+	}
+	if entry.Type != "plan" {
+		t.Errorf("Type = %q, want %q", entry.Type, "plan")
+	}
+}
+
+// TestIndexEntry_EmptyDBNameSkipsField verifies that legacy / empty
+// DBName values do NOT emit a `db_name` key on disk. This keeps the
+// on-disk shape minimal for legacy callers and back-compatible with
+// future readers that only enable the new field when explicitly set.
+func TestIndexEntry_EmptyDBNameSkipsField(t *testing.T) {
+	root := t.TempDir()
+	idx := &index.Index{
+		FormatVersion: index.FormatVersion,
+		Records: map[string]index.Entry{
+			"plans.legacy": {
+				Type:    "plan",
+				Created: time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC),
+				Updated: time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	if err := idx.Save(root); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	buf, err := os.ReadFile(index.Path(root))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if strings.Contains(string(buf), "db_name") {
+		t.Errorf("on-disk body emitted db_name key for empty DBName; got:\n%s", buf)
+	}
+}
+
+// TestIndexLoad_AcceptsLegacyV2 pins the F38d-2.14c read-time shim:
+// a hand-written v=2 index file (no per-entry db_name) loads without
+// error and the in-memory FormatVersion is coerced to the current
+// value so a subsequent Save emits v=3.
+func TestIndexLoad_AcceptsLegacyV2(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".ta")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	legacy := "format_version = 2\n\n[plans.legacy-1]\ntype = \"plan\"\ncreated = 2026-04-01T10:00:00Z\nupdated = 2026-04-01T10:00:00Z\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.toml"), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+
+	idx, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if idx.FormatVersion != index.FormatVersion {
+		t.Errorf("post-Load FormatVersion = %d, want %d (current — Load must coerce)",
+			idx.FormatVersion, index.FormatVersion)
+	}
+	entry, ok := idx.Get("plans.legacy-1")
+	if !ok {
+		t.Fatal("legacy entry missing after Load")
+	}
+	if entry.DBName != "" {
+		t.Errorf("legacy entry DBName = %q, want empty", entry.DBName)
+	}
+	if entry.Type != "plan" {
+		t.Errorf("legacy entry Type = %q, want %q", entry.Type, "plan")
+	}
+}
+
+// TestIndexSave_AlwaysWritesV3 verifies that no matter what shape the
+// caller loaded (legacy v=2 or current v=3), Save always emits the
+// current FormatVersion. There is no downgrade path.
+func TestIndexSave_AlwaysWritesV3(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".ta")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	legacy := "format_version = 2\n\n[plans.legacy-1]\ntype = \"plan\"\ncreated = 2026-04-01T10:00:00Z\nupdated = 2026-04-01T10:00:00Z\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.toml"), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+
+	idx, err := index.Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := idx.Save(root); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	buf, err := os.ReadFile(index.Path(root))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	wantScalar := fmt.Sprintf("format_version = %d", index.FormatVersion)
+	if !strings.Contains(string(buf), wantScalar) {
+		t.Errorf("post-Save body missing %q; got:\n%s", wantScalar, buf)
+	}
+	if strings.Contains(string(buf), "format_version = 2") {
+		t.Errorf("post-Save body still carries legacy format_version = 2; got:\n%s", buf)
+	}
+}
+
+// TestIndexLoad_RejectsUnknownVersion pins loud failure for any
+// format_version value outside the accepted set {legacy=2, current=3}.
+// A future build will not be lured into reading a v=99 file that
+// could carry incompatible semantics.
+func TestIndexLoad_RejectsUnknownVersion(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".ta")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := "format_version = 4\n\n[plans.x]\ntype = \"plan\"\ncreated = 2026-04-01T10:00:00Z\nupdated = 2026-04-01T10:00:00Z\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := index.Load(root)
+	if err == nil {
+		t.Fatal("Load: expected error for unknown format_version")
+	}
+	if !errors.Is(err, index.ErrUnknownFormatVersion) {
+		t.Errorf("err = %v, want ErrUnknownFormatVersion", err)
+	}
+}
+
+// TestIndexLoad_RejectsMalformedDBName verifies that a `db_name` key
+// of the wrong TOML scalar type errors loudly rather than silently
+// dropping the field — keeping with the package's trust-and-fail-loud
+// doctrine.
+func TestIndexLoad_RejectsMalformedDBName(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".ta")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := "format_version = 3\n\n[plans.x]\ntype = \"plan\"\ndb_name = 42\ncreated = 2026-04-01T10:00:00Z\nupdated = 2026-04-01T10:00:00Z\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := index.Load(root); err == nil {
+		t.Fatal("Load: expected error for non-string db_name")
 	}
 }

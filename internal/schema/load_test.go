@@ -2305,3 +2305,100 @@ required = true
 		t.Errorf("err = %v, want ErrRecordPerOnTOML", err)
 	}
 }
+
+// TestF27_3_LoadRejectsTaPrefixUserDB locks the F27.3 reserved-namespace
+// guard: a user-defined top-level db with the `ta_` prefix must be
+// rejected at the public LoadBytes entry point with ErrReservedDBName.
+func TestF27_3_LoadRejectsTaPrefixUserDB(t *testing.T) {
+	src := `
+[ta_archive]
+paths = ["archive.toml"]
+
+[ta_archive.note]
+description = "x"
+
+[ta_archive.note.fields.id]
+type = "string"
+required = true
+`
+	_, err := LoadBytes([]byte(src))
+	if err == nil {
+		t.Fatal("expected error for ta_-prefixed user db under F27.3")
+	}
+	if !errors.Is(err, ErrReservedDBName) {
+		t.Errorf("err = %v, want ErrReservedDBName", err)
+	}
+	if !strings.Contains(err.Error(), "ta_archive") {
+		t.Errorf("error should name the offending db: %v", err)
+	}
+}
+
+// TestF27_3_LoadAcceptsNonTaPrefix locks the F27.3 negative case: db
+// names without the reserved prefix continue to load through the
+// public entry point. The guard MUST NOT reject anything outside the
+// `ta_` namespace.
+func TestF27_3_LoadAcceptsNonTaPrefix(t *testing.T) {
+	for _, name := range []string{"archive", "plans", "tasks", "tablet", "tame"} {
+		src := `
+[` + name + `]
+paths = ["` + name + `.toml"]
+
+[` + name + `.note]
+description = "x"
+
+[` + name + `.note.fields.id]
+type = "string"
+required = true
+`
+		reg, err := LoadBytes([]byte(src))
+		if err != nil {
+			t.Fatalf("db %q must load (no ta_ prefix): %v", name, err)
+		}
+		if _, ok := reg.DBs[name]; !ok {
+			t.Errorf("db %q missing from registry after load", name)
+		}
+	}
+}
+
+// TestF27_3_LoadAcceptsLiteralTaSchema locks the F27.3 single-literal
+// carve-out: the meta-schema's documented top-level table `ta_schema`
+// MUST continue to load through the public LoadBytes entry point so
+// the embedded MetaSchemaTOML callsites keep working unmodified.
+func TestF27_3_LoadAcceptsLiteralTaSchema(t *testing.T) {
+	reg, err := LoadBytes([]byte(MetaSchemaTOML))
+	if err != nil {
+		t.Fatalf("ta_schema (meta-schema) must load via public LoadBytes: %v", err)
+	}
+	if _, ok := reg.DBs["ta_schema"]; !ok {
+		t.Fatal("ta_schema db missing from registry after load")
+	}
+}
+
+// TestF27_3_LoadRejectsOtherTaPrefixedNames proves the literal allow is
+// narrow: every other `ta_`-prefixed name (future ta-internal
+// namespaces and pathological edge-cases like the bare `ta_`) is
+// rejected, so the meta-schema's single-literal carve-out does NOT
+// leak into a broader exemption.
+func TestF27_3_LoadRejectsOtherTaPrefixedNames(t *testing.T) {
+	for _, name := range []string{"ta_audit", "ta_diag", "ta_runtime", "ta_"} {
+		src := `
+[` + name + `]
+paths = ["x.toml"]
+
+[` + name + `.note]
+description = "x"
+
+[` + name + `.note.fields.id]
+type = "string"
+required = true
+`
+		_, err := LoadBytes([]byte(src))
+		if err == nil {
+			t.Errorf("db %q must be rejected under F27.3", name)
+			continue
+		}
+		if !errors.Is(err, ErrReservedDBName) {
+			t.Errorf("db %q err = %v, want ErrReservedDBName", name, err)
+		}
+	}
+}

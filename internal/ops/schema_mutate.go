@@ -561,11 +561,9 @@ func typeHasRecordsOnDisk(projectPath, dbName, typeName string, root map[string]
 	if err != nil {
 		return false, nil
 	}
-	dbDecl, ok := reg.DBs[dbName]
-	if !ok {
+	if _, ok := reg.DBs[dbName]; !ok {
 		return false, nil
 	}
-	singleFile := schema.IsSingleFileDB(dbDecl)
 	resolver := db.NewResolver(projectPath, reg)
 	instances, err := resolver.Instances(dbName)
 	if err != nil {
@@ -596,7 +594,6 @@ func typeHasRecordsOnDisk(projectPath, dbName, typeName string, root map[string]
 		if hasRecords {
 			return true, nil
 		}
-		_ = singleFile
 	}
 	return false, nil
 }

@@ -232,21 +232,42 @@ func tryLoadIndex(projectRoot string) (*index.Index, error) {
 // resolveIDWithIndexHint is the F38d-2.14 disambiguation entry point
 // for read paths (Get, GetAllFields) and optional-type mutation paths
 // (Update). When the index carries an entry for id, it uses the indexed
-// bare type to constrain ResolveID to the correct db — preventing an
+// hint(s) to constrain ResolveID to the correct db — preventing an
 // alphabetically-earlier db with a looser mount shape from swallowing
 // the id (the canonical failure mode when two dbs both accept the same
 // id namespace, e.g. claude_agents glob `agents/*/*.md` and plans
 // single-file `.ta/cascade/plans.toml`).
 //
 // Algorithm:
-//  1. Load the index. If absent or load fails, fall through.
+//  1. Load the index. If absent or load fails, fall through to ResolveID.
 //  2. Get the entry for id. If missing, fall through.
-//  3. Scan registry dbs in stable order. For each db that declares the
-//     indexed bare type, try ResolveIDInDB. First success wins.
-//  4. Fallback: plain ResolveID (index-orphan and no-index recovery).
+//  3. F38d-2.14c fast path: if entry.DBName is non-empty AND the named
+//     db is still in the registry, try ResolveIDInDB(id, entry.DBName)
+//     ONCE. On success → return. On failure (db dropped, mount drift,
+//     etc.) fall through to the type-based alphabetical scan rather
+//     than fail outright (graceful degradation per CE5).
+//  4. F38d-2.14 legacy / fallback scan: walk registry dbs in stable
+//     order; for each db that declares the indexed bare type, try
+//     ResolveIDInDB. First success wins. Covers legacy v=2 entries
+//     (DBName=""), entries whose recorded DBName was dropped, and
+//     mount-drift cases where the recorded DBName no longer resolves.
+//  5. Final fallback: plain ResolveID (index-orphan and no-index
+//     recovery).
 func resolveIDWithIndexHint(resolver *db.Resolver, reg schema.Registry, projectRoot, id string) (db.Resolved, schema.DB, error) {
 	if idx, err := tryLoadIndex(projectRoot); err == nil && idx != nil {
 		if entry, ok := idx.Get(id); ok && entry.Type != "" {
+			// F38d-2.14c fast path: trust the indexed DBName.
+			if entry.DBName != "" {
+				if _, dbStillExists := reg.DBs[entry.DBName]; dbStillExists {
+					if res, decl, resolveErr := resolver.ResolveIDInDB(id, entry.DBName); resolveErr == nil {
+						return res, decl, nil
+					}
+				}
+				// Fall through: db dropped from registry, OR
+				// ResolveIDInDB errored (mount drift). The
+				// alphabetical scan below covers both cases.
+			}
+			// F38d-2.14 type-based scan (also the legacy v=2 path).
 			dbNames := make([]string, 0, len(reg.DBs))
 			for name := range reg.DBs {
 				dbNames = append(dbNames, name)
@@ -291,7 +312,9 @@ func loadIndexOrSentinel(projectRoot string) (*index.Index, error) {
 }
 
 // writeIndexEntry upserts the canonical id into `.ta/index.toml`
-// after a successful Create / Update.
+// after a successful Create / Update. F38d-2.14c threads
+// resolved.DBName onto the Entry so subsequent reads can disambiguate
+// without scanning every db in the registry.
 func writeIndexEntry(projectRoot string, resolved db.Resolved, typeName string) error {
 	// On write paths, missing index is OK; we'll create it.
 	idx, err := index.Load(projectRoot)
@@ -301,6 +324,7 @@ func writeIndexEntry(projectRoot string, resolved db.Resolved, typeName string) 
 	now := time.Now().UTC()
 	idx.Put(resolved.Canonical(), index.Entry{
 		Type:    typeName,
+		DBName:  resolved.DBName,
 		Created: now,
 		Updated: now,
 	})

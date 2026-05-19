@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"github.com/evanmschultz/ta/internal/backend/md"
 	tomlbackend "github.com/evanmschultz/ta/internal/backend/toml"
 	"github.com/evanmschultz/ta/internal/config"
@@ -18,8 +20,16 @@ import (
 )
 
 // RebuildResult summarizes the on-disk walk performed by Rebuild.
+//
+// PreservedCount counts entries whose Created timestamp was carried
+// over from the prior on-disk index (best-effort load). FreshCount
+// counts entries whose Created was stamped at rebuild time because no
+// prior entry existed for that canonical id (or the prior index was
+// missing / corrupt). PreservedCount + FreshCount == RecordsIndexed.
 type RebuildResult struct {
 	RecordsIndexed int
+	PreservedCount int
+	FreshCount     int
 	IndexPath      string
 	Index          *Index
 }
@@ -27,13 +37,23 @@ type RebuildResult struct {
 // Rebuild walks every declared db's paths via the project resolver,
 // opens each backing file, enumerates its declared records via the
 // per-format backend, and regenerates `.ta/index.toml` from on-disk
-// truth. Every entry's Created and Updated are stamped with the rebuild
-// timestamp.
+// truth. Every entry's Updated is stamped with the rebuild timestamp.
+// Created is preserved when a prior on-disk index entry exists for the
+// same canonical id (best-effort load); otherwise Created is stamped
+// with the rebuild timestamp.
 //
 // Per F10 (PLAN §12.17.9), the index format_version is 2 and every
 // bracket key on disk IS the id (no type segment). The walker derives
 // the type from the on-disk bracket prefix (which equals the type for
 // records of any given db) and indexes the bracket-as-id verbatim.
+//
+// F14 Created-preserve semantics: the prior `.ta/index.toml` is loaded
+// best-effort BEFORE the walk. Benign load failures (file missing,
+// format_version unknown, TOML decode failure, shape errors from
+// flattenInto) yield an empty prior map — the rebuild proceeds with
+// all-fresh Created stamps. Permission / I/O errors propagate so a
+// transient filesystem fault cannot silently erase historical Created
+// timestamps.
 func Rebuild(projectRoot string) (*RebuildResult, error) {
 	if projectRoot == "" {
 		return nil, fmt.Errorf("index: rebuild: empty project root")
@@ -42,6 +62,11 @@ func Rebuild(projectRoot string) (*RebuildResult, error) {
 	resolution, err := config.Resolve(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("index: rebuild: resolve schema: %w", err)
+	}
+
+	prior, err := bestEffortPriorIndex(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("index: rebuild: load prior index: %w", err)
 	}
 
 	idx := &Index{
@@ -58,6 +83,9 @@ func Rebuild(projectRoot string) (*RebuildResult, error) {
 	}
 	sort.Strings(dbNames)
 
+	preserved := 0
+	fresh := 0
+
 	for _, dbName := range dbNames {
 		dbDecl := resolution.Registry.DBs[dbName]
 		instances, err := resolver.Instances(dbName)
@@ -65,10 +93,13 @@ func Rebuild(projectRoot string) (*RebuildResult, error) {
 			return nil, fmt.Errorf("index: rebuild: db %q: %w", dbName, err)
 		}
 		for _, inst := range instances {
-			if err := indexInstance(idx, dbDecl, inst, now); err != nil {
+			p, f, err := indexInstance(idx, dbName, dbDecl, inst, now, prior)
+			if err != nil {
 				return nil, fmt.Errorf("index: rebuild: db %q file %s: %w",
 					dbName, inst.FilePath, err)
 			}
+			preserved += p
+			fresh += f
 		}
 	}
 
@@ -77,30 +108,123 @@ func Rebuild(projectRoot string) (*RebuildResult, error) {
 	}
 	return &RebuildResult{
 		RecordsIndexed: len(idx.Records),
+		PreservedCount: preserved,
+		FreshCount:     fresh,
 		IndexPath:      Path(projectRoot),
 		Index:          idx,
 	}, nil
 }
 
+// bestEffortPriorIndex loads the prior on-disk index at projectRoot for
+// Rebuild's Created-preserve pass. The error-class allowlist is
+// load-bearing for F14:
+//
+//   - fs.ErrNotExist (no prior index) → empty map, nil.
+//   - ErrUnknownFormatVersion (legacy / future on-disk schema) → empty
+//     map, nil. Rebuild's job IS to refresh stale format_versions.
+//   - *toml.DecodeError (malformed TOML) → empty map, nil. A corrupt
+//     index file must not block recovery.
+//   - parseBytes shape errors (flattenInto rejections, missing
+//     format_version scalar, malformed entry tables) → empty map, nil.
+//     Same reasoning: a structurally broken prior index is recovered
+//     by overwriting it.
+//
+// Permission and I/O errors from os.ReadFile (anything that is NOT
+// fs.ErrNotExist) PROPAGATE. A transient EACCES must not silently
+// erase historical Created timestamps; the caller surfaces it as a
+// rebuild failure and the operator addresses the filesystem fault.
+func bestEffortPriorIndex(projectRoot string) (map[string]Entry, error) {
+	path := Path(projectRoot)
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return map[string]Entry{}, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	idx, err := parseBytes(buf, path)
+	if err != nil {
+		if isBenignPriorIndexErr(err) {
+			return map[string]Entry{}, nil
+		}
+		// Defensive: any class not on the allowlist propagates rather
+		// than being silently swallowed. parseBytes is not expected to
+		// return anything outside the allowlist today; this branch
+		// protects against future drift.
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return idx.Records, nil
+}
+
+// isBenignPriorIndexErr reports whether err matches the F14 best-effort
+// load allowlist (ErrUnknownFormatVersion, *toml.DecodeError, or any
+// parseBytes shape error). Permission / I/O errors are checked in
+// bestEffortPriorIndex BEFORE parseBytes is invoked; this helper only
+// sees parse-time failures.
+func isBenignPriorIndexErr(err error) bool {
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, ErrUnknownFormatVersion) {
+		return true
+	}
+	var decErr *toml.DecodeError
+	if errors.As(err, &decErr) {
+		return true
+	}
+	// parseBytes returns fmt.Errorf-wrapped messages with the "index: "
+	// prefix for every other shape failure (missing format_version
+	// scalar, non-integer format_version, malformed entry tables,
+	// unexpected scalars at intermediate nodes). All are recoverable
+	// by overwriting the index — treat as benign.
+	if strings.HasPrefix(err.Error(), "index: ") {
+		return true
+	}
+	return false
+}
+
 // indexInstance opens one backing file, enumerates its declared
 // records, and inserts each into idx under the canonical id key.
-func indexInstance(idx *Index, dbDecl schema.DB, inst db.Instance, stamp time.Time) error {
+// Returns (preservedCount, freshCount, error) where preserved counts
+// entries whose Created was carried over from prior and fresh counts
+// entries stamped with the rebuild timestamp. dbName is threaded so
+// every rebuilt Entry carries the authoritative DBName field
+// (F38d-2.14c fast-path consumer at internal/ops/helpers.go).
+func indexInstance(idx *Index, dbName string, dbDecl schema.DB, inst db.Instance, stamp time.Time, prior map[string]Entry) (int, int, error) {
 	buf, err := os.ReadFile(inst.FilePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+			return 0, 0, nil
 		}
-		return fmt.Errorf("read: %w", err)
+		return 0, 0, fmt.Errorf("read: %w", err)
 	}
 
 	switch dbDecl.Format {
 	case schema.FormatTOML:
-		return indexTOMLBuf(idx, dbDecl, inst, buf, stamp)
+		return indexTOMLBuf(idx, dbName, dbDecl, inst, buf, stamp, prior)
 	case schema.FormatMD:
-		return indexMDBuf(idx, dbDecl, inst, buf, stamp)
+		return indexMDBuf(idx, dbName, dbDecl, inst, buf, stamp, prior)
 	default:
-		return fmt.Errorf("unsupported format %q", dbDecl.Format)
+		return 0, 0, fmt.Errorf("unsupported format %q", dbDecl.Format)
 	}
+}
+
+// stampedEntry returns the Entry to Put for canonical, plus a bool that
+// is true when the Created timestamp was preserved from prior (false
+// when stamped fresh). Centralizes the Created-preserve policy so every
+// indexer call-site applies identical semantics. dbName populates
+// Entry.DBName so resolveIDWithIndexHint's F38d-2.14c fast path keeps
+// working post-rebuild (prior bug: rebuild emitted DBName="" and
+// silently neutered the fast-path, surfacing the ambiguous-id failure
+// mode F38d-2.14c was designed to prevent).
+func stampedEntry(canonical, dbName, typeName string, stamp time.Time, prior map[string]Entry) (Entry, bool) {
+	created := stamp
+	preserved := false
+	if p, ok := prior[canonical]; ok && !p.Created.IsZero() {
+		created = p.Created
+		preserved = true
+	}
+	return Entry{DBName: dbName, Type: typeName, Created: created, Updated: stamp}, preserved
 }
 
 // mdDeclaredTypes builds the MD backend's declared-type slice — bare
@@ -133,8 +257,12 @@ func mdDeclaredTypes(dbDecl schema.DB) []record.DeclaredType {
 // that names a declared type on the db. This is recovery-only: writes
 // route through ops.Create which records the authoritative type in
 // the index directly.
-func indexTOMLBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, stamp time.Time) error {
-	singleFile := schema.IsSingleFileDB(dbDecl)
+func indexTOMLBuf(idx *Index, dbName string, dbDecl schema.DB, inst db.Instance, buf []byte, stamp time.Time, prior map[string]Entry) (int, int, error) {
+	// Use per-instance SingleFileMount (post L3-G7-D4 fix) so multi-literal-path
+	// mounts route through the correct branch per the file-relpath actually
+	// present on disk. schema.IsSingleFileDB(dbDecl) is per-DB and incorrectly
+	// fails for paths=[literal1, literal2] even when each instance is single-file.
+	singleFile := inst.SingleFileMount
 	// We'd like to enumerate every bracket; the TOML backend's List
 	// requires a declared-prefix list. We construct one prefix per
 	// declared type and union-list across all of them.
@@ -155,7 +283,7 @@ func indexTOMLBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, st
 		}
 		paths, err := listAtPrefix(buf, dbDecl, []record.DeclaredType{{Name: prefix}})
 		if err != nil {
-			return err
+			return 0, 0, err
 		}
 		for _, p := range paths {
 			// Type assignment is the LAST type that scans this bracket.
@@ -174,12 +302,20 @@ func indexTOMLBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, st
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	preserved := 0
+	fresh := 0
 	for _, p := range keys {
 		typeName := allPaths[p]
 		canonical := canonicalForBracket(inst.Slug, p, singleFile)
-		idx.Put(canonical, Entry{Type: typeName, Created: stamp, Updated: stamp})
+		entry, wasPreserved := stampedEntry(canonical, dbName, typeName, stamp, prior)
+		idx.Put(canonical, entry)
+		if wasPreserved {
+			preserved++
+		} else {
+			fresh++
+		}
 	}
-	return nil
+	return preserved, fresh, nil
 }
 
 // listAtPrefix is a thin wrapper around the TOML backend's List so the
@@ -199,28 +335,36 @@ func listAtPrefix(buf []byte, dbDecl schema.DB, types []record.DeclaredType) ([]
 // file-relpath itself as the canonical id (no chain, no bracket-key);
 // dispatch to FileRecordBackend so heading=0 does not trip
 // md.NewBackend's [1, 6] validator (F38b).
-func indexMDBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, stamp time.Time) error {
+func indexMDBuf(idx *Index, dbName string, dbDecl schema.DB, inst db.Instance, buf []byte, stamp time.Time, prior map[string]Entry) (int, int, error) {
 	if schema.DBHasFileAsRecord(dbDecl) {
-		return indexFileRecordBuf(idx, dbDecl, inst, buf, stamp)
+		return indexFileRecordBuf(idx, dbName, dbDecl, inst, buf, stamp, prior)
 	}
 	types := mdDeclaredTypes(dbDecl)
 	be, err := md.NewBackend(types)
 	if err != nil {
-		return fmt.Errorf("md backend: %w", err)
+		return 0, 0, fmt.Errorf("md backend: %w", err)
 	}
 	addresses, err := be.List(buf, "")
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
+	preserved := 0
+	fresh := 0
 	for _, addr := range addresses {
 		typeName, ok := mdTypeFromAddress(addr, dbDecl)
 		if !ok {
-			return fmt.Errorf("md address %q: cannot resolve declared type", addr)
+			return preserved, fresh, fmt.Errorf("md address %q: cannot resolve declared type", addr)
 		}
 		canonical := joinSlugAddr(inst.Slug, addr)
-		idx.Put(canonical, Entry{Type: typeName, Created: stamp, Updated: stamp})
+		entry, wasPreserved := stampedEntry(canonical, dbName, typeName, stamp, prior)
+		idx.Put(canonical, entry)
+		if wasPreserved {
+			preserved++
+		} else {
+			fresh++
+		}
 	}
-	return nil
+	return preserved, fresh, nil
 }
 
 // indexFileRecordBuf indexes a single file-as-record buffer (F31). Per
@@ -232,24 +376,39 @@ func indexMDBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, stam
 // An empty buffer yields no entry — `FileRecordBackend.List` returns
 // no addresses for an empty buf, so the caller sees an unbacked id and
 // the index correctly omits the record.
-func indexFileRecordBuf(idx *Index, dbDecl schema.DB, inst db.Instance, buf []byte, stamp time.Time) error {
+func indexFileRecordBuf(idx *Index, dbName string, dbDecl schema.DB, inst db.Instance, buf []byte, stamp time.Time, prior map[string]Entry) (int, int, error) {
 	fileType, st, ok := singleFileRecordType(dbDecl)
 	if !ok {
-		return fmt.Errorf("index: db %q has file-as-record types but none resolved", dbDecl.Name)
+		return 0, 0, fmt.Errorf("index: db %q has file-as-record types but none resolved", dbDecl.Name)
 	}
 	types := []record.DeclaredType{{Name: fileType}}
 	be, err := md.NewFileRecordBackend(types, fileType, st.BodyField)
 	if err != nil {
-		return fmt.Errorf("md file-as-record backend: %w", err)
+		return 0, 0, fmt.Errorf("md file-as-record backend: %w", err)
 	}
 	addresses, err := be.List(buf, "")
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
-	for range addresses {
-		idx.Put(inst.Slug, Entry{Type: fileType, Created: stamp, Updated: stamp})
+	// File-as-record yields at most ONE logical record per file even
+	// though the backend's List loop may emit multiple equivalent
+	// addresses. Count preserved/fresh exactly once on the first
+	// iteration; subsequent Puts are idempotent (Index.Put preserves
+	// the in-place Created automatically).
+	preserved := 0
+	fresh := 0
+	for i := range addresses {
+		entry, wasPreserved := stampedEntry(inst.Slug, dbName, fileType, stamp, prior)
+		idx.Put(inst.Slug, entry)
+		if i == 0 {
+			if wasPreserved {
+				preserved++
+			} else {
+				fresh++
+			}
+		}
 	}
-	return nil
+	return preserved, fresh, nil
 }
 
 // singleFileRecordType is the index-package mirror of

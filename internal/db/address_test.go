@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -586,6 +587,108 @@ func TestResolveIDInDB_ErrorMessageHasNoDuplicateExpectedShape(t *testing.T) {
 	if got := strings.Count(msg, "expected shape:"); got != 1 {
 		t.Errorf(`error contains %d copies of "expected shape:", want 1; full message: %q`, got, msg)
 	}
+}
+
+// TestF10_AddressGrammarIsBracketEqualsID is the regression anchor for
+// the F10 closure (E2E_FIXES.md:136, RESOLVED in commit c467803
+// "feat(id): drop type from id; align bracket=id; index v2;
+// format-from-extension"). The id grammar is `<file-relpath>.<bracket-key>`
+// with NO db prefix and NO type segment — type lives in the runtime
+// index, never in the id. On disk, the bracket header IS the id.
+//
+// This test pins TWO load-bearing invariants of that closure:
+//
+//  1. The `Resolved` struct does NOT carry a `Type` field. A future
+//     edit that re-introduces a `Type` field on Resolved (the historical
+//     F10-violating shape) MUST surface here as a loud failure.
+//  2. Constructive `ResolveID` calls produce a Resolved value whose
+//     `BracketKey` IS the bracket-tail of the id — there is no
+//     out-of-band type lookup synthesizing it. The test names this
+//     property "bracket-equals-id".
+//
+// The TestF10_-prefix on this function (and any sibling F10 anchors
+// added later) is the regression-discoverability anchor — grepping or
+// running Hylla refs-find on `TestF10_` lands the F10 closure
+// attestation regardless of which package re-asserts it.
+func TestF10_AddressGrammarIsBracketEqualsID(t *testing.T) {
+	// Invariant 1: the Resolved struct must have no `Type` field.
+	// Compile-time would catch a test that references res.Type, but
+	// asserting the absence at runtime via reflect lets THIS test be
+	// the durable record of the contract instead of the absence-of-
+	// other-tests.
+	if f, ok := reflect.TypeOf(Resolved{}).FieldByName("Type"); ok {
+		t.Fatalf(
+			"F10 violation: Resolved struct has a Type field (kind=%s) — "+
+				"type must live in the runtime index, never in the id. "+
+				"See E2E_FIXES.md:136 + commit c467803.",
+			f.Type.Kind(),
+		)
+	}
+
+	// Invariant 2: BracketKey equals the bracket-tail of the id
+	// across every mount shape, with no type indirection.
+	t.Run("section-mode_single_file", func(t *testing.T) {
+		r := NewResolver("/proj", testRegistry())
+		res, _, err := r.ResolveID("README.installation")
+		if err != nil {
+			t.Fatalf("ResolveID: %v", err)
+		}
+		if res.BracketKey != "installation" {
+			t.Errorf("BracketKey = %q, want %q (bracket-equals-id)",
+				res.BracketKey, "installation")
+		}
+		if res.FileRelPath != "README" {
+			t.Errorf("FileRelPath = %q, want %q", res.FileRelPath, "README")
+		}
+		// Canonical() reassembles file-relpath + bracket-key with no
+		// type segment — round-trip proves the id has NO type slot.
+		if got := res.Canonical(); got != "README.installation" {
+			t.Errorf("Canonical() = %q, want %q (no type segment in id)",
+				got, "README.installation")
+		}
+	})
+
+	t.Run("section-mode_glob_mount", func(t *testing.T) {
+		r := NewResolver("/proj", testRegistry())
+		res, _, err := r.ResolveID("ta.db.task_001")
+		if err != nil {
+			t.Fatalf("ResolveID: %v", err)
+		}
+		if res.BracketKey != "task_001" {
+			t.Errorf("BracketKey = %q, want %q (bracket-equals-id)",
+				res.BracketKey, "task_001")
+		}
+		if res.FileRelPath != "ta.db" {
+			t.Errorf("FileRelPath = %q, want %q", res.FileRelPath, "ta.db")
+		}
+		if got := res.Canonical(); got != "ta.db.task_001" {
+			t.Errorf("Canonical() = %q, want %q (no type segment in id)",
+				got, "ta.db.task_001")
+		}
+	})
+
+	t.Run("file_as_record_mount", func(t *testing.T) {
+		// File-as-record dbs have NO bracket-tail — the whole file IS
+		// the record. BracketKey="" is the degenerate bracket-equals-id
+		// case: the id resolves to the file itself with no inner anchor
+		// and, crucially, no type segment substituting for one.
+		r := NewResolver("/proj", fileRecordRegistry())
+		res, _, err := r.ResolveID("ta.writer")
+		if err != nil {
+			t.Fatalf("ResolveID: %v", err)
+		}
+		if res.BracketKey != "" {
+			t.Errorf("BracketKey = %q, want empty (file-as-record bracket-equals-id)",
+				res.BracketKey)
+		}
+		if res.FileRelPath != "ta.writer" {
+			t.Errorf("FileRelPath = %q, want %q", res.FileRelPath, "ta.writer")
+		}
+		if got := res.Canonical(); got != "ta.writer" {
+			t.Errorf("Canonical() = %q, want %q (no type segment in id)",
+				got, "ta.writer")
+		}
+	})
 }
 
 func TestResolvedCanonical(t *testing.T) {

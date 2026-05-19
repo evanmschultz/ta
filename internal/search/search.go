@@ -359,6 +359,43 @@ func parseScope(reg schema.Registry, projectPath, scope string) (searchPlan, err
 			}
 		}
 	}
+	// F38d-2.18 extends the F38d-2.17 disambig to 3+ segment scopes:
+	// `<db>.<type>.<id-prefix...>` under a shadowing glob-only schema
+	// must resolve as the typeFilter intent rather than be silently
+	// swallowed as a phantom <file-relpath>.<extra-segs> match against a
+	// glob-only mount. The trigger is `len(parts) >= 3` — CE2
+	// demonstrated reproduction at depth 4 (`cascade.drop.id123.tail`
+	// under cascadeShadowedByGlobMDSchema), so the same failure surfaces
+	// at every depth above 2.
+	//
+	// Rules (parallel to the 2-seg block):
+	//   (a) parts[0] is a declared db AND parts[1] is a declared type on
+	//       that db AND best is glob-only (or nil): typeFilter wins,
+	//       idPrefix = join(parts[2:], "."). trimGlob normalizes a
+	//       trailing "-*"/"*" the same way matchFixedScope does.
+	//   (b) parts[0] is a declared db AND parts[1] is NOT a declared type
+	//       AND best is glob-only (or nil): pure-typo surface,
+	//       ErrInvalidScope (matches the 2-seg typo branch).
+	//   (c) Otherwise: fall through. A non-glob-only fixed-mount match
+	//       (best != nil && !best.globOnly) is a legitimate file-relpath
+	//       win at 3+ segments and must NOT be hijacked by the typeFilter
+	//       path. A non-db parts[0] also falls through to the existing
+	//       no-match / ErrInvalidScope tail.
+	if len(parts) >= 3 {
+		if dbDecl, ok := reg.DBs[parts[0]]; ok {
+			if _, declared := dbDecl.Types[parts[1]]; declared {
+				if best == nil || best.globOnly {
+					return searchPlan{
+						dbOrder:    []string{parts[0]},
+						typeFilter: parts[1],
+						idPrefix:   trimGlob(strings.Join(parts[2:], ".")),
+					}, nil
+				}
+			} else if best == nil || best.globOnly {
+				return searchPlan{}, fmt.Errorf("%w: %q", ErrInvalidScope, scope)
+			}
+		}
+	}
 	if best == nil {
 		return searchPlan{}, fmt.Errorf("%w: %q", ErrInvalidScope, scope)
 	}
@@ -470,12 +507,25 @@ func trimGlob(s string) string {
 }
 
 // searchFile runs the query against one instance file.
+//
+// Per-instance singleFile selection (F11 literal-multi-path fix): the
+// on-disk bracket form is determined by the mount that produced THIS
+// instance, not by the db-wide `schema.IsSingleFileDB(dbDecl)` view.
+// A db declared with `paths = ["notes.toml", "archive/notes.toml"]`
+// has two single-file mounts, but `IsSingleFileDB` returns false
+// (len(Paths) != 1) and would route every record through the
+// glob-TOML walker — which mis-anchors against on-disk brackets
+// shaped `[<file-relpath>.<bracket-key>]` and enumerates zero
+// records. Reading `inst.SingleFileMount` (populated per-mount by
+// db.Resolver.Instances) keeps the walker aligned with the per-file
+// shape the writer uses (ops.Create routes through
+// resolved.SingleFileMount likewise).
 func searchFile(dbDecl schema.DB, inst db.Instance, plan searchPlan, q Query) ([]Result, error) {
 	buf, err := os.ReadFile(inst.FilePath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", inst.FilePath, err)
 	}
-	singleFile := schema.IsSingleFileDB(dbDecl)
+	singleFile := inst.SingleFileMount
 	backend, err := buildBackendForSearch(dbDecl, inst.Slug, singleFile)
 	if err != nil {
 		return nil, err
