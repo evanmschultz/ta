@@ -1,7 +1,9 @@
 package initapply_test
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,6 +108,10 @@ func TestApply_SchemaWritesToProjectTaSchema(t *testing.T) {
 
 func TestApply_SchemaConflictPolicyError(t *testing.T) {
 	// F32: home must hold the schema for empty-provenance + project target.
+	// F38d-2.6 content-aware: pre-seed dest with a DIFFERENT plans body
+	// than the home source so the comparison registers as drift (real
+	// conflict). Identical bodies are now content-equivalent and land
+	// in Unchanged, not Conflicts.
 	setupBinary(t)
 	homeRoot := setupHome(t)
 	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(plansSchema), 0o644); err != nil {
@@ -117,7 +123,10 @@ func TestApply_SchemaConflictPolicyError(t *testing.T) {
 	if err := os.MkdirAll(taDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(plansSchema), 0o644); err != nil {
+	// plansHomeOverride uses `paths = ["home-plans.toml"]` — distinct
+	// from plansSchema's `["plans.toml"]` — so content-aware sees real
+	// drift.
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(plansHomeOverride), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	sel := initapply.Selections{Schemas: []initapply.SchemaSelection{{Name: "plans"}}}
@@ -543,14 +552,24 @@ func TestApply_DocsTemplateSkip(t *testing.T) {
 }
 
 func TestApply_AggregateConflictsSorted(t *testing.T) {
+	// F38d-2.3 enrichment: when Target is set, AggregateConflicts
+	// appends the resolved destination path per conflict in parens.
+	// Synthetic Target keeps the sort order deterministic across hosts.
+	target := "/tmp/sorted-target"
 	report := initapply.Report{
+		Target:        target,
 		Schemas:       initapply.Result{Conflicts: []string{"plans"}},
 		Agents:        initapply.Result{Conflicts: []string{"go/builder"}},
 		Configs:       initapply.Result{Conflicts: []string{"mcp.json"}},
 		DocsTemplates: initapply.Result{Conflicts: []string{"CLAUDE"}},
 	}
 	got := initapply.AggregateConflicts(report)
-	want := []string{"agent:go/builder", "config:mcp.json", "docs:CLAUDE", "schema:plans"}
+	want := []string{
+		"agent:go/builder (" + filepath.Join(target, ".claude", "agents", "go-builder.md") + ")",
+		"config:mcp.json (" + filepath.Join(target, ".mcp.json") + ")",
+		"docs:CLAUDE (" + filepath.Join(target, "CLAUDE.md") + ")",
+		"schema:plans (" + filepath.Join(target, ".ta", "schema.toml") + ")",
+	}
 	if len(got) != len(want) {
 		t.Fatalf("len = %d, want %d (got %v)", len(got), len(want), got)
 	}
@@ -558,6 +577,60 @@ func TestApply_AggregateConflictsSorted(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("idx %d: got %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// TestAggregateConflicts_EnrichesWithDestPath locks the F38d-2.3
+// dest-path enrichment contract: each Conflict entry surfaces both its
+// category-key AND its on-disk destination path so the user sees the
+// concrete file that conflicted, not just the category. Asserts both
+// names and both paths appear in the aggregated output for a Report
+// carrying two conflicts (schema + agent).
+func TestAggregateConflicts_EnrichesWithDestPath(t *testing.T) {
+	target := "/tmp/enriched-target"
+	report := initapply.Report{
+		Target:  target,
+		Schemas: initapply.Result{Conflicts: []string{"plans"}},
+		Agents:  initapply.Result{Conflicts: []string{"go/builder"}},
+	}
+	got := initapply.AggregateConflicts(report)
+	joined := strings.Join(got, " ")
+
+	wantSchemaPath := filepath.Join(target, ".ta", "schema.toml")
+	wantAgentPath := filepath.Join(target, ".claude", "agents", "go-builder.md")
+
+	if !strings.Contains(joined, "schema:plans") {
+		t.Errorf("aggregated output missing schema category-key: %v", got)
+	}
+	if !strings.Contains(joined, "agent:go/builder") {
+		t.Errorf("aggregated output missing agent category-key: %v", got)
+	}
+	if !strings.Contains(joined, wantSchemaPath) {
+		t.Errorf("aggregated output missing schema dest path %q: %v", wantSchemaPath, got)
+	}
+	if !strings.Contains(joined, wantAgentPath) {
+		t.Errorf("aggregated output missing agent dest path %q: %v", wantAgentPath, got)
+	}
+	// Spot-check the paren shape so the wrapper format stays parseable.
+	for _, entry := range got {
+		if !strings.Contains(entry, " (") || !strings.HasSuffix(entry, ")") {
+			t.Errorf("entry %q missing paren-enclosed dest path", entry)
+		}
+	}
+}
+
+// TestAggregateConflicts_EmptyTargetFallsBackToBareKey pins the
+// fallback contract: when Target is empty (synthetic Report unused by
+// production callers but legal for tests), AggregateConflicts emits the
+// bare `<category>:<key>` form instead of a malformed enriched entry
+// with a relative path leak.
+func TestAggregateConflicts_EmptyTargetFallsBackToBareKey(t *testing.T) {
+	report := initapply.Report{
+		Schemas: initapply.Result{Conflicts: []string{"plans"}},
+	}
+	got := initapply.AggregateConflicts(report)
+	if len(got) != 1 || got[0] != "schema:plans" {
+		t.Errorf("got %v, want [schema:plans]", got)
 	}
 }
 
@@ -972,5 +1045,361 @@ func TestApply_PopulatedHome_TargetingHome_OverwritesPolicyApplies(t *testing.T)
 	}
 	if strings.Contains(string(got), "home-plans.toml") {
 		t.Errorf("home shadow survived overwrite: %s", got)
+	}
+}
+
+// ---- F38d-2.5 atomic preflight tests -------------------------------
+
+// TestInitApply_AtomicityOnConflict_NoPartialWrite locks the F38d-2.5
+// pre-scan contract: when ANY destination conflicts under PolicyError,
+// NO write touches disk anywhere — schema, agent, config, or docs. The
+// pre-fix failure had .ta/schema.toml landing successfully before the
+// agent write conflict surfaced; this test pins the new atomic behavior.
+func TestInitApply_AtomicityOnConflict_NoPartialWrite(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	// Seed home schema so empty-provenance + project target resolves.
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(plansSchema), 0o644); err != nil {
+		t.Fatalf("seed home schema: %v", err)
+	}
+	// Seed home agent so the agent selection has a resolvable source.
+	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir home agent: %v", err)
+	}
+	if err := os.WriteFile(homeAgent, []byte(agentWithName("builder")), 0o644); err != nil {
+		t.Fatalf("seed home agent: %v", err)
+	}
+
+	target := t.TempDir()
+	// Pre-populate ONLY the agent dest path. Schema dest is untouched —
+	// under the pre-fix sequential apply, the schema would land first.
+	agentDest := filepath.Join(target, ".claude", "agents", "go-builder.md")
+	if err := os.MkdirAll(filepath.Dir(agentDest), 0o755); err != nil {
+		t.Fatalf("mkdir agent dest: %v", err)
+	}
+	if err := os.WriteFile(agentDest, []byte("preexisting agent\n"), 0o644); err != nil {
+		t.Fatalf("seed agent dest: %v", err)
+	}
+
+	sel := initapply.Selections{
+		Schemas: []initapply.SchemaSelection{{Name: "plans"}},
+		Agents:  []initapply.AgentSelection{{Group: "go", Name: "builder"}},
+	}
+	report, err := initapply.Apply(target, sel, initapply.PolicyError)
+	// Option (b) contract: Apply returns nil error; conflicts ride on
+	// the Report so the cmd/ta wrapper inspects Report.<Cat>.Conflicts.
+	if err != nil {
+		t.Fatalf("Apply: expected nil error under option (b), got %v", err)
+	}
+	// Agent conflict must be reported.
+	if len(report.Agents.Conflicts) != 1 || report.Agents.Conflicts[0] != "go/builder" {
+		t.Errorf("Agents.Conflicts = %v, want [go/builder]", report.Agents.Conflicts)
+	}
+	// Atomicity: schema dest must NOT have been written despite
+	// preceding the agent in the apply order.
+	if _, statErr := os.Stat(filepath.Join(target, ".ta", "schema.toml")); statErr == nil {
+		t.Errorf("schema.toml landed despite agent conflict — atomic preflight regressed")
+	}
+	// Atomicity: no per-category Written entries anywhere.
+	if len(report.Schemas.Written) != 0 {
+		t.Errorf("Schemas.Written = %v, want empty under atomic preflight", report.Schemas.Written)
+	}
+	if len(report.Agents.Written) != 0 {
+		t.Errorf("Agents.Written = %v, want empty", report.Agents.Written)
+	}
+	// Pre-existing agent file must survive untouched.
+	got, readErr := os.ReadFile(agentDest)
+	if readErr != nil {
+		t.Fatalf("read agent dest: %v", readErr)
+	}
+	if string(got) != "preexisting agent\n" {
+		t.Errorf("pre-existing agent mutated: %q", got)
+	}
+}
+
+// TestInitApply_ApplyReturnsNilOnPolicyErrorWithConflicts pins the
+// option (b) error-contract end-to-end: Apply returns nil; the populated
+// Report.<Cat>.Conflicts flow through AggregateConflicts to produce the
+// exact user-facing error string that cmd/ta/init_multi.go formats.
+// Locking the format here keeps the CLI wrapper firing unchanged.
+func TestInitApply_ApplyReturnsNilOnPolicyErrorWithConflicts(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(plansSchema), 0o644); err != nil {
+		t.Fatalf("seed home schema: %v", err)
+	}
+	target := t.TempDir()
+	taDir := filepath.Join(target, ".ta")
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// F38d-2.6 content-aware: seed dest with a DIFFERENT plans body
+	// (plansHomeOverride uses distinct `paths`) so the comparator
+	// surfaces a real conflict — identical bytes would now land in
+	// Unchanged, not Conflicts.
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(plansHomeOverride), 0o644); err != nil {
+		t.Fatalf("seed schema dest: %v", err)
+	}
+
+	sel := initapply.Selections{Schemas: []initapply.SchemaSelection{{Name: "plans"}}}
+	report, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err != nil {
+		t.Fatalf("Apply: expected nil error under option (b), got %v", err)
+	}
+
+	// Mirror cmd/ta/init_multi.go:43-49 verbatim so any drift in that
+	// wrapper format surfaces here.
+	conflicts := initapply.AggregateConflicts(report)
+	if len(conflicts) == 0 {
+		t.Fatal("AggregateConflicts: expected at least one conflict, got 0")
+	}
+	wrapperErr := fmt.Errorf("init: %d conflict(s); re-run with --on-conflict=skip|overwrite|force: %s",
+		len(conflicts), strings.Join(conflicts, ", "))
+
+	// F38d-2.3: enriched output includes the resolved dest path. The
+	// schema path is target-relative so we build the expectation from
+	// the real tmp target.
+	wantPath := filepath.Join(target, ".ta", "schema.toml")
+	want := "init: 1 conflict(s); re-run with --on-conflict=skip|overwrite|force: schema:plans (" + wantPath + ")"
+	if wrapperErr.Error() != want {
+		t.Errorf("wrapper error = %q, want %q", wrapperErr.Error(), want)
+	}
+}
+
+// ---- F38d-2.6 content-aware conflict tests -------------------------
+
+// TestInitApply_ContentAware_IdenticalRerunNoConflict locks the
+// F38d-2.6 idempotent re-run contract: when every destination is
+// byte-equivalent (modulo canonicalized YAML key order) to the
+// would-be-written content, Apply records Unchanged per item and
+// emits zero Conflicts. The pre-fix failure was treating any existing
+// destination as a conflict under PolicyError, falsely flagging a
+// clean re-run as needing --on-conflict=.
+func TestInitApply_ContentAware_IdenticalRerunNoConflict(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	// Seed home with one schema + one agent + one docs template so the
+	// re-run exercises all three Result categories that flow through
+	// the content-aware branches (Schemas via applySchemas,
+	// Agents/DocsTemplates via recordOutcome).
+	if err := os.WriteFile(filepath.Join(homeRoot, "schema.toml"), []byte(plansSchema), 0o644); err != nil {
+		t.Fatalf("seed home schema: %v", err)
+	}
+	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir home agent: %v", err)
+	}
+	if err := os.WriteFile(homeAgent, []byte(agentWithName("builder")), 0o644); err != nil {
+		t.Fatalf("seed home agent: %v", err)
+	}
+	homeDocs := filepath.Join(homeRoot, "docs-templates", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(homeDocs), 0o755); err != nil {
+		t.Fatalf("mkdir home docs: %v", err)
+	}
+	if err := os.WriteFile(homeDocs, []byte("# CLAUDE\nbody\n"), 0o644); err != nil {
+		t.Fatalf("seed home docs: %v", err)
+	}
+
+	target := t.TempDir()
+	sel := initapply.Selections{
+		Schemas:       []initapply.SchemaSelection{{Name: "plans"}},
+		Agents:        []initapply.AgentSelection{{Group: "go", Name: "builder"}},
+		DocsTemplates: []initapply.DocsSelection{{Name: "CLAUDE"}},
+	}
+
+	// First Apply lands every destination.
+	first, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err != nil {
+		t.Fatalf("first Apply: %v", err)
+	}
+	if len(first.Schemas.Written) != 1 || len(first.Agents.Written) != 1 || len(first.DocsTemplates.Written) != 1 {
+		t.Fatalf("first Apply: expected 1 written per category, got schemas=%v agents=%v docs=%v",
+			first.Schemas.Written, first.Agents.Written, first.DocsTemplates.Written)
+	}
+	// Snapshot dest bytes so we can prove the second Apply did not
+	// rewrite them.
+	schemaDest := filepath.Join(target, ".ta", "schema.toml")
+	agentDest := filepath.Join(target, ".claude", "agents", "go-builder.md")
+	docsDest := filepath.Join(target, "CLAUDE.md")
+	schemaBefore, err := os.ReadFile(schemaDest)
+	if err != nil {
+		t.Fatalf("read schema after first apply: %v", err)
+	}
+	agentBefore, err := os.ReadFile(agentDest)
+	if err != nil {
+		t.Fatalf("read agent after first apply: %v", err)
+	}
+	docsBefore, err := os.ReadFile(docsDest)
+	if err != nil {
+		t.Fatalf("read docs after first apply: %v", err)
+	}
+
+	// Second Apply: identical selections + PolicyError. With the
+	// content-aware fix, every dest is Unchanged and zero Conflicts.
+	second, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err != nil {
+		t.Fatalf("second Apply: %v", err)
+	}
+	if len(second.Schemas.Conflicts) != 0 {
+		t.Errorf("Schemas.Conflicts = %v, want empty (Unchanged)", second.Schemas.Conflicts)
+	}
+	if len(second.Agents.Conflicts) != 0 {
+		t.Errorf("Agents.Conflicts = %v, want empty (Unchanged)", second.Agents.Conflicts)
+	}
+	if len(second.DocsTemplates.Conflicts) != 0 {
+		t.Errorf("DocsTemplates.Conflicts = %v, want empty (Unchanged)", second.DocsTemplates.Conflicts)
+	}
+	if len(second.Schemas.Unchanged) != 1 || second.Schemas.Unchanged[0] != "plans" {
+		t.Errorf("Schemas.Unchanged = %v, want [plans]", second.Schemas.Unchanged)
+	}
+	if len(second.Agents.Unchanged) != 1 || second.Agents.Unchanged[0] != "go/builder" {
+		t.Errorf("Agents.Unchanged = %v, want [go/builder]", second.Agents.Unchanged)
+	}
+	if len(second.DocsTemplates.Unchanged) != 1 || second.DocsTemplates.Unchanged[0] != "CLAUDE" {
+		t.Errorf("DocsTemplates.Unchanged = %v, want [CLAUDE]", second.DocsTemplates.Unchanged)
+	}
+	// No category should have Written entries on a fully-Unchanged
+	// re-run.
+	if len(second.Schemas.Written) != 0 || len(second.Agents.Written) != 0 || len(second.DocsTemplates.Written) != 0 {
+		t.Errorf("Unchanged re-run produced Written entries: schemas=%v agents=%v docs=%v",
+			second.Schemas.Written, second.Agents.Written, second.DocsTemplates.Written)
+	}
+	// Disk bytes must be untouched.
+	schemaAfter, err := os.ReadFile(schemaDest)
+	if err != nil {
+		t.Fatalf("read schema after second apply: %v", err)
+	}
+	agentAfter, err := os.ReadFile(agentDest)
+	if err != nil {
+		t.Fatalf("read agent after second apply: %v", err)
+	}
+	docsAfter, err := os.ReadFile(docsDest)
+	if err != nil {
+		t.Fatalf("read docs after second apply: %v", err)
+	}
+	if !bytes.Equal(schemaBefore, schemaAfter) {
+		t.Errorf("schema dest rewritten by Unchanged re-run\nbefore: %s\nafter:  %s", schemaBefore, schemaAfter)
+	}
+	if !bytes.Equal(agentBefore, agentAfter) {
+		t.Errorf("agent dest rewritten by Unchanged re-run\nbefore: %s\nafter:  %s", agentBefore, agentAfter)
+	}
+	if !bytes.Equal(docsBefore, docsAfter) {
+		t.Errorf("docs dest rewritten by Unchanged re-run\nbefore: %s\nafter:  %s", docsBefore, docsAfter)
+	}
+}
+
+// TestInitApply_ContentAware_ModifiedFileStillConflicts pins the
+// safety side of F38d-2.6: real drift between dest bytes and the
+// would-write body MUST still surface as a conflict (not Unchanged).
+// Without this anchor, a content-aware comparator that erroneously
+// reported equivalence on drift would silently overwrite operator
+// edits.
+func TestInitApply_ContentAware_ModifiedFileStillConflicts(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir home agent: %v", err)
+	}
+	if err := os.WriteFile(homeAgent, []byte(agentWithName("builder")), 0o644); err != nil {
+		t.Fatalf("seed home agent: %v", err)
+	}
+
+	target := t.TempDir()
+	sel := initapply.Selections{
+		Agents: []initapply.AgentSelection{{Group: "go", Name: "builder"}},
+	}
+	if _, err := initapply.Apply(target, sel, initapply.PolicyError); err != nil {
+		t.Fatalf("first Apply: %v", err)
+	}
+
+	// Mutate the dest agent's body — frontmatter intact but the post-
+	// frontmatter body now diverges from what the install would emit.
+	agentDest := filepath.Join(target, ".claude", "agents", "go-builder.md")
+	modified := "---\nname: go-builder\ndescription: test agent\n---\nLOCAL EDITS — do not clobber\n"
+	if err := os.WriteFile(agentDest, []byte(modified), 0o644); err != nil {
+		t.Fatalf("mutate agent dest: %v", err)
+	}
+
+	// Second Apply: PolicyError must surface a real Conflict, not
+	// Unchanged. The mutated body MUST survive untouched.
+	second, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err != nil {
+		t.Fatalf("second Apply: %v", err)
+	}
+	if len(second.Agents.Conflicts) != 1 || second.Agents.Conflicts[0] != "go/builder" {
+		t.Errorf("Agents.Conflicts = %v, want [go/builder] (drift must register)", second.Agents.Conflicts)
+	}
+	if len(second.Agents.Unchanged) != 0 {
+		t.Errorf("Agents.Unchanged = %v, want empty (drift must not register as Unchanged)", second.Agents.Unchanged)
+	}
+	if len(second.Agents.Written) != 0 {
+		t.Errorf("Agents.Written = %v, want empty under PolicyError", second.Agents.Written)
+	}
+	got, err := os.ReadFile(agentDest)
+	if err != nil {
+		t.Fatalf("read after second apply: %v", err)
+	}
+	if string(got) != modified {
+		t.Errorf("local edits clobbered\ngot:  %s\nwant: %s", got, modified)
+	}
+}
+
+// TestInitApply_ContentAware_FrontmatterKeyOrderIgnored locks the
+// canonicalization contract: two `.md` files differing only in the
+// alphabetical-vs-authored order of YAML frontmatter keys must be
+// treated as content-equivalent. yaml.v3 round-trip through
+// md.DecodeFrontmatter + md.EncodeFrontmatter neutralizes key-order
+// drift so re-runs that the install transform would produce in
+// alphabetical order do not falsely conflict with on-disk files
+// authored in a different key order.
+func TestInitApply_ContentAware_FrontmatterKeyOrderIgnored(t *testing.T) {
+	setupBinary(t)
+	homeRoot := setupHome(t)
+	homeAgent := filepath.Join(homeRoot, "agents", "go", "builder.md")
+	if err := os.MkdirAll(filepath.Dir(homeAgent), 0o755); err != nil {
+		t.Fatalf("mkdir home agent: %v", err)
+	}
+	if err := os.WriteFile(homeAgent, []byte(agentWithName("builder")), 0o644); err != nil {
+		t.Fatalf("seed home agent: %v", err)
+	}
+
+	target := t.TempDir()
+	sel := initapply.Selections{
+		Agents: []initapply.AgentSelection{{Group: "go", Name: "builder"}},
+	}
+	if _, err := initapply.Apply(target, sel, initapply.PolicyError); err != nil {
+		t.Fatalf("first Apply: %v", err)
+	}
+
+	// Rewrite dest with frontmatter keys in a different order
+	// (description first, then name). Body identical. Content-aware
+	// comparator must canonicalize both sides before sha256 and treat
+	// the file as Unchanged.
+	agentDest := filepath.Join(target, ".claude", "agents", "go-builder.md")
+	reordered := "---\ndescription: test agent\nname: go-builder\n---\nbody\n"
+	if err := os.WriteFile(agentDest, []byte(reordered), 0o644); err != nil {
+		t.Fatalf("reorder frontmatter at dest: %v", err)
+	}
+
+	second, err := initapply.Apply(target, sel, initapply.PolicyError)
+	if err != nil {
+		t.Fatalf("second Apply: %v", err)
+	}
+	if len(second.Agents.Conflicts) != 0 {
+		t.Errorf("Agents.Conflicts = %v, want empty (key-order drift must canonicalize)", second.Agents.Conflicts)
+	}
+	if len(second.Agents.Unchanged) != 1 || second.Agents.Unchanged[0] != "go/builder" {
+		t.Errorf("Agents.Unchanged = %v, want [go/builder]", second.Agents.Unchanged)
+	}
+	// Reordered file must survive untouched — Unchanged path does no
+	// rewrite.
+	got, err := os.ReadFile(agentDest)
+	if err != nil {
+		t.Fatalf("read after second apply: %v", err)
+	}
+	if string(got) != reordered {
+		t.Errorf("dest rewritten by Unchanged re-run\ngot:  %s\nwant: %s", got, reordered)
 	}
 }

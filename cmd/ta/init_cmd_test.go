@@ -537,6 +537,11 @@ func TestInitCmdMultiCategorySelectionsFileSchemaOnly(t *testing.T) {
 
 // TestInitCmdMultiCategoryOnConflictError: pre-existing schema +
 // schema selection + on_conflict=error must error loudly.
+//
+// F38d-2.6 content-aware: the pre-seeded dest body MUST differ from
+// the source (cliTaskSchema) — identical bytes now land in Unchanged,
+// not Conflicts. We seed a divergent `plans` body so the comparator
+// surfaces a real conflict and the wrapper error fires.
 func TestInitCmdMultiCategoryOnConflictError(t *testing.T) {
 	seedTemplateLibrary(t)
 	target := t.TempDir()
@@ -544,7 +549,20 @@ func TestInitCmdMultiCategoryOnConflictError(t *testing.T) {
 	if err := os.MkdirAll(taDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(cliTaskSchema), 0o644); err != nil {
+	// Divergent plans body: different `paths`, different description.
+	const drifted = `
+[plans]
+paths = ["drifted.toml"]
+description = "Drifted planning db."
+
+[plans.task]
+description = "A unit of work."
+
+[plans.task.fields.id]
+type = "string"
+required = true
+`
+	if err := os.WriteFile(filepath.Join(taDir, "schema.toml"), []byte(drifted), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	sel := writeSelectionsFile(t, `{"schemas":["plans"]}`)

@@ -25,15 +25,18 @@ package initapply
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/evanmschultz/ta/internal/backend/md"
 	"github.com/evanmschultz/ta/internal/configmerge"
@@ -177,10 +180,18 @@ func ParsePolicy(s string) (Policy, error) {
 }
 
 // Result buckets the per-category outcomes for one selection round.
+//
+// Unchanged is the F38d-2.6 content-aware bucket: when a destination
+// already exists and its content is byte-identical (after canonicalizing
+// YAML key order for .md frontmatter and .yaml/.yml files) to what the
+// helper would have written, the item lands here instead of Conflicts.
+// Idempotent re-runs of the same selections therefore record Unchanged
+// rather than spurious Conflicts.
 type Result struct {
 	Written   []string `json:"written"`
 	Skipped   []string `json:"skipped"`
 	Conflicts []string `json:"conflicts"`
+	Unchanged []string `json:"unchanged,omitempty" toml:"unchanged,omitempty"`
 }
 
 // Report is the full apply outcome surfaced to the CLI / MCP.
@@ -283,6 +294,27 @@ func Apply(target string, sel Selections, policy Policy) (Report, error) {
 			return Report{}, err
 		}
 	}
+	// F38d-2.5 atomic pre-scan: when policy=error, surface ALL conflicts
+	// across every category BEFORE any disk write touches the target.
+	// Pre-fix, the first per-category helper that wrote successfully
+	// could leave the project half-installed if a later helper hit a
+	// conflict. Option (b) error-contract: return nil error + populated
+	// Report.<Cat>.Conflicts so cmd/ta/init_multi.go's wrapper continues
+	// to format the user-facing error via AggregateConflicts.
+	if policy == PolicyError {
+		pre := preflightConflicts(target, sel)
+		// F38d-2.3: Target must be set BEFORE AggregateConflicts is
+		// probed so the dest-path enrichment resolves correctly even on
+		// this internal "any conflicts?" check. Resolving against an
+		// empty Target would leak relative paths through any caller
+		// that happens to re-aggregate the returned pre.
+		pre.Path = target
+		pre.Target = target
+		pre.OnConflict = string(policy)
+		if len(AggregateConflicts(pre)) > 0 {
+			return pre, nil
+		}
+	}
 	report := Report{
 		Path:       target,
 		Target:     target,
@@ -302,6 +334,207 @@ func Apply(target string, sel Selections, policy Policy) (Report, error) {
 		return report, err
 	}
 	return report, nil
+}
+
+// preflightConflicts walks every destination the per-category helpers
+// WOULD write and returns a Report with Conflicts populated for any
+// dest that would conflict at write time. No template-byte resolution
+// happens here — resolution stays in the per-category helpers — so the
+// pre-scan is cheap and side-effect free.
+//
+// Per-category conflict semantics mirror runtime exactly so a clean
+// preflight implies no conflict at apply time:
+//
+//   - Schemas: parse the existing dest TOML; flag a conflict iff a
+//     top-level [<name>] section already exists for the selected name.
+//     Existence of the file alone is not a conflict — an existing
+//     schema.toml with no overlap merges cleanly.
+//   - Agents: flag a conflict iff the resolved (flatten-aware) dest
+//     `.md` file already exists.
+//   - Configs: flag a conflict iff the resolved dest file exists AND no
+//     structured merger is registered for the canonical name. Known
+//     mergers (mcp.json, claude-settings.json, codex-config.toml,
+//     gitignore) defer conflict detection to runtime because a clean
+//     merge is NOT a conflict; only the merger can decide.
+//   - Docs-templates: flag a conflict iff the resolved dest file exists.
+//
+// Returns a Report whose per-category Conflicts slices are sorted. D4
+// layers content-aware sha256 comparison on top of this existence-only
+// pass so byte-identical re-runs do not register as conflicts.
+func preflightConflicts(target string, sel Selections) Report {
+	var r Report
+	if c := preflightSchemaConflicts(target, sel.Schemas); len(c) > 0 {
+		r.Schemas.Conflicts = c
+	}
+	if c := preflightAgentConflicts(target, sel.Agents); len(c) > 0 {
+		r.Agents.Conflicts = c
+	}
+	if c := preflightConfigConflicts(target, sel.Configs); len(c) > 0 {
+		r.Configs.Conflicts = c
+	}
+	if c := preflightDocsTemplateConflicts(target, sel.DocsTemplates); len(c) > 0 {
+		r.DocsTemplates.Conflicts = c
+	}
+	return r
+}
+
+func preflightSchemaConflicts(target string, sels []SchemaSelection) []string {
+	if len(sels) == 0 {
+		return nil
+	}
+	dest := schemaDestPath(target)
+	existing, err := readIfExists(dest)
+	if err != nil || existing == nil {
+		return nil
+	}
+	bodies, err := unmarshalDBBodies(existing)
+	if err != nil {
+		// Malformed existing schema is not a preflight concern — the
+		// applySchemas runtime path will surface the parse error with
+		// the same wrapping. Returning empty here means we fall
+		// through and apply emits the real error.
+		return nil
+	}
+	var conflicts []string
+	for _, s := range sels {
+		existingBody, has := bodies[s.Name]
+		if !has {
+			continue
+		}
+		// F38d-2.6 content-aware preflight: resolve the candidate
+		// body and compare against the on-disk section. Resolution
+		// failure or any mismatch surfaces as a real conflict — only
+		// a clean deep-equal demotes existence to Unchanged at
+		// runtime, which the preflight respects by NOT registering a
+		// conflict here.
+		raw, err := resolveSchemaBytes(s.Name, effectiveProvenance(target, s.Provenance))
+		if err != nil {
+			conflicts = append(conflicts, s.Name)
+			continue
+		}
+		incoming, err := unmarshalDBBodies(raw)
+		if err != nil {
+			conflicts = append(conflicts, s.Name)
+			continue
+		}
+		incomingBody, ok := incoming[s.Name]
+		if !ok || !reflect.DeepEqual(existingBody, incomingBody) {
+			conflicts = append(conflicts, s.Name)
+		}
+	}
+	sort.Strings(conflicts)
+	return conflicts
+}
+
+func preflightAgentConflicts(target string, sels []AgentSelection) []string {
+	if len(sels) == 0 {
+		return nil
+	}
+	flatten := !IsHomeRoot(target)
+	var conflicts []string
+	for _, sel := range sels {
+		dest := agentDestPath(target, sel.Group, sel.Name)
+		info, err := os.Stat(dest)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		// F38d-2.6 content-aware preflight: resolve the agent body
+		// (including F33 frontmatter rewrite for grouped project
+		// installs) and compare to on-disk via sameContent. Any
+		// resolution / canonicalization failure falls through to the
+		// existing-conflict path so the runtime helper can surface
+		// the real error with its richer wrapping.
+		if same, err := agentContentEquivalent(target, sel, flatten, dest); err == nil && same {
+			continue
+		}
+		conflicts = append(conflicts, agentKey(sel))
+	}
+	sort.Strings(conflicts)
+	return conflicts
+}
+
+// agentContentEquivalent resolves the agent body the runtime
+// applyAgents path would write (including F33 frontmatter rewrite for
+// grouped project installs) and reports whether dest's content is
+// content-equivalent under sameContent. Used by the F38d-2.6
+// content-aware preflight to avoid surfacing false conflicts for
+// byte-identical re-runs.
+func agentContentEquivalent(target string, sel AgentSelection, flatten bool, dest string) (bool, error) {
+	eff := sel
+	eff.Provenance = effectiveProvenance(target, sel.Provenance)
+	body, err := resolveAgentBytes(eff)
+	if err != nil {
+		return false, err
+	}
+	if flatten && sel.Group != "" {
+		body, err = rewriteAgentFrontmatterName(body, sel.Group+"-"+sel.Name, agentKey(sel))
+		if err != nil {
+			return false, err
+		}
+	}
+	return sameContent(dest, body)
+}
+
+func preflightConfigConflicts(target string, sels []ConfigSelection) []string {
+	if len(sels) == 0 {
+		return nil
+	}
+	var conflicts []string
+	for _, sel := range sels {
+		// Configs with a registered structured merger handle existence
+		// at runtime — a clean merge is not a conflict. Only unknown
+		// configs (no merger) treat dest existence as a conflict, which
+		// mirrors mergeOrCopy's "destination-exists" sentinel.
+		if pickConfigMerger(sel.Name) != nil {
+			continue
+		}
+		dest := configDestPath(target, sel.Name)
+		info, err := os.Stat(dest)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		// F38d-2.6 content-aware preflight: resolve the config body
+		// and compare bytes. An identical re-run skips the conflict.
+		eff := sel
+		eff.Provenance = effectiveProvenance(target, sel.Provenance)
+		body, err := resolveConfigBytes(eff)
+		if err == nil {
+			if same, err := sameContent(dest, body); err == nil && same {
+				continue
+			}
+		}
+		conflicts = append(conflicts, sel.Name)
+	}
+	sort.Strings(conflicts)
+	return conflicts
+}
+
+func preflightDocsTemplateConflicts(target string, sels []DocsSelection) []string {
+	if len(sels) == 0 {
+		return nil
+	}
+	var conflicts []string
+	for _, sel := range sels {
+		dest := docsTemplateDestPath(target, sel.Name)
+		info, err := os.Stat(dest)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		// F38d-2.6 content-aware preflight: resolve the docs-template
+		// body and compare bytes. An identical re-run skips the
+		// conflict; runtime applyDocsTemplates records Unchanged.
+		eff := sel
+		eff.Provenance = effectiveProvenance(target, sel.Provenance)
+		body, err := resolveDocsTemplateBytes(eff)
+		if err == nil {
+			if same, err := sameContent(dest, body); err == nil && same {
+				continue
+			}
+		}
+		conflicts = append(conflicts, sel.Name)
+	}
+	sort.Strings(conflicts)
+	return conflicts
 }
 
 // preflightEmptyHome enforces the F32 strict-provenance precondition.
@@ -410,25 +643,88 @@ func emptyHomeFriendlyError(k templates.Kind) error {
 // AggregateConflicts returns one flattened sorted list of conflict
 // names with kind prefixes — used by callers to format a single
 // error message when policy=error.
+//
+// F38d-2.3 dest-path enrichment: when r.Target is non-empty, each
+// conflict entry is suffixed with the resolved destination path in
+// parentheses so the user sees exactly which on-disk file conflicted
+// rather than just the category key. Empty r.Target falls back to the
+// bare `<category>:<key>` form for synthetic / unrouted Report values.
+//
+// Example enriched output:
+//
+//	"agent:go/builder (/abs/.claude/agents/go-builder.md)"
+//	"schema:plans (/abs/.ta/schema.toml)"
 func AggregateConflicts(r Report) []string {
+	target := r.Target
 	var out []string
-	out = append(out, prefixed("schema:", r.Schemas.Conflicts)...)
-	out = append(out, prefixed("agent:", r.Agents.Conflicts)...)
-	out = append(out, prefixed("config:", r.Configs.Conflicts)...)
-	out = append(out, prefixed("docs:", r.DocsTemplates.Conflicts)...)
+	out = append(out, enrichedConflicts(target, "schema", r.Schemas.Conflicts)...)
+	out = append(out, enrichedConflicts(target, "agent", r.Agents.Conflicts)...)
+	out = append(out, enrichedConflicts(target, "config", r.Configs.Conflicts)...)
+	out = append(out, enrichedConflicts(target, "docs", r.DocsTemplates.Conflicts)...)
 	sort.Strings(out)
 	return out
 }
 
-func prefixed(prefix string, names []string) []string {
-	if len(names) == 0 {
+// enrichedConflicts maps each conflict key to the F38d-2.3 enriched
+// `<category>:<key> (<destPath>)` form when target is non-empty, or the
+// bare `<category>:<key>` form when target is empty (synthetic Report).
+// Empty key list short-circuits to nil so AggregateConflicts callers
+// can rely on len() to gate the wrapper error.
+func enrichedConflicts(target, category string, keys []string) []string {
+	if len(keys) == 0 {
 		return nil
 	}
-	out := make([]string, len(names))
-	for i, n := range names {
-		out[i] = prefix + n
+	out := make([]string, len(keys))
+	for i, k := range keys {
+		bare := category + ":" + k
+		if target == "" {
+			out[i] = bare
+			continue
+		}
+		dest := destPathForConflict(target, category, k)
+		if dest == "" {
+			out[i] = bare
+			continue
+		}
+		out[i] = bare + " (" + dest + ")"
 	}
 	return out
+}
+
+// destPathForConflict resolves the on-disk destination path for one
+// `<category>:<key>` conflict against target. Mirrors the per-category
+// dest-path helpers so the enrichment matches the path the apply
+// helpers would have written to.
+//
+// Agent keys are `group/name` (or bare `name` when ungrouped); the
+// split is on the FIRST `/` so groups without slashes recover cleanly.
+// Returns "" when the category is unknown — the caller falls back to
+// the bare form rather than emitting a malformed enriched entry.
+func destPathForConflict(target, category, key string) string {
+	switch category {
+	case "schema":
+		return schemaDestPath(target)
+	case "agent":
+		group, name := splitAgentKey(key)
+		return agentDestPath(target, group, name)
+	case "config":
+		return configDestPath(target, key)
+	case "docs":
+		return docsTemplateDestPath(target, key)
+	default:
+		return ""
+	}
+}
+
+// splitAgentKey reverses agentKey: `<group>/<name>` → (group, name)
+// or bare `<name>` → ("", name). Splits on the FIRST `/` because group
+// names do not contain `/` (F33 flatten guarantees this); names also
+// do not contain `/` (file-as-record convention).
+func splitAgentKey(key string) (group, name string) {
+	if i := strings.Index(key, "/"); i >= 0 {
+		return key[:i], key[i+1:]
+	}
+	return "", key
 }
 
 // IsHomeRoot reports whether target is exactly `~/.ta`. Callers
@@ -501,7 +797,18 @@ func applySchemas(target string, sels []SchemaSelection, policy Policy) (Result,
 		if !ok {
 			return res, fmt.Errorf("initapply: schema %q body missing after extract", p.name)
 		}
-		if _, conflict := mergedBodies[p.name]; conflict {
+		if existingBody, conflict := mergedBodies[p.name]; conflict {
+			// F38d-2.6 content-aware: when the existing section is
+			// byte-identical (deep-equal in TOML map space) to the
+			// incoming body, treat the re-apply as a no-op and record
+			// Unchanged instead of Conflicts. The schema rewrite path
+			// already canonicalizes via go-toml/v2, so map deep-equal
+			// is the simplest semantically correct comparator — no
+			// extra marshal round-trip required.
+			if reflect.DeepEqual(existingBody, body) {
+				res.Unchanged = append(res.Unchanged, p.name)
+				continue
+			}
 			res.Conflicts = append(res.Conflicts, p.name)
 			switch policy {
 			case PolicyError, PolicySkip:
@@ -955,9 +1262,25 @@ func docsTemplateDestPath(target, name string) string {
 // recordOutcome handles the shared "destination conflict" gate for
 // agents and docs templates (no structured merge, just policy).
 // Updates res in place.
+//
+// F38d-2.6 content-aware: when a destination already exists and
+// sameContent reports the on-disk bytes equivalent to body (raw sha256
+// for non-md/yaml files; YAML-normalized sha256 for .md / .yaml / .yml
+// so frontmatter key-order drift does not register as a conflict),
+// record key in Unchanged and DROP the conflict record. The destination
+// is left untouched. Only genuine drift surfaces as a policy-gated
+// conflict.
 func recordOutcome(res *Result, key, dest string, body []byte, policy Policy) {
 	existing, err := os.Stat(dest)
 	if err == nil && !existing.IsDir() {
+		// Content-aware: byte-identical (canonicalized) re-write is not
+		// a conflict. Surface sameContent errors silently — fall through
+		// to the existing conflict path so the operator still sees the
+		// destination collision via the policy gate.
+		if same, scErr := sameContent(dest, body); scErr == nil && same {
+			res.Unchanged = append(res.Unchanged, key)
+			return
+		}
 		res.Conflicts = append(res.Conflicts, key)
 		switch policy {
 		case PolicyError:
@@ -976,6 +1299,103 @@ func recordOutcome(res *Result, key, dest string, body []byte, policy Policy) {
 	if werr := writeFile(dest, body); werr == nil {
 		res.Written = append(res.Written, key)
 	}
+}
+
+// sameContent reports whether the destination file's content is
+// byte-equivalent to body. The comparison is format-aware so semantic
+// no-op rewrites (key-order drift in YAML, frontmatter rewrites that
+// the install transform may apply on re-run) do not register as
+// conflicts.
+//
+//   - .md files: split frontmatter; if present, decode + re-encode the
+//     frontmatter on BOTH sides so YAML key order is canonicalized,
+//     then sha256 compare the canonical assembly. Body content (after
+//     the closing fence) is sha256'd raw — markdown structure is not
+//     normalized.
+//   - .yaml / .yml files: yaml.Unmarshal + yaml.Marshal both sides
+//     through the same encoder so key order is canonicalized, then
+//     sha256 compare.
+//   - All other extensions: raw sha256 of dest bytes vs body.
+//
+// Returns (false, nil) when the destination does not exist — caller
+// should treat that case as "no comparison possible; fall through to
+// the normal new-write path". A read or decode error surfaces as
+// (false, err) so the caller can choose to log and fall through.
+func sameContent(destPath string, body []byte) (bool, error) {
+	dest, err := os.ReadFile(destPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("initapply: read %s: %w", destPath, err)
+	}
+	ext := strings.ToLower(filepath.Ext(destPath))
+	switch ext {
+	case ".md":
+		canonDest, err := canonicalizeMarkdown(dest)
+		if err != nil {
+			return false, fmt.Errorf("initapply: canonicalize %s (on-disk): %w", destPath, err)
+		}
+		canonBody, err := canonicalizeMarkdown(body)
+		if err != nil {
+			return false, fmt.Errorf("initapply: canonicalize %s (would-write): %w", destPath, err)
+		}
+		return sha256.Sum256(canonDest) == sha256.Sum256(canonBody), nil
+	case ".yaml", ".yml":
+		canonDest, err := canonicalizeYAML(dest)
+		if err != nil {
+			return false, fmt.Errorf("initapply: canonicalize %s (on-disk): %w", destPath, err)
+		}
+		canonBody, err := canonicalizeYAML(body)
+		if err != nil {
+			return false, fmt.Errorf("initapply: canonicalize %s (would-write): %w", destPath, err)
+		}
+		return sha256.Sum256(canonDest) == sha256.Sum256(canonBody), nil
+	default:
+		return sha256.Sum256(dest) == sha256.Sum256(body), nil
+	}
+}
+
+// canonicalizeMarkdown returns a deterministic byte sequence that
+// represents buf with any YAML frontmatter re-emitted through
+// md.EncodeFrontmatter (alphabetical key order). Body bytes after the
+// closing fence are preserved verbatim. Files without frontmatter pass
+// through unchanged.
+func canonicalizeMarkdown(buf []byte) ([]byte, error) {
+	front, rest, err := md.SplitFrontmatter(buf)
+	if err != nil {
+		return nil, err
+	}
+	if front == nil {
+		// No frontmatter — comparison is raw-body equivalent.
+		return buf, nil
+	}
+	fields, err := md.DecodeFrontmatter(front)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := md.EncodeFrontmatter(fields, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(encoded)+len(rest))
+	out = append(out, encoded...)
+	out = append(out, rest...)
+	return out, nil
+}
+
+// canonicalizeYAML round-trips buf through yaml.Unmarshal +
+// yaml.Marshal so key order is canonicalized regardless of how the
+// source was authored. Empty input returns empty output.
+func canonicalizeYAML(buf []byte) ([]byte, error) {
+	if len(bytes.TrimSpace(buf)) == 0 {
+		return nil, nil
+	}
+	var v any
+	if err := yaml.Unmarshal(buf, &v); err != nil {
+		return nil, fmt.Errorf("yaml: decode: %w", err)
+	}
+	return yaml.Marshal(v)
 }
 
 // ---- shared utility -----------------------------------------------
