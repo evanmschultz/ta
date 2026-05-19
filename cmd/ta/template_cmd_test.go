@@ -993,3 +993,184 @@ func TestCLI_TemplateShowJSONErrorEnvelope(t *testing.T) {
 	}
 	_ = decodeJSONErrEnvelope(t, []byte(out))
 }
+
+// ---- F15 verify (L3-G9-D4) ------------------------------------------
+//
+// These three tests pin the F15 single-schema-per-.ta contract for
+// `ta template save`:
+//
+//   - TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles — the
+//     legacy-files warning, which previously only fired on
+//     `template list`, must now also fire on `template save` so a user
+//     promoting dbs while orphaned `~/.ta/<name>.toml` files still sit
+//     on disk hears about it (pins the new RunE wire at template_cmd.go's
+//     newTemplateSaveCmd schema-kind branch).
+//   - TestF15_SingleSchemaPerTaDir_VerifyShape — the save flow reads
+//     `~/.ta/schema.toml` exclusively; legacy `~/.ta/<name>.toml` files
+//     are NOT parsed as schema sources, never mutated, and never
+//     promoted into the merge result.
+//   - TestF15_TemplateSave_MergesIntoSchemaToml — the merge target is
+//     `~/.ta/schema.toml` and only `~/.ta/schema.toml`; no
+//     per-db `~/.ta/<name>.toml` file is created as a side effect.
+
+// TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles pins the new
+// emitLegacyWarning wire on `template save`. Pre-wire, save was silent
+// about legacy files; post-wire it must surface the same stderr Notice
+// `template list` already emits (verified by
+// TestTemplateListLegacyFilesWarning above).
+func TestF15_TemplateSave_LegacyWarningOnHomeWithLegacyFiles(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	// Seed a legacy per-db file alongside the (empty) schema.toml so
+	// LegacyTemplateFiles returns it. Empty schema.toml is fine — save
+	// will still merge the project dbs into it.
+	if err := os.WriteFile(filepath.Join(root, "myproj.toml"), []byte("# legacy"), 0o644); err != nil {
+		t.Fatalf("seed legacy: %v", err)
+	}
+	seedCwdSchema(t, twoDBSchema)
+
+	_, errOut, err := runTemplateCmd(t, "save", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	if !strings.Contains(errOut, "legacy template files detected") {
+		t.Errorf("stderr missing legacy warning on save: %s", errOut)
+	}
+	if !strings.Contains(errOut, "myproj.toml") {
+		t.Errorf("stderr should name the legacy file: %s", errOut)
+	}
+}
+
+// TestF15_SingleSchemaPerTaDir_VerifyShape pins the contract that ONLY
+// `~/.ta/schema.toml` is treated as a schema source by the save flow.
+// Setup: home holds BOTH a schema.toml AND a legacy leftover.toml. After
+// save, the merge result is computed solely from schema.toml + the
+// project's dbs; leftover.toml's contents do NOT appear in the merged
+// home, and leftover.toml itself is left untouched on disk.
+func TestF15_SingleSchemaPerTaDir_VerifyShape(t *testing.T) {
+	root := t.TempDir()
+	// Pre-seed an empty schema.toml so LoadHome sees a valid (zero-db)
+	// registry — keeps the save flow on the no-conflict path.
+	if err := os.WriteFile(filepath.Join(root, "schema.toml"), []byte("# empty\n"), 0o644); err != nil {
+		t.Fatalf("seed schema: %v", err)
+	}
+	// Legacy file declaring a db NOT in twoDBSchema; verifies it is
+	// ignored as a schema source even though it sits next to schema.toml.
+	legacyBody := "[leftover]\npaths = [\"leftover.toml\"]\n"
+	legacyPath := filepath.Join(root, "leftover.toml")
+	if err := os.WriteFile(legacyPath, []byte(legacyBody), 0o644); err != nil {
+		t.Fatalf("seed legacy: %v", err)
+	}
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	seedCwdSchema(t, twoDBSchema)
+
+	out, errOut, err := runTemplateCmd(t, "save", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	var report struct {
+		Written []string `json:"written"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("stdout not JSON: %v\n%s", err, out)
+	}
+	// Result must mention plans+notes (project dbs) — leftover.toml's
+	// `leftover` db is NOT a schema source.
+	gotWritten := append([]string(nil), report.Written...)
+	sort.Strings(gotWritten)
+	want := []string{"notes", "plans"}
+	if len(gotWritten) != len(want) {
+		t.Fatalf("written = %v, want %v", report.Written, want)
+	}
+	for i, n := range want {
+		if gotWritten[i] != n {
+			t.Errorf("idx %d: got %q, want %q", i, gotWritten[i], n)
+		}
+	}
+	for _, name := range report.Written {
+		if name == "leftover" {
+			t.Errorf("leftover.toml leaked into save result: %v", report.Written)
+		}
+	}
+	// Home schema.toml must NOT contain the leftover db (it was never a
+	// schema source) — guards against accidental scan-the-dir behavior.
+	homeBody, err := os.ReadFile(filepath.Join(root, "schema.toml"))
+	if err != nil {
+		t.Fatalf("read home schema: %v", err)
+	}
+	if strings.Contains(string(homeBody), "[leftover]") {
+		t.Errorf("home schema.toml picked up legacy leftover db: %s", homeBody)
+	}
+	// And leftover.toml itself is untouched.
+	gotLegacy, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatalf("read legacy: %v", err)
+	}
+	if string(gotLegacy) != legacyBody {
+		t.Errorf("legacy file was mutated by save: got=%q want=%q", gotLegacy, legacyBody)
+	}
+}
+
+// TestF15_TemplateSave_MergesIntoSchemaToml pins the merge target. Post
+// F15 the only sink for save is `~/.ta/schema.toml`; no per-db
+// `~/.ta/<name>.toml` file is created. This guards against a future
+// regression that might restore the pre-F15 per-template-file write.
+func TestF15_TemplateSave_MergesIntoSchemaToml(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	seedCwdSchema(t, twoDBSchema)
+
+	out, errOut, err := runTemplateCmd(t, "save", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	var report struct {
+		Written []string `json:"written"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("stdout not JSON: %v\n%s", err, out)
+	}
+	if len(report.Written) == 0 {
+		t.Fatalf("save reported no writes: %v stderr=%s", report.Written, errOut)
+	}
+	// schema.toml is the merge target.
+	homeSchema := filepath.Join(root, "schema.toml")
+	got, err := os.ReadFile(homeSchema)
+	if err != nil {
+		t.Fatalf("read home schema: %v", err)
+	}
+	for _, db := range []string{"[plans]", "[notes]"} {
+		if !strings.Contains(string(got), db) {
+			t.Errorf("home schema.toml missing %s after merge: %s", db, got)
+		}
+	}
+	// NO per-db file should have been created as a side effect.
+	for _, name := range []string{"plans.toml", "notes.toml"} {
+		side := filepath.Join(root, name)
+		if _, err := os.Stat(side); err == nil {
+			t.Errorf("per-db file %s created (pre-F15 regression)", side)
+		} else if !os.IsNotExist(err) {
+			t.Errorf("unexpected stat err on %s: %v", side, err)
+		}
+	}
+	// Belt-and-suspenders: enumerate the home dir and confirm no
+	// `<name>.toml` other than schema.toml.
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if e.Name() == "schema.toml" {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".toml") {
+			t.Errorf("stray .toml file in home after save: %s", e.Name())
+		}
+	}
+}

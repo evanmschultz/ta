@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -916,4 +918,91 @@ func TestJSONArrayOrTableValidator(t *testing.T) {
 	if err := tbl(`["a"]`); err == nil {
 		t.Errorf("expected shape error: array passed where table expected")
 	}
+}
+
+// --- L3-G9-D2 (F13): form polish goldens ---
+//
+// The two tests below pin the polished View() bytes via testdata
+// goldens. They reuse the existing `-update` flag from
+// commands_test.go (see updateCLIGolden) for regen — running `mage
+// test ./cmd/ta` against the flag will re-materialize on diff.
+//
+// Note: the cmd/ta test binary already registers a local `-update`
+// flag (commands_test.go:20); importing github.com/charmbracelet/x/
+// exp/golden through cmd/ta/internal/tuitest panics at init() with
+// "flag redefined: update". The polish tests therefore drive the
+// formModel directly and golden-compare via direct file IO — same
+// pattern as picker_selections_contract_capture_test.go.
+//
+// The fixture is a stable 3-field type spanning the three layout
+// branches that exercise the polished label row: WidgetInput
+// (alpha, required) → WidgetSelect (choice, optional, multi-row) →
+// WidgetConfirm (flag, optional). Sorted-name order is enforced by
+// FormFor so the active index unambiguously points at "alpha" first.
+
+// f13FormPolishFixture builds the polished-view 3-field type. Kept
+// local to the polish tests so adding new fields elsewhere doesn't
+// drift the goldens.
+func f13FormPolishFixture() schema.SectionType {
+	return schema.SectionType{
+		Name: "task",
+		Fields: map[string]schema.Field{
+			"alpha":  {Name: "alpha", Type: schema.TypeString, Required: true},
+			"choice": {Name: "choice", Type: schema.TypeString, Enum: []any{"todo", "done"}},
+			"flag":   {Name: "flag", Type: schema.TypeBoolean},
+		},
+	}
+}
+
+// assertFormPolishGolden compares View().Content (rendered string)
+// against testdata/<name>.golden. First run (or under -update via the
+// existing commands_test.go flag) materializes the file; subsequent
+// runs byte-compare and fail loud on diff.
+func assertFormPolishGolden(t *testing.T, m *formModel, name string) {
+	t.Helper()
+	got := []byte(m.View().Content)
+	path := filepath.Join("testdata", name+".golden")
+	_, statErr := os.Stat(path)
+	if os.IsNotExist(statErr) || (updateCLIGolden != nil && *updateCLIGolden) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir testdata: %v", err)
+		}
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatalf("write golden %s: %v", path, err)
+		}
+		if os.IsNotExist(statErr) {
+			t.Logf("materialized golden %s", path)
+		} else {
+			t.Logf("regenerated golden %s", path)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s: %v", path, err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("View() bytes diverge from %s\n--- got ---\n%s\n--- want ---\n%s", path, got, want)
+	}
+}
+
+// TestF13_FormPolish_GoldenInitialView captures the initial View()
+// with active=0 ("alpha"). Pins the polished cursor glyph (▸), the
+// distinct Cherry-styled required marker (*), and per-block spacing.
+func TestF13_FormPolish_GoldenInitialView(t *testing.T) {
+	t.Parallel()
+	m, _, _ := FormFor(f13FormPolishFixture(), nil, false)
+	assertFormPolishGolden(t, m, t.Name())
+}
+
+// TestF13_FormPolish_GoldenActiveFieldHighlight advances the form
+// one field (tab → active=1, "choice") and captures the View() so the
+// cursor-glyph movement plus the label-style swap (alpha goes idle,
+// choice goes active) is locked.
+func TestF13_FormPolish_GoldenActiveFieldHighlight(t *testing.T) {
+	t.Parallel()
+	m, _, _ := FormFor(f13FormPolishFixture(), nil, false)
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	fm := updated.(*formModel)
+	assertFormPolishGolden(t, fm, t.Name())
 }

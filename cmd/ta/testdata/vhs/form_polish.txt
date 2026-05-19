@@ -1,0 +1,483 @@
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+> rm -rf /tmp/ta-vhs-form-polish && mkdir -p /tmp/ta-vhs-form-polish/.ta
+> cat > /tmp/ta-vhs-form-polish/.ta/schema.toml << "EOF"
+> [plans]
+> paths = ["plans.toml"]
+>
+> [plans.task]
+> description = "A task."
+>
+> [plans.task.fields]
+>
+> [plans.task.fields.alpha]
+> type = "string"
+> required = true
+>
+> [plans.task.fields.choice]
+> type = "string"
+> enum = ["todo", "done"]
+>
+> [plans.task.fields.flag]
+> type = "boolean"
+> EOF
+>
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+> rm -rf /tmp/ta-vhs-form-polish && mkdir -p /tmp/ta-vhs-form-polish/.ta
+> cat > /tmp/ta-vhs-form-polish/.ta/schema.toml << "EOF"
+> [plans]
+> paths = ["plans.toml"]
+>
+> [plans.task]
+> description = "A task."
+>
+> [plans.task.fields]
+>
+> [plans.task.fields.alpha]
+> type = "string"
+> required = true
+>
+> [plans.task.fields.choice]
+> type = "string"
+> enum = ["todo", "done"]
+>
+> [plans.task.fields.flag]
+> type = "boolean"
+> EOF
+> ./bin/ta create plans.t1 --type plans.task --path /tmp/ta-vhs-form-polish
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Fill task
+
+▸ alpha *
+    > a
+
+  choice
+    [x] todo
+    [ ] done
+
+  flag
+    [ ] yes
+
+tab next  shift+tab prev  enter advance/submit  ctrl+enter submit textarea  esc abort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Fill task
+
+▸ alpha *
+    > a
+
+  choice
+    [x] todo
+    [ ] done
+
+  flag
+    [ ] yes
+
+tab next  shift+tab prev  enter advance/submit  ctrl+enter submit textarea  esc abort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Fill task
+
+  alpha *
+    > a
+
+▸ choice
+    [x] todo
+    [ ] done
+
+  flag
+    [ ] yes
+
+tab next  shift+tab prev  enter advance/submit  ctrl+enter submit textarea  esc abort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Fill task
+
+  alpha *
+    > a
+
+▸ choice
+    [x] todo
+    [ ] done
+
+  flag
+    [ ] yes
+
+tab next  shift+tab prev  enter advance/submit  ctrl+enter submit textarea  esc abort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────

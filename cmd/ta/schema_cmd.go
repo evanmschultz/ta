@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/evanmschultz/laslig"
 	"github.com/spf13/cobra"
 
 	// Blank imports register the html / md / txt Format engines with the
@@ -23,6 +24,7 @@ import (
 	_ "github.com/evanmschultz/ta/internal/backend/md_explicit"
 	_ "github.com/evanmschultz/ta/internal/backend/txt"
 
+	"github.com/evanmschultz/ta/internal/config"
 	"github.com/evanmschultz/ta/internal/format"
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/render"
@@ -98,13 +100,28 @@ func newSchemaCmd() *cobra.Command {
 					// the action=get branch — D5-D4 (write side) installs
 					// its own gate against the same `asFormat` variable in
 					// the mutation branches below.
-					if asFormat != "" {
-						return runSchemaGetWithFormat(c.OutOrStdout(), path, scope, asFormat, asJSON)
+					var err error
+					switch {
+					case asFormat != "":
+						err = runSchemaGetWithFormat(c.OutOrStdout(), path, scope, asFormat, asJSON)
+					case asJSON:
+						err = runSchemaGetJSON(c.OutOrStdout(), path, scope)
+					default:
+						err = runSchemaGet(c.OutOrStdout(), path, scope)
 					}
-					if asJSON {
-						return runSchemaGetJSON(c.OutOrStdout(), path, scope)
+					// L3-G9-D1 F5 dead-end guard: when the project has no
+					// `.ta/schema.toml`, `ops.ResolveProject` surfaces
+					// `config.ErrNoSchema`. Mirror the empty-home pattern
+					// from init_cmd.go (emptyHomeError): emit a laslig
+					// Notice with remediation paths on the laslig branch
+					// only; the JSON branch propagates the wrapped error
+					// for runWithJSONErrEnvelope to render. Both branches
+					// preserve the wrapped error so fang's stderr printer
+					// still surfaces the remediation hint on bare prose.
+					if err != nil && errors.Is(err, config.ErrNoSchema) {
+						return emptyProjectSchemaError(c.ErrOrStderr(), path, asJSON)
 					}
-					return runSchemaGet(c.OutOrStdout(), path, scope)
+					return err
 				})
 			}
 			// PLAN §12.17.9 Phase 9.6: --paths-append / --paths-remove
@@ -146,6 +163,24 @@ func newSchemaCmd() *cobra.Command {
 			if asFormat != "" && (action == "create" || action == "update") {
 				return runSchemaMutateWithFormat(c, path, action, kind, name, dataInline, dataFile, asFormat, verbose)
 			}
+			// L3-G9-D3b F6: schema-mutation TUI dispatch. When the
+			// caller is interactive (real-TTY stdin+stdout) AND has
+			// not supplied --data / --data-file / --as, drop into a
+			// bubbletea form built off the embedded meta-schema for
+			// the requested kind. Off-TTY OR explicit --data callers
+			// keep the existing non-interactive path so agents and
+			// pipelines fail loudly via readJSONDataOptional rather
+			// than hang on stdin. The gate covers all four mutating
+			// kinds (db / type / field / base) per CE2; CE3 keeps the
+			// TTY check on term.IsTerminal via ttyInteractive (no
+			// TA_MOCK_TTY env gate). Today only action=create is
+			// routed here — update would need a registry lookup to
+			// build prefill data and that lands in a follow-up slice.
+			if action == "create" && dataInline == "" && dataFile == "" && asFormat == "" &&
+				(kind == "db" || kind == "type" || kind == "field" || kind == "base") &&
+				ttyInteractive(false) {
+				return runSchemaMutateForm(c, path, action, kind, name, verbose)
+			}
 			raw, err := readJSONDataOptional(dataInline, dataFile, c.InOrStdin(), action == "delete")
 			if err != nil {
 				return err
@@ -158,6 +193,15 @@ func newSchemaCmd() *cobra.Command {
 			}
 			sources, err := runSchemaMutate(path, action, kind, name, data)
 			if err != nil {
+				// L3-G9-D3b CE6: F7 rollback hint. When create + type
+				// rolls back because the meta-schema rule "type must
+				// declare at least one field" rejected an empty
+				// `fields` table, surface a laslig Warn pointing at
+				// the recovery command. Detection is a substring
+				// match against schema/load.go:1731 — keep the test
+				// pinned on the same substring so any change to the
+				// rejection text trips a build.
+				maybeEmitTypeNoFieldsHint(c.ErrOrStderr(), action, kind, name, err)
 				return err
 			}
 			if err := noticeMutation(c.OutOrStdout(), "schema "+action, name, "", sources); err != nil {
@@ -322,6 +366,42 @@ func schemaTypesToJSON(types map[string]schema.SectionType) map[string]any {
 		out[name] = entry
 	}
 	return out
+}
+
+// emptyProjectSchemaError surfaces the F5 dead-end remediation when
+// `ta schema` (action=get) fires against a project that has no
+// `.ta/schema.toml`. Mirrors cmd/ta/init_cmd.go's `emptyHomeError`
+// pattern: emit a laslig Notice to errOut with concrete next-step
+// commands AND return a wrapped error so non-laslig surfaces (fang's
+// stderr printer, piped stderr, --json envelope) still expose the
+// path forward.
+//
+// On the --json branch the laslig Notice is suppressed — JSON callers
+// (agents) don't render ANSI, and the JSON envelope already carries
+// the same wrapped error in its `error` field. The wrapped error
+// always wraps `config.ErrNoSchema` so `errors.Is` callers stay green.
+func emptyProjectSchemaError(errOut io.Writer, projectPath string, asJSON bool) error {
+	if !asJSON {
+		schemaPath := projectPath + "/.ta/schema.toml"
+		rr := render.New(errOut)
+		_ = rr.Notice(
+			laslig.NoticeErrorLevel,
+			"project schema not declared",
+			"ta schema needs a project-local schema at "+schemaPath+
+				" but the file is missing. The fastest fix is "+
+				"`ta init` to populate it from the home library, or "+
+				"build one directly with `ta schema --action=create "+
+				"--kind=db --name=<name>`. See examples/ in the ta "+
+				"repo for sample schemas.",
+			[]string{
+				"Run `ta init` to populate " + schemaPath + " from the home library",
+				"Or build directly: ta schema --action=create --kind=db --name=<name> --data='{...}'",
+				"Or copy a sample: cp examples/schemas/<name>.toml " + schemaPath,
+				"Or apply a template: ta template apply <db>",
+			},
+		)
+	}
+	return fmt.Errorf("schema: project schema not declared at %s/.ta/schema.toml; run `ta init` or `ta schema --action=create --kind=db --name=<name>`: %w", projectPath, config.ErrNoSchema)
 }
 
 // renderMetaSchema prints the embedded meta-schema TOML literal directly —
@@ -561,6 +641,75 @@ func runSchemaMutateWithFormat(c *cobra.Command, path, action, kind, name, dataI
 		return runSchemaGet(c.OutOrStdout(), path, "")
 	}
 	return nil
+}
+
+// runSchemaMutateForm drives the schema-mutation bubbletea form for
+// `ta schema --action=create --kind=<kind>` and then dispatches the
+// collected payload through runSchemaMutate. Only fired when the
+// TTY-form gate in RunE passes (action=create, kind ∈ {db,type,
+// field,base}, no --data / --data-file / --as, real TTY). On abort
+// (esc / ctrl+c) returns errInitAborted so callers see the same
+// abort surface as the create / update record forms.
+//
+// CE6 F7 rollback: when the type-create case rolls back because the
+// type has no declared fields (meta-schema rule from
+// internal/schema/load.go), maybeEmitTypeNoFieldsHint surfaces a
+// laslig Warn hint suggesting the recovery command, then the error
+// bubbles up to the cobra layer for the standard non-zero exit.
+func runSchemaMutateForm(c *cobra.Command, path, action, kind, name string, verbose bool) error {
+	form, _, collect, err := newSchemaMutateForm(kind, nil)
+	if err != nil {
+		return err
+	}
+	if err := runFormProgram(form); err != nil {
+		return err
+	}
+	data, err := collect()
+	if err != nil {
+		return fmt.Errorf("schema form: %w", err)
+	}
+	sources, err := runSchemaMutate(path, action, kind, name, data)
+	if err != nil {
+		maybeEmitTypeNoFieldsHint(c.ErrOrStderr(), action, kind, name, err)
+		return err
+	}
+	if err := noticeMutation(c.OutOrStdout(), "schema "+action, name, "", sources); err != nil {
+		return err
+	}
+	if verbose {
+		return runSchemaGet(c.OutOrStdout(), path, "")
+	}
+	return nil
+}
+
+// maybeEmitTypeNoFieldsHint surfaces a laslig Warn pointing operators
+// at the recovery command when a `schema --action=create --kind=type`
+// call rolls back because the new type declared no fields. The
+// meta-schema rule is enforced in internal/schema/load.go and the
+// rejection text carries the substring "type must declare at least
+// one field" — used here as the dispatch trigger.
+//
+// The hint is non-fatal and informational; the underlying error
+// still bubbles back to cobra for the non-zero exit. Nothing is
+// emitted for any other error or for kinds other than `type` to
+// keep the surface tight.
+func maybeEmitTypeNoFieldsHint(errOut io.Writer, action, kind, name string, err error) {
+	if action != "create" || kind != "type" || err == nil {
+		return
+	}
+	if !strings.Contains(err.Error(), "type must declare at least one field") {
+		return
+	}
+	_ = render.New(errOut).Notice(
+		laslig.NoticeWarningLevel,
+		"type rolled back: needs at least one field",
+		"Schema rule: every record type must declare at least one own field (or extend a base). "+
+			"The new type was atomically rolled back. Add a field next:",
+		[]string{
+			"ta schema --action=create --kind=field --name=" + name + ".<field> --data='{...}'",
+			"Then re-run: ta schema --action=create --kind=type --name=" + name + " (with the same fields)",
+		},
+	)
 }
 
 // schemaTargetScope returns the dbFormatForSchemaScope-compatible scope

@@ -484,3 +484,105 @@ func TestExamplesCascadeSchema_AutoSpawnByteFidelity(t *testing.T) {
 		})
 	}
 }
+
+// TestMetaSchemaForKind_Db locks the L3-G9-D3a contract: requesting
+// the "db" kind returns the SectionType describing a [<db>] block,
+// which the schema-mutation TUI uses to render a typed form for
+// `ta schema --action=create --kind=db`. Asserted invariants: non-nil
+// return, kind-named declared sub-fields (paths, description) are
+// present so the form can drive at least the required paths field.
+func TestMetaSchemaForKind_Db(t *testing.T) {
+	st, err := MetaSchemaForKind("db")
+	if err != nil {
+		t.Fatalf("MetaSchemaForKind(\"db\"): %v", err)
+	}
+	if st == nil {
+		t.Fatal("MetaSchemaForKind(\"db\") returned nil SectionType without error")
+	}
+	for _, want := range []string{"paths", "description"} {
+		if _, ok := st.Fields[want]; !ok {
+			t.Errorf("ta_schema.db.fields missing %q (meta-schema regression)", want)
+		}
+	}
+}
+
+// TestMetaSchemaForKind_Type locks the L3-G9-D3a contract for the
+// "type" kind. A type record describes a [<db>.<type>] block. The
+// form needs at least the description field (the required user-facing
+// blurb) plus the heading + extends + auto_spawn fields the
+// meta-schema declares as recognized.
+func TestMetaSchemaForKind_Type(t *testing.T) {
+	st, err := MetaSchemaForKind("type")
+	if err != nil {
+		t.Fatalf("MetaSchemaForKind(\"type\"): %v", err)
+	}
+	if st == nil {
+		t.Fatal("MetaSchemaForKind(\"type\") returned nil SectionType without error")
+	}
+	for _, want := range []string{"description", "heading", "extends", "auto_spawn"} {
+		if _, ok := st.Fields[want]; !ok {
+			t.Errorf("ta_schema.type.fields missing %q (meta-schema regression)", want)
+		}
+	}
+}
+
+// TestMetaSchemaForKind_Field locks the L3-G9-D3a contract for the
+// "field" kind. A field record describes a [<db>.<type>.fields.<name>]
+// block. The form needs at least the type + required + description
+// fields plus the F21 element_type/element_fields grammar.
+func TestMetaSchemaForKind_Field(t *testing.T) {
+	st, err := MetaSchemaForKind("field")
+	if err != nil {
+		t.Fatalf("MetaSchemaForKind(\"field\"): %v", err)
+	}
+	if st == nil {
+		t.Fatal("MetaSchemaForKind(\"field\") returned nil SectionType without error")
+	}
+	for _, want := range []string{"type", "required", "description", "element_type", "element_fields"} {
+		if _, ok := st.Fields[want]; !ok {
+			t.Errorf("ta_schema.field.fields missing %q (meta-schema regression)", want)
+		}
+	}
+}
+
+// TestMetaSchemaForKind_Base locks the L3-G9-D3a contract for the
+// "base" kind (F22). A base record describes a [<db>.bases.<name>]
+// block. The form needs the description + extends fields the
+// meta-schema declares.
+func TestMetaSchemaForKind_Base(t *testing.T) {
+	st, err := MetaSchemaForKind("base")
+	if err != nil {
+		t.Fatalf("MetaSchemaForKind(\"base\"): %v", err)
+	}
+	if st == nil {
+		t.Fatal("MetaSchemaForKind(\"base\") returned nil SectionType without error")
+	}
+	for _, want := range []string{"description", "extends"} {
+		if _, ok := st.Fields[want]; !ok {
+			t.Errorf("ta_schema.base.fields missing %q (meta-schema regression)", want)
+		}
+	}
+}
+
+// TestMetaSchemaForKind_Unknown locks the L3-G9-D3a error path:
+// requesting a kind not declared in the meta-schema returns a nil
+// SectionType and a non-nil error, with the error string naming the
+// offending kind so callers can surface it verbatim in their own
+// diagnostics. Both the empty string and an arbitrary unknown name
+// exercise the same branch.
+func TestMetaSchemaForKind_Unknown(t *testing.T) {
+	for _, kind := range []string{"", "bogus", "DB", "Field"} {
+		t.Run(kind, func(t *testing.T) {
+			st, err := MetaSchemaForKind(kind)
+			if err == nil {
+				t.Fatalf("MetaSchemaForKind(%q): expected error, got nil", kind)
+			}
+			if st != nil {
+				t.Errorf("MetaSchemaForKind(%q): expected nil SectionType on error, got %+v", kind, st)
+			}
+			if !strings.Contains(err.Error(), "unknown meta-schema kind") {
+				t.Errorf("MetaSchemaForKind(%q) error = %q, want substring \"unknown meta-schema kind\"", kind, err.Error())
+			}
+		})
+	}
+}

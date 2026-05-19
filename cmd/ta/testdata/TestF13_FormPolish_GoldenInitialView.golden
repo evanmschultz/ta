@@ -1,0 +1,13 @@
+[1;38;2;139;117;255mFill task[m
+         
+[1;38;2;255;56;139m▸[m [1;38;2;73;73;255malpha[m [1;38;2;255;56;139m*[m
+    [37m> [m[7;37ma[m
+
+  [38;2;191;188;200mchoice[m
+    [x] todo
+    [ ] done
+
+  [38;2;191;188;200mflag[m
+    [ ] yes
+
+[38;2;191;188;200mtab next  shift+tab prev  enter advance/submit  ctrl+enter submit textarea  esc abort[m

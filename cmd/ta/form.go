@@ -485,26 +485,39 @@ func (m *formModel) advance(delta int) {
 
 // View renders the form. Title at top; one block per field with
 // title + active-marker + widget content; help bar at bottom.
+//
+// L3-G9-D2 polish (F13): the cursor glyph is split out so it can
+// carry its own Cherry/Bold style independent of the active label
+// color, the idle marker is a same-width middle dot so vertical
+// alignment of labels does not shift when the cursor moves, and the
+// required `*` marker carries formRequiredMarkerStyle for visual
+// distinction from the label text. View() remains alt-screen-
+// orthogonal: layout bytes are identical whether the model runs
+// inside a Program with alt-screen on or in a tuitest harness.
 func (m *formModel) View() tea.View {
 	var b strings.Builder
 	if m.title != "" {
 		b.WriteString(formTitleStyle.Render(m.title))
-		b.WriteString("\n\n")
+		b.WriteByte('\n')
 	}
 	for i, ff := range m.fields {
 		w := m.widgets[i]
-		marker := "  "
+		var marker string
 		if i == m.active {
-			marker = "▶ "
-		}
-		title := ff.Name
-		if ff.Required {
-			title += " *"
-		}
-		if i == m.active {
-			b.WriteString(formActiveLabelStyle.Render(marker + title))
+			marker = formCursorStyle.Render("▸") + " "
 		} else {
-			b.WriteString(formIdleLabelStyle.Render(marker + title))
+			marker = "  "
+		}
+		b.WriteString(marker)
+		label := ff.Name
+		if i == m.active {
+			b.WriteString(formActiveLabelStyle.Render(label))
+		} else {
+			b.WriteString(formIdleLabelStyle.Render(label))
+		}
+		if ff.Required {
+			b.WriteString(" ")
+			b.WriteString(formRequiredMarkerStyle.Render("*"))
 		}
 		b.WriteByte('\n')
 		switch w.kind {

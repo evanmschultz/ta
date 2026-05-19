@@ -440,6 +440,13 @@ func newTemplateSaveCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, args []string) error {
 			switch kind {
 			case "", "schema":
+				// Legacy warning is a stderr notice — emitted before the
+				// merge so the user sees the legacy-files heads-up
+				// alongside the save report. Mirrors the wire in
+				// `template list` (this file, RunE above) and pins F15's
+				// contract that save ALSO warns on legacy template
+				// files, not just list.
+				emitLegacyWarning(c.ErrOrStderr())
 				return runTemplateSave(c.OutOrStdout(), args, overwrite, asJSON)
 			case "agent":
 				return runTemplateSaveAgent(c.OutOrStdout(), path, group, overwrite, asJSON)

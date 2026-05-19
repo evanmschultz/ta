@@ -17,11 +17,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/evanmschultz/ta/internal/config"
 	"github.com/evanmschultz/ta/internal/ops"
 )
 
@@ -378,6 +381,106 @@ func TestSchema_AsWriteUnknownFormatError(t *testing.T) {
 	if !strings.Contains(err.Error(), "--as=bogus") {
 		t.Errorf("error = %q, want substring %q", err.Error(), "--as=bogus")
 	}
+}
+
+// L3-G9-D1 F5 dead-end guard tests — when `ta schema` (action=get)
+// fires against a project that has no `.ta/schema.toml`, the bare
+// `resolve schema for <path>: no .ta/schema.toml found in project
+// directory` error is replaced with an `emptyProjectSchemaError`
+// surface mirroring `init_cmd.go`'s `emptyHomeError`: a laslig Notice
+// on the human path + a wrapped error preserving `config.ErrNoSchema`
+// on every path. The wrapped error always carries remediation hints
+// in its prose so fang and the --json envelope both surface a way
+// forward.
+
+// TestF5_SchemaNoArgs_EmptyProjectGuard pins the laslig branch: the
+// tempdir has no `.ta/` so `ops.ResolveProject` returns
+// `config.ErrNoSchema`. Stderr carries the laslig Notice ("project
+// schema not declared" + remediation list); the returned error wraps
+// `config.ErrNoSchema` so `errors.Is` callers stay green and the
+// fang-printed error message includes the `ta init` / `ta schema
+// --action=create` remediation pointers.
+func TestF5_SchemaNoArgs_EmptyProjectGuard(t *testing.T) {
+	root := withEmptyProject(t)
+	stdout, errOut, err := runSchemaCmd(t, "--path", root)
+	if err == nil {
+		t.Fatalf("expected error for empty project; stdout=%s stderr=%s", stdout, errOut)
+	}
+	if !errors.Is(err, config.ErrNoSchema) {
+		t.Errorf("err = %v; want errors.Is(err, config.ErrNoSchema)", err)
+	}
+	for _, sub := range []string{
+		"project schema not declared",
+		"/.ta/schema.toml",
+		"ta init",
+		"ta schema --action=create --kind=db",
+	} {
+		if !strings.Contains(errOut, sub) {
+			t.Errorf("stderr missing %q\nstderr:\n%s", sub, errOut)
+		}
+	}
+	// Wrapped error prose carries the same remediation hints so
+	// fang's stderr printer and bare-text consumers stay informed.
+	msg := err.Error()
+	for _, sub := range []string{
+		"project schema not declared",
+		"ta init",
+		"ta schema --action=create",
+	} {
+		if !strings.Contains(msg, sub) {
+			t.Errorf("err prose missing %q: %v", sub, err)
+		}
+	}
+}
+
+// TestF5_SchemaNoArgs_JSON pins the --json branch: the laslig Notice
+// is suppressed (JSON callers don't render ANSI), the wrapped error
+// flows through `runWithJSONErrEnvelope` and emerges as a flat
+// `{"error": "..."}` JSON envelope on stdout. The envelope text
+// carries the same remediation prose as the laslig branch — agents
+// parsing the JSON still see the path forward.
+func TestF5_SchemaNoArgs_JSON(t *testing.T) {
+	root := withEmptyProject(t)
+	stdout, errOut, err := runSchemaCmd(t, "--path", root, "--json")
+	// runWithJSONErrEnvelope swallows the error and writes the
+	// envelope to stdout when --json is set, returning nil to the
+	// cobra layer.
+	if err != nil {
+		t.Fatalf("expected nil err under --json envelope; got %v; stderr=%s", err, errOut)
+	}
+	if strings.Contains(errOut, "project schema not declared") {
+		t.Errorf("laslig Notice rendered to stderr under --json (should be suppressed):\n%s", errOut)
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("decode JSON envelope: %v; stdout=%s", err, stdout)
+	}
+	if payload.Error == "" {
+		t.Fatalf("JSON envelope missing error field; stdout=%s", stdout)
+	}
+	for _, sub := range []string{
+		"project schema not declared",
+		"ta init",
+		"ta schema --action=create",
+	} {
+		if !strings.Contains(payload.Error, sub) {
+			t.Errorf("JSON envelope error missing %q: %q", sub, payload.Error)
+		}
+	}
+}
+
+// withEmptyProject builds a tempdir that exists but has NO `.ta/`
+// directory. `ops.ResolveProject` against it surfaces
+// `config.ErrNoSchema`. Distinct from withMdSchemaFixture /
+// withTomlSchemaFixture (which BOTH declare a schema) — this fixture
+// drives the F5 dead-end guard.
+func withEmptyProject(t *testing.T) string {
+	t.Helper()
+	t.Cleanup(ops.ResetDefaultCacheForTest)
+	ops.ResetDefaultCacheForTest()
+	return t.TempDir()
 }
 
 // TestSchema_DeleteAsRejected pins the L3-D5 falsif CE-2 fold: --as on
