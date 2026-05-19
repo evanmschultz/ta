@@ -1522,6 +1522,51 @@ created = 2026-05-16T07:02:54.752114Z
 type = 'qa_proof'
 updated = 2026-05-16T07:11:27.911012Z
 
+[drop_004.drop.l3_e2_simple_views]
+created = 2026-05-19T00:35:39.9627Z
+type = 'planner'
+updated = 2026-05-19T00:47:37.079661Z
+
+[drop_004.drop.l3_e2_simple_views-plan-qa-falsification]
+created = 2026-05-19T00:35:39.990641Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:47:37.037691Z
+
+[drop_004.drop.l3_e2_simple_views-plan-qa-proof]
+created = 2026-05-19T00:35:39.977117Z
+type = 'qa_proof'
+updated = 2026-05-19T00:46:09.905734Z
+
+[drop_004.drop.l3_e3_stil_driven_views]
+created = 2026-05-19T00:35:40.005565Z
+type = 'planner'
+updated = 2026-05-19T00:51:49.948301Z
+
+[drop_004.drop.l3_e3_stil_driven_views-plan-qa-falsification]
+created = 2026-05-19T00:35:40.030596Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:51:49.926638Z
+
+[drop_004.drop.l3_e3_stil_driven_views-plan-qa-proof]
+created = 2026-05-19T00:35:40.017674Z
+type = 'qa_proof'
+updated = 2026-05-19T00:48:13.420785Z
+
+[drop_004.drop.l3_e4_thariq_demos]
+created = 2026-05-19T00:35:40.044896Z
+type = 'planner'
+updated = 2026-05-19T00:53:17.589606Z
+
+[drop_004.drop.l3_e4_thariq_demos-plan-qa-falsification]
+created = 2026-05-19T00:35:40.071676Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:53:17.57052Z
+
+[drop_004.drop.l3_e4_thariq_demos-plan-qa-proof]
+created = 2026-05-19T00:35:40.059028Z
+type = 'qa_proof'
+updated = 2026-05-19T00:46:40.141509Z
+
 [drop_004.drop.l3_f1_build_qa_falsif]
 created = 2026-05-16T00:59:13.420221Z
 type = 'qa_falsification'
@@ -1546,6 +1591,21 @@ updated = 2026-05-16T00:41:17.137217Z
 created = 2026-05-16T00:36:53.666773Z
 type = 'qa_proof'
 updated = 2026-05-16T00:42:22.409833Z
+
+[drop_004.drop.l3_g1_init_ux_residue]
+created = 2026-05-19T00:35:40.086633Z
+type = 'planner'
+updated = 2026-05-19T00:51:04.616912Z
+
+[drop_004.drop.l3_g1_init_ux_residue-plan-qa-falsification]
+created = 2026-05-19T00:35:40.113605Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:51:04.638091Z
+
+[drop_004.drop.l3_g1_init_ux_residue-plan-qa-proof]
+created = 2026-05-19T00:35:40.100602Z
+type = 'qa_proof'
+updated = 2026-05-19T00:46:40.206384Z
 
 [drop_004.drop.l3_g3_mcp_polish]
 created = 2026-05-18T23:17:03.511452Z
@@ -1612,6 +1672,21 @@ created = 2026-05-18T22:47:35.382134Z
 type = 'qa_proof'
 updated = 2026-05-18T23:12:02.99044Z
 
+[drop_004.drop.l3_g6_delete_verbose]
+created = 2026-05-19T00:35:40.127685Z
+type = 'planner'
+updated = 2026-05-19T00:51:04.593848Z
+
+[drop_004.drop.l3_g6_delete_verbose-plan-qa-falsification]
+created = 2026-05-19T00:35:40.152703Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:51:04.657572Z
+
+[drop_004.drop.l3_g6_delete_verbose-plan-qa-proof]
+created = 2026-05-19T00:35:40.139689Z
+type = 'qa_proof'
+updated = 2026-05-19T00:46:45.946872Z
+
 [drop_004.drop.l3_g7_address_reserved_namespace]
 created = 2026-05-18T23:17:03.593329Z
 type = 'planner'
@@ -1662,6 +1737,21 @@ created = 2026-05-18T23:17:03.642004Z
 type = 'qa_proof'
 updated = 2026-05-18T23:28:03.133022Z
 
+[drop_004.drop.l3_g9_schema_mutation_tui]
+created = 2026-05-19T00:35:40.167704Z
+type = 'planner'
+updated = 2026-05-19T00:53:17.550693Z
+
+[drop_004.drop.l3_g9_schema_mutation_tui-plan-qa-falsification]
+created = 2026-05-19T00:35:40.192586Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:53:17.530109Z
+
+[drop_004.drop.l3_g9_schema_mutation_tui-plan-qa-proof]
+created = 2026-05-19T00:35:40.180666Z
+type = 'qa_proof'
+updated = 2026-05-19T00:46:49.471392Z
+
 [drop_004.drop.l3_i1_config_schema_and_loader]
 created = 2026-05-16T07:02:54.630398Z
 type = 'planner'
@@ -1711,6 +1801,21 @@ updated = 2026-05-18T23:12:34.22179Z
 created = 2026-05-18T22:47:35.34427Z
 type = 'qa_proof'
 updated = 2026-05-18T23:09:55.847474Z
+
+[drop_004.drop.l3_i3_install_engine]
+created = 2026-05-19T00:35:39.919426Z
+type = 'planner'
+updated = 2026-05-19T00:49:29.51754Z
+
+[drop_004.drop.l3_i3_install_engine-plan-qa-falsification]
+created = 2026-05-19T00:35:39.948118Z
+type = 'qa_falsification'
+updated = 2026-05-19T00:46:47.086945Z
+
+[drop_004.drop.l3_i3_install_engine-plan-qa-proof]
+created = 2026-05-19T00:35:39.933787Z
+type = 'qa_proof'
+updated = 2026-05-19T00:43:55.978822Z
 
 [drop_004.drop.mvp_substrate]
 created = 2026-05-15T21:57:13.223048Z
