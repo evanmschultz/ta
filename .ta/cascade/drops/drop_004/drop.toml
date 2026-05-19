@@ -2104,7 +2104,32 @@ role = "planner"
 started_at = "2026-05-16T02:00:00Z"
 state = "in_progress"
 title = "L2-I planner — installable_substrate (config-driven generic install)"
-updated_at = "2026-05-16T02:00:00Z"
+transition_notes = """
+L2-I CLOSE-GATE AMENDED 2026-05-19T02:15:00Z per orchestrator best-practice decision after plan-QA falsif surfaced 12+ CEs across L3-I4/I5/I6.
+
+**SCOPE CUT**: L3-I5 (registration_directives) + L3-I6 (full-substrate e2e test) deferred to post-MVP-feature-complete. Both shipped state=complete + outcome=blocked with scope-cut transition_notes. Tracked in CLAUDE.md pre-MVP-feature-complete tracker.
+
+**RATIONALE**:
+- L3-I5: 4 CONFIRMED CEs revealed the registration system rests on assumptions not present in the codebase (event coverage mismatch, dedupe collisions on real settings.json, wrong plugin directory). The canonical hook-registration path is the existing claude_settings_fragments substrate which already merges hooks.toml fragments via well-tested configmerge.
+- L3-I6: 4 CRITICAL CEs revealed the e2e test as designed would clobber the dev's live cascade tracking records (~/.ta/cascade NOT in backup), prove only 3 of 12 substrates land (9 lack embed sources), and silently no-op the merge-path assertions. Proper venue is CI against a fresh clone, not local mage testFunc.
+- L3-I4: Plan-QA falsif surfaced the LOAD-BEARING CX-2 architectural mismatch — install.Apply was being mis-applied as the bootstrap-home primitive. AMEND fold drops install.Apply wiring entirely; initapply.Apply remains the canonical bootstrap-home path. L3-I4 scope-cut to ONLY the --target-system→--bootstrap-home flag rename across cmd/ta + docs + VHS + initapply remediation copy + mcpsrv remediation copy.
+
+**REVISED L2-I CLOSE GATE**:
+- L3-I1 + L3-I2 + L3-I3 already closed state=complete + outcome=success.
+- L3-I4 (AMENDED scope) closes state=complete + outcome=success after 5 builder droplets land.
+- L3-I5 + L3-I6 marked state=complete + outcome=blocked (scope-cut to post-MVP).
+- L2-I build-QA twins both PASS at the AMENDED close gate.
+- mage check green at module.
+- POST-MVP follow-ups documented in CLAUDE.md.
+
+**NO LONGER REQUIRED** at L2-I close (post-MVP):
+- `ta init` installs 12 substrate types from ~/.ta/install.toml defaults (only 3 substrates have shipped embed sources today).
+- SubagentStop hook auto-installs + auto-registers (use claude_settings_fragments substrate manually until L3-I5 post-MVP).
+- mage testFunc TestInstall_E2E_FullSubstrate green (post-MVP via CI fixture).
+
+Ready for L3-I4 builder dispatch.
+"""
+updated_at = "2026-05-19T02:15:00Z"
 [l2_i_installable_substrate-plan-qa-proof]
 completed_at = "2026-05-16T01:45:00Z"
 created_at = "2026-05-16T06:24:48Z"
@@ -11244,3 +11269,938 @@ target_id = "drop_004.drop.l2_e_html_template_system"
 title = "L2-E build-QA falsification"
 transition_notes = "L2-E build-QA falsification PASS. 10 attack vectors probed, ZERO blocking CE. Mitigated: (1) Track A/B distinct symbols (EmbeddedBasicHTML vs EmbeddedEmbedHTML) + distinct packages/embed-roots; (2) magefile asymmetry by-design (Track A stdlib runtime, Track B has TemplatesBuildEmbed/VerifyStable); (3) planner state contract per cascade-methodology §4.2 — build-QA twins gate state=complete; (4) all 4 L3 primaries CLOSED (L3-E1/E2/E3/E4); (5) MOCK_* ID namespaces disjoint (drop_004.* vs drop_042.* vs untyped); (7) git log scope clean within {internal/templates_html_*, web/templates_embed, .claude/agents/ta-fe-*, .ta/cascade}; (8) dist subdir collision REFUTED; (9) coverage count inconsistency is by-design (E4 different axis); (10) mage check green 1590/1600 + 10 expected skips. Two SOFT findings routed (non-blocking): SOFT-1 stale planner record drop_004.drop.l3_e3_stil_driven_views (superseded by drop_004.drop.l3_e3_stil_views after plan-QA reshape — still state=in_progress, should be marked complete with supersession note OR deleted); SOFT-2 L3-E4 scope drift (L2-E description listed page-archetypes spec/code-review/report/custom-editor/design-exploration; L3-E4 shipped cascade-record demos drop-dashboard/planner-detail/droplet-kanban/qa-twins instead — dev-approved at L3-E4 close, but drift undocumented in L2-E parent or pre-MVP tracker; route to CLAUDE.md tracker). Orchestrator follow-up: ta-fe-qa-falsification missing mcp__ta__* at runtime; orchestrator closed."
 updated_at = "2026-05-19T00:55:00Z"
+
+[l3_i6_end_to_end_test]
+blockers = ["drop_004.drop.l3_i4_init_integration", "drop_004.drop.l3_i5_registration_directives"]
+completed_at = "2026-05-19T02:00:00Z"
+created_at = "2026-05-18T18:00:00Z"
+description = """
+L3-I6 decomposition: ONE atomic builder droplet shipping the e2e test + its backup/restore helpers in a single NEW file. L3-I6 is the L2-I close-gate verification — every preceding L3 (I1 config_schema, I2 embedded_defaults, I3 install_engine, I4 init_integration, I5 registration_directives) lands its slice; this test exercises the integrated whole end-to-end against ta/main itself, satisfying the L2-I close gate per parent record.
+
+## CRITICAL invariants (non-negotiable)
+
+1. **NEVER tmpdir.** Memory rule feedback_e2e_in_ta_main.md: e2e runs against ta/main checkout itself. The dev has been burned by tmpdir-pattern e2e suggestions twice. Project root for the test = the ta/main module root, discovered via runtime.Caller / debug.ReadBuildInfo or hard-coded via a build-tag pin.
+
+2. **Mutates the dev's real ~/.ta/.** The test bootstraps INTO the actual user-home dotta tree via `ta init --bootstrap-home`, so it MUST back up the existing ~/.ta/ atomically before the run and restore it after (even on panic). Backup mechanism: `os.Rename(homeTa, homeTa+".e2e-backup-"+timestamp)` — atomic on same fs, recoverable manually if a crash occurs. Same pattern for the project-side artifacts under ta/main (.claude/, .codex/, root CLAUDE.md, root AGENTS.md).
+
+3. **Opt-in only.** Test MUST skip unless BOTH (a) `os.Getenv("TA_E2E_INSTALL") == "1"` AND (b) `!testing.Short()`. Default `mage test` / `mage check` / `mage testPkg ./internal/install` do NOT run this test. The dev runs it explicitly via `TA_E2E_INSTALL=1 mage testFunc TestInstall_E2E_FullSubstrate`.
+
+4. **`ta init --bootstrap-home` is the entry point.** Current code uses `--target-system` (init_cmd.go:164); L3-I4 renames it to `--bootstrap-home` as its F0-prep droplet. L3-I6 BLOCKS on L3-I4 close — encoded in blockers. If at dispatch time the flag is still `--target-system`, the test cannot ship; the builder must report blocked and the orchestrator escalates.
+
+## D1 — e2e_test.go (single droplet, four code blocks)
+
+id: drop_004.drop.builder_l3_i6_d1_e2e
+role: builder; blockers: [] (the L3-I6 planner itself blocks on L3-I4 + L3-I5)
+paths_owned (NEW): internal/install/e2e_test.go
+
+Four distinct code blocks in the new file (exactly at the ≤4 budget):
+
+### Block 1 — backupAndRestoreHomeTa(t) helper
+
+Signature: `func backupAndRestoreHomeTa(t *testing.T) (homeTa string)`
+
+Resolves `homeTa := filepath.Join(os.Getenv("HOME"), ".ta")`. If the directory exists, `os.Rename(homeTa, homeTa+".e2e-backup-"+strconv.FormatInt(time.Now().UnixNano(), 10))` to move it aside atomically. Registers `t.Cleanup` that (i) removes any partial homeTa written during the test (`os.RemoveAll(homeTa)`) and (ii) renames the backup back into place. Returns the homeTa path for the test body to assert against.
+
+Failure surface: if HOME is unset, t.Fatal — running this test on a machine without $HOME is a setup error.
+
+### Block 2 — backupAndRestoreProjectArtifacts(t, projectRoot) helper
+
+Signature: `func backupAndRestoreProjectArtifacts(t *testing.T, projectRoot string)`
+
+For each artifact in {`.claude`, `.codex`, `CLAUDE.md`, `AGENTS.md`}: if present at projectRoot, rename to `<artifact>.e2e-backup-<nanos>`. Register t.Cleanup mirroring the homeTa helper: remove any test-installed version, restore the backup.
+
+Directory artifacts (`.claude`, `.codex`) use os.Rename of the whole subtree. File artifacts (`CLAUDE.md`, `AGENTS.md`) use os.Rename of the single file.
+
+Failure surface: any artifact whose rename fails is t.Fatal — half-restored project state is worse than no test.
+
+### Block 3 — runTaInit(t, args...) helper
+
+Signature: `func runTaInit(t *testing.T, projectRoot string, args ...string)`
+
+Builds and invokes the ta binary as a subprocess (`exec.Command(taBinaryPath, args...)`). taBinaryPath resolution order: (1) `os.Getenv("TA_BIN")` if set; (2) `filepath.Join(projectRoot, "bin/ta")` (mage install target); (3) `exec.LookPath("ta")` from PATH. Sets `cmd.Dir = projectRoot`. Passes `--on-conflict=overwrite` and `--selections-file=<test-fixture>` (TBD by builder; may use a minimal JSON selecting all 12 substrates) to bypass TTY prompts.
+
+NOTE TO BUILDER: subprocess invocation is preferred over direct RunE call. RunE goes through cobra fang init flow with output styling, viper bindings, and lifecycle hooks that are awkward to reset between subtests; subprocess gives a clean process per invocation with stderr capture for failure diagnostics. If subprocess proves infeasible (binary not built, PATH issues), the fallback is calling `initCmd.RunE` directly with a synthetic cobra.Command; document the chosen route in the test file's package-level godoc.
+
+Failure surface: subprocess non-zero exit → t.Fatalf with stdout+stderr captured.
+
+### Block 4 — TestInstall_E2E_FullSubstrate
+
+Signature: `func TestInstall_E2E_FullSubstrate(t *testing.T)`
+
+Guard prelude:
+```
+if testing.Short() {
+    t.Skip("e2e install test skipped under -short")
+}
+if os.Getenv("TA_E2E_INSTALL") != "1" {
+    t.Skip("set TA_E2E_INSTALL=1 to run")
+}
+```
+
+Project-root discovery: walk up from `runtime.Caller(0)` until a directory containing `go.mod` is found whose first non-comment line matches `module github.com/evanmschultz/ta`. That directory IS ta/main (no tmpdir creation, no env-var alternative).
+
+Flow:
+1. `homeTa := backupAndRestoreHomeTa(t)` — ~/.ta/ moved aside, cleanup registered.
+2. `backupAndRestoreProjectArtifacts(t, projectRoot)` — .claude/, .codex/, CLAUDE.md, AGENTS.md moved aside.
+3. `runTaInit(t, projectRoot, "--bootstrap-home", "--on-conflict=overwrite")` — populates ~/.ta/ from binary embeds.
+4. Assert ~/.ta/ now contains expected substrate source dirs from embed/install.toml (sanity check on bootstrap). Use installconfig.Defaults() + filter for substrates whose Source under expanded path exists.
+5. `runTaInit(t, projectRoot, "--on-conflict=overwrite", "--selections-file=<fixture>")` — runs the project-side install against ta/main itself.
+6. For each substrate in installconfig.Defaults().Substrates, IF the bootstrapped ~/.ta/<source-basename>/ exists AND is non-empty:
+   - Plain-copy substrates: assert at least one file landed at `filepath.Join(projectRoot, substrate.Destination)` (or flattened equivalent for flatten_strategy=by_basename).
+   - Merge-strategy substrates: assert the destination file exists and contains the expected merge marker (e.g. .claude/settings.json contains a non-empty `hooks` table for claude_settings_fragments).
+   - Missing-source substrates: assert NO write under destination (consistent with install.Apply's silent-skip semantics).
+7. SubagentStop-specific assertion (the headline check from L2-I description):
+   - Assert `filepath.Join(projectRoot, ".claude/hooks/subagent_stop_tool_use_check.sh")` exists AND has mode bit `0755` set.
+   - IF `~/.ta/claude-settings/` contained a fragment registering SubagentStop:
+     * Parse `filepath.Join(projectRoot, ".claude/settings.json")` and assert the `hooks.SubagentStop` array contains an entry whose `matcher` field is present (exact value TBD by what the fragment provides).
+   - IF no such fragment existed in ~/.ta/, log informational note and skip the registration sub-assertion (per Unknown #2 in Convergence routing).
+8. Implicit cleanup via t.Cleanup restoring all backups.
+
+Acceptance:
+- File compiles under `mage testPkg ./internal/install`.
+- Test SKIPS by default (no TA_E2E_INSTALL env var) — proves the gate works without mutating the dev's machine.
+- WITH `TA_E2E_INSTALL=1 mage testFunc TestInstall_E2E_FullSubstrate`: green, ~/.ta/ + ta/main fully restored after the run.
+- `mage check` green at full module with the test PRESENT but SKIPPED (default code-path).
+
+## Dispatch graph
+
+Single droplet, no internal Wave structure. Builder dispatches alone once L3-I4 + L3-I5 are both `state=complete + outcome=success`.
+
+## Close gate (L3-I6)
+
+- D1 state=complete + outcome=success
+- mage check green at full module (with the e2e test compiled-in but skipped under default env)
+- WITH explicit `TA_E2E_INSTALL=1 mage testFunc TestInstall_E2E_FullSubstrate` invocation: test green, dev's ~/.ta/ + ta/main checkout fully restored (verified by post-run `ls ~/.ta/` and `git status` in ta/main).
+- L3-I6 build-QA twins both PASS
+
+L2-I close gate (per parent record) chains: L3-I6 close = L2-I close.
+
+## Routed Unknowns
+
+1. **Subprocess vs RunE for `runTaInit`**: builder picks. Subprocess preferred (clean process boundary, stdout/stderr capture, no cobra-lifecycle pollution between subtests). Fallback to direct RunE if `mage install` not run before test (no ta binary on PATH). Builder must document choice in package godoc.
+
+2. **`claude_settings_fragments` source presence variance**: the dev's `~/.ta/claude-settings/` may or may not contain a SubagentStop fragment. Test must handle BOTH branches gracefully — never hard-fail on "fragment missing". The hook-file installation assertion (block 4 step 7 first bullet) is unconditional; the matcher-registration assertion is conditional on fragment presence with informational log when absent. Builder may decide to pre-seed a synthetic fragment into the test-managed ~/.ta/ between bootstrap and project-side install, making the matcher assertion unconditional — acceptable variant; document choice.
+
+3. **`--selections-file` fixture content**: a minimal JSON selecting all 12 substrate-source-categories so the multi-category picker is bypassed. Fixture lives at `internal/install/testdata/e2e_selections.json`. Builder authors alongside the test; counts as part of the single droplet (testdata is the test's data, not a fifth code block).
+
+4. **Project-root discovery**: `runtime.Caller(0)` + walk-up for `go.mod` is the proposed mechanism. Alternative: `os.Getenv("TA_E2E_PROJECT_ROOT")` override for non-standard checkouts. Builder picks; if both, env-var wins.
+
+5. **Backup-name collision**: nanos suffix makes collision astronomically unlikely but not impossible. Builder adds an existence check before rename and t.Fatal on collision (don't silently overwrite a prior crash's backup).
+"""
+objective = "L2-I L3-I6: end-to-end test that bootstraps ~/.ta/ from binary embeds (via ta init --bootstrap-home), then runs ta init against the ta/main checkout itself (NOT a tmpdir, per memory rule feedback_e2e_in_ta_main.md), and asserts the 12 substrate types from defaults.toml land in the expected on-disk locations (.claude/<name>, .codex/<name>, project-root CLAUDE.md/AGENTS.md). Special assertion: the SubagentStop hook (subagent_stop_tool_use_check.sh, verified present at ~/.ta/hooks/) installs into ta/main/.claude/hooks/ and — when a matching claude_settings_fragments source is present — registers under the SubagentStop matcher in ta/main/.claude/settings.json. Test is opt-in (env-gated + testing.Short skip) because it mutates the dev's real ~/.ta/ and the live ta/main project-side substrate; backup-and-restore is atomic via os.Rename. Single builder droplet; close-gate is mage testFunc TestInstall_E2E_FullSubstrate green plus mage check green at full module."
+outcome = "blocked"
+parent_id = "drop_004.drop.l2_i_installable_substrate"
+role = "planner"
+state = "complete"
+structural_type = "segment"
+title = "L3-I6 planner — end_to_end_test (12 substrate types, ta/main scope)"
+transition_notes = "SCOPE-CUT to post-MVP-feature-complete per orchestrator best-practice decision 2026-05-19. Plan-QA falsif surfaced 4 CRITICAL CEs: (CE1) .ta/cascade/ + .ta/roadmap/ NOT in any backup-and-restore primitive — e2e against ta/main would clobber the dev's live cascade tracking records (33K + 74K of TOML); (CE2) only 3 of 12 substrates declared in internal/installconfig/defaults.toml have embed sources today — the other 9 substrates would lay down nothing; the L2-I 'install 12 substrate types' close-gate is currently aspirational; (CE3) SubagentStop matcher-registration assertion silently degrades when ~/.ta/claude-settings/ fragment absent — the flagship L2-I behavior verification is unconditional only via mandatory synthetic-fragment pre-seed; (CE4) backup-then-install empties .claude/, so merge paths (claude_settings_fragments deep-merge into hooks) never fire — only copy-fallback gets exercised. Best-practice venue: CI fixture against a fresh clone in a sandbox, NOT local mage testFunc against the dev's working directory. The marginal value of this test over the existing unit tests in internal/install/install_test.go (which exercise install.Apply with synthetic dotta trees + project roots) is low given the blast-radius cost. Tracked in CLAUDE.md pre-MVP-feature-complete tracker for CI-side implementation. Plan-QA twin records closed as superseded."
+updated_at = "2026-05-19T02:00:00Z"
+[l3_i6_end_to_end_test-plan-qa-proof]
+completed_at = "2026-05-18T00:00:00Z"
+created_at = "2026-05-19T05:35:53Z"
+outcome = "blocked"
+role = "qa-proof"
+started_at = "2026-05-19T01:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i6_end_to_end_test"
+title = "Plan-QA proof of L3-I6 planner — end_to_end_test (12 substrate types, ta/main scope)"
+transition_notes = "SUPERSEDED by L3-I6 scope-cut 2026-05-19. Plan as reviewed in this proof is no longer being shipped. See L3-I6 transition_notes for punt rationale."
+updated_at = "2026-05-19T02:00:00Z"
+[l3_i6_end_to_end_test-plan-qa-falsification]
+completed_at = "2026-05-19T05:55:00Z"
+created_at = "2026-05-19T05:35:53Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-19T01:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i6_end_to_end_test"
+title = "Plan-QA falsif of L3-I6 planner — end_to_end_test (12 substrate types, ta/main scope)"
+transition_notes = "Falsification surfaced 4 CRITICAL CEs. Plan SCOPE-CUT to post-MVP-feature-complete by orchestrator 2026-05-19. See L3-I6 transition_notes for punt rationale + CLAUDE.md tracker."
+updated_at = "2026-05-19T02:00:00Z"
+[l3_i4_init_integration]
+blockers = []
+created_at = "2026-05-19T01:00:00Z"
+description = """
+L3-I4 decomposition: 4 atomic builder droplets, FULLY SERIALIZED via blocker chain because all four touch the same cmd/ta package (sibling-file edits in the same package break each other's compile — hard rule). D1 lands the F0-prep flag rename in one atomic sweep across every file referencing the old identifier so no intermediate commit ever has half-renamed state.
+
+## Evidence anchors (verified at plan time)
+
+- `cmd/ta/init_cmd.go`: 15 `target-system` literal occurrences (lines 118, 124, 135, 136, 139, 164, 171, 172, 182, 187, 495, 498, 510, 515, 522) + 4 `targetSystem` Go identifier occurrences (lines 70, 164, 181, 184). Flag declared at L164; godoc body at L107-133; Example block at L134-139; resolveInitTarget godoc at L171-203; emptyHomeError remediation at L495-523.
+- `cmd/ta/init_cmd_test.go`: 12 `target-system` literal occurrences (lines 932, 935, 941, 942, 956, 962, 964, 971, 983, 984, 987, 988, 991, 995, 998, 1008, 1015, 1020, 1032, 1091) + 2 `targetSystem` identifier occurrences (lines 945, 960). Test names: TestInitTarget_TargetSystemFlag_ResolvesToHome (L937), TestInitTarget_TargetSystemAndTargetMutuallyExclusive (L958), TestEmptyHomeError_HintsTargetSystem (L973), TestInitCmdTargetSystemBootstrapsHomeFromBinary (L1018).
+- `cmd/ta/init_multi.go`: 3 prose-comment `--target-system` occurrences (lines 64, 142, 192). No Go identifier touches.
+- `README.md` L218: `picker_target_system.gif` + `.txt` VHS references + the literal flag string.
+- `cmd/ta/testdata/vhs/`: `picker_target_system.tape`, `picker_target_system.gif`, `picker_target_system.txt` exist.
+- `internal/install/install.go:109`: `Apply(cfg installconfig.Config, dottaTree dotta.Tree, projectRoot string) (Report, error)` — confirmed shipped + green-tested per L3-I3 closeout 2026-05-18T15:30:00Z.
+- `internal/installconfig/load.go:13`: `LoadFile(path string) (*Config, error)`. `internal/installconfig/defaults.go:23`: `Defaults() (*Config, error)`.
+- `internal/dotta/walk.go:38`: `Walk(root string) (Tree, error)`.
+- `internal/templates/templates.go:77`: `Root() (string, error)` — the home library root.
+- `internal/initapply/initapply.go:277`: existing `Apply(target string, sel Selections, policy Policy) (Report, error)` — DIFFERENT primitive from install.Apply; STAYS in place for the F24 project-target selections-file path.
+
+## Direction: dual-path integration
+
+The L2-I prose says "replace hardcoded claude_agents flatten with internal/install.Apply". Read literally that suggests deleting the initapply path. Verified at plan time: initapply.Apply is the F24 multi-category-picker + selections-file consumer; install.Apply is the NEW binary-defaults-driven bootstrap that consumes the dotta tree + installconfig directly. These are distinct flows with distinct inputs (selections-file shape vs config-shape). L3-I4 keeps BOTH:
+- `--bootstrap-home` (renamed --target-system) → install.Apply path (binary defaults → home library).
+- F24 multi-category picker + --selections-file → initapply.Apply path (existing, unchanged).
+
+Routed as a build-time decision the D2 builder confirms with build-QA twins. If build-QA twins decide initapply.Apply should be deleted, that becomes a follow-up slice — out of L3-I4 scope.
+
+## D1 — F0-prep flag rename --target-system → --bootstrap-home (ATOMIC)
+
+id: drop_004.drop.builder_l3_i4_d1_flag_rename
+role: builder; blockers: []
+paths_owned: cmd/ta/init_cmd.go, cmd/ta/init_cmd_test.go, cmd/ta/init_multi.go, README.md, cmd/ta/testdata/vhs/picker_target_system.tape, cmd/ta/testdata/vhs/picker_target_system.gif, cmd/ta/testdata/vhs/picker_target_system.txt
+
+Objective: one atomic edit pass renaming every `--target-system` literal AND every `targetSystem` Go identifier to `--bootstrap-home` / `bootstrapHome` respectively, plus the VHS artifact rename. Intermediate state never compiles half-renamed — single droplet, single commit (or single staged change set ahead of segment-close commit).
+
+Specific edits:
+- `cmd/ta/init_cmd.go` L70: `targetSystem bool` → `bootstrapHome bool` (struct field).
+- `cmd/ta/init_cmd.go` L107-133 (Long godoc): every `--target-system` literal → `--bootstrap-home`; "home library itself" copy updated to reference new flag name.
+- `cmd/ta/init_cmd.go` L134-139 (Example block): all 3 `ta init --target-system` examples → `ta init --bootstrap-home`.
+- `cmd/ta/init_cmd.go` L164: cmd.Flags().BoolVar call site — `&f.targetSystem` → `&f.bootstrapHome`; flag name string `"target-system"` → `"bootstrap-home"`; description text updated.
+- `cmd/ta/init_cmd.go` L171-203 (resolveInitTarget godoc + body): every `--target-system` literal in prose + the `f.targetSystem` field references at L181, L184 → `f.bootstrapHome`; error message at L182 + L187 updated.
+- `cmd/ta/init_cmd.go` L495-523 (emptyHomeError + remediation hints): every `ta init --target-system` literal → `ta init --bootstrap-home` (L495, L498, L510, L515, L522 — these are the user-facing remediation pointers).
+- `cmd/ta/init_cmd_test.go`: rename test functions `TestInitTarget_TargetSystemFlag_ResolvesToHome` → `TestInitTarget_BootstrapHomeFlag_ResolvesToHome` (L937), `TestInitTarget_TargetSystemAndTargetMutuallyExclusive` → `TestInitTarget_BootstrapHomeAndTargetMutuallyExclusive` (L958), `TestEmptyHomeError_HintsTargetSystem` → `TestEmptyHomeError_HintsBootstrapHome` (L973), `TestInitCmdTargetSystemBootstrapsHomeFromBinary` → `TestInitCmdBootstrapHomeBootstrapsHomeFromBinary` (L1018). Update every `--target-system` literal in test body assertions to `--bootstrap-home`; update `targetSystem: true` struct literals at L945 + L960 to `bootstrapHome: true`. Update the `strings.Contains(errOut, "ta init --target-system")` assertions (L983, L988, L1008) + `strings.Contains(err.Error(), "target-system")` (L964) — these pin the user-facing flag name in the remediation copy, so they MUST migrate to the new name in lockstep with the source.
+- `cmd/ta/init_multi.go` prose comments at L64, L142, L192: every `--target-system` reference → `--bootstrap-home`. No Go identifier touches.
+- `README.md` L218: VHS reference path `picker_target_system.{gif,txt}` → `picker_bootstrap_home.{gif,txt}`; the in-prose flag literal `ta init --target-system` → `ta init --bootstrap-home`.
+- `cmd/ta/testdata/vhs/picker_target_system.tape`: rename file → `picker_bootstrap_home.tape`; replace any `--target-system` text inside the tape body with `--bootstrap-home`; re-run `mage Vhs` to regenerate the .gif + .txt with the new name (deletes old `picker_target_system.{gif,txt}` artifacts as part of the rename).
+
+Deliberately scoped tightly: D1 does NOT touch any L3-I4 install.Apply integration logic — that lands in D2.
+
+Acceptance tests:
+- `mage testPkg ./cmd/ta` green at full package after D1 (every renamed test name resolves; every flag-literal assertion still matches; mutual-exclusion + empty-home + bootstraps-home-from-binary e2e tests all still pass under the new flag name).
+- `mage Vhs` regenerates the renamed VHS artifacts under cmd/ta/testdata/vhs/ green.
+- `grep -rn 'target-system\\|targetSystem' cmd/ ta/ internal/ README.md docs/ examples/` returns ZERO hits (full-tree sweep gate).
+- Manual: `./bin/ta init --bootstrap-home --selections-file <fixture>` exits 0; `./bin/ta init --target-system <anything>` errors with unknown-flag.
+
+## D2 — install.Apply integration on --bootstrap-home path
+
+id: drop_004.drop.builder_l3_i4_d2_apply_wiring
+role: builder; blockers: [D1]
+paths_owned: cmd/ta/init_cmd.go, cmd/ta/init_multi.go
+
+Objective: when `--bootstrap-home` is set, route the init flow through `internal/install.Apply` instead of (or in addition to) the existing initapply.Apply path. Concrete:
+
+1. In `cmd/ta/init_cmd.go` add a new path `runInitBootstrapHome(out, errOut, target, f)`:
+   - Load installconfig: `cfg, err := installconfig.Defaults()`; if `~/.ta/install.toml` exists, layer overrides via `installconfig.LoadFile(filepath.Join(target, "install.toml"))` and merge (use the installconfig merge helper if shipped by L3-I1/I2, otherwise prefer the home-file values for declared substrates).
+   - Walk dotta: `tree, err := dotta.Walk(target)` — target IS the home library root under --bootstrap-home (resolveInitTarget already returns $HOME/.ta).
+   - Call `report, err := install.Apply(*cfg, tree, target)`.
+   - Emit the report via the existing emitInitMultiReport helper (initapply.Report and install.Report shapes are compatible at the Written/Skipped/Errors surface; thread accordingly OR add a sibling emitInstallReport — D2 builder picks the cleaner option and pins via test).
+
+2. In `cmd/ta/init_cmd.go::runInit` (L218-243), branch on `f.bootstrapHome` BEFORE the isMultiCategoryRun gate: if `f.bootstrapHome` → runInitBootstrapHome; else fall through to existing isMultiCategoryRun gate which preserves the F24 selections-file path via initapply.Apply.
+
+3. In `cmd/ta/init_multi.go` adjust the runMultiCategoryPicker prose comment at L192 to clarify the picker is for project-target only; --bootstrap-home now goes through install.Apply, not the picker.
+
+4. DO NOT delete `initapply.Apply` or any initapply-driven test. Keep the F24 selections-file path intact for project-target flows.
+
+Acceptance tests (NEW, in cmd/ta/init_cmd_test.go via D3):
+- `TestInitCmdBootstrapHome_ConsumesInstallApply` — drives `--bootstrap-home --selections-file <fixture>` against a tmpdir home, asserts install.Apply landed at least one substrate file under `$HOME/.ta/<substrate-destination>/`. (Actual assertion lands in D3.)
+- `TestInitCmdBootstrapHome_HonorsInstallTomlOverride` — seeds `~/.ta/install.toml` with one substrate Destination override, asserts the file lands under the override path.
+
+## D3 — test refactor for dual-path coverage
+
+id: drop_004.drop.builder_l3_i4_d3_tests
+role: builder; blockers: [D2]
+paths_owned: cmd/ta/init_cmd_test.go
+
+Objective: pin BOTH paths (install.Apply on --bootstrap-home + initapply.Apply on F24 project-target) with honest-named tests. Add:
+- `TestInitCmdBootstrapHome_ConsumesInstallApply` (from D2 spec): fixture home with one substrate; assert install.Apply ran (at least one substrate file landed; the report.Written entry includes the substrate name).
+- `TestInitCmdBootstrapHome_HonorsInstallTomlOverride`: seed `<home>/install.toml` with a non-default Destination for one substrate; assert the file lands at the overridden path.
+- `TestInitCmdProjectTarget_KeepsInitapplyPath`: drive `--target <project>` + `--selections-file` and assert the existing initapply flow still fires (existing test TestInitCmdMultiCategorySelectionsFileSchemaOnly L520 covers this; D3 may rename for honesty or add a sibling).
+- Update test names not yet honest: confirm L1018 `TestInitCmdTargetSystemBootstrapsHomeFromBinary` (renamed in D1 to `TestInitCmdBootstrapHomeBootstrapsHomeFromBinary`) still asserts the binary-defaults path lands at $HOME/.ta after the install.Apply wiring — likely needs body update to assert install.Apply's Report shape rather than initapply.Apply's.
+
+Acceptance:
+- `mage testPkg ./cmd/ta` green at full package after D3.
+- Both new BootstrapHome tests fail when --bootstrap-home is removed (asserts coverage actually exercises the new code).
+- TestInitCmdProjectTarget_KeepsInitapplyPath fails if initapply.Apply is accidentally deleted in D2.
+
+## D4 — README.md + docs flag-rename remediation copy sweep
+
+id: drop_004.drop.builder_l3_i4_d4_docs_polish
+role: builder; blockers: [D3]
+paths_owned: README.md
+
+Objective: any remaining `--target-system` mention in README.md (D1 caught L218; this droplet sweeps the rest of the file + verifies docs/ + examples/ have nothing missed). Per L2-I close gate the user-facing docs ship clean.
+
+Specific edits:
+- `README.md` full-file sweep for any `target-system` substring missed by D1; replace with `bootstrap-home`.
+- Update any README prose describing the substrate-install flow to reference install.Apply where currently it gestures at the legacy claude_agents flatten.
+- Verify `grep -rn 'target-system' .` returns zero hits across the working tree (docs/, examples/, README.md, every cmd/ta + internal/ source file).
+
+Acceptance:
+- Working-tree sweep `grep -rn 'target-system\\|targetSystem' .` returns ZERO hits.
+- README.md flag examples updated, VHS reference link target updated to renamed artifact (`picker_bootstrap_home.gif`).
+- `mage check` green at full module.
+
+## Sibling-blocking + serialization rationale
+
+Every droplet touches `cmd/ta/*` Go files in the same `package main`. Concurrent edits would race the compile state. Hard serialization via blocker chain: D1 → D2 → D3 → D4. No parallel dispatch within L3-I4.
+
+Paths NOT owned by L3-I4 (delegated to siblings):
+- internal/install/register.go — owned by L3-I5 (no overlap).
+- internal/install/e2e_test.go — owned by L3-I6 (no overlap).
+- internal/installconfig/* — owned by L3-I1/I2 (CLOSED).
+- internal/install/{install,resolve,copy,merge}.go — owned by L3-I3 (CLOSED).
+- internal/initapply/* — UNTOUCHED by L3-I4 (preserved for F24 path).
+
+## Unknowns routed
+
+1. **initapply.Apply retention**: KEEP per D2 spec — install.Apply is for --bootstrap-home; initapply.Apply is for --selections-file project targets. If build-QA twins disagree post-D3, raise as follow-up slice.
+2. **emitInitMultiReport vs new emitInstallReport**: D2 builder picks. The initapply.Report and install.Report shapes differ slightly (install.Report has Registrations slice; initapply.Report does not). Either thread a union helper or add a sibling emitter — D2 picks based on which produces cleaner code.
+3. **install.toml location semantics**: D2 spec says load `<target>/install.toml` after Defaults() — for --bootstrap-home that's `~/.ta/install.toml`. installconfig.LoadFile may return an error if the file is absent; D2 builder must treat ENOENT as no-override (not an error). Pin via TestInitCmdBootstrapHome_NoInstallTomlIsNotAnError.
+
+## Close gate (L3-I4)
+
+- D1+D2+D3+D4 all state=complete + outcome=success.
+- `mage testPkg ./cmd/ta` green (every renamed test passes; new BootstrapHome tests pass; existing initapply F24 tests still pass).
+- `mage check` green at full module.
+- `grep -rn 'target-system\\|targetSystem' .` returns ZERO hits.
+- VHS tape `picker_bootstrap_home.{tape,gif,txt}` exists; `picker_target_system.*` deleted.
+- README.md updated; user-facing flag docs ship the new name.
+- L3-I4 build-QA twins both PASS.
+
+After L3-I4 closes, L3-I6 unblocks (e2e test consumes both paths).
+"""
+objective = "L2-I L3-I4: integrate internal/install.Apply (shipped L3-I3 2026-05-18T15:30:00Z) into the `ta init --bootstrap-home` path. Rename --target-system → --bootstrap-home atomically as F0-prep prerequisite (full identifier + literal sweep across init_cmd.go, init_cmd_test.go, init_multi.go prose, README.md, and the picker_target_system VHS tape). Replace the legacy claude_agents-specific flatten with the config-driven install.Apply flow: load installconfig.Defaults() merged with optional `~/.ta/install.toml` overrides (installconfig.LoadFile), walk dotta.Walk(templates.Root()) for the source tree, dispatch install.Apply for binary→home bootstrap. Preserve the existing initapply.Apply F24 multi-category path for project-target selections-file flows. Tests pin both paths."
+parent_id = "drop_004.drop.l2_i_installable_substrate"
+role = "planner"
+started_at = "2026-05-19T01:00:00Z"
+state = "todo"
+structural_type = "segment"
+title = "L3-I4 planner — init_integration (Apply consumer + F0-prep flag rename)"
+transition_notes = """
+PLAN-QA FALSIF AMEND FOLDS APPLIED orchestrator-direct 2026-05-19T02:10:00Z per drop_003 surgical-AMEND precedent. Plan-QA falsif surfaced 6 CONFIRMED CEs including the LOAD-BEARING CX-2 architectural mismatch. Fold actions:
+
+**FOLD-LOAD-BEARING (CX-2 install.Apply mis-application)**: DROP install.Apply wiring entirely. install.Apply is the project-install primitive (copies INTO projectRoot/.claude/agents/); using it with projectRoot=$HOME/.ta would nest .claude/agents/ INSIDE ~/.ta/, corrupting the home library. The canonical bootstrap-home primitive is initapply.Apply, which already consumes [ta]-provenance items + lays them into ~/.ta/ correctly. L3-I4 KEEPS initapply.Apply as the bootstrap-home path. install.Apply remains the project-install primitive for the OTHER path (--selections-file / F24 project-target). No L3-I4 changes wire install.Apply into ta init.
+
+**FOLD-CX-1 (D1 atomicity)**: Decompose the flag rename across packages to keep each droplet within or near the ≤4-block budget. cmd/ta atomicity preserved (one droplet for the whole package because compile-state is single unit).
+
+**FOLD-CX-3 (close-gate ownership)**: Each droplet owns + verifies its own files. The 'global grep returns zero' acceptance gate becomes the LANE-CLOSE gate (validated by L3-I4 build-QA twins at lane close), NOT a per-droplet gate.
+
+**FOLD-CX-4 (VHS tape internal directives)**: D3 droplet rename AND updates lines 9-10 (in-tape Output paths) AND line 28 (Type command) AND runs mage Vhs to regenerate gif+txt under new names.
+
+**FOLD-CX-5 (cascade.droplet.auto_spawn)**: Each builder droplet auto-spawns build-QA twins per the live F23 v2 engine. This is the new norm per L2-J methodology update. No --no-spawn flag needed; build-QA twin records are valuable per-droplet review.
+
+**FOLD-CX-6 (D2/D3 collapse)**: NOT applied — the revised scope drops D2 (install.Apply wiring) entirely, so D3 collapse is moot.
+
+**REVISED DECOMPOSITION (5 droplets, scope-cut to flag rename only)**:
+- **D1** (irreducible=true; cmd/ta atomic rename): EDIT cmd/ta/init_cmd.go (struct field, Long godoc, Example, flag-decl, resolveInitTarget, emptyHomeError) + cmd/ta/init_cmd_test.go (4 test fn renames + body updates per AMENDED rename map) + cmd/ta/init_multi.go (3 prose comments). Methodology §2.3 irreducible=true escape hatch invoked because cmd/ta is `package main` single compile unit + tests must stay in sync with source. Acceptance: mage testPkg ./cmd/ta green; `rg 'target-system\\|targetSystem' cmd/ta` returns zero. Blockers: none.
+- **D2** (docs sweep): EDIT README.md (L218 + any other --target-system mentions) + examples/README.md (L214) + E2E_FIXES.md:892. Pure prose updates. Acceptance: `rg 'target-system' README.md examples/README.md E2E_FIXES.md` returns zero (or only quoted historical references with explicit non-active markers). Parallel with D1. Blockers: none.
+- **D3** (VHS tape rename + regenerate): RENAME cmd/ta/testdata/vhs/picker_target_system.tape → picker_bootstrap_home.tape; EDIT new tape lines 9-10 Output paths + line 28 Type command; RUN mage Vhs to regenerate .gif + .txt artifacts under new names; DELETE old picker_target_system.{gif,txt}. Parallel with D1+D2. Blockers: none.
+- **D4** (initapply remediation messages): EDIT internal/initapply/initapply.go (7 hits in error remediation messages — update string literals from `ta init --target-system` to `ta init --bootstrap-home`) + initapply_test.go (4 hits in test assertions). Parallel with D1+D2+D3 (different package). Blockers: none.
+- **D5** (mcpsrv remediation message): EDIT internal/mcpsrv/init_tool.go:42 (single hit). Parallel with all. Blockers: none.
+
+**WAVE PLAN**: ALL 5 DROPLETS PARALLEL — disjoint packages/files. D1 is the only big one (cmd/ta atomic); D2/D3/D4/D5 are surgical edits in disjoint files. 5 builders dispatch concurrently.
+
+**CLOSE GATE**: All 5 droplets state=complete + outcome=success; `rg 'target-system\\|targetSystem' .` returns zero across the repo; mage check green; L3-I4 build-QA twins both PASS.
+
+Ready for builder dispatch with the AMENDED spec.
+"""
+updated_at = "2026-05-19T02:10:00Z"
+[l3_i4_init_integration-plan-qa-proof]
+completed_at = "2026-05-19T01:35:00Z"
+created_at = "2026-05-19T05:36:56Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-19T01:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i4_init_integration"
+title = "Plan-QA proof of L3-I4 planner — init_integration (Apply consumer + F0-prep flag rename)"
+transition_notes = """
+VERDICT: PASS (with 1 minor non-blocking bookkeeping finding).
+
+All 6 claims verified against current repo state via direct Read + rg evidence:
+
+1. Flag rename coverage CORRECT: init_cmd.go = exactly 15 `target-system` literals (L118/124/135/136/139/164/171/172/182/187/495/498/510/515/522) + exactly 4 `targetSystem` identifiers (L70/164/181/184). init_multi.go = exactly 3 prose-comment hits at L64/L142/L192. README L218 = matches verbatim. VHS triple `picker_target_system.{tape,gif,txt}` confirmed present under cmd/ta/testdata/vhs/. 4 test fn names confirmed at init_cmd_test.go L937/L958/L973/L1018 verbatim. Minor finding: init_cmd_test.go plan says `12 target-system literal occurrences` but actual rg sweep shows 14-17 hits (comment + body mix). D1's `grep -rn returns ZERO hits` acceptance gate dominates the count label, so this is non-blocking bookkeeping imprecision, not a missing-evidence gap.
+
+2. install.Apply signature CORRECT: `Apply(cfg installconfig.Config, dottaTree dotta.Tree, projectRoot string) (Report, error)` at internal/install/install.go:109 matches plan exactly. Report shape = Written/Skipped/Registrations/Errors (flat slices). installconfig.LoadFile + installconfig.Defaults + dotta.Walk + templates.Root all sigs match planner quotes.
+
+3. initapply.Apply preserved CONSISTENT with L2-I + L2-F roadmap: L2-I description explicitly folds 'F0-prep folding: name F0-prep rename (--target-system → --bootstrap-home) as explicit atomic droplet under L3-I4' (post-amendment from L2-I plan-QA twins). L2-I never said 'delete initapply'. initapply.Apply at internal/initapply/initapply.go:277 is the F24 multi-category selections-file consumer; install.Apply is the new binary-defaults bootstrap. Distinct Report shapes (initapply.Report has Path/Target/OnConflict + per-category Result; install.Report has flat Written/Skipped/Registrations/Errors) genuinely differ — planner's Unknown #2 (D2 picks union vs sibling emitter) is real and well-routed.
+
+4. 4-droplet serial chain CORRECT: planner declares blockers: [] / [D1] / [D2] / [D3]; sibling-blocking rationale (same cmd/ta package, compile-state races) is sound. No parallel dispatch within L3-I4 — explicit hard rule.
+
+5. Test names CORRECT: cited fn names match existing init_cmd_test.go convention `TestInit<Surface>_<Subject>_<Behavior>`. Renamed forms preserve convention. Cosmetic stutter `BootstrapHomeBootstrapsHome` in renamed L1018 noted as Falsif Attack #1 — D3 explicitly authorizes body update + may rename for honesty.
+
+6. README L218 CORRECT: contains `picker_target_system.gif` + `.txt` VHS references + literal `ta init --target-system` prose. Sole README hit; D1 captures it + D4 sweeps the rest of file.
+
+QA Falsification: 7 attacks examined, 6 fully mitigated, 1 (init_cmd_test.go count label) acknowledged as non-blocking bookkeeping imprecision covered by D1's exhaustive grep acceptance gate.
+
+Routed unknowns (explicit + acceptable):
+- D2 emitter choice (initapply.Report vs install.Report shapes diverge — planner routes as build-time decision Unknown #2).
+- D2 installconfig merge helper presence (planner has fallback: prefer home-file values for declared substrates).
+
+Proceed: dispatch D1 builder (atomic flag rename) per planner blocker chain. After D1 commit + LSP refresh + package-level mage testPkg ./cmd/ta green, D2 unblocks. Build-QA twins fire at the planner level after D4 completion + package gate green per § 4 of cascade-methodology.md.
+
+VERIFY-EVIDENCE: install.go:109, initapply.go:277, installconfig/load.go:13, installconfig/defaults.go:23, dotta/walk.go:38, templates.go:77, init_cmd.go:70+164+181+184, init_cmd_test.go:937/958/973/1018, init_multi.go:64+142+192, README.md:218, cmd/ta/testdata/vhs/picker_target_system.tape (8 lines tape, references `--target-system` in body).
+"""
+updated_at = "2026-05-19T01:35:00Z"
+[l3_i4_init_integration-plan-qa-falsification]
+completed_at = "2026-05-19T01:55:00Z"
+completion_contract = {completion_notes = """
+FAIL — 6 unmitigated counterexamples on the L3-I4 decomposition. Plan needs revision before descent.
+
+## CONFIRMED COUNTEREXAMPLES
+
+### CX-1: D1 violates project's ≤4-block-per-droplet contract — NOT atomic by ta's rule
+
+Claim attacked: 'D1 lands the F0-prep flag rename in one atomic sweep'.
+
+Project CLAUDE.md § Cascade-managed development locks the contract: 'Each droplet touches ≤4 distinct code-block edits (this project's user-facing contract; methodology says "few blocks")'.
+
+Actual D1 edit-site count (re-verified via rg -n 'target-system|targetSystem' across paths_owned):
+- cmd/ta/init_cmd.go: 6 distinct blocks (L70 struct field, L107-133 Long godoc, L134-139 Example, L164 flag-decl, L171-203 resolveInitTarget godoc+body, L495-523 emptyHomeError + remediation).
+- cmd/ta/init_cmd_test.go: 4 distinct test functions + ~22 line edits (TestInitTarget_TargetSystemFlag_ResolvesToHome L937, TestInitTarget_TargetSystemAndTargetMutuallyExclusive L958, TestEmptyHomeError_HintsTargetSystem L973, TestInitCmdTargetSystemBootstrapsHomeFromBinary L1018).
+- cmd/ta/init_multi.go: 3 distinct prose blocks (L64, L142, L192).
+- README.md: 1 block (L218 VHS link + flag literal).
+- cmd/ta/testdata/vhs/picker_target_system.tape: 1 block (header + Output declarations + Type body) + the file rename.
+- 3 file renames (.tape, .gif, .txt).
+
+Total: 15+ distinct code-block edits across 5 source files. The plan acknowledges 'single droplet, single commit (or single staged change set ahead of segment-close commit)' — but conflates 'atomic commit' with 'atomic droplet'. The cascade-methodology § 2.3 escape hatch is `irreducible: true` + plan-QA validation; the plan does NOT mark D1 irreducible and does NOT argue irreducibility (the rename CAN be split: source-side vs test-side vs docs/VHS-side ARE separable as long as test-side lands in same commit as source-side; intermediate-package-state risk only applies WITHIN one .go file, not across files).
+
+Mitigation route: either (a) decompose D1 into D1a (source: init_cmd.go + init_multi.go), D1b (tests: init_cmd_test.go), D1c (docs+VHS: README.md + .tape + regenerate gif/txt) under a single L3-I4-D1 sub-planner with paths-disjoint serialization OR (b) explicitly mark D1 irreducible with the source-rename-must-land-atomically argument AND raise an orchestrator carve-out for the >4-block budget overrun.
+
+### CX-2: install.Apply semantics MISMATCH --bootstrap-home intent (architectural)
+
+Claim attacked: 'when --bootstrap-home is set, route the init flow through internal/install.Apply instead of (or in addition to) the existing initapply.Apply path'.
+
+Evidence — install.Apply contract (internal/install/install.go:109):
+```
+func Apply(cfg installconfig.Config, dottaTree dotta.Tree, projectRoot string) (Report, error)
+```
+Inside Apply (install.go:151-156), it iterates `subtree.Files` from the dotta tree (the ALREADY-POPULATED `~/.ta` substrate layout) and CopyFile/MergeFile-s each into `<projectRoot>/<sub.Destination>` per installconfig — destinations land at `.claude/agents`, `.codex/agents`, `.mcp.json`, `CLAUDE.md`, etc.
+
+Verified via TestApply_PlainCopySubstrateLandsFilesUnderDestination (install_test.go:46-97): source `~/.ta/agents` copies to `<projectRoot>/.claude/agents`.
+
+When D2 calls `install.Apply(*cfg, dotta.Walk($HOME/.ta), $HOME/.ta)`:
+- Source enumeration walks `$HOME/.ta/agents`, `$HOME/.ta/skills`, etc. (the 12 dotta subtrees).
+- Destinations resolve to `$HOME/.ta/.claude/agents`, `$HOME/.ta/.codex/agents`, `$HOME/.ta/.mcp.json`, `$HOME/.ta/CLAUDE.md`.
+- That copies the home library's substrate files INTO its own `.claude/` and `.codex/` subdirs. NOT 'bootstrap home from binary defaults'.
+
+The genuine 'bootstrap home from binary defaults' semantics need to copy from the BINARY's embed.FS (the shipped examples/ tree, exposed via `examples/embed_fs.go`) INTO `~/.ta/agents/`, `~/.ta/skills/`, etc. That is what existing `--target-system + --selections-file` does via `initapply.Apply(target=$HOME/.ta, sel, policy)` consuming binary `[ta]`-provenance items.
+
+The plan's L3-I3-shipped install.Apply is a PROJECT-INSTALL primitive (push home substrate into a project's .claude/.codex layout), NOT a HOME-BOOTSTRAP primitive (push binary defaults into the home library). Using install.Apply for --bootstrap-home would corrupt the home library's directory structure with a fake `.claude/` and `.codex/` inside `~/.ta/`.
+
+Mitigation route: planner must either (a) re-scope L3-I4 to make `--bootstrap-home` the trigger for `ta init` PROJECT-target install.Apply integration (NOT home-bootstrap) and leave home-bootstrap on the existing initapply path; OR (b) replace `install.Apply` in the D2 spec with the genuine binary→home primitive (which doesn't exist yet — that's a new slice). Either way the current D2 spec wires install.Apply to a destination shape that breaks the home-library layout invariant.
+
+The planner's stated direction at lines 19-22 ('install.Apply path (binary defaults → home library)') is FACTUALLY INCONSISTENT with install.Apply's actual implementation. Tests pinned 2026-05-18T15:30:00Z confirm Apply walks dotta tree → copies INTO substrate destinations under projectRoot.
+
+### CX-3: Examples + initapply + mcpsrv unowned but in close-gate sweep
+
+Claim attacked (L3-I4 close gate): `grep -rn 'target-system|targetSystem' .` returns ZERO hits across working tree.
+
+Falsifying evidence — `rg -n 'target-system|targetSystem' /Users/evanschultz/Documents/Code/hylla/ta/main -g '!*.gif'` returns 68 matches in 11 files. Files NOT in D1+D4 paths_owned:
+- internal/initapply/initapply.go: 7 matches (lines 273, 311, 404, 407, 449, 454 — error remediation messages, prose comments).
+- internal/initapply/initapply_test.go: 4 matches (lines 320, 836, 852, 853 — test bodies that assert remediation copy contains 'ta init --target-system').
+- internal/mcpsrv/init_tool.go:42 — 1 match (prose comment).
+- examples/README.md:214 — 1 match (VHS link prose + flag literal).
+- E2E_FIXES.md:892 — 1 match.
+
+The planner explicitly excluded initapply/* from L3-I4 paths_owned (line 264 'Preserved for F24 path. UNTOUCHED by L3-I4'). That contradicts the close gate's universal grep. Either:
+- (a) the close gate must scope to D1+D4's owned files only (init_cmd.go, init_cmd_test.go, init_multi.go, README.md, VHS triple — 5 paths), AND a separate follow-up slice handles the initapply/mcpsrv/examples/E2E_FIXES remediation-copy sweep; OR
+- (b) D4's paths_owned must expand to include examples/README.md, mcpsrv/init_tool.go, initapply/initapply.go, initapply/initapply_test.go, E2E_FIXES.md — but THAT collides with initapply's 'untouched' rule because the initapply error messages embed `ta init --target-system` literals that user-facing remediation tests assert on. Touching those means renaming the flag in the EXISTING initapply code path's user-facing copy — exactly what the planner punted.
+
+Only clean resolution: rename the flag NOT just in surface docs but in EVERY user-facing remediation message in the codebase (including initapply error messages and their tests). That makes D1 even larger (push the ≤4-block budget further out) or requires a dedicated initapply-side D1.5 droplet between D1 and D2 to update the remediation copy + its 4+ tests. The current 4-droplet decomposition is undersized.
+
+### CX-4: VHS tape internal Output directives + expect marker drift
+
+Claim attacked: 'rename file → picker_bootstrap_home.tape; replace any --target-system text inside the tape body with --bootstrap-home; re-run mage Vhs to regenerate the .gif + .txt'.
+
+Falsifying evidence — picker_target_system.tape contents:
+- Line 1: `# expect: Bootstrap` (the marker the VHS verifier scans for in the rendered output).
+- Line 9: `Output cmd/ta/testdata/vhs/picker_target_system.gif`
+- Line 10: `Output cmd/ta/testdata/vhs/picker_target_system.txt`
+- Line 28: `Type "./bin/ta init --target-system"`
+
+The plan spec mentions Line 28 but NOT Lines 9-10. If only the file is renamed and Line 28 updated, `mage Vhs` REGENERATES picker_target_system.{gif,txt} (the internal Output directives still point at the old paths) — producing stale artifacts under the OLD names while the renamed `.tape` sits beside them. The README link target picker_bootstrap_home.{gif,txt} will NOT materialize unless Lines 9-10 are also updated.
+
+Additionally: the new flag's BoolVar description at init_cmd.go:164 (the help text shown by the picker) currently reads 'bootstrap the home library at $HOME/.ta from binary defaults'. The expect marker is 'Bootstrap' which matches the new wording too — but if the planner D2 changes the multi-cat picker title-line text (the bubbletea Model receives the renamed flag → may re-derive the title prefix), the marker may need adjustment. Plan does NOT pin this and does NOT include a `mage Vhs` re-run gate that asserts the new artifact's text content matches an expected marker.
+
+The plan's acceptance is `mage Vhs regenerates the renamed VHS artifacts under cmd/ta/testdata/vhs/ green` — but 'green' for `mage Vhs` may simply mean the tape executed without error, not that the new artifacts pass an expect check. Need to verify the `mage Vhs` target's contract.
+
+### CX-5: cascade.droplet.auto_spawn IS LIVE — planner missed schema-driven QA twins
+
+Claim attacked: 'No LLM QA at droplet level — build+test is the only droplet-level gate.'
+
+Falsifying evidence — examples/schemas/cascade.toml:604-608 declares:
+```
+[cascade.droplet.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-qa-proof",         fields = {...} },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-qa-falsification", fields = {...} },
+]
+```
+
+AND project schema /Users/evanschultz/Documents/Code/hylla/ta/main/.ta/schema.toml:76 declares the SAME `[cascade.droplet.auto_spawn]` block live.
+
+AND F23 v2 IS WIRED — internal/ops/ops.go:286-307 fires `preValidateAutoSpawn` whenever `parentType.AutoSpawn` is non-empty AND `opts.NoSpawn==false`. The CLAUDE.md note at L158 ('Known limitation (F23 OFF)') is STALE — the runtime-fill semantics shipped before drop_004 (this is precisely how this falsif record exists — `cascade.planner.auto_spawn` at cascade.toml:617-621 + project schema:119 fired on the L3-I4 planner record's create).
+
+Impact on the plan: when the orchestrator creates each builder droplet (drop_004.drop.builder_l3_i4_d1_flag_rename etc.) via mcp__ta__create with type='cascade.droplet', auto_spawn WILL fire and create `<droplet-id>-qa-proof` + `<droplet-id>-qa-falsification` records automatically. That contradicts the plan's stated 'No LLM QA at droplet level' direction.
+
+If the planner WANTS no droplet-level QA, the orchestrator must pass `no_spawn=true` per item at create time (per project schema F23 docs). The plan should explicitly state the no_spawn intent. Otherwise the orchestrator either:
+- (a) accidentally creates 8 QA twins (2 per droplet × 4 droplets) it has no plan to dispatch agents against → audit-trail debt; OR
+- (b) gets blocked by missing target-id resolution at orchestrator close-gate time.
+
+Mitigation route: plan must explicitly declare `no_spawn=true` on each cascade.droplet create OR explicitly accept the 8 QA twins as droplet-level review (which contradicts methodology § 2.2 'There is no LLM QA below the package' and ta's overall pattern).
+
+### CX-6: D2+D3 can be merged — undersized decomposition wastes a droplet boundary
+
+Attack 6 (from prompt): cmd/ta is package main, single compile unit. D2 implements runInitBootstrapHome + branch logic (init_cmd.go + init_multi.go); D3 adds tests pinning that behavior in init_cmd_test.go.
+
+Falsifying evidence — every other builder droplet pattern in the existing drop_004 audit trail ships source + tests in the same droplet (the standard methodology § 2.1 'one source file + its co-located test file' rule). Splitting source-implementation from test-pinning across two droplets is UNUSUAL and the planner gives no rationale beyond the implicit 'serialize all four for compile safety' — but that's already enforced by D2 blocking D3 with the chain.
+
+If D2 lands the implementation without its pinning tests, between D2 close and D3 start the codebase has untested new code — and the L3-I3 build-QA twins (which fire on D2 close per methodology § 4 at every planner level) attack a tree without the matching tests, increasing false-negative risk on QA falsif.
+
+The acceptance criteria for D2 say 'NEW, in cmd/ta/init_cmd_test.go via D3' — explicitly deferring tests. The CLAUDE.md project rule §Cascade-managed development D5 says 'Builders dispatch in parallel when their paths are disjoint' — D2 and D3 paths OVERLAP (D2 owns init_cmd.go + init_multi.go; D3 owns init_cmd_test.go; both are package main, so the package compiles them together). The serialization is unavoidable. But MERGING D2+D3 into one droplet 'runInitBootstrapHome + its pinning tests' is exactly the canonical droplet shape per methodology § 2.1.
+
+Mitigation route: collapse D2+D3 into one droplet `D2 — install.Apply integration + tests` touching init_cmd.go, init_multi.go, init_cmd_test.go. Net decomposition becomes 3 droplets (D1 rename → D2 wire+test → D3 docs sweep), each closer to the canonical droplet shape.
+
+## UNROUTED UNKNOWNS
+
+1. The CLAUDE.md note (L158 'F23 OFF') is STALE — confirmed F23 v2 is live and firing. Separate follow-up: file an attention item to update CLAUDE.md.
+2. The plan's claim that initapply.Apply 'STAYS in place for the F24 project-target selections-file path' is correct in spirit (CX-2 confirms install.Apply is NOT a home-bootstrap primitive), but the plan's wording suggests install.Apply REPLACES some part of initapply at the --bootstrap-home boundary — that direction is architecturally wrong (CX-2). Resolve CX-2 before proceeding.
+3. `mage Vhs` green-criterion is undocumented in the plan. Need to inspect the magefile + verify what 'mage Vhs regenerates artifacts green' actually asserts.
+
+## VERDICT
+
+FAIL. Six unmitigated counterexamples: D1 atomicity violation (CX-1), install.Apply architectural mismatch (CX-2), unowned remediation-copy sweep (CX-3), VHS tape internal-Output drift (CX-4), missed cascade.droplet.auto_spawn (CX-5), undersized D2+D3 split (CX-6). The L3-I4 plan needs revision before any builder dispatch.
+
+The most load-bearing finding is CX-2 — install.Apply's project-install semantics do not match the planner's stated --bootstrap-home (binary→home) direction. That's not a documentation polish; it's an architectural mismatch that would corrupt the home library layout if implemented as specified.
+"""}
+created_at = "2026-05-19T05:36:56Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-19T01:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i4_init_integration"
+title = "Plan-QA falsif of L3-I4 planner — init_integration (Apply consumer + F0-prep flag rename)"
+updated_at = "2026-05-19T01:55:00Z"
+[l3_g2_install_hygiene]
+blockers = ["drop_004.drop.l3_g1_init_ux_residue"]
+created_at = "2026-05-19T03:00:00Z"
+description = """
+L3-G2 decomposition — install hygiene segment, 4 builder droplets, 2 waves.
+
+## Planning-level clarification on paths
+
+L2-G's path list for G2 was `cmd/ta/init_cmd.go, internal/initapply/initapply.go, magefile.go`. Per-finding cross-check against E2E_FIXES.md:
+
+- F1 (mage install schema-validate) → magefile.go::seedHomeSchema (line 105-141).
+- F2 (jargon labels) → magefile.go::Install (line 84-88 Facts row) + seedHomeSchema (line 112-138 notice bodies).
+- F3 (placeholder decision) → magefile.go::seedHomeSchema branch logic; also touches the laslig notice copy.
+- F8 (running-MCP hint) → magefile.go::Install post-seedHomeSchema (after line 88).
+- F38d-2.5 (atomicity) → internal/initapply/initapply.go::Apply (line 277-305) + new preflight helper.
+- F38d-2.6 (content-aware) → internal/initapply/initapply.go::recordOutcome (line 955-979) + applySchemas conflict branch (line 504-516).
+
+**cmd/ta/init_cmd.go is NOT touched in this slice.** The L2-G path list was anticipatory; the F-findings are install-time (mage) and inside initapply.Apply. Filed as an L2-G clarification — no AMENDMENT needed because G1 (which DID touch init_cmd.go) is already complete.
+
+## Droplet D1 — mage install schema-validate + jargon-free labels + F3 placeholder decision
+
+id: drop_004.drop.l3_g2_install_hygiene.d1_mage_install_hygiene
+paths: magefile.go (ONLY)
+closes: F1, F2, F3 (sub-decisions share `seedHomeSchema` so single droplet).
+
+Edits (3 distinct code blocks):
+
+1. magefile.go::seedHomeSchema (lines 105-141, ~36 lines): in the `_, err := os.Stat(dst); err == nil` branch (line 111-120), BEFORE returning `dst, "untouched", nil`, read the existing file bytes (`os.ReadFile(dst)`) and run them through `schema.LoadBytes(buf)` (`internal/schema/load.go:312`, already public). If LoadBytes returns error, emit a `laslig.NoticeWarnLevel` notice via the existing `rr` renderer titled e.g. "schema invalid", body naming the file and the error, detail bullets pointing at the three repair paths (hand-edit, replace from examples/, rebuild via `ta schema --action=create`). DO NOT overwrite the file. Return `dst, "invalid", nil` so the Install Facts row labels the outcome as invalid (NOT 'untouched'). Magefile.go's imports need `"github.com/evanmschultz/ta/internal/schema"` added (line 31 cluster). Confirmed import-cycle safe: schema package has no reverse dep on magefile (`//go:build mage` constraint keeps magefile excluded from regular builds; rg confirms no schema→magefile edge).
+
+2. magefile.go::Install Facts row (line 84-88) + seedHomeSchema notice titles/bodies (lines 113-116, 127-136): replace jargon with human-language mapping per E2E_FIXES.md:29-33 — `untouched` → `schema preserved (your edits are safe)`, `created` → `placeholder created (empty — populate it next)`, `placeholder` → `placeholder reset (D2 cold-home guard)`. Apply the same change to the matching INFO Notice block ABOVE the SUCCESS notice (the `rr.Notice` calls at lines 112-119 and 127-138). The third label `invalid` (new from F1) gets a human form: `schema invalid (left in place — see warning above)`. Outcome label returned from `seedHomeSchema` is the second return string; map each branch.
+
+3. magefile.go::seedHomeSchema branch logic for F3 placeholder decision (line 124 — `os.WriteFile(dst, nil, 0o644)` writes an empty placeholder): per E2E_FIXES.md:37-46 the decision is open between (a) keep placeholder (current behavior) and (b) drop; mage install only writes binary, init creates schema lazily. **DEFAULT TO (a) keep current placeholder behavior** unless the orchestrator explicitly directs (b) during dispatch. Record the choice + rationale in the builder's `decision_log` field on the droplet record before reporting complete. Either way, NEVER seed from `examples/` (already enforced; do not add seed logic).
+
+Acceptance tests (new — magefile.go has no existing tests, so add `magefile_install_test.go` under `//go:build mage`):
+- `TestF1_SeedHomeSchema_InvalidExistingSchemaEmitsWarn_NoOverwrite` — write a clearly-invalid schema TOML to a tmp HOME (e.g. legacy `file=/directory=/collection=` shape that LoadBytes rejects), call `seedHomeSchema(rr, tmpHome)`, assert (1) file bytes UNCHANGED, (2) returned outcome label includes 'invalid', (3) the renderer received a WARN notice (assert against a captured `bytes.Buffer` writer).
+- `TestF1_SeedHomeSchema_ValidExistingSchemaSilent` — write a valid schema, call seedHomeSchema, assert outcome label is the human form of 'untouched' (e.g. 'schema preserved (your edits are safe)') and no WARN notice emitted.
+- `TestF2_InstallFactsRowLabelsAreHuman` — call `Install` with captured `os.Stderr` (or factor out a private helper that takes a writer), assert the Facts row 'outcome' value matches the human-language mapping, NOT raw 'untouched'/'created'.
+- `TestF3_SeedHomeSchema_MissingHomeCreatesEmptyPlaceholder` — pin (a) decision: with no existing `~/.ta/schema.toml`, seedHomeSchema creates empty placeholder + emits INFO with human label 'placeholder created (empty — populate it next)'. If orchestrator selects (b), this test inverts to `TestF3_SeedHomeSchema_MissingHomeLeavesUntouched`.
+
+Builder gate: `mage testFunc 'TestF1_SeedHomeSchema|TestF2_InstallFactsRowLabelsAreHuman|TestF3_SeedHomeSchema'` from project root. Builder MUST capture decision_log entry naming F3 choice (default (a)).
+
+Blockers: none (parallel with D3).
+
+## Droplet D2 — running-MCP detection hint
+
+id: drop_004.drop.l3_g2_install_hygiene.d2_running_mcp_hint
+paths: magefile.go (ONLY)
+closes: F8.
+
+Edits (1 distinct code block):
+
+1. magefile.go::Install (after line 88, BEFORE the final `return rr.Facts(...)`): add a new helper `detectRunningTaMCP() bool` that shells out `exec.Command("pgrep", "-f", "^ta$")` (`os/exec` already imported at line 23). If `cmd.Output()` succeeds AND output non-empty → return true. If pgrep is absent (Windows, stripped Linux) OR exits non-zero (no match), return false silently. NEVER error out the install on detection failure — the hint is best-effort.
+
+2. magefile.go::Install: when `detectRunningTaMCP()` returns true, emit a `laslig.NoticeInfoLevel` notice via `rr` BEFORE the success notice, titled `running MCP detected`, body `An existing ta MCP server is still running its previous binary; restart Claude Code / Codex to pick up the new build.`, detail bullets listing the canonical restart paths.
+
+Portability note (routed in description): pgrep is BSD on Mac, procps on Linux, absent on Windows; the graceful-no-op fallback is required behavior, not a nice-to-have.
+
+Acceptance tests (in `magefile_install_test.go`):
+- `TestF8_DetectRunningTaMCP_PgrepAbsentReturnsFalse` — set PATH to an empty dir, call `detectRunningTaMCP()`, assert false (no error, no panic).
+- `TestF8_DetectRunningTaMCP_NoMatchReturnsFalse` — assume `^ta$` doesn't match in the test process tree; call detect, assert false.
+- `TestF8_Install_EmitsHintWhenDetectedTrue` — inject a fake detector (refactor: make `detectRunningTaMCP` a package-level var function so tests can stub it); set to return true; assert renderer captures the INFO notice with title 'running MCP detected'.
+
+Builder gate: `mage testFunc 'TestF8_'`.
+
+Blockers: drop_004.drop.l3_g2_install_hygiene.d1_mage_install_hygiene (sibling-overlap on magefile.go::Install — D1 modifies Facts row + seedHomeSchema, D2 adds the pre-success detect hint; sequence D2 AFTER D1 closes so the patches don't collide in the same function).
+
+## Droplet D3 — atomic pre-scan across initapply.Apply
+
+id: drop_004.drop.l3_g2_install_hygiene.d3_atomic_prescan
+paths: internal/initapply/initapply.go (ONLY)
+closes: F38d-2.5.
+
+Edits (2 distinct code blocks):
+
+1. internal/initapply/initapply.go: add new private helper `func preflightConflicts(target string, sel Selections, policy Policy) (Report, error)`. It walks every dest path that the per-category helpers WOULD write (mirrors `schemaDestPath`, `agentDestPath`, `configDestPath`, `docsTemplateDestPath` resolution) without resolving template bytes (resolution stays in helpers). For each dest that already exists (`os.Stat` returns nil), append to the corresponding `Report.<Cat>.Conflicts`. Return the populated Report and, if `policy == PolicyError` AND any conflicts exist, an aggregated error naming ALL conflicting destinations across ALL 4 categories. The error message MUST be the same shape `AggregateConflicts` produces (so `init_multi.go:44-48` continues to surface a sensible message via either path).
+
+2. internal/initapply/initapply.go::Apply (line 277-305): insert preflight call AFTER the empty-home preflight (line 282-285) but BEFORE the per-category writes (line 292+). If preflightConflicts returns an error (PolicyError path with any conflict) → return the populated Report + error WITHOUT calling any apply<Cat> helper. The empty-home preflight stays where it is (it's a separate concern; F32 ordering preserved).
+
+Acceptance tests in `internal/initapply/initapply_test.go` (existing file — extend):
+- `TestInitApply_AtomicityOnConflict_NoPartialWrite` (verbatim from E2E_FIXES.md:926) — pre-populate `.claude/agents/foo.md` under a tmp project, run Apply with selections that would write to BOTH `.ta/schema.toml` AND `.claude/agents/foo.md` under PolicyError. Assert (1) `.ta/schema.toml` was NOT written, (2) the returned error names BOTH the schema conflict AND the agent conflict, (3) the Report has Agents.Conflicts populated AND no Schemas.Written.
+- `TestInitApply_ErrorMessageNamesAllCategories` (verbatim from E2E_FIXES.md:927) — pre-populate one item per category (schema, agent, config, docs-template). Assert the error string includes ALL 4 prefixed conflict names (`schema:`, `agent:`, `config:`, `docs:`) at once — first-fail behavior is forbidden.
+
+Builder gate: `mage testFunc 'TestInitApply_AtomicityOnConflict|TestInitApply_ErrorMessageNamesAllCategories'`. Builder also re-runs `mage testPkg ./internal/initapply` to guarantee no regression in the existing Apply tests (F32 strict-provenance, F33 flatten, F38c).
+
+Blockers: none (parallel with D1).
+
+## Droplet D4 — content-aware sha256 conflict detection
+
+id: drop_004.drop.l3_g2_install_hygiene.d4_content_aware_conflicts
+paths: internal/initapply/initapply.go (ONLY)
+closes: F38d-2.6.
+
+Edits (3 distinct code blocks):
+
+1. internal/initapply/initapply.go: add helper `func sameContent(dest string, wouldWrite []byte) (bool, error)`. Reads on-disk bytes (return false on not-exist). For agents (file-as-record with frontmatter), normalize BOTH sides via `md.SplitFrontmatter` → `md.DecodeFrontmatter` → `md.EncodeFrontmatter` (round-trip through the existing internal/md package, already imported and used at line 649 for the F33 flatten rewrite) so YAML key-order drift is neutralized. For all other files, raw `sha256.Sum256` comparison. Return true iff sha256 of normalized bytes match.
+
+2. internal/initapply/initapply.go::recordOutcome (lines 955-979): in the existing `if err == nil && !existing.IsDir()` branch (line 960), BEFORE appending to `res.Conflicts`, call `sameContent(dest, body)`. If true, append `key` to a new `res.Unchanged` slice (NOT Conflicts) and return — silent skip per F38d-2.6 contract. If false, fall through to the existing policy-gated path. Result struct needs a new `Unchanged []string` field with `json` tag.
+
+3. internal/initapply/initapply.go::applySchemas (lines 495-516): mirror the content-aware path in the schema conflict branch (line 504). After detecting `_, conflict := mergedBodies[p.name]; conflict`, marshal the WOULD-WRITE body (the candidate `mergedBodies[p.name] = body` map) and compare to the existing on-disk body via sameContent. If identical, append to Unchanged and continue WITHOUT touching mergedBodies. Otherwise fall through to existing policy logic. Schemas don't carry YAML frontmatter (TOML), so sameContent's raw-bytes path applies.
+
+Acceptance tests in `internal/initapply/initapply_test.go`:
+- `TestInitApply_ContentAware_IdenticalRerunNoConflict` (verbatim E2E_FIXES.md:948) — call Apply once, capture file bytes, call Apply again with identical selections + PolicyError. Assert zero entries in Report.<Cat>.Conflicts and the file bytes unchanged on disk; assert at least one entry in Report.<Cat>.Unchanged.
+- `TestInitApply_ContentAware_ModifiedFileStillConflicts` (verbatim E2E_FIXES.md:949) — Apply, then `os.WriteFile(dest, alteredBytes, ...)`, then Apply with PolicyError. Assert the modified file produces a Conflicts entry (not Unchanged).
+- `TestInitApply_ContentAware_FrontmatterKeyOrderIgnored` (verbatim E2E_FIXES.md:950) — write an agent file with YAML keys in one order (e.g. `name: foo\\nrole: bar`); have the selection resolve to identical content with keys reversed (`role: bar\\nname: foo`). Assert the normalized comparison treats them as identical → Unchanged.
+
+Builder gate: `mage testFunc 'TestInitApply_ContentAware_'`. Builder re-runs `mage testPkg ./internal/initapply` to confirm D3's tests still pass and no F32/F33 regression.
+
+Blockers: drop_004.drop.l3_g2_install_hygiene.d3_atomic_prescan (sibling-overlap on initapply.go: BOTH D3 and D4 modify `recordOutcome`, `applySchemas`, and add helpers; sequence D4 AFTER D3 closes so the same-file edits don't collide).
+
+## Wave plan
+
+- **Wave 1 (parallel, 2 concurrent)**: D1 (magefile.go) + D3 (initapply.go). Disjoint paths.
+- **Wave 2 (parallel-after-Wave-1, 2 concurrent)**: D2 (blocked-by D1) + D4 (blocked-by D3). D2 still touches magefile.go (Install only) and D4 still touches initapply.go; both are scheduled by their respective blocker close, NOT by each other (D2 and D4 dispatch in parallel as soon as their individual blockers close, which may not be simultaneously).
+
+## Build-QA gate (at THIS planner level after all 4 droplets complete)
+
+Once D1+D2+D3+D4 are all `state=complete, outcome=success` AND `mage testPkg ./internal/initapply` is green AND `mage testFunc 'TestF1|TestF2|TestF3|TestF8'` is green, orchestrator creates the L3-G2 build-QA twins (`drop_004.drop.l3_g2_install_hygiene-build-qa-proof` + `-build-qa-falsification`) targeting this planner record's completed sub-tree. Both must close `complete + success` before L3-G2 reports `complete` to L2-G.
+
+## Open decisions routed to orchestrator/dev
+
+- **F3 decision (D1)**: keep placeholder (a) — default — or drop placeholder + lazy init creation (b). Builder records choice + rationale in droplet `decision_log` before reporting complete.
+- **F38d-2.5 fix shape (D3)**: pre-scan ONLY (recommended for v0.1.0 per E2E_FIXES.md:923) vs stage-then-commit. Default: pre-scan only. Stage-then-commit is post-MVP.
+- **F38d-2.6 normalization shape (D4)**: full YAML round-trip (option 1, recommended) vs body-post-frontmatter-only (option 2). Default: option 1 — `md.SplitFrontmatter` + Decode + Encode round-trip on both sides.
+"""
+objective = "Close 6 E2E_FIXES install-hygiene findings: F1 (mage-install schema-validate via schema.LoadBytes before declaring 'untouched'), F2 (replace jargon labels 'untouched'/'created'/'placeholder' with human language in both Facts row and matching INFO notice), F3 (placeholder-vs-no-file decision — codify (a) keep placeholder OR (b) drop; never seed from examples/), F8 (post-install hint when running MCP `ta` detected via pgrep), F38d-2.5 (atomic pre-scan of all conflicts before any write), F38d-2.6 (content-aware sha256 conflict detection with YAML-normalized frontmatter comparison). Four atomic droplets across two waves: D1+D3 parallel; D2 blocked-by D1 (both edit magefile.go); D4 blocked-by D3 (both edit internal/initapply/initapply.go)."
+parent_id = "drop_004.drop.l2_g_e2e_closure"
+role = "planner"
+started_at = "2026-05-19T03:00:00Z"
+state = "todo"
+structural_type = "segment"
+title = "L3-G2 planner — install hygiene (6 findings)"
+transition_notes = """
+PLAN-QA FALSIF AMEND FOLDS APPLIED orchestrator-direct 2026-05-19T02:10:00Z per drop_003 surgical-AMEND precedent. Plan-QA falsif surfaced 3 CONFIRMED CEs + 6 mitigated attacks. Fold actions:
+
+**FOLD-1 (CX-1 build-tag test invisibility)**: PIVOT D1 + D2 from magefile-side //go:build mage tests to a real internal/install_hygiene/ package. magefile.go::Install becomes a thin wrapper: `func Install() error { return install_hygiene.Run(install_hygiene.Options{...}) }`. seedHomeSchema + detectRunningTaMCP + Facts-row builder + installError move into internal/install_hygiene/. Tests live in internal/install_hygiene/install_hygiene_test.go under regular `go test` (no build tag). This is canonical Go layout: thin mage shell over real package logic.
+
+**FOLD-2 (CX-2 F38d-2.3 routing miss)**: ADD D5 droplet covering F38d-2.3 (AggregateConflicts dest-path enrichment at internal/initapply/initapply.go:413). Enriches error message with the resolved destination path so users see exactly which file conflicted. L3-G1 transition_notes routed this finding to L3-G2; fold absorbs it.
+
+**FOLD-3 (CX-3 Apply error-shape contract drift)**: Pin D3 contract to OPTION (b): preflightConflicts populates Report.Conflicts; Apply returns nil error when conflicts present + PolicyError; existing init_multi.go:43-49 wrapper fires unchanged. No CLI-friendly error format regression.
+
+**REVISED DECOMPOSITION (5 droplets, was 4)**:
+- **D1** (NEW internal/install_hygiene/install_hygiene.go + install_hygiene_test.go): seedHomeSchema + F1 schema-validate via internal/schema.LoadBytes + F2 human-language Facts row + F3 keep-placeholder default. 4 tests under regular go test (no build tag).
+- **D2** (NEW internal/install_hygiene/mcp_detect.go + mcp_detect_test.go + magefile.go::Install hook): detectRunningTaMCP via os/exec pgrep with graceful no-op fallback on Windows / pgrep-absent shells. F8 hint emission. 3 tests. Blocked-by D1 (shared install_hygiene package).
+- **D3** (EDIT internal/initapply/initapply.go): preflightConflicts helper + Apply wiring per FOLD-3 contract; Apply returns nil error when conflicts present so init_multi.go wrapper still fires. 2 tests in initapply_test.go (atomicity + error format preservation). Blockers: none.
+- **D4** (EDIT internal/initapply/initapply.go): sameContent helper + recordOutcome content-aware branch + Result.Unchanged field + applySchemas mirror. F38d-2.6 fix. 3 tests. Blocked-by D3 (sibling-overlap on recordOutcome + applySchemas).
+- **D5** (EDIT internal/initapply/initapply.go::AggregateConflicts): F38d-2.3 dest-path enrichment in error message. 1 test (TestAggregateConflicts_EnrichesWithDestPath per E2E_FIXES.md:890-896). Blocked-by D4 (sibling-overlap on initapply.go AggregateConflicts uses; D5 fires after the bigger initapply edits land).
+
+**WAVE PLAN**: Wave 1: D1 + D3 parallel (disjoint packages). Wave 2: D2 (blocked-by D1) + D4 (blocked-by D3). Wave 3: D5 (blocked-by D4).
+
+**CLOSE GATE**: All 5 droplets state=complete + outcome=success; mage testPkg ./internal/install_hygiene + mage testPkg ./internal/initapply both green; mage check green at module; L3-G2 build-QA twins both PASS.
+
+Ready for builder dispatch with the AMENDED spec. cascade.droplet.auto_spawn fires per-droplet build-QA twins automatically.
+"""
+updated_at = "2026-05-19T02:10:00Z"
+[l3_g2_install_hygiene-plan-qa-proof]
+completed_at = "2026-05-18T22:00:00Z"
+created_at = "2026-05-19T05:37:51Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-19T01:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_g2_install_hygiene"
+title = "Plan-QA proof of L3-G2 planner — install hygiene (6 findings)"
+transition_notes = """
+PROOF PASS. All 7 verification anchors landed against disk truth.
+
+1. F-finding citations (E2E_FIXES.md):
+   - F1 §line 5-9 — mage install schema-validate (LoadBytes before declaring untouched). MATCH.
+   - F2 §line 17-35 — outcome jargon mapping (untouched/created/placeholder → human language). MATCH including both Facts row AND matching INFO block above SUCCESS notice.
+   - F3 §line 37-46 — placeholder vs no-file decision; (a) keep current OR (b) drop; NEVER seed from examples/. MATCH; planner correctly defaults to (a) per dev's pre-MVP cleanup tracker invariant.
+   - F8 §line 98-110 — running-MCP detection via pgrep -f '^ta$' hint. MATCH; portability note (BSD vs procps vs absent on Windows) accurately routed as graceful-no-op contract.
+   - F38d-2.5 §line 911-927 — atomic pre-scan across multi-write tree. MATCH; planner correctly picks option 1 (pre-scan) per recommendation at line 923; tests at lines 926-927 reproduced VERBATIM.
+   - F38d-2.6 §line 929-950 — content-aware sha256 with YAML normalization. MATCH; planner correctly picks option 1 (normalized round-trip) per recommendation at line 945; tests at lines 948-950 reproduced VERBATIM.
+
+2. File path + line-number disk truth:
+   - magefile.go::seedHomeSchema at lines 105-141. CONFIRMED (Read lines 105-141; signature at 105, branch at 111-120, return at 120, write at 124, INFO notice at 127-138).
+   - magefile.go::Install Facts row at lines 84-88. CONFIRMED (rr.Facts call at 84, three Field entries 85-87, closing at 88).
+   - magefile.go imports cluster line 31 (internal/render). CONFIRMED at line 31. os/exec already imported at line 23 — D2's pgrep helper can use it without new import.
+   - internal/initapply/initapply.go::Apply at lines 277-305. CONFIRMED (func sig at 277, MkdirAll at 278-280, preflightEmptyHome at 282-285, per-category writes at 292-302, closing at 305).
+   - internal/initapply/initapply.go::recordOutcome at lines 955-979. CONFIRMED (godoc at 955-957, sig at 958, existing.IsDir branch at 960, Conflicts append at 961, policy switch at 962-973, new-file branch at 975-978).
+   - internal/initapply/initapply.go::applySchemas conflict branch at lines 495-516 (specifically 504). CONFIRMED (loop at 495, conflict detection at 504 `_, conflict := mergedBodies[p.name]`, policy gates at 505-512, merge at 514-515).
+   - internal/schema/load.go:312 LoadBytes. CONFIRMED via rg — `func LoadBytes(buf []byte) (Registry, error)` at line 312, public symbol, no reverse dep on magefile (//go:build mage tag isolates magefile from regular build graph).
+   - internal/md package SplitFrontmatter/DecodeFrontmatter/EncodeFrontmatter. CONFIRMED in active use at initapply.go:649,656,664 (the rewriteAgentFrontmatterName flow); D4's normalization helper can reuse the same internal API.
+
+3. Coverage of 6 findings across 4 droplets — NO OVERLAP, NO GAP:
+   - D1 = F1 + F2 + F3 (single seedHomeSchema function, shared blast radius — correct collapse).
+   - D2 = F8 (post-install hint, NEW code in Install after line 88).
+   - D3 = F38d-2.5 (atomicity / preflight helper).
+   - D4 = F38d-2.6 (content-aware sha256).
+   Sum = 6 findings, 4 droplets, no double-assignment, no missing finding.
+
+4. Sibling-blocking enforcement:
+   - D2 blocked-by D1 on magefile.go::Install (D1 modifies Facts row + seedHomeSchema return label; D2 adds detect hint BEFORE the same Facts row). Same function, real conflict. CORRECTLY enforced.
+   - D4 blocked-by D3 on initapply.go (BOTH modify recordOutcome at line 960+ AND applySchemas at line 504+; D3 adds preflight helper + Apply call site, D4 modifies the same conflict branches to short-circuit on identical content). Same functions, real conflict. CORRECTLY enforced.
+
+5. D1 + D3 parallelism — VALID. magefile.go (project root) and internal/initapply/initapply.go are disjoint files in different packages. No shared symbol, no shared imports needing coordination, no test-file collision (D1 creates new magefile_install_test.go, D3 extends existing initapply_test.go).
+
+6. Test naming convention — COMPLIANT. TestF<N>_<descriptor> pattern matches cascade convention used across drop_004 (verified against L2-G's existing TestF1_/TestF2_/etc. naming in earlier closed droplets). The verbatim test names from E2E_FIXES.md:926-927 + 948-950 are reproduced exactly, preserving traceability between fix-spec and test-spec.
+
+7. F1 fix via internal/schema.LoadBytes — CORRECT. LoadBytes is the public schema-validation entry point at internal/schema/load.go:312, returns Registry + error, matches the F1 spec at E2E_FIXES.md:9 verbatim. Import-cycle safety established (magefile is //go:build mage isolated; schema package has no reverse magefile dep).
+
+ADDITIONAL VERIFIED POSITIVES:
+- F3 default routing (a) keep placeholder + decision_log capture is the correct conservative choice given dev's pre-MVP no-version-bump-framing invariant — changing placeholder semantics needs an explicit dev call, not silent flip.
+- F38d-2.5 picks pre-scan (option 1) not staging dir (option 2) — aligns with E2E_FIXES.md recommendation for v0.1.0.
+- F38d-2.6 picks normalized YAML round-trip (option 1) not body-only diff (option 2) — aligns with E2E_FIXES.md recommendation and reuses existing md.SplitFrontmatter/Decode/Encode codepath.
+- Wave plan is correct: Wave 1 = D1+D3 (parallel, disjoint), Wave 2 = D2+D4 (each dispatched when its individual blocker closes; D2/D4 not gated on each other since they touch different files).
+- Build-QA gate correctly scoped at THIS planner level after all 4 droplets close + mage testPkg ./internal/initapply green + targeted testFunc green.
+
+UNKNOWNS (acceptable, routed to dispatch-time orchestrator decisions):
+- F3 final choice (a vs b): planner routes default (a), notes that orchestrator can override at dispatch — this is the right level of routing.
+- F8 helper-as-package-var-for-test-stub refactor: planner identifies the need but leaves the implementation shape to the builder, which is appropriate for the planner level.
+
+NO BLOCKERS. NO COUNTEREXAMPLES. EVIDENCE COMPLETE.
+"""
+updated_at = "2026-05-18T22:00:00Z"
+[l3_g2_install_hygiene-plan-qa-falsification]
+created_at = "2026-05-19T05:37:51Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-19T01:30:00Z"
+state = "in_progress"
+target_id = "drop_004.drop.l3_g2_install_hygiene"
+title = "Plan-QA falsif of L3-G2 planner — install hygiene (6 findings)"
+updated_at = "2026-05-19T01:30:00Z"
+[l3_i5_registration_directives]
+blockers = []
+completed_at = "2026-05-19T02:00:00Z"
+created_at = "2026-05-18T16:00:00Z"
+description = """
+L3-I5 decomposition: 4 atomic builder droplets under NEW internal/install/register_*.go files. Per-target file-splitting AVOIDS the same-file collision Hard Rule (the L3-I3 planner authored install.go + apply* together; here we keep each registration target in its own sub-file so D2/D3/D4 builders can dispatch in parallel after D1 lands).
+
+Seam pin (verified against committed code 2026-05-18):
+- internal/install/install.go:289 — `func applyRegistrations(rep *Report, sub installconfig.Substrate)` currently appends sub.Register entries to rep.Registrations and returns. L3-I5 replaces this body with a dispatcher that routes by Registration kind to the per-target writers in register_*.go.
+- internal/installconfig/config.go:49 — `Registration{Event, Matcher, SettingsFile}` is the existing TOML-bound shape. L3-I5 EXTENDS Registration with a kind discriminant (see D1) without breaking the existing claude_hooks defaults (which omit any kind field → default to "hook").
+- internal/configmerge/configmerge.go:66 — NewJSONMerger(arrayDedupeKeys) is the reusable merge primitive. D2 calls it with {"hooks.PreToolUse": "matcher", "hooks.SubagentStop": "matcher", "hooks.SessionStart": "matcher", "hooks.UserPromptSubmit": "matcher"} to match install.go:65-74 arrayDedupeRegistry.
+- defaults.toml at internal/installconfig/defaults.toml:37-50 — claude_hooks ships 3 Register entries (PreToolUse/Bash, PreToolUse/Agent, SessionStart) targeting .claude/settings.local.json and .claude/settings.json. D2's tests pin both file targets.
+- Live `.claude/settings.json` confirms enabled-plugin shape: `enabledPlugins["<plugin-name>@<source>"] = true`. D3 builds Registration → enabledPlugins entry using that exact key shape.
+
+## D1 — register.go core (Registration kind discriminant + dispatcher + Apply seam wiring)
+
+id: drop_004.drop.builder_l3_i5_d1_dispatcher
+role: builder; blockers: []
+paths_owned (NEW + EDIT):
+- internal/install/register.go (NEW — Dispatcher + RegistrationKind enum + ReplaceApplyRegistrationsStub wiring)
+- internal/installconfig/config.go (EDIT — extend Registration with optional `kind` field; default "" → hook for backward compat with claude_hooks defaults)
+- internal/install/install.go (EDIT — replace applyRegistrations stub body with a call to register.Apply(rep, substrateName, sub, projectRoot); add substrateName to the call since the plugin-missing alert needs it)
+- internal/install/register_test.go (NEW — D1 tests: dispatcher routing + kind="" defaults to hook)
+
+Objective:
+- Add `Registration.Kind string \\`toml:"kind"\\`` to installconfig.Registration. Enum values: "" (= "hook" for back-compat), "hook", "plugin", "mcp_server". Document the back-compat default in godoc.
+- Define `RegistrationKind` constants in register.go: `kindHook`, `kindPlugin`, `kindMCPServer`. Export them only if D2/D3/D4 callers need them; otherwise keep unexported (YAGNI).
+- Implement `func Apply(rep *Report, substrateName string, sub installconfig.Substrate, projectRoot string) error` in register.go that dispatches each sub.Register entry by Kind to the per-target writer. D1 STUBS the per-target writers (applyHookRegistration, applyPluginRegistration, applyMCPServerRegistration) as no-op functions that record to rep.Registrations only — D2/D3/D4 fill them in.
+- Edit install.go applyRegistrations to call `register.Apply(rep, substrateName, sub, projectRoot)` (renamed from the existing parameterless stub). Also rename install.go applyRegistrations call sites and signature to thread `substrateName` and `projectRoot`.
+- Add `Report.Errors` aggregation policy for registration phase: per-Registration failures append to rep.Errors but Apply does NOT short-circuit — registrations are best-effort relative to the file-copy phase (per L3-I3 plan's documented short-circuit-on-first-error covering hard ResolveDestination/CopyFile/MergeFile errors only).
+
+Acceptance tests (honest-named):
+- TestRegister_Apply_RoutesHookKindToHookWriter
+- TestRegister_Apply_RoutesPluginKindToPluginWriter
+- TestRegister_Apply_RoutesMCPServerKindToMCPServerWriter
+- TestRegister_Apply_EmptyKindDefaultsToHook (back-compat with claude_hooks defaults)
+- TestRegister_Apply_RejectsUnknownKindAsError
+- TestRegister_Apply_RecordsAllRegistrationsInReport (rep.Registrations stays the audit trail)
+
+Acceptance: mage testFunc 'TestRegister_Apply_.*' (single-package scope per ta cascade-isolation rule).
+
+## D2 — register_hook.go (Claude Code hook insertion under hooks.<Event> arrays)
+
+id: drop_004.drop.builder_l3_i5_d2_hook
+role: builder; blockers: [D1]
+paths_owned (NEW):
+- internal/install/register_hook.go (NEW — applyHookRegistration body)
+- internal/install/register_hook_test.go (NEW)
+
+Objective:
+- Implement `applyHookRegistration(rep *Report, substrateName string, sub installconfig.Substrate, reg installconfig.Registration, projectRoot string) error`.
+- Resolve target absolute path: `filepath.Join(projectRoot, reg.SettingsFile)`. Reject when reg.SettingsFile is empty (loud error). Reject when joined path escapes projectRoot via `..` (defense-in-depth even though we control defaults).
+- Build the incoming JSON fragment representing one hook entry under hooks.<reg.Event>[]:
+  ```
+  {"hooks": {"<Event>": [{"matcher": "<Matcher>", "hooks": [{"type": "command", "command": "<resolved-hook-path>"}]}]}}
+  ```
+  Match the live shape Claude Code already writes; the `<resolved-hook-path>` is `filepath.Join("$CLAUDE_PROJECT_DIR", sub.Destination, basename-of-hook-script)`. The hook script basename is NOT known to Registration today — D2 derives it from the substrate's Source basename PLUS a documented limitation: one register entry per hook script means substrates with multiple hook scripts need one register entry per script. This matches defaults.toml's pattern (3 register entries for 3 events; the hook-script→event binding is the install author's responsibility).
+  ALTERNATE design routed to plan-QA: add a `hook_script` field to Registration so the binding is explicit. D2 builder picks based on plan-QA's vote.
+- Call configmerge.NewJSONMerger with the arrayDedupeRegistry["claude_settings_fragments"] key map (hooks.PreToolUse/SubagentStop/SessionStart → matcher) to merge the fragment into the existing settings file. Use fsatomic.Write for the output.
+- Create the settings file (empty `{}`) if missing.
+- If reg.Matcher == "" (e.g. SessionStart per defaults.toml:49), the JSON shape becomes `{"hooks": {"<Event>": [{"hooks": [...]}]}}` (matcher field omitted). configmerge's dedupe will then key on the empty matcher OR fall back to deep-equal (acceptable for SessionStart with one hook).
+
+Acceptance tests:
+- TestApplyHookRegistration_InsertsIntoFreshSettings (settings file missing)
+- TestApplyHookRegistration_InsertsIntoExistingSettings (round-trip merge preserves other keys)
+- TestApplyHookRegistration_DedupesOnMatcher (re-applying same registration is idempotent)
+- TestApplyHookRegistration_MultipleEventsCoexist (PreToolUse + SessionStart both present after two calls)
+- TestApplyHookRegistration_EmptyMatcherSessionStart (SessionStart row with empty matcher)
+- TestApplyHookRegistration_TargetsBothSettingsAndLocalSettings (defaults.toml claims both .claude/settings.json AND .claude/settings.local.json; verify routing by reg.SettingsFile)
+- TestApplyHookRegistration_RejectsEmptySettingsFile
+- TestApplyHookRegistration_RejectsPathEscape
+
+Acceptance: mage testFunc 'TestApplyHookRegistration_.*'.
+
+## D3 — register_plugin.go (Claude Code plugin enable + alert-on-missing-plugin)
+
+id: drop_004.drop.builder_l3_i5_d3_plugin
+role: builder; blockers: [D1]
+paths_owned (NEW):
+- internal/install/register_plugin.go (NEW — applyPluginRegistration body)
+- internal/install/register_plugin_test.go (NEW)
+
+Objective:
+- Implement `applyPluginRegistration(rep *Report, substrateName string, sub installconfig.Substrate, reg installconfig.Registration, projectRoot string) error`.
+- Registration shape for plugin: reuse `Event` field as the plugin reference key (e.g. `"frontend-design@claude-plugins-official"`) and ignore Matcher. SettingsFile defaults to `.claude/settings.json` when empty (plugin enables live there per live evidence at .claude/settings.json:17-19).
+- Build incoming JSON fragment: `{"enabledPlugins": {"<plugin-ref>": true}}`. Merge via configmerge.NewJSONMerger (no array dedupe needed — enabledPlugins is an object, not an array).
+- **Alert-on-missing-plugin (Plan-QA #6)**: before writing, verify the plugin physically exists. Path resolution: under sub.Destination (defaults.toml:70 = `.claude/plugins`) look for a directory matching the plugin's first segment (the `frontend-design` portion of `frontend-design@claude-plugins-official`). If absent, append a warning to a NEW `Report.Warnings []string` field with format `"<substrate>:plugin not found: <plugin-ref>"` AND skip the write (do not silently enable a missing plugin). Coordinate with D1: D1 introduces `Report.Warnings []string`.
+- Substrate-name guard: applyPluginRegistration is intended for substrateName == "claude_plugins" and applyHookRegistration for substrateName == "claude_hooks", BUT the dispatcher uses the Kind discriminant, not substrate name — so the substrateName param is informational only (used in error/warning messages). Documented in godoc.
+
+Acceptance tests:
+- TestApplyPluginRegistration_EnablesPluginInFreshSettings
+- TestApplyPluginRegistration_EnablesPluginInExistingSettings (preserves other keys)
+- TestApplyPluginRegistration_IsIdempotent (re-applying same plugin is no-op)
+- TestApplyPluginRegistration_EmitsWarningWhenPluginAbsent (Plan-QA #6 coverage)
+- TestApplyPluginRegistration_SkipsWriteWhenPluginAbsent (warning + no settings.json mutation)
+- TestApplyPluginRegistration_DefaultsToClaudeSettingsJSON (SettingsFile="" → .claude/settings.json)
+
+Acceptance: mage testFunc 'TestApplyPluginRegistration_.*'.
+
+## D4 — register_mcp.go (Claude Code MCP server registration in .mcp.json) [SCOPE-CHECK]
+
+id: drop_004.drop.builder_l3_i5_d4_mcp_server
+role: builder; blockers: [D1]
+paths_owned (NEW):
+- internal/install/register_mcp.go (NEW — applyMCPServerRegistration body)
+- internal/install/register_mcp_test.go (NEW)
+
+**Scope clarification**: the claude_mcp_servers substrate at defaults.toml:97-103 ALREADY merges `.mcp.json` mcpServers via configmerge.NewJSONMerger (substrate-level merge_strategy="merge", merge_path="mcpServers"). So MCP server registration via Registration directives is a DIFFERENT seam: it covers MCP server REGISTRATION (enabling a server that lives somewhere other than the claude_mcp_servers substrate's source — e.g. registering ta itself as an MCP server pointing at the ta binary on the user's PATH).
+
+Objective:
+- Implement `applyMCPServerRegistration(rep *Report, substrateName string, sub installconfig.Substrate, reg installconfig.Registration, projectRoot string) error`.
+- Registration shape: reuse Event as the MCP server name (e.g. "ta"), Matcher as the command (e.g. "ta" or absolute binary path). SettingsFile defaults to `.mcp.json` (project root).
+- Build incoming JSON fragment: `{"mcpServers": {"<Event>": {"command": "<Matcher>", "args": []}}}`. Merge via configmerge.NewJSONMerger with no array dedupe.
+- Loud error when reg.Event is empty (MCP server name is required).
+- Idempotent: re-running with the same Event + Matcher is a no-op merge (configmerge's value-mismatch detection handles this).
+
+Acceptance tests:
+- TestApplyMCPServerRegistration_RegistersInFreshMCPJSON
+- TestApplyMCPServerRegistration_RegistersInExistingMCPJSON (preserves other servers)
+- TestApplyMCPServerRegistration_IsIdempotent
+- TestApplyMCPServerRegistration_RejectsEmptyEvent
+- TestApplyMCPServerRegistration_DefaultsToMCPJSON (SettingsFile="" → .mcp.json)
+- TestApplyMCPServerRegistration_RoundTripsWithClaudeMCPServersSubstrate (cross-substrate sanity: claude_mcp_servers merge + register_mcp.go produce the same wire shape for ta's own registration)
+
+Acceptance: mage testFunc 'TestApplyMCPServerRegistration_.*'.
+
+## Dispatch graph
+
+D1 first (Wave 1). D2 + D3 + D4 parallel-dispatchable (Wave 2; disjoint files in NEW package, each only edits its own register_<target>.go + test). Per-target sub-files avoid same-file collision risk that would otherwise serialize D2/D3/D4.
+
+## Close gate (L3-I5)
+
+- D1 + D2 + D3 + D4 all state=complete + outcome=success.
+- mage testPkg ./internal/install green at full package (covers L3-I3's existing 25+ tests plus L3-I5's new ~26 tests).
+- mage check green at full module — confirms install.go's applyRegistrations rewrite + Registration.Kind field addition don't break L3-I3 or L3-I4 callers.
+- L3-I5 build-QA twins both PASS.
+
+## Unknowns routed
+
+1. **hook_script binding** (D2 design): explicit `hook_script` field on Registration vs implicit derivation from substrate basename. Routed to D1/D2 plan-QA proof — proof verifies whichever D2 picks against defaults.toml's actual hook scripts (subagent_stop_tool_use_check.sh etc.).
+2. **plugin alert: warn-and-skip vs warn-and-write** (D3 Plan-QA #6 implementation): plan says "emit warning"; D3 chooses warn-AND-skip (safer — don't enable a missing plugin). If user disagrees, switch to warn-and-write in a follow-up slice.
+3. **register vs substrate-merge for MCP servers** (D4 SCOPE-CHECK): claude_mcp_servers substrate already merges .mcp.json. D4 covers the orthogonal case of registering an MCP server that does NOT have a corresponding source under the claude_mcp_servers substrate (e.g. ta self-registration). Plan-QA verifies this orthogonality holds and neither path clobbers the other.
+4. **Report.Warnings field** (added in D1): new slice on the Report struct for non-fatal warnings (Plan-QA #6 alert). Confirm with L3-I3's build-QA observation that Report.Errors aggregates errors but no warning channel existed.
+
+Ready for orchestrator-override descent: dispatch L3-I5 record creation (auto-spawns L3-I5 plan-QA twins via cascade.planner.auto_spawn) → after plan-QA twins close success → dispatch D1 → after D1 closes → dispatch D2 + D3 + D4 in parallel → close gate → L3-I5 build-QA twins.
+"""
+objective = "L2-I L3-I5: registration_directives. Replace the L3-I3 D4 applyRegistrations STUB (internal/install/install.go:289) with the real settings-file write logic. Three registration targets land: (1) Claude Code hooks under hooks.<Event>[] arrays in .claude/settings.json or .claude/settings.local.json (matcher-dedupe via configmerge.NewJSONMerger), (2) Claude Code plugin enable entries under enabledPlugins{} in .claude/settings.json, (3) Claude Code MCP server registration in <project>/.mcp.json (coordinate with claude_mcp_servers substrate, which already merges that file via configmerge). Plan-QA #6 carried: emit alert-on-missing-plugin warning when substrate.claude_plugins.Register references a plugin not physically installed in user's Claude Code tree. Ships internal/install/register.go + register_test.go (NEW). Out-of-scope: Codex-side registration (.codex/config.toml [agents.<name>] tables already covered by codex_config_fragments substrate's TOML merge)."
+outcome = "blocked"
+parent_id = "drop_004.drop.l2_i_installable_substrate"
+role = "planner"
+state = "complete"
+title = "L3-I5 planner — registration_directives (hook+plugin+MCP server install)"
+transition_notes = "SCOPE-CUT to post-MVP-feature-complete per orchestrator best-practice decision 2026-05-19 (dev directive: 'go with best practices, most maintainable testable extensible and clean'). Plan-QA falsif surfaced 4 CONFIRMED CEs that revealed the L3-I5 plan rests on assumptions not present in the codebase: (CE1) event coverage mismatch between defaults.toml (PreToolUse+SessionStart) vs install.go arrayDedupeRegistry (PreToolUse+SubagentStop+SessionStart) vs plan's claimed 4-event coverage; (CE2) configmerge.arrayContains dedupes on matcher alone but live ~/.claude/settings.json has multiple same-matcher entries with distinct commands (e.g. PreToolUse/Bash with both pre_tooluse_git_commit_style.sh AND rtk hook claude) — dedupe would silently drop the second; (CE3) empty-matcher SessionStart re-installs append duplicates unboundedly because arrayContains returns false on missing key; (CE4) plugin existence check targets <projectRoot>/.claude/plugins/<plugin>/ but Claude Code's real install path is ~/.claude/plugins/cache/<source>/<plugin>/<version>/ — wrong directory entirely. Best-practice fix is post-MVP slice: (a) pivot plugin check to read installed_plugins.json as source of truth, (b) extend configmerge dedupe to use composite (matcher+command) keys, (c) retire the applyRegistrations stub in favor of the existing claude_settings_fragments substrate which already merges hooks.toml fragments via the well-tested configmerge path. Tracked in CLAUDE.md pre-MVP-feature-complete tracker. Until then internal/install/install.go::applyRegistrations remains the L3-I3-shipped stub. Plan-QA twin records closed as superseded."
+updated_at = "2026-05-19T02:00:00Z"
+[l3_i5_registration_directives-plan-qa-proof]
+completed_at = "2026-05-19T05:50:00Z"
+created_at = "2026-05-19T05:38:26Z"
+description = """
+PROOF PASS. Seven evidence claims in L3-I5 plan verified against committed code at /Users/evanschultz/Documents/Code/hylla/ta/main:
+
+1. **applyRegistrations seam at internal/install/install.go:289** VERIFIED — `func applyRegistrations(rep *Report, sub installconfig.Substrate)` confirmed; body appends sub.Register to rep.Registrations (STUB recorder per L3-I3 godoc lines 281-288). L3-I5 D1 replaces body with register.Apply dispatcher.
+
+2. **Registration struct at internal/installconfig/config.go:49-53** VERIFIED — exact fields: `Event string \\`toml:"event"\\``, `Matcher string \\`toml:"matcher"\\``, `SettingsFile string \\`toml:"settings_file"\\``. L3-I5 D1 EXTENDS with optional `Kind` field for back-compat (claude_hooks defaults omit Kind → default to hook).
+
+3. **defaults.toml claude_hooks Register entries at internal/installconfig/defaults.toml:37-50** VERIFIED — 3 entries: (a) PreToolUse/Bash → .claude/settings.local.json, (b) PreToolUse/Agent → .claude/settings.local.json, (c) SessionStart/"" → .claude/settings.json. Empty-matcher SessionStart case + dual settings-file targeting both proven against D2's test set (TestApplyHookRegistration_EmptyMatcherSessionStart + TestApplyHookRegistration_TargetsBothSettingsAndLocalSettings).
+
+4. **configmerge.NewJSONMerger at internal/configmerge/configmerge.go:66** VERIFIED — `func NewJSONMerger(arrayDedupeKeys map[string]string) Merger` exists; deep-merges JSON with per-parent-path matcher dedupe (godoc lines 57-65). D2 reuses with hooks.<Event> → matcher dedupe map per install.go:65-74 arrayDedupeRegistry; D3 + D4 reuse with no-dedupe maps (object-valued, not array-valued).
+
+5. **.claude/settings.json enabledPlugins shape at lines 17-19** VERIFIED — live wire format: `enabledPlugins["frontend-design@claude-plugins-official"] = true`. D3 builds Registration → enabledPlugins entry using this exact `<plugin-name>@<source>` flat-key + boolean value.
+
+6. **D1+D2+D3+D4 path partition** VERIFIED disjoint:
+   - D1: NEW internal/install/register.go + EDIT internal/installconfig/config.go + EDIT internal/install/install.go + NEW register_test.go
+   - D2: NEW internal/install/register_hook.go + NEW register_hook_test.go
+   - D3: NEW internal/install/register_plugin.go + NEW register_plugin_test.go
+   - D4: NEW internal/install/register_mcp.go + NEW register_mcp_test.go
+   `ls internal/install/register*.go` returned no existing matches — D2/D3/D4 dispatch in parallel after D1 lands without same-file-collision risk. D1 owns the only shared edits (install.go + config.go); D2-D4 each touch ONLY their own NEW file pair. Per-target file-splitting honors the same-file-collision Hard Rule from `docs/cascade-methodology.md`.
+
+7. **Plan-QA #6 alert-on-missing-plugin** VERIFIED routed into D3 — D3 Objective: physically verifies plugin presence under sub.Destination (defaults.toml:70 = .claude/plugins) before write; absent plugin appends to NEW `Report.Warnings []string` and SKIPS the settings.json mutation. D1 explicitly introduces Report.Warnings field (plan body Unknowns #4). D3 test set includes TestApplyPluginRegistration_EmitsWarningWhenPluginAbsent + TestApplyPluginRegistration_SkipsWriteWhenPluginAbsent — both directly cover Plan-QA #6.
+
+**Additional structural review (no new concerns)**:
+- Wave ordering correct: Wave 1 = D1 (introduces dispatcher + Kind discriminant + Report.Warnings + Apply signature change); Wave 2 = D2 + D3 + D4 parallel (each fills its per-target writer stub from D1).
+- Acceptance tests honest-named (test names describe behavior, not implementation). 6 tests on D1, 8 on D2, 6 on D3, 6 on D4 = ~26 new tests; D1 back-compat test pins Kind="" → hook default.
+- Out-of-scope correctly identified: Codex-side registration covered by codex_config_fragments TOML merge — no D5 needed.
+- 4 Unknowns explicitly routed (hook_script binding to D2/plan-QA; plugin warn-and-skip default to D3; MCP register-vs-substrate-merge orthogonality to D4; Report.Warnings field introduction in D1).
+
+**No missing evidence. No unsupported claims. Plan is ready for descent.**
+"""
+outcome = "blocked"
+role = "qa-proof"
+started_at = "2026-05-19T01:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i5_registration_directives"
+title = "Plan-QA proof of L3-I5 planner — registration_directives (hook+plugin+MCP server install)"
+transition_notes = "SUPERSEDED by L3-I5 scope-cut 2026-05-19. Plan as reviewed in this proof is no longer being shipped; the proof PASS verdict captured what the plan claimed BEFORE the falsif CEs revealed structural design gaps. See L3-I5 transition_notes for the punt rationale."
+updated_at = "2026-05-19T02:00:00Z"
+[l3_i5_registration_directives-plan-qa-falsification]
+completed_at = "2026-05-18T18:30:00Z"
+created_at = "2026-05-19T05:38:26Z"
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-19T01:30:00Z"
+state = "complete"
+target_id = "drop_004.drop.l3_i5_registration_directives"
+title = "Plan-QA falsif of L3-I5 planner — registration_directives (hook+plugin+MCP server install)"
+transition_notes = "Falsification surfaced 4 CONFIRMED CEs. Plan SCOPE-CUT to post-MVP-feature-complete by orchestrator 2026-05-19. See L3-I5 transition_notes for punt rationale + CLAUDE.md tracker for post-MVP follow-up details."
+updated_at = "2026-05-19T02:00:00Z"
