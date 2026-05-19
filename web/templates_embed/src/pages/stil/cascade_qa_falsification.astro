@@ -1,0 +1,536 @@
+---
+// L3-E3-D3 — cascade.qa_falsification view (stil).
+//
+// Renders the MOCK_QA_FALSIFICATION fixture as a single-record stil view.
+// Consumes StilLayout in shell-chrome mode so Sidebar + Topbar provide the
+// global navigation chrome at the layout layer (per AMEND-1 allowlist).
+//
+// QA-falsification signature:
+//   - `target_id` rendered prominently in the header (the artifact this
+//     adversarial pass attacks).
+//   - `role` pill rendered with a WARM palette (state-warn / amber tone).
+//     This is the visual distinction from qa_proof, which uses the
+//     neutral/accent-blue tone — the warm palette signals adversarial
+//     intent at a glance.
+//   - `counterexamples` array rendered PROMINENTLY (the focal payload of
+//     a falsification pass — every CE either mitigated, accepted, or
+//     escalated up the cascade as a plan amendment).
+//   - `findings` rendered as <pre class="prose"> when present.
+//
+// AMEND-1 component allowlist honoured: only {Sidebar, Topbar,
+// ComponentCard} are imported. Sidebar + Topbar come in via StilLayout's
+// chrome="shell" prop, ComponentCard is imported directly.
+// FORBIDDEN components ({RightAside, MobileCommandFab, SettingsOptions,
+// ThemeToggle, TokenEditor, InputStyles}) are NOT imported.
+//
+// All styling rides stil's --stil-* / spacing / colour CSS custom
+// properties — no hard-coded palette values, no inline styles.
+//
+// ZERO authored client-side script elements.
+
+import StilLayout from "../../layouts/StilLayout.astro";
+import ComponentCard from "@hylla/stil/src/components/ComponentCard.astro";
+import { MOCK_QA_FALSIFICATION } from "../../mock/stil_records.ts";
+
+const record = MOCK_QA_FALSIFICATION;
+
+interface SidebarItem {
+  icon: string;
+  label: string;
+  selected?: boolean;
+  badge?: string;
+  muted?: boolean;
+}
+
+const sidebarItems: ReadonlyArray<SidebarItem> = [
+  { icon: "←", label: "Gallery" },
+  { icon: "◇", label: "cascade.drop" },
+  { icon: "◇", label: "cascade.planner" },
+  { icon: "◇", label: "cascade.droplet" },
+  { icon: "◇", label: "cascade.qa_proof" },
+  { icon: "◆", label: "cascade.qa_falsification", selected: true },
+  { icon: "◇", label: "roadmap.version", muted: true },
+  { icon: "◇", label: "schema.browser", muted: true },
+];
+
+const decisionLog: ReadonlyArray<string> = record.decision_log ?? [];
+const labels: ReadonlyArray<string> = record.labels ?? [];
+
+// findings + counterexamples are part of the cascade.qa_falsification
+// schema surface but not yet exposed on the CascadeQaFalsification TS
+// fixture interface. Dereference defensively so the sections drop out
+// cleanly while the schema fields are absent on the fixture today. For
+// falsification specifically, the decision_log already carries the four
+// CEs the fixture surfaces (CE1..CE4) — when the dedicated
+// counterexamples field lands on the fixture, this section activates
+// automatically and the focal block re-anchors there.
+const findings: string | undefined = (
+  record as { findings?: string }
+).findings;
+const counterexamples: ReadonlyArray<string> =
+  (record as { counterexamples?: ReadonlyArray<string> }).counterexamples ?? [];
+---
+
+<StilLayout
+  title="cascade.qa_falsification view — stil"
+  chrome="shell"
+  sidebarTitle="stil views"
+  sidebarItems={sidebarItems}
+  topbarTitle="cascade.qa_falsification"
+>
+  <article class="qa-view qa-view--falsif" aria-labelledby="qa-title">
+    <header class="qa-header">
+      <p class="qa-type">cascade.qa_falsification</p>
+      <h1 id="qa-title" class="qa-title">{record.title}</h1>
+      <p class="qa-id"><code>{record.id}</code></p>
+      <p class="qa-role-row">
+        <span class="qa-role-label">role</span>
+        <span class="pill pill-role pill-role--falsif">{record.role}</span>
+      </p>
+      <p class="qa-target-row">
+        <span class="qa-target-label">target_id</span>
+        <code class="qa-target-id">{record.target_id}</code>
+      </p>
+    </header>
+
+    <section class="meta" aria-label="Record metadata">
+      <dl class="meta-grid">
+        <div class="meta-cell">
+          <dt>state</dt>
+          <dd>
+            <span class={`pill pill-state pill-state--${record.state}`}>
+              {record.state}
+            </span>
+          </dd>
+        </div>
+        <div class="meta-cell">
+          <dt>outcome</dt>
+          <dd>
+            {record.outcome ? (
+              <span class={`pill pill-outcome pill-outcome--${record.outcome}`}>
+                {record.outcome}
+              </span>
+            ) : (
+              <span class="meta-empty">—</span>
+            )}
+          </dd>
+        </div>
+        {record.priority && (
+          <div class="meta-cell">
+            <dt>priority</dt>
+            <dd><code>{record.priority}</code></dd>
+          </div>
+        )}
+        {record.parent_id && (
+          <div class="meta-cell meta-cell--wide">
+            <dt>parent_id</dt>
+            <dd><code>{record.parent_id}</code></dd>
+          </div>
+        )}
+        <div class="meta-cell">
+          <dt>created_at</dt>
+          <dd><time datetime={record.created_at}>{record.created_at}</time></dd>
+        </div>
+        <div class="meta-cell">
+          <dt>updated_at</dt>
+          <dd><time datetime={record.updated_at}>{record.updated_at}</time></dd>
+        </div>
+        {record.started_at && (
+          <div class="meta-cell">
+            <dt>started_at</dt>
+            <dd><time datetime={record.started_at}>{record.started_at}</time></dd>
+          </div>
+        )}
+        {record.completed_at && (
+          <div class="meta-cell">
+            <dt>completed_at</dt>
+            <dd><time datetime={record.completed_at}>{record.completed_at}</time></dd>
+          </div>
+        )}
+      </dl>
+    </section>
+
+    {counterexamples.length > 0 && (
+      <section class="block block--feature block--counterexamples" aria-labelledby="counterexamples-heading">
+        <header class="block-feature-header">
+          <h2 id="counterexamples-heading" class="block-title">counterexamples</h2>
+          <span class="block-count">
+            {counterexamples.length}{" "}
+            {counterexamples.length === 1 ? "case" : "cases"}
+          </span>
+        </header>
+        <ol class="decision-log">
+          {counterexamples.map((ce, idx) => (
+            <li class="decision-entry decision-entry--falsif">
+              <span class="decision-index" aria-hidden="true">
+                {String(idx + 1).padStart(2, "0")}
+              </span>
+              <span class="decision-text">{ce}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    )}
+
+    {record.objective && (
+      <ComponentCard
+        id="objective"
+        name="objective"
+        source="cascade.qa_falsification.objective"
+        note="What this adversarial pass set out to attack."
+      >
+        <p class="prose">{record.objective}</p>
+      </ComponentCard>
+    )}
+
+    {record.description && (
+      <ComponentCard
+        id="description"
+        name="description"
+        source="cascade.qa_falsification.description"
+        note="Long-form falsification context."
+      >
+        <p class="prose">{record.description}</p>
+      </ComponentCard>
+    )}
+
+    {findings && (
+      <ComponentCard
+        id="findings"
+        name="findings"
+        source="cascade.qa_falsification.findings"
+        note="Adversarial-pass evidence + accepted counter-claims."
+      >
+        <pre class="prose findings">{findings}</pre>
+      </ComponentCard>
+    )}
+
+    {decisionLog.length > 0 && (
+      <section class="block block--feature" aria-labelledby="decision-log-heading">
+        <header class="block-feature-header">
+          <h2 id="decision-log-heading" class="block-title">decision_log</h2>
+          <span class="block-count">{decisionLog.length} entries</span>
+        </header>
+        <ol class="decision-log">
+          {decisionLog.map((entry, idx) => (
+            <li class="decision-entry decision-entry--falsif">
+              <span class="decision-index" aria-hidden="true">
+                {String(idx + 1).padStart(2, "0")}
+              </span>
+              <span class="decision-text">{entry}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    )}
+
+    {labels.length > 0 && (
+      <section class="block" aria-labelledby="labels-heading">
+        <h2 id="labels-heading" class="block-title">labels</h2>
+        <ul class="labels" role="list">
+          {labels.map((l) => (
+            <li class="label-chip"><code>{l}</code></li>
+          ))}
+        </ul>
+      </section>
+    )}
+  </article>
+</StilLayout>
+
+<style>
+  .qa-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6, 1.5rem);
+    max-width: 880px;
+  }
+
+  .qa-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .qa-type {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0;
+  }
+
+  .qa-title {
+    font-family: var(--font-serif, ui-serif, Georgia, serif);
+    font-size: var(--text-3xl, 1.875rem);
+    font-weight: var(--weight-regular, 400);
+    line-height: var(--leading-tight, 1.15);
+    letter-spacing: var(--tracking-tight, -0.01em);
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  .qa-id {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+
+  .qa-id code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .qa-role-row,
+  .qa-target-row {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2, 0.5rem);
+    flex-wrap: wrap;
+  }
+
+  .qa-role-label,
+  .qa-target-label {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .qa-target-id {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--text-primary);
+    word-break: break-all;
+  }
+
+  .meta {
+    background: var(--bg-surface);
+    border-radius: var(--radius-3, 8px);
+    padding: var(--space-5, 1.25rem);
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-4, 1rem) var(--space-5, 1.25rem);
+    margin: 0;
+  }
+
+  .meta-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 0.25rem);
+    min-width: 0;
+  }
+
+  .meta-cell--wide {
+    grid-column: 1 / -1;
+  }
+
+  .meta-cell dt {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .meta-cell dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--text-sm, 0.875rem);
+    word-break: break-word;
+  }
+
+  .meta-cell dd code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
+
+  .meta-empty {
+    color: var(--text-tertiary);
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 var(--space-2, 0.5rem);
+    height: 1.4em;
+    border-radius: var(--radius-2, 4px);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    font-weight: var(--weight-medium, 500);
+    background: var(--bg-chrome, var(--bg-hover));
+    color: var(--text-primary);
+  }
+
+  /* qa_falsification role pill — WARM palette (state-warn / amber tone).
+     Visual differentiation from qa_proof (neutral/accent-blue tone). */
+  .pill-role--falsif {
+    background: var(--state-warn-bg, var(--bg-hover));
+    color: var(--state-warn-text, var(--text-primary));
+  }
+
+  .pill-state--in_progress {
+    background: var(--state-info-bg, var(--bg-hover));
+    color: var(--state-info-text, var(--text-primary));
+  }
+
+  .pill-state--complete {
+    background: var(--state-success-bg, var(--bg-hover));
+    color: var(--state-success-text, var(--text-primary));
+  }
+
+  .pill-state--failed {
+    background: var(--state-error-bg, var(--bg-hover));
+    color: var(--state-error-text, var(--text-primary));
+  }
+
+  .pill-state--archived,
+  .pill-state--todo {
+    background: var(--bg-chrome, var(--bg-hover));
+    color: var(--text-secondary);
+  }
+
+  .pill-outcome--success {
+    background: var(--state-success-bg, var(--bg-hover));
+    color: var(--state-success-text, var(--text-primary));
+  }
+
+  .pill-outcome--failure {
+    background: var(--state-error-bg, var(--bg-hover));
+    color: var(--state-error-text, var(--text-primary));
+  }
+
+  .pill-outcome--blocked {
+    background: var(--state-warn-bg, var(--bg-hover));
+    color: var(--state-warn-text, var(--text-primary));
+  }
+
+  .prose {
+    margin: 0;
+    color: var(--text-primary);
+    line-height: var(--leading-relaxed, 1.6);
+  }
+
+  .findings {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm, 0.875rem);
+    background: var(--bg-canvas, transparent);
+    padding: var(--space-3, 0.75rem);
+    border-radius: var(--radius-2, 4px);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+
+  .block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .block--feature {
+    background: var(--bg-surface);
+    border-radius: var(--radius-3, 8px);
+    padding: var(--space-5, 1.25rem);
+  }
+
+  /* Counterexamples are the focal payload of a falsification record —
+     anchor with the warm tone via a left border accent so the section
+     reads adversarial at a glance without leaking hard-coded colour. */
+  .block--counterexamples {
+    border-left: 3px solid var(--state-warn-bg, var(--border-subtle, rgba(0, 0, 0, 0.08)));
+  }
+
+  .block-feature-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .block-title {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm, 0.875rem);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    margin: 0;
+  }
+
+  .block-count {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .decision-log {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .decision-entry {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-3, 0.75rem);
+    align-items: baseline;
+    padding-left: var(--space-3, 0.75rem);
+    border-left: 2px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  }
+
+  /* Adversarial entries get the warm accent on their left border so the
+     visual rhythm matches the qa-falsification role pill. */
+  .decision-entry--falsif {
+    border-left-color: var(--state-warn-bg, var(--border-subtle, rgba(0, 0, 0, 0.08)));
+  }
+
+  .decision-index {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .decision-text {
+    color: var(--text-primary);
+    line-height: var(--leading-relaxed, 1.6);
+  }
+
+  .labels {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .label-chip {
+    background: var(--bg-chrome, var(--bg-hover));
+    border-radius: var(--radius-2, 4px);
+    padding: 0 var(--space-2, 0.5rem);
+    font-size: var(--text-xs, 0.75rem);
+  }
+
+  @media (max-width: 640px) {
+    .qa-title {
+      font-size: var(--text-2xl, 1.5rem);
+    }
+
+    .meta-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .meta-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

@@ -289,19 +289,19 @@ func TestRenderBasic_CascadeDroplet(t *testing.T) {
 	// XSS payload rides on the objective field so the auto-escape
 	// assertion can verify html/template's contextual filtering.
 	data := map[string]any{
-		"title":            "L3-E2-D-V3 cascade_droplet template authoring",
-		"role":             "builder",
-		"state":            "in_progress",
-		"outcome":          "",
-		"priority":         "",
-		"parent_id":        "drop_004.drop.l3_e2_simple_views",
-		"created_at":       "2026-05-18T16:00:00Z",
-		"updated_at":       "2026-05-18T16:05:00Z",
-		"started_at":       "2026-05-18T16:05:00Z",
-		"completed_at":     "",
-		"objective":        "Build cascade_droplet.html + test + golden. Attack payload: <script>alert('xss')</script>",
-		"description":      "",
-		"irreducible":      true,
+		"title":        "L3-E2-D-V3 cascade_droplet template authoring",
+		"role":         "builder",
+		"state":        "in_progress",
+		"outcome":      "",
+		"priority":     "",
+		"parent_id":    "drop_004.drop.l3_e2_simple_views",
+		"created_at":   "2026-05-18T16:00:00Z",
+		"updated_at":   "2026-05-18T16:05:00Z",
+		"started_at":   "2026-05-18T16:05:00Z",
+		"completed_at": "",
+		"objective":    "Build cascade_droplet.html + test + golden. Attack payload: <script>alert('xss')</script>",
+		"description":  "",
+		"irreducible":  true,
 		"paths": []string{
 			"internal/templates_html_basic/templates/cascade_droplet.html",
 			"internal/templates_html_basic/render_test.go",
@@ -426,11 +426,11 @@ func TestRenderBasic_CascadeQA(t *testing.T) {
 	t.Parallel()
 
 	type qaCase struct {
-		name             string
-		role             string // "qa-proof" or "qa-falsification"
-		data             map[string]any
-		extraContains    []string // substrings unique to this case
-		extraAbsent      []string // substrings that MUST NOT appear in this case
+		name          string
+		role          string // "qa-proof" or "qa-falsification"
+		data          map[string]any
+		extraContains []string // substrings unique to this case
+		extraAbsent   []string // substrings that MUST NOT appear in this case
 	}
 
 	cases := []qaCase{
@@ -488,20 +488,20 @@ func TestRenderBasic_CascadeQA(t *testing.T) {
 			name: "qa_falsification",
 			role: "qa-falsification",
 			data: map[string]any{
-				"title":            "Build-QA falsification of L3-E2-D-V4 cascade_qa template",
-				"role":             "qa-falsification",
-				"state":            "complete",
-				"outcome":          "fail",
-				"priority":         "high",
-				"parent_id":        "drop_004.drop.l3_e2_simple_views",
-				"target_id":        "drop_004.drop.builder_l3_e2_dv4_cascade_qa_template",
-				"created_at":       "2026-05-18T18:00:00Z",
-				"updated_at":       "2026-05-18T18:45:00Z",
-				"started_at":       "2026-05-18T18:00:00Z",
-				"completed_at":     "2026-05-18T18:45:00Z",
-				"objective":        "Attack build conclusions. Attack payload: <script>alert('xss')</script>",
-				"description":      "",
-				"findings":         "",
+				"title":        "Build-QA falsification of L3-E2-D-V4 cascade_qa template",
+				"role":         "qa-falsification",
+				"state":        "complete",
+				"outcome":      "fail",
+				"priority":     "high",
+				"parent_id":    "drop_004.drop.l3_e2_simple_views",
+				"target_id":    "drop_004.drop.builder_l3_e2_dv4_cascade_qa_template",
+				"created_at":   "2026-05-18T18:00:00Z",
+				"updated_at":   "2026-05-18T18:45:00Z",
+				"started_at":   "2026-05-18T18:00:00Z",
+				"completed_at": "2026-05-18T18:45:00Z",
+				"objective":    "Attack build conclusions. Attack payload: <script>alert('xss')</script>",
+				"description":  "",
+				"findings":     "",
 				"counterexamples": []string{
 					"Role-pill class differs by case but is observable in rendered output.",
 					"Counterexamples array renders as <ul class=\"flat\"> when populated.",
@@ -721,11 +721,11 @@ func TestRenderBasic_RoadmapVersion(t *testing.T) {
 
 	// (2) Empty-field conditionals do NOT render.
 	wantAbsent := []string{
-		`aria-label="Risks"`,         // risks absent → no section
-		`<h2>Risks</h2>`,             // ditto, h2 form
-		`aria-label="Timestamps"`,    // created_at + updated_at absent → no section
-		`<dt>created_at</dt>`,        // created_at empty → no row
-		`<dt>updated_at</dt>`,        // updated_at empty → no row
+		`aria-label="Risks"`,            // risks absent → no section
+		`<h2>Risks</h2>`,                // ditto, h2 form
+		`aria-label="Timestamps"`,       // created_at + updated_at absent → no section
+		`<dt>created_at</dt>`,           // created_at empty → no row
+		`<dt>updated_at</dt>`,           // updated_at empty → no row
 		`aria-label="Transition notes"`, // transition_notes empty → fallback footer used
 		`<strong>Transition notes:</strong>`,
 	}

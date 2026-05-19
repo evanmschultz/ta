@@ -1,0 +1,454 @@
+---
+// L3-E3-D2 — cascade.drop view (stil).
+//
+// Renders the MOCK_DROP fixture as a single-record stil view. Consumes
+// StilLayout in shell-chrome mode so Sidebar + Topbar provide the global
+// navigation chrome at the layout layer (per AMEND-1 allowlist). The page
+// itself contributes ComponentCard sections for the prose-heavy fields
+// (objective, description, acceptance_criteria) and a metadata grid for
+// the structural fields (drop_number, structural_type, role, state,
+// outcome, timestamps).
+//
+// AMEND-1 component allowlist honoured: only {Sidebar, Topbar,
+// ComponentCard} are imported. Sidebar + Topbar come in via StilLayout's
+// chrome="shell" prop, ComponentCard is imported directly here.
+// FORBIDDEN components ({RightAside, MobileCommandFab, SettingsOptions,
+// ThemeToggle, TokenEditor, InputStyles}) are NOT imported.
+//
+// All styling rides stil's --stil-* / spacing / colour CSS custom
+// properties — no hard-coded palette values, no inline styles.
+//
+// ZERO authored client-side script elements. The fixture is frozen at
+// module load; nothing here triggers client-side logic.
+
+import StilLayout from "../../layouts/StilLayout.astro";
+import ComponentCard from "@hylla/stil/src/components/ComponentCard.astro";
+import { MOCK_DROP } from "../../mock/stil_records.ts";
+
+const record = MOCK_DROP;
+
+interface SidebarItem {
+  icon: string;
+  label: string;
+  selected?: boolean;
+  badge?: string;
+  muted?: boolean;
+}
+
+const sidebarItems: ReadonlyArray<SidebarItem> = [
+  { icon: "←", label: "Gallery" },
+  { icon: "◆", label: "cascade.drop", selected: true },
+  { icon: "◇", label: "cascade.planner" },
+  { icon: "◇", label: "cascade.droplet", muted: true },
+  { icon: "◇", label: "cascade.qa_proof", muted: true },
+  { icon: "◇", label: "cascade.qa_falsification", muted: true },
+  { icon: "◇", label: "roadmap.version", muted: true },
+  { icon: "◇", label: "schema.browser", muted: true },
+];
+
+const decisionLog: ReadonlyArray<string> = record.decision_log ?? [];
+const paths: ReadonlyArray<string> = record.paths ?? [];
+const labels: ReadonlyArray<string> = record.labels ?? [];
+---
+
+<StilLayout
+  title="cascade.drop view — stil"
+  chrome="shell"
+  sidebarTitle="stil views"
+  sidebarItems={sidebarItems}
+  topbarTitle="cascade.drop"
+>
+  <article class="drop-view" aria-labelledby="drop-title">
+    <header class="drop-header">
+      <p class="drop-type">cascade.drop</p>
+      <h1 id="drop-title" class="drop-title">{record.title}</h1>
+      <p class="drop-id"><code>{record.id}</code></p>
+    </header>
+
+    <section class="meta" aria-label="Record metadata">
+      <dl class="meta-grid">
+        <div class="meta-cell">
+          <dt>drop_number</dt>
+          <dd class="meta-num">{record.drop_number}</dd>
+        </div>
+        <div class="meta-cell">
+          <dt>structural_type</dt>
+          <dd><code>{record.structural_type}</code></dd>
+        </div>
+        <div class="meta-cell">
+          <dt>role</dt>
+          <dd><code>{record.role}</code></dd>
+        </div>
+        <div class="meta-cell">
+          <dt>state</dt>
+          <dd>
+            <span class={`pill pill-state pill-state--${record.state}`}>
+              {record.state}
+            </span>
+          </dd>
+        </div>
+        <div class="meta-cell">
+          <dt>outcome</dt>
+          <dd>
+            {record.outcome ? (
+              <span class={`pill pill-outcome pill-outcome--${record.outcome}`}>
+                {record.outcome}
+              </span>
+            ) : (
+              <span class="meta-empty">—</span>
+            )}
+          </dd>
+        </div>
+        {record.priority && (
+          <div class="meta-cell">
+            <dt>priority</dt>
+            <dd><code>{record.priority}</code></dd>
+          </div>
+        )}
+        <div class="meta-cell">
+          <dt>created_at</dt>
+          <dd><time datetime={record.created_at}>{record.created_at}</time></dd>
+        </div>
+        <div class="meta-cell">
+          <dt>updated_at</dt>
+          <dd><time datetime={record.updated_at}>{record.updated_at}</time></dd>
+        </div>
+        {record.started_at && (
+          <div class="meta-cell">
+            <dt>started_at</dt>
+            <dd><time datetime={record.started_at}>{record.started_at}</time></dd>
+          </div>
+        )}
+        {record.completed_at && (
+          <div class="meta-cell">
+            <dt>completed_at</dt>
+            <dd><time datetime={record.completed_at}>{record.completed_at}</time></dd>
+          </div>
+        )}
+      </dl>
+    </section>
+
+    {record.objective && (
+      <ComponentCard
+        id="objective"
+        name="objective"
+        source="cascade.drop.objective"
+        note="What this drop sets out to achieve."
+      >
+        <p class="prose">{record.objective}</p>
+      </ComponentCard>
+    )}
+
+    {record.description && (
+      <ComponentCard
+        id="description"
+        name="description"
+        source="cascade.drop.description"
+        note="Long-form context for the drop."
+      >
+        <p class="prose">{record.description}</p>
+      </ComponentCard>
+    )}
+
+    {record.acceptance_criteria && (
+      <ComponentCard
+        id="acceptance"
+        name="acceptance_criteria"
+        source="cascade.drop.acceptance_criteria"
+        note="Conditions required before this drop can close."
+      >
+        <pre class="criteria">{record.acceptance_criteria}</pre>
+      </ComponentCard>
+    )}
+
+    {decisionLog.length > 0 && (
+      <section class="block" aria-labelledby="decision-log-heading">
+        <h2 id="decision-log-heading" class="block-title">decision_log</h2>
+        <ol class="decision-log">
+          {decisionLog.map((entry, idx) => (
+            <li class="decision-entry">
+              <span class="decision-index" aria-hidden="true">
+                {String(idx + 1).padStart(2, "0")}
+              </span>
+              <span class="decision-text">{entry}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    )}
+
+    {paths.length > 0 && (
+      <section class="block" aria-labelledby="paths-heading">
+        <h2 id="paths-heading" class="block-title">paths</h2>
+        <ul class="paths" role="list">
+          {paths.map((p) => (
+            <li><code>{p}</code></li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {labels.length > 0 && (
+      <section class="block" aria-labelledby="labels-heading">
+        <h2 id="labels-heading" class="block-title">labels</h2>
+        <ul class="labels" role="list">
+          {labels.map((l) => (
+            <li class="label-chip"><code>{l}</code></li>
+          ))}
+        </ul>
+      </section>
+    )}
+  </article>
+</StilLayout>
+
+<style>
+  .drop-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6, 1.5rem);
+    max-width: 880px;
+  }
+
+  .drop-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .drop-type {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0;
+  }
+
+  .drop-title {
+    font-family: var(--font-serif, ui-serif, Georgia, serif);
+    font-size: var(--text-3xl, 1.875rem);
+    font-weight: var(--weight-regular, 400);
+    line-height: var(--leading-tight, 1.15);
+    letter-spacing: var(--tracking-tight, -0.01em);
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  .drop-id {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+
+  .drop-id code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .meta {
+    background: var(--bg-surface);
+    border-radius: var(--radius-3, 8px);
+    padding: var(--space-5, 1.25rem);
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-4, 1rem) var(--space-5, 1.25rem);
+    margin: 0;
+  }
+
+  .meta-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 0.25rem);
+    min-width: 0;
+  }
+
+  .meta-cell dt {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .meta-cell dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--text-sm, 0.875rem);
+    word-break: break-word;
+  }
+
+  .meta-cell dd code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
+
+  .meta-num {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
+
+  .meta-empty {
+    color: var(--text-tertiary);
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 var(--space-2, 0.5rem);
+    height: 1.4em;
+    border-radius: var(--radius-2, 4px);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    font-weight: var(--weight-medium, 500);
+    background: var(--bg-chrome, var(--bg-hover));
+    color: var(--text-primary);
+  }
+
+  .pill-state--in_progress {
+    background: var(--state-info-bg, var(--bg-hover));
+    color: var(--state-info-text, var(--text-primary));
+  }
+
+  .pill-state--complete {
+    background: var(--state-success-bg, var(--bg-hover));
+    color: var(--state-success-text, var(--text-primary));
+  }
+
+  .pill-state--failed {
+    background: var(--state-error-bg, var(--bg-hover));
+    color: var(--state-error-text, var(--text-primary));
+  }
+
+  .pill-state--archived,
+  .pill-state--todo {
+    background: var(--bg-chrome, var(--bg-hover));
+    color: var(--text-secondary);
+  }
+
+  .pill-outcome--success {
+    background: var(--state-success-bg, var(--bg-hover));
+    color: var(--state-success-text, var(--text-primary));
+  }
+
+  .pill-outcome--failure {
+    background: var(--state-error-bg, var(--bg-hover));
+    color: var(--state-error-text, var(--text-primary));
+  }
+
+  .pill-outcome--blocked {
+    background: var(--state-warn-bg, var(--bg-hover));
+    color: var(--state-warn-text, var(--text-primary));
+  }
+
+  .prose {
+    margin: 0;
+    color: var(--text-primary);
+    line-height: var(--leading-relaxed, 1.6);
+  }
+
+  .criteria {
+    margin: 0;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--text-primary);
+    background: var(--bg-canvas, transparent);
+    padding: var(--space-3, 0.75rem);
+    border-radius: var(--radius-2, 4px);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+
+  .block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .block-title {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm, 0.875rem);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    margin: 0;
+  }
+
+  .decision-log {
+    list-style: none;
+    counter-reset: decision;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .decision-entry {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-3, 0.75rem);
+    align-items: baseline;
+    padding-left: var(--space-3, 0.75rem);
+    border-left: 2px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  }
+
+  .decision-index {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .decision-text {
+    color: var(--text-primary);
+    line-height: var(--leading-relaxed, 1.6);
+  }
+
+  .paths {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .paths code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--text-primary);
+  }
+
+  .labels {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .label-chip {
+    background: var(--bg-chrome, var(--bg-hover));
+    border-radius: var(--radius-2, 4px);
+    padding: 0 var(--space-2, 0.5rem);
+    font-size: var(--text-xs, 0.75rem);
+  }
+
+  @media (max-width: 640px) {
+    .drop-title {
+      font-size: var(--text-2xl, 1.5rem);
+    }
+
+    .meta-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .meta-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
