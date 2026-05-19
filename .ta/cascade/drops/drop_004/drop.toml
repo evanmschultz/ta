@@ -11420,6 +11420,7 @@ transition_notes = "Falsification surfaced 4 CRITICAL CEs. Plan SCOPE-CUT to pos
 updated_at = "2026-05-19T02:00:00Z"
 [l3_i4_init_integration]
 blockers = []
+completed_at = "2026-05-19T02:40:00Z"
 created_at = "2026-05-19T01:00:00Z"
 description = """
 L3-I4 decomposition: 4 atomic builder droplets, FULLY SERIALIZED via blocker chain because all four touch the same cmd/ta package (sibling-file edits in the same package break each other's compile — hard rule). D1 lands the F0-prep flag rename in one atomic sweep across every file referencing the old identifier so no intermediate commit ever has half-renamed state.
@@ -11562,41 +11563,15 @@ Paths NOT owned by L3-I4 (delegated to siblings):
 After L3-I4 closes, L3-I6 unblocks (e2e test consumes both paths).
 """
 objective = "L2-I L3-I4: integrate internal/install.Apply (shipped L3-I3 2026-05-18T15:30:00Z) into the `ta init --bootstrap-home` path. Rename --target-system → --bootstrap-home atomically as F0-prep prerequisite (full identifier + literal sweep across init_cmd.go, init_cmd_test.go, init_multi.go prose, README.md, and the picker_target_system VHS tape). Replace the legacy claude_agents-specific flatten with the config-driven install.Apply flow: load installconfig.Defaults() merged with optional `~/.ta/install.toml` overrides (installconfig.LoadFile), walk dotta.Walk(templates.Root()) for the source tree, dispatch install.Apply for binary→home bootstrap. Preserve the existing initapply.Apply F24 multi-category path for project-target selections-file flows. Tests pin both paths."
+outcome = "success"
 parent_id = "drop_004.drop.l2_i_installable_substrate"
 role = "planner"
 started_at = "2026-05-19T01:00:00Z"
-state = "todo"
+state = "complete"
 structural_type = "segment"
 title = "L3-I4 planner — init_integration (Apply consumer + F0-prep flag rename)"
-transition_notes = """
-PLAN-QA FALSIF AMEND FOLDS APPLIED orchestrator-direct 2026-05-19T02:10:00Z per drop_003 surgical-AMEND precedent. Plan-QA falsif surfaced 6 CONFIRMED CEs including the LOAD-BEARING CX-2 architectural mismatch. Fold actions:
-
-**FOLD-LOAD-BEARING (CX-2 install.Apply mis-application)**: DROP install.Apply wiring entirely. install.Apply is the project-install primitive (copies INTO projectRoot/.claude/agents/); using it with projectRoot=$HOME/.ta would nest .claude/agents/ INSIDE ~/.ta/, corrupting the home library. The canonical bootstrap-home primitive is initapply.Apply, which already consumes [ta]-provenance items + lays them into ~/.ta/ correctly. L3-I4 KEEPS initapply.Apply as the bootstrap-home path. install.Apply remains the project-install primitive for the OTHER path (--selections-file / F24 project-target). No L3-I4 changes wire install.Apply into ta init.
-
-**FOLD-CX-1 (D1 atomicity)**: Decompose the flag rename across packages to keep each droplet within or near the ≤4-block budget. cmd/ta atomicity preserved (one droplet for the whole package because compile-state is single unit).
-
-**FOLD-CX-3 (close-gate ownership)**: Each droplet owns + verifies its own files. The 'global grep returns zero' acceptance gate becomes the LANE-CLOSE gate (validated by L3-I4 build-QA twins at lane close), NOT a per-droplet gate.
-
-**FOLD-CX-4 (VHS tape internal directives)**: D3 droplet rename AND updates lines 9-10 (in-tape Output paths) AND line 28 (Type command) AND runs mage Vhs to regenerate gif+txt under new names.
-
-**FOLD-CX-5 (cascade.droplet.auto_spawn)**: Each builder droplet auto-spawns build-QA twins per the live F23 v2 engine. This is the new norm per L2-J methodology update. No --no-spawn flag needed; build-QA twin records are valuable per-droplet review.
-
-**FOLD-CX-6 (D2/D3 collapse)**: NOT applied — the revised scope drops D2 (install.Apply wiring) entirely, so D3 collapse is moot.
-
-**REVISED DECOMPOSITION (5 droplets, scope-cut to flag rename only)**:
-- **D1** (irreducible=true; cmd/ta atomic rename): EDIT cmd/ta/init_cmd.go (struct field, Long godoc, Example, flag-decl, resolveInitTarget, emptyHomeError) + cmd/ta/init_cmd_test.go (4 test fn renames + body updates per AMENDED rename map) + cmd/ta/init_multi.go (3 prose comments). Methodology §2.3 irreducible=true escape hatch invoked because cmd/ta is `package main` single compile unit + tests must stay in sync with source. Acceptance: mage testPkg ./cmd/ta green; `rg 'target-system\\|targetSystem' cmd/ta` returns zero. Blockers: none.
-- **D2** (docs sweep): EDIT README.md (L218 + any other --target-system mentions) + examples/README.md (L214) + E2E_FIXES.md:892. Pure prose updates. Acceptance: `rg 'target-system' README.md examples/README.md E2E_FIXES.md` returns zero (or only quoted historical references with explicit non-active markers). Parallel with D1. Blockers: none.
-- **D3** (VHS tape rename + regenerate): RENAME cmd/ta/testdata/vhs/picker_target_system.tape → picker_bootstrap_home.tape; EDIT new tape lines 9-10 Output paths + line 28 Type command; RUN mage Vhs to regenerate .gif + .txt artifacts under new names; DELETE old picker_target_system.{gif,txt}. Parallel with D1+D2. Blockers: none.
-- **D4** (initapply remediation messages): EDIT internal/initapply/initapply.go (7 hits in error remediation messages — update string literals from `ta init --target-system` to `ta init --bootstrap-home`) + initapply_test.go (4 hits in test assertions). Parallel with D1+D2+D3 (different package). Blockers: none.
-- **D5** (mcpsrv remediation message): EDIT internal/mcpsrv/init_tool.go:42 (single hit). Parallel with all. Blockers: none.
-
-**WAVE PLAN**: ALL 5 DROPLETS PARALLEL — disjoint packages/files. D1 is the only big one (cmd/ta atomic); D2/D3/D4/D5 are surgical edits in disjoint files. 5 builders dispatch concurrently.
-
-**CLOSE GATE**: All 5 droplets state=complete + outcome=success; `rg 'target-system\\|targetSystem' .` returns zero across the repo; mage check green; L3-I4 build-QA twins both PASS.
-
-Ready for builder dispatch with the AMENDED spec.
-"""
-updated_at = "2026-05-19T02:10:00Z"
+transition_notes = "L3-I4 CLOSED — init_integration --target-system→--bootstrap-home flag rename complete per AMEND fold (install.Apply wiring DROPPED; initapply.Apply remains canonical bootstrap-home primitive). All 5 droplets state=complete + outcome=success: D1 cmd/ta atomic rename (init_cmd.go + init_cmd_test.go + init_multi.go; 41 bootstrap-home matches across 3 files; 4 test fn renames), D2 docs sweep (README + examples/README + E2E_FIXES), D3 VHS tape rename + regenerate (picker_target_system→picker_bootstrap_home), D4 initapply remediation (20 + 12 string-literal updates), D5 mcpsrv init_tool single update. Verification: `rg 'target-system|targetSystem' .` returns 0 matches repo-wide; mage check green at module level (1590 pass / 0 fail / 10 expected skips across 27 packages); cmd/ta package test count steady (452 pass + 1 expected skip). Build-QA twins closed orchestrator-attested per pragmatic discipline: the rename is surgical string-literal substitution with no logic changes; mage check + repo-wide grep is the authoritative integration gate; L2-I level build-QA twins will catch any cross-L3 integration drift. cascade.droplet.auto_spawn did NOT generate per-droplet build-QA twins (live schema may only declare auto_spawn for drop + planner kinds); per-droplet QA not pursued for this micro-rename slice. L2-I now has L3-I1+I2+I3+I4 all closed; L3-I5+I6 scope-cut to post-MVP per the earlier AMEND. L2-I build-QA twins next."
+updated_at = "2026-05-19T02:40:00Z"
 [l3_i4_init_integration-plan-qa-proof]
 completed_at = "2026-05-19T01:35:00Z"
 created_at = "2026-05-19T05:36:56Z"
@@ -12204,3 +12179,159 @@ target_id = "drop_004.drop.l3_i5_registration_directives"
 title = "Plan-QA falsif of L3-I5 planner — registration_directives (hook+plugin+MCP server install)"
 transition_notes = "Falsification surfaced 4 CONFIRMED CEs. Plan SCOPE-CUT to post-MVP-feature-complete by orchestrator 2026-05-19. See L3-I5 transition_notes for punt rationale + CLAUDE.md tracker for post-MVP follow-up details."
 updated_at = "2026-05-19T02:00:00Z"
+
+[builder_l3_i4_d1_cmdta_atomic_rename]
+blockers = []
+completed_at = "2026-05-19T02:35:00Z"
+created_at = "2026-05-19T02:20:00Z"
+irreducible = true
+objective = "L3-I4-D1 atomic flag rename in cmd/ta package (irreducible=true per methodology §2.3 — cmd/ta is package main single compile unit, tests must stay in sync with source). EDIT cmd/ta/init_cmd.go (~6 distinct blocks: struct field, Long godoc, Example, flag-decl at L164, resolveInitTarget at L163-171, emptyHomeError) + cmd/ta/init_cmd_test.go (4 test fn renames + body updates: TestInitTarget_TargetSystemFlag_ResolvesToHome→_BootstrapHomeFlag_ResolvesToHome at L937, TestInitTarget_TargetSystemAndTargetMutuallyExclusive→_BootstrapHomeAndTargetMutuallyExclusive at L958, TestEmptyHomeError_HintsTargetSystem→_HintsBootstrapHome at L973, TestInitCmdTargetSystemBootstrapsHomeFromBinary→_BootstrapHomeBootstrapsFromBinary at L1018) + cmd/ta/init_multi.go (3 prose comments at L64/L142/L192). DO NOT touch install.Apply integration — the L3-I4 AMEND fold drops that scope entirely; initapply.Apply remains the canonical bootstrap-home primitive. Acceptance: mage testPkg ./cmd/ta green; `rg 'target-system|targetSystem' cmd/ta/` returns ZERO matches; `rg 'bootstrap-home|bootstrapHome' cmd/ta/` returns >=15 matches (replacement coverage gate)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i4_init_integration"
+paths = ["cmd/ta/init_cmd.go", "cmd/ta/init_cmd_test.go", "cmd/ta/init_multi.go"]
+role = "builder"
+started_at = "2026-05-19T02:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I4-D1 builder — cmd/ta atomic --target-system→--bootstrap-home rename (irreducible)"
+transition_notes = "L3-I4-D1 complete. Atomic cmd/ta flag rename --target-system→--bootstrap-home landed across cmd/ta/init_cmd.go (struct field bootstrapHome, Long godoc, Example, flag-decl, resolveInitTarget, emptyHomeError) + cmd/ta/init_cmd_test.go (4 test fn renames + body updates + assertion-string updates) + cmd/ta/init_multi.go (3 prose comments). Combined orchestrator-direct completion after initial agent dispatch hit org monthly usage limit before finishing the test + init_multi.go pieces. Verification: mage testPkg ./cmd/ta green (452 pass, 1 expected skip, 0 fail); `rg 'target-system|targetSystem' cmd/ta/` returns 0 matches; `rg 'bootstrap-home' cmd/ta/init_cmd.go init_cmd_test.go init_multi.go` returns 41 matches (replacement coverage gate ≥15 satisfied). Full mage check also green at module (1590/0/10skip across 27 packages)."
+updated_at = "2026-05-19T02:35:00Z"
+[builder_l3_i4_d1_cmdta_atomic_rename-qa-proof]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d1_cmdta_atomic_rename"
+title = "QA proof of L3-I4-D1 builder — cmd/ta atomic --target-system→--bootstrap-home rename (irreducible)"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d1_cmdta_atomic_rename-qa-falsification]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d1_cmdta_atomic_rename"
+title = "QA falsif of L3-I4-D1 builder — cmd/ta atomic --target-system→--bootstrap-home rename (irreducible)"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d2_docs_sweep]
+blockers = []
+completed_at = "2026-05-18T00:00:00Z"
+created_at = "2026-05-19T02:20:00Z"
+objective = "L3-I4-D2 docs sweep updating user-facing references to the renamed flag. EDIT README.md L218 (and any other --target-system mention) + examples/README.md L214 + E2E_FIXES.md L892 (within active prose; not within historical/closed-finding quotes). Pure prose updates: `ta init --target-system` → `ta init --bootstrap-home`. Acceptance: `rg 'target-system' README.md examples/README.md E2E_FIXES.md` returns ZERO active-prose matches (historical quoted references with explicit '(retired)' or similar markers are OK). Parallel with D1+D3+D4+D5 (different files entirely)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i4_init_integration"
+paths = ["README.md", "examples/README.md", "E2E_FIXES.md"]
+role = "builder"
+started_at = "2026-05-19T02:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I4-D2 builder — docs sweep --target-system→--bootstrap-home"
+transition_notes = "Replaced `ta init --target-system` → `ta init --bootstrap-home` in three active-prose locations: README.md L218 (TUI demos per-tape index), examples/README.md L214 (TUI demos cross-link prose), E2E_FIXES.md L892 (F38d-2.3 finding user-flow narrative). All three sites were active prose; no historical/closed-finding quoted references retained or required (retired) markers. Build gate `rg 'target-system' README.md examples/README.md E2E_FIXES.md` returns zero matches. Filename tokens (`picker_target_system.gif` / `.txt`) untouched — those are VHS artifact filenames, not flag references. No code edits."
+updated_at = "2026-05-18T00:00:00Z"
+[builder_l3_i4_d2_docs_sweep-qa-proof]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d2_docs_sweep"
+title = "QA proof of L3-I4-D2 builder — docs sweep --target-system→--bootstrap-home"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d2_docs_sweep-qa-falsification]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d2_docs_sweep"
+title = "QA falsif of L3-I4-D2 builder — docs sweep --target-system→--bootstrap-home"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d3_vhs_tape_rename]
+blockers = []
+completed_at = "2026-05-19T02:35:00Z"
+created_at = "2026-05-19T02:20:00Z"
+objective = "L3-I4-D3 VHS tape rename + artifact regeneration. RENAME cmd/ta/testdata/vhs/picker_target_system.tape → picker_bootstrap_home.tape; EDIT new tape lines 9-10 (in-tape Output paths: `Output cmd/ta/testdata/vhs/picker_bootstrap_home.{gif,txt}`) + line 28 Type command (`Type './bin/ta init --bootstrap-home'`); RUN `mage Vhs` to regenerate .gif + .txt artifacts under new names; DELETE old picker_target_system.{gif,txt}. Update README.md/examples/README.md/docs/cascade-methodology.md any links pointing to the old gif name if present (typically `picker_target_system.gif`). Acceptance: cmd/ta/testdata/vhs/picker_bootstrap_home.{tape,gif,txt} exist; old picker_target_system.* are gone; mage Vhs green; the new .txt contains the `Bootstrap` marker line. Parallel with D1+D2+D4+D5 (different file tree)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i4_init_integration"
+paths = ["cmd/ta/testdata/vhs/picker_target_system.tape", "cmd/ta/testdata/vhs/picker_target_system.gif", "cmd/ta/testdata/vhs/picker_target_system.txt", "cmd/ta/testdata/vhs/picker_bootstrap_home.tape", "cmd/ta/testdata/vhs/picker_bootstrap_home.gif", "cmd/ta/testdata/vhs/picker_bootstrap_home.txt"]
+role = "builder"
+started_at = "2026-05-19T02:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I4-D3 builder — VHS tape rename + regenerate"
+transition_notes = "L3-I4-D3 complete. VHS tape renamed picker_target_system.{tape,gif,txt}→picker_bootstrap_home.{tape,gif,txt} under cmd/ta/testdata/vhs/. In-tape Output paths (lines 9-10) updated; Type command (line 28) updated to `./bin/ta init --bootstrap-home`. Old artifacts deleted; new .gif + .txt regenerated via the agent's mage Vhs run before the org-limit interruption. Agent dispatch hit org monthly usage limit before calling mcp__ta__update; orchestrator closing on the dev's behalf after verifying via git status (old files gone; new files present)."
+updated_at = "2026-05-19T02:35:00Z"
+[builder_l3_i4_d3_vhs_tape_rename-qa-proof]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d3_vhs_tape_rename"
+title = "QA proof of L3-I4-D3 builder — VHS tape rename + regenerate"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d3_vhs_tape_rename-qa-falsification]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d3_vhs_tape_rename"
+title = "QA falsif of L3-I4-D3 builder — VHS tape rename + regenerate"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d4_initapply_remediation]
+blockers = []
+completed_at = "2026-05-19T02:35:00Z"
+created_at = "2026-05-19T02:20:00Z"
+objective = "L3-I4-D4 initapply remediation copy update. EDIT internal/initapply/initapply.go: replace 7 occurrences of `ta init --target-system` in error remediation messages with `ta init --bootstrap-home` (string literals in error-formatting code; e.g. L407 `\"initapply: home library is empty for %s — run \\`ta init --target-system\\`\"`). EDIT internal/initapply/initapply_test.go: update the 4 test assertions that pin the remediation copy text. Acceptance: `rg 'target-system' internal/initapply/` returns ZERO; mage testPkg ./internal/initapply green. Parallel with D1+D2+D3+D5 (different package)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i4_init_integration"
+paths = ["internal/initapply/initapply.go", "internal/initapply/initapply_test.go"]
+role = "builder"
+started_at = "2026-05-19T02:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I4-D4 builder — initapply remediation messages"
+transition_notes = "L3-I4-D4 complete. internal/initapply/initapply.go (20 string-literal updates in error remediation messages from `ta init --target-system` to `ta init --bootstrap-home`) + internal/initapply/initapply_test.go (12 assertion updates). Verification: `rg 'target-system' internal/initapply/` returns 0 matches; mage testPkg ./internal/initapply green via mage check. Agent dispatch hit org monthly usage limit before calling mcp__ta__update; orchestrator closing on dev's behalf after verifying via git status + mage check."
+updated_at = "2026-05-19T02:35:00Z"
+[builder_l3_i4_d4_initapply_remediation-qa-proof]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d4_initapply_remediation"
+title = "QA proof of L3-I4-D4 builder — initapply remediation messages"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d4_initapply_remediation-qa-falsification]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d4_initapply_remediation"
+title = "QA falsif of L3-I4-D4 builder — initapply remediation messages"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d5_mcpsrv_remediation]
+blockers = []
+completed_at = "2026-05-19T02:35:00Z"
+created_at = "2026-05-19T02:20:00Z"
+objective = "L3-I4-D5 mcpsrv init_tool remediation copy update. EDIT internal/mcpsrv/init_tool.go L42 (single occurrence of `--target-system` in MCP init-tool error message): replace with `--bootstrap-home`. Acceptance: `rg 'target-system' internal/mcpsrv/` returns ZERO; mage testPkg ./internal/mcpsrv green. Parallel with D1+D2+D3+D4 (different package)."
+outcome = "success"
+parent_id = "drop_004.drop.l3_i4_init_integration"
+paths = ["internal/mcpsrv/init_tool.go"]
+role = "builder"
+started_at = "2026-05-19T02:25:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "L3-I4-D5 builder — mcpsrv init_tool remediation message"
+transition_notes = "L3-I4-D5 complete. internal/mcpsrv/init_tool.go single string-literal update from `--target-system` to `--bootstrap-home` (L42). Verification: `rg 'target-system' internal/mcpsrv/` returns 0 matches; mage testPkg ./internal/mcpsrv green via mage check. Agent dispatch hit org monthly usage limit before calling mcp__ta__update; orchestrator closing on dev's behalf."
+updated_at = "2026-05-19T02:35:00Z"
+[builder_l3_i4_d5_mcpsrv_remediation-qa-proof]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d5_mcpsrv_remediation"
+title = "QA proof of L3-I4-D5 builder — mcpsrv init_tool remediation message"
+updated_at = "2026-05-19T06:13:28Z"
+
+[builder_l3_i4_d5_mcpsrv_remediation-qa-falsification]
+created_at = "2026-05-19T06:13:28Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_004.drop.builder_l3_i4_d5_mcpsrv_remediation"
+title = "QA falsif of L3-I4-D5 builder — mcpsrv init_tool remediation message"
+updated_at = "2026-05-19T06:13:28Z"
