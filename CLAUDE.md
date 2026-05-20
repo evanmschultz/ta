@@ -1,183 +1,183 @@
 # CLAUDE.md — project guidance for ta
 
-Project-local guidance for Claude Code (and other assistants that read CLAUDE.md) when working inside the `ta` tree.
+Project-local guidance for working inside the `ta` tree. Global rules (Tillsyn coordination, Section 0 reasoning, evidence sources, worktree hygiene, output style) live at `~/.claude/CLAUDE.md` and are NOT duplicated here.
 
-## Subagent Spawn Defaults — Background-First
+## Agent Routing — Backend Dispatch (Chain Mode)
 
-Inherits from the global rule in `~/.claude/CLAUDE.md` § "Subagent Spawn Defaults — Background-First": spawn agents with `run_in_background: true` by default. Foreground mode lets agents bypass their declared `tools:` allowlist; background mode enforces it. For ta-specific build → QA → commit flows, this is critical — agents have repeatedly tried `node`, `python3`, raw `gofmt`, raw `go test`, all of which are NOT in any agent's allowlist but were reachable via foreground inheritance.
+`ta-*` subagents route to different LLM backends based on role. Each role has a fallback chain (primary + ordered fallbacks). The orchestrator MUST honor this routing.
 
-Use foreground only when the agent's result is required to decide your immediate next step AND the task is short enough that the safety trade-off doesn't pay back. For ta's build / QA / planning agents this is rare.
+Chain definitions: [`.claude/agent-chains.sh`](.claude/agent-chains.sh). Dispatcher: [`bin/agent-dispatch.sh`](bin/agent-dispatch.sh). Full explainer: [`docs/agent-backend-routing.md`](docs/agent-backend-routing.md).
 
-## Agent Selection — Use Project-Local `ta-*` Agents, NEVER the Globals
+**Cascade methodology constraint** ([`docs/cascade-methodology.md`](docs/cascade-methodology.md)): builder droplets touch **1-2 small blocks of code INCLUDING their tests**. The 7B coder handles atomic edits fine. **Only ONE local model is in the chains** — `qwen2.5-coder:7b`. Larger local models melt the machine (a 30B carries ~24 GB KV cache) and aren't in any chain.
 
-This project ships its own Claude Code subagents under `<project>/.claude/agents/ta-*.md`. Always dispatch with the `ta-` prefixed names:
+**Planner + plan-QA enforcement rule (load-bearing)**: every planner output MUST be reviewed by plan-QA to confirm each terminal builder droplet is 1-2 small blocks (with tests included in that count). If a droplet would be larger, the planner MUST decompose further before plan-QA passes. The 7B builder backend will FAIL LOUDLY on under-decomposed droplets — that is the desired feedback signal. Do not "fix" by routing to a bigger model; fix by re-decomposing.
 
-- `ta-go-builder` (NOT `go-builder-agent`)
-- `ta-go-qa-proof` (NOT `go-qa-proof-agent`)
-- `ta-go-qa-falsification` (NOT `go-qa-falsification-agent`)
-- `ta-go-planning` (NOT `go-planning-agent`)
-- `ta-fe-builder` / `ta-fe-qa-proof` / `ta-fe-qa-falsification` / `ta-fe-planning`
-- `ta-closeout` (closeout role)
+**Role-appropriate tool allowlists (the actual sandbox)**: every dispatched agent — regardless of backend — runs inside its host runtime (Claude Code via Ollama endpoint, Claude Code via Anthropic OAuth, or codex exec). Each role gets a tool allowlist scoped to what THAT role needs:
 
-The project's `.claude/agents/` shadows the global `~/.claude/agents/` definitions. Using the global agent name routes to the wrong file — global agents lack project-specific tool allowlists (mage, mcp__ta__*) and project conventions.
+- **Planners**: ta create/update/get (to write plans) + read tools (Read, Grep, hylla) + context7. NO Edit/Write/Bash — planners write plans into ta records, not code.
+- **Plan-QA + Build-QA**: read-only — Read, Grep, Glob, hylla, ta get/search, `Bash(git diff *)` + `Bash(git log *)` for diff inspection. NO Edit/Write — QA verifies, doesn't change.
+- **Builders**: Edit, Write, Read, Grep, Glob, Bash, LSP for the code they're editing. ta get/search (read context) but NOT ta create/update (cascade records are planner/closeout territory). Builders DO the actual file edits — that's the entire point of having builders.
+- **Closeout**: Read + `Bash(git *)` + `Bash(mage check)` (verify) + ta update (mark cascade nodes complete). No Edit/Write — closeout coordinates, doesn't author.
 
-**Editing agent definitions**: agent .md files are ta records under the `claude_agents.agent` schema type. NEVER edit them directly with Edit/Write. The dogfood workflow is:
+The dispatcher passes the persona's frontmatter `tools:` line as `--allowedTools` to Claude Code (or maps it equivalently for codex). **The persona file IS the sandbox spec for that role.** Each project's `.claude/agents/<role>.md` controls what each role can do — edit those files (via `mcp__ta__update` since they're ta records) to tighten role permissions.
 
-1. **mcp__ta__update** on the agent record id (e.g. `ta-go-builder`) with the desired field overlay (e.g. `{tools: "..."}`). YAML frontmatter fields = record fields.
-2. **`ta template save --kind=agent --path=./.claude/agents/<file>.md --group=ta --overwrite`** — pushes the updated agent into `~/.ta/agents/ta/<file>.md` so future `ta init` runs in other projects install the latest version.
-3. **Verify both files** match (project + HOME) before commit.
+**Ollama-routed dispatches** use `--bare --mcp-config` to load only the project's MCP servers (skips CLAUDE.md auto-load, hooks, keychain — saves ~30K input tokens per call) AND `--allowedTools` from the persona for role-appropriate restriction. They are NOT hermetic — the builder running on Ollama has Edit/Write/Read like any builder, just restricted to the persona's allowlist.
 
-Direct edits of `~/.claude/agents/*-agent.md` or `~/.ta/agents/*/*.md` bypass ta's substrate tracking and create drift. The tool is built for this — use it.
+### Persona Bash Scoping Discipline — Mage-Only, Never Raw Language Tooling
 
-## Hylla Discipline — Go-Only, Primary Evidence Source, Push-Often + Ingest-After-Push
+**Agents NEVER run raw language tooling.** No `go test`, no `go vet`, no `go build`, no `gofmt`, no `gofumpt`, no `pnpm`, no `npm`, no `node`, no `npx`. All test/build/check commands route through the project's build runner — for ta, that's mage. **Orchestrators are the exception** (they're trusted to run any command); agents are scoped.
 
-ta is a Go project. Hylla (`mcp__hylla__*`) is the **primary evidence source** for committed Go code — planners, plan-QA, builders, and build-QA all use Hylla BEFORE Read/Grep for any question about committed Go symbols, references, or structural facts. Project-local `ta-go-*` agents now carry `mcp__hylla__hylla_search`, `_search_keyword`, `_node_full`, `_refs_find`, `_graph_nav` in their `tools:` allowlist.
+Per-role Bash allowlist (verified empirically — `--allowedTools` filters tools from the model's visible toolset, so disallowed Bash patterns are simply absent from the model's tool descriptions):
 
-**Evidence-source priority for Go work**:
+```
+role             scoped Bash (allowed)                                          NOT allowed
+----             ----                                                            ----
+builder          Bash(mage testFunc *), Bash(mage testPkg *),                    go *, gofmt, gofumpt,
+                 Bash(git diff *), Bash(git log *), Bash(git status)             pnpm *, npm *, node *,
+                                                                                  npx *, git commit/push/reset
+planner          (NO Bash — planners author plans, don't run commands)            all
+qa-proof         Bash(mage testFunc *), Bash(mage testPkg *), Bash(mage check),  raw lang tooling,
+qa-falsif        Bash(git diff *), Bash(git log *), Bash(git status)             git commit/push/reset
+closeout         Bash(mage check), Bash(git diff *), Bash(git log *),            raw lang tooling,
+                 Bash(git status)                                                 git commit/push/reset
+```
 
-1. **Hylla** — committed Go symbols, refs, graphs, full-node bodies.
-2. **`git diff`** — uncommitted local deltas (Hylla can't see uncommitted work).
-3. **Read / Grep / Glob** — non-Go files AND uncommitted Go (between push and ingest).
-4. **Context7 + `go doc` + LSP** — external library semantics + live LSP queries.
+**If a capability is missing, add a mage target — do NOT broaden the persona's Bash scope.** Example: ta-fe-* agents currently rely on mage targets for FE testing. If FE tests today only route through `pnpm run test`, the right fix is adding `mage testFe` (and similar) to magefile.go, NOT adding `Bash(pnpm *)` to fe persona allowlists. Other projects adopting this pattern follow the same rule — mage (or your project's equivalent build runner) is the only tool/test entrypoint for agents.
 
-**Hylla is Go-only.** NEVER query Hylla for `.toml`, `.json`, `.md`, `.yml`, magefile, scripts, or any non-Go file type. For those, go straight to Read/Grep/Glob. No fallback miss to log — it's by design.
+**Verified at runtime**: Claude Code's `--allowedTools` enforcement is strong. Tools NOT in the allowlist (including unscoped `Bash` when only `Bash(mage testFunc *)` is allowed) are FILTERED FROM THE MODEL'S VISIBLE TOOLSET. The model doesn't see them in its tool descriptions and so doesn't attempt them. Smoke verified: an agent asked to call a tool outside its allowlist self-reports "I cannot use that tool because it is not part of my allowlist" — no `permission_denials` event, no `tool_use` attempt.
 
-**Push-often + ingest-after-push**:
+```
+role-primaries{role,backend,model,dispatch}:
+ta-go-builder,ollama-local,qwen2.5-coder:7b,bash-dispatcher
+ta-fe-builder,ollama-local,qwen2.5-coder:7b,bash-dispatcher
+ta-go-planning,codex-exec,gpt-5.4+medium,bash-dispatcher
+ta-fe-planning,codex-exec,gpt-5.4+medium,bash-dispatcher
+ta-go-qa-falsification,codex-exec,gpt-5.4+xhigh,bash-dispatcher
+ta-fe-qa-falsification,codex-exec,gpt-5.4+xhigh,bash-dispatcher
+ta-go-qa-proof,claude-native,opus,agent-tool
+ta-fe-qa-proof,claude-native,opus,agent-tool
+ta-closeout,claude-native,opus,agent-tool
+```
 
-- After every commit batch, push to origin so the Hylla index stays close to disk. Don't accumulate large unpushed work.
-- After every push, trigger `mcp__hylla__hylla_ingest` so the next agent dispatch sees the latest committed state.
-- The `/commit-and-reingest` skill bundles push + ingest — use it as the canonical exit gate for a slice.
-- Between push and ingest there's a brief window where Hylla shows stale data; agents in that window fall back to `git log` / `Read` for the very latest commits.
+Builder fallback chain: 7B → codex gpt-5.4 (effort=low) → claude haiku. NOT a larger local model. Planning + QA + closeout chains never use local Ollama — they fall over cloud APIs only.
 
-**Spawn prompts MUST include the Hylla artifact ref** for dispatched ta-go-* agents (e.g. `github.com/evanmschultz/ta@main`). The agent uses that ref for every Hylla call.
+**Dispatch**:
 
-## Pre-QA LSP Refresh Discipline
+- `bash-dispatcher` rows → `echo "<prompt>" | ./bin/agent-dispatch.sh --role <role> --cwd "$(pwd)"`. Walks the chain in `.claude/agent-chains.sh` until one tier succeeds. The dispatched agent runs in its backend (Claude Code with Ollama endpoint / codex exec / Claude Code with Anthropic OAuth) and **performs the work itself** using its role-appropriate tools. The orchestrator's job is to construct the dispatch prompt, monitor the result, and route the next cascade step — NOT to do the file edits. Parse stdout JSON for the response (`result` field for Claude-Code-based backends; codex stream events for codex). Read stderr for `served_by=...` line — note FALLBACK if a non-primary tier served.
+- `agent-tool` rows → native Claude `Agent` tool with `subagent_type = <role>`. Reads `.claude/agents/<role>.md`. Anthropic Opus.
+- **Dry-run before live dispatch**: `--dry-run` flag prints the tier-1 command without acquiring a slot or dispatching. Useful for verifying wiring.
+- **Atomic-builder override**: for proper-cascade 1-2 block droplets, the default 7B is correct. For an unusual case needing a larger model, pass `--model qwen3-coder:30b`.
+- **LSP staleness**: `pre_agent_lsp_refresh.sh` fires on Claude's `Agent` tool only. Before any Bash-dispatched call after recent file edits, invoke `/gopls-sync` manually.
 
-ta is a Go project. The active LSP is gopls. Before spawning any `ta-go-qa-proof` or `ta-go-qa-falsification`, the gopls daemon's workspace index must reflect the build agent's edits — otherwise QA reads stale diagnostics that don't match disk truth (recurring failure mode: agent reports "undefined: X" for symbols that mage check confirms exist).
+**Lock policy**: only Ollama tiers (local + cloud) use file locks (atomic `mkdir` at `/tmp/agent-dispatch/<backend>.<N>.lock`). Codex and Claude tiers don't lock — they dispatch directly and the external API's 429/401 response triggers chain advance. The API itself is the authority on its own concurrency.
 
-- **Hook**: `~/.claude/hooks/pre_agent_lsp_refresh.sh` fires on PreToolUse(Agent) and recycles gopls when the spawned agent is a QA variant. Machine-local today; will be relocated into ta's project-local hook tree (`<project>/.claude/hooks/`) once the dogfood phase ships project-local hook management. At that point, every ta dev gets the hook automatically via `ta init`.
-- **Manual fallback**: invoke the `/gopls-sync` skill or restart Claude Code from `/Users/evanschultz/Documents/Code/hylla/ta/main` (the active checkout) if the hook doesn't help.
-- **Authoritative verification stays `mage check`** — LSP refresh ensures QA's evidence layer matches build truth, but mage check is the gate. Never trust LSP diagnostics over a passing mage check.
+**Why**: Ollama v0.14.0+ speaks the Anthropic Messages API. The dispatcher spawns `claude -p` with `ANTHROPIC_BASE_URL=http://localhost:11434` — subagent runs as a full Claude Code session (Read/Edit/Bash/MCP all work) with zero Anthropic token cost for ollama-routed calls. Codex stays separate via `codex exec --ephemeral`. Anti-recursion: dispatcher appends a "you ARE the role" suffix so spawned sessions don't recurse.
 
-## TUI stack — bubbletea/bubbles/lipgloss/glamour/laslig (huh is being removed)
+**Fallback consumes tokens**: when ollama AND codex are unavailable, the chain falls through to `claude-native` which uses your Anthropic subscription. Deliberate trade-off — better than failing the dispatch entirely. Watch your usage if claude-native fires frequently.
 
-ta's TUI direction:
+**Orchestrator dispatch pattern** (concrete `Bash()` invocation for `bash-dispatcher` rows):
 
-- **Target stack**: `charm.land/bubbletea/v2` (program/model loop), `charm.land/bubbles/v2` (list/text/spinner primitives), `charm.land/lipgloss/v2` (styling), `charm.land/glamour/v2` (markdown rendering inside TUI panes), `github.com/evanmschultz/laslig` (CLI render — already used). NO huh.
-- **Migration plan**: huh stays where it works pre-dogfood (today: `ta init` multi-category picker). Replace huh slice-by-slice as TUI surface grows. Goal: zero huh imports by end of dogfood. New TUI surface MUST go bubbletea-direct from day one — do not add new huh forms.
-- **Why**: huh's form abstraction blocks features ta needs (collapsible groups in pickers, custom multi-pane layouts, search-as-you-type filtering, glamour-rendered preview panes). Bubbletea-direct gives full control.
+For short prompts (single-line):
+```
+Bash(
+  command='echo "<task prompt>" | ./bin/agent-dispatch.sh --role ta-go-builder --cwd "$(pwd)"',
+  run_in_background=true,
+  description='ta-go-builder: <short>',
+)
+```
 
-## TUI verification — teatest + goldens + VHS, never self-report
+For long prompts (multi-line with Section 0 directive, file paths, acceptance gates), write the prompt to a temp file first and use `--prompt-file`:
+```
+# 1. Write prompt
+Write(file_path="/tmp/dispatch-<role>-<id>.md", content="<full multi-line prompt>")
 
-NEVER claim TUI behavior works without a captured artifact. Self-reported "the picker looks right" is not evidence; the dev has been burned by it (twice).
+# 2. Dispatch
+Bash(
+  command='./bin/agent-dispatch.sh --role ta-go-builder --cwd "$(pwd)" --prompt-file /tmp/dispatch-<role>-<id>.md',
+  run_in_background=true,
+  description='ta-go-builder: <short>',
+)
+```
 
-- **Golden snapshots** for structural output (text content, layout, fields-rendered, error messages). Pattern: `internal/render/schema_flow_test.go::assertSchemaFlowGolden`. Materializes `testdata/*.golden` on first run, byte-compares thereafter. Use for laslig output AND bubbletea View() snapshots driven through teatest.
-- **`charm.land/x/exp/teatest`** for headless drive of bubbletea models. Captures View() at key transitions (initial, after navigation, after select, after submit, on error). Same `.golden` pattern.
-- **VHS** (`charm.land/vhs`) for visual capture (animated `.gif` / `.txt` artifacts of the TUI in motion). Used when structural goldens don't capture the issue (cursor flicker, color drift, animation timing). Run via mage target; produced artifacts committed under `testdata/vhs/`.
-- **The orchestrator (me) MUST run these tools and inspect the artifacts.** Not self-narration. If a golden test doesn't exist for a TUI claim, write one. If a VHS recording would catch what a golden can't, run vhs.
-- **Before claiming "the TUI looks right"**: golden + vhs artifact must exist and match expected. If golden diff is intentional → re-record + commit. If unintentional → fix.
+**Parsing the response** (orchestrator-side after dispatch returns):
+- ollama-local / claude-native served → stdout is Claude Code JSON envelope. The agent's text reply is `.result`. Parse via `jq -r .result` or read the JSON object directly.
+- codex-exec served → stdout is raw codex stream output (header lines + body + `tokens used N` footer). The agent's reply is the contiguous non-marker block before the footer.
+- Read **stderr** `[disp] served_by=<backend>:<model>` line to know which parser to use. If line contains `FALLBACK`, the primary tier failed and a fallback served.
+- Cascade record state (via `mcp__ta__get` on the droplet record) is the authoritative completion signal. The agent updates its state via the persona's `mcp__ta__update` allowance (planners + closeout) OR the orchestrator transitions state after parsing the dispatch response (builders + QA roles whose personas are read-only on cascade records by design).
 
-## Pre-MVP cleanup tracker — MVP-feature-completion launches clean
+## Editing role personas
 
-ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — there's no "v1" semantics here, just "every MVP feature works without known issues". Phasing: **dogfood** (minor issues OK if MCP + basic CLI work) → **full CLI refinement** → **full TUI overhaul** (100% huh-free, bubbletea + bubbles + lipgloss + glamour + laslig). MVP-feature-completion MUST launch with **zero tech debt** — every item below is closed before `v0.1.0` is tagged.
+`.claude/agents/ta-*.md` files are ta records under the `claude_agents.agent` schema. Both the native `Agent` tool AND the Bash dispatcher read these. NEVER edit them directly with Edit/Write. Workflow:
 
-**Open pre-MVP-feature-completion items** (close before `v0.1.0`, may carry through dogfood):
+1. `mcp__ta__update` on the agent record id (e.g. `ta-go-builder`) with the desired field overlay.
+2. `ta template save --kind=agent --path=./.claude/agents/<file>.md --group=ta --overwrite` — pushes the updated persona into `~/.ta/agents/ta/<file>.md`.
+3. Verify both files match (project + HOME) before commit.
 
-- **Huh removal — CLOSED (F38d)**. `charm.land/huh/v2` is gone from `go.mod` and from all source. F38d-1 landed the bubbletea verification infra (`cmd/ta/internal/tuitest`, golden + sha256 contract pin, `mage Vhs`). F38d-2 ported the multi-category picker + `init_cmd.go` non-confirm callsites; F38d-4 the confirms + import strips; F38d-3 the form (deleted `huh_form.go`); F38d-5 the root menu (deleted `huh_theme.go` + cleared `go.mod`); F38d-7 scrubbed every residual `huh` reference and consolidated `cmd/ta/styles.go` + `cmd/ta/keymap.go`. VHS demos under `cmd/ta/testdata/vhs/`.
-- **F23 runtime-fill semantics** — `cascade.droplet` auto_spawn block in `examples/schemas/cascade.toml` is COMMENTED OUT pending F23 supporting `{now}` / `{state.initial}` / `{parent.<field>}` token expansion for required-no-default fields. Without it, dogfood requires manual QA twin creation per droplet. Schedule as architectural slice post-F38.
-- **TUI verification artifacts (gifs + ascii)** committed under `cmd/ta/testdata/vhs/` AND linked from `README.md`, `examples/README.md`, `docs/cascade-methodology.md`. Each demo'able flow gets one tape that emits BOTH the test golden AND the README/docs gif. Single source of truth.
-- **Coverage gate** — `cmd/ta` package at 67.1% (target ≥70%). Pre-existing dead branches (TTY confirm, form paths). Schedule a coverage-only slice post-F38.
-- **`ta` ↔ Claude Code hook management via shipped schemas** — `claude_hooks` / `claude_skills` / `claude_settings_fragments` schemas don't exist yet. Required so `ta init` installs the LSP-refresh hook (and others) into `<project>/.claude/hooks/` automatically per the dogfood plan in `README.md`. Currently machine-local.
-- **MCP project arg gate-keeping** — every MCP tool accepts a `path` arg pointing at any project dir on disk. Real reach surface; review for security gates pre-MVP.
-- **TUI expansion** (post-dogfood, post-CLI-refinement, post-huh-removal) — `-t` / `--tui` flag for browse/search/edit, glamour-rendered preview panes, vim-style multi-select, line numbers in record blocks. Locked direction; out of pre-MVP scope.
-- **Magefile uses `gofmt`, not `gofumpt`** — memory rule says gofumpt routed through mage; magefile contradicts. Update magefile or revisit memory. Out of F38 scope.
-- **L3-I5 registration directives scope-cut to post-MVP** (from L2-I plan-QA falsif 4 CEs): the hook+plugin+MCP registration system in `internal/install/register.go` (NEW) deferred. Reasons: (1) configmerge.arrayContains dedupes on matcher alone, but live `~/.claude/settings.json` has multiple same-matcher entries with distinct commands — dedupe collapses them and silently drops the second; (2) empty-matcher SessionStart re-installs append duplicates unboundedly because arrayContains returns false on missing key; (3) plugin existence check would target `<projectRoot>/.claude/plugins/<plugin>/` but Claude Code's real install path is `~/.claude/plugins/cache/<source>/<plugin>/<version>/` — wrong directory; (4) the canonical "register a hook" path is the existing `claude_settings_fragments` substrate merging hooks.toml/json fragments. Post-MVP slice: pivot to "read `installed_plugins.json` as source of truth" + extend configmerge dedupe to use composite (matcher+command) keys + retire `applyRegistrations` stub. Until then `internal/install/install.go::applyRegistrations` remains the L3-I3-shipped stub recording Registration intent in `Report.Registrations` without writing settings_file.
-- **L3-I6 full-substrate e2e test scope-cut to post-MVP** (from L2-I plan-QA falsif 4 CRITICAL CEs): the end-to-end `TestInstall_E2E_FullSubstrate` against `ta/main` deferred. Reasons: (1) only 3 of the 12 substrates declared in `internal/installconfig/defaults.toml` have embed sources today — the other 9 substrates would lay down nothing; the "12 substrates land" close-gate is currently aspirational; (2) `.ta/cascade/` + `.ta/roadmap/` are NOT in any backup-and-restore primitive — a test against ta/main would clobber the dev's live cascade tracking records; (3) backup-then-install empties `.claude/`, so merge paths (claude_settings_fragments deep-merge into hooks) never fire — only copy-fallback gets exercised; (4) ta/main is the orchestrator's own working directory, so concurrent agent activity races. The proper venue for this test is CI against a fresh clone in a sandbox, not local `mage testFunc`. Post-MVP: ship CI-side e2e fixture + seed the remaining 9 substrate sources OR scope the install close-gate to substrates with shipped seeds.
-- **F23 cascade auto_spawn is LIVE** (correction to earlier "F23 OFF" claim): `[cascade.drop.auto_spawn]` / `[cascade.planner.auto_spawn]` / `[cascade.droplet.auto_spawn]` blocks in `.ta/schema.toml` fire automatically on `mcp__ta__create` per the F23 v2 engine in `internal/ops/ops.go::preValidateAutoSpawn`. The cascade.droplet.auto_spawn block in `examples/schemas/cascade.toml` is the canonical example. Plan-QA twins for every cascade.planner record materialize atomically with the parent record. Build-QA twins for every cascade.droplet materialize on droplet create. Documented `--no-spawn` flag bypasses when an orchestrator wants to skip the auto-spawn (rarely needed). This entry corrects the stale "F23 OFF" line that previously appeared in this tracker.
-- **`internal/format` Get-vs-Dispatch API duplication** (from L3-D1 planner-level build-QA falsif): both `format.Get(name)` and `format.Dispatch(name)` are publicly exported; `Dispatch` is a thin wrapper that adds a `"format dispatch: "` prefix on top of `Get`'s already-`"format: "`-prefixed error → double-stuttering `"format dispatch: format: no implementation registered"`. Resolve to ONE of: (a) unexport `Get`, keep `Dispatch` as the public lookup, OR (b) drop `Dispatch`, rename `Get` → `Lookup`. Update dispatch_test.go's `_SchemaEnumKeyMapping` accordingly. Cleanup slice; non-blocking until tag.
-- **`schema.Format` enum + `record.Backend` gap for html/txt storage** (from L3-D5-D1 + L3-D5-D8 build): `internal/schema/schema.go:93-98` declares only `FormatTOML` and `FormatMD`. The new `internal/backend/html/` + `internal/backend/txt/` packages implement `format.Format` (manifest-driven block extraction), NOT `record.Backend` (schema-section-store). Result: ta records CANNOT be stored as html or txt files in MVP. Positive `--as=html` / `--as=txt` paths through Marshal can only be tested via post-MVP substrate work that adds `FormatHTML` / `FormatTXT` + matching `record.Backend` impls. Current `--as=html|txt` tests pin the MISMATCH error surface only (correctly, but not full coverage). When schema.Format gains html/txt, the cmd/ta + mcpsrv tests can switch from mismatch-only to true positive Marshal assertions. Non-blocking until tag.
-- **`md_explicit` Parse vs Find/Splice ambiguity asymmetry** (from L3-D3-D2 build): `Backend.Find` and `Backend.Splice` surface `format.ErrAmbiguousMatch` when a heading-path selector matches more than once (symmetric with txt + html). `Backend.Parse` silently returns ONLY the FIRST match — documented in the Parse godoc but inconsistent with sibling methods. Pick a policy: (a) `Parse` also detects ambiguity and returns the error (symmetric, recommended), OR (b) `Parse` emits ALL matches (changes the return shape). Pin via `TestMdExplicitBackend_ParseMultiMatch`. Non-blocking until tag.
-- **Error-prefix unification across `format` + `backend/html`** (from L3-D1 planner-level build-QA falsif; expanded by L3-D4-D1 build-QA falsif): three prefix conventions coexist — `"format: ..."`, `"format dispatch: ..."`, `"html backend: <op>: ..."`, `"html splice: ..."`, `"html parse: ..."`. Same `html` package uses TWO conventions (outer wrappers + inner internals) producing `"html backend: splice: html splice: matched node ..."` stutters. Pick `<pkg>: <op>: ...` uniformly; drop redundant inner prefixes when outer wrapper adds the op-name. **Additionally**, `internal/backend/html/splice.go:32` declares a LOCAL `var ErrAmbiguousMatch = errors.New("html: selector matched multiple nodes")` with distinct identity from the NEW `format.ErrAmbiguousMatch` at `internal/format/format.go:55` ("format: ambiguous match"). `errors.Is(err, format.ErrAmbiguousMatch)` returns false for html-side ambiguity. Unify on `format.ErrAmbiguousMatch` (the cross-backend sentinel) when collapsing prefix conventions. Affects ~6 files. Non-blocking until tag.
-- **L3-E4 Thariq demo scope drift** (from L2-E build-QA falsif SOFT-2 finding): L2-E description originally specified L3-E4 as 5 page-archetype demos (spec / code-review / report / custom-editor / design-exploration). L3-E4 actually shipped 4 cascade-record demos (drop-dashboard / planner-detail / droplet-kanban / qa-twins) + gallery index — a different design axis. Dev-approved at L3-E4 close, but the page-archetype demo surface remains unshipped. Either author a follow-up L3-E5 sub-planner emitting the original 5 page-archetypes, OR explicit-punt them to post-MVP-feature-complete in this tracker with rationale. Currently undocumented in L2-E's description; this entry is the paper trail.
+Direct edits of `~/.claude/agents/*-agent.md` or `~/.ta/agents/*/*.md` bypass ta's substrate tracking and create drift.
 
-**MVP-feature-completion gate**: every item above is either closed or explicitly punted to post-`v0.1.0` with a tracking issue. No `// TODO` / `// HACK` / `// XXX` comments left in source.
+## Hylla discipline — Go-only, primary evidence source
 
-## Cascade isolation — agents test ONLY their slice
+Evidence order for Go work: (1) Hylla (`mcp__hylla__*`) for committed symbols/refs/graphs; (2) `git diff` for uncommitted; (3) Read/Grep/Glob for non-Go and post-edit pre-push Go; (4) Context7 + `go doc` + LSP for external semantics.
 
-A builder or QA agent operating below strict package level MUST run only the tests their slice owns — not the whole module. Sibling agents racing on the same checkout produce a polluted working tree; running `mage Test` (full module) gives a verdict muddied by other agents' WIP.
+**Hylla is Go-only.** Never query for `.toml`, `.json`, `.md`, `.yml`, scripts.
 
-- **Below-package scope**: `mage testFunc TestMyThing` (single test) or `mage testFunc 'TestA|TestB|TestC'` (multiple, pipe-joined regex) or with package narrowing via `TA_TEST_PKG=./internal/ops mage testFunc TestMyThing`. Routes through `go test -run <pattern>`.
-- **Package-level scope**: `mage testPkg ./internal/ops`. One package end-to-end; verdict reflects exactly what the slice owns.
-- **Module-level scope**: `mage Test` (or `mage Check`). Run by orchestrator-level QA + commit gate, not by sub-package agents mid-build.
+**Push-often + ingest-after-push**: after every commit batch push to origin, then trigger `mcp__hylla__hylla_ingest`. The `/commit-and-reingest` skill bundles both. Between push and ingest, fall back to `git log` / `Read`.
 
-The agent runner reports its verdict against the scope it owns. Higher-level QA (segment, confluence, drop) escalates to wider scopes. Orchestrator runs the whole. This mirrors the cascade methodology's "QA at the level integration actually happens" rule (`docs/cascade-methodology.md` §4).
+Spawn prompts for dispatched ta-go-* roles MUST include the Hylla artifact ref (e.g. `github.com/evanmschultz/ta@main`).
 
-Memory rule still applies: NEVER invoke raw `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`. Always route through mage. The `--project` flag and the testFunc / testPkg targets are how an agent narrows scope without bypassing the gate. Test output auto-detects TTY status via `laslig/gotestout` — agents and CI pipes get plain text without env-var gymnastics.
+## ta CLI usage
 
-## Cascade methodology — canonical reference
-
-The agent cascade methodology that ta dogfoods (and the future article / blog post seeds from) lives at [`docs/cascade-methodology.md`](docs/cascade-methodology.md). It's the **app-agnostic** version: thesis, droplet shape, role and model bindings, QA placement, nesting model, failure handling, audit trail, reference implementations. The older Tillsyn-flavored draft (`AGENT_CASCADE_DESIGN.md`) was retired — `docs/cascade-methodology.md` is the canonical source for any cascade questions, planning conversations, and the eventual article.
-
-When orchestrating a cascade in this project — point at `docs/cascade-methodology.md` first, then `docs/PLAN.md` for ta-specific plan/drop sequencing.
-
-## Ta CLI usage
-
-- All `ta <read-command>` invocations from agents MUST pass `--json`. ANSI-rendered laslig output is for humans only; agents parsing ANSI escape codes is a footgun.
-- Read commands that accept `--json`: `ta get`, `ta list-sections`, `ta schema` (action=get, the default), `ta search`.
-- Mutating commands (`ta create`, `ta update`, `ta delete`, `ta schema --action=create|update|delete`) return a concise laslig success notice on both surfaces; their MCP counterparts already return JSON. Use `--verbose` on the CLI when you want the post-mutation record echoed back.
-- `mage test` / `mage check` / `mage cover` route through `laslig/gotestout` which auto-detects TTY status — humans get a styled summary, agents and CI pipes get plain text. No env-var prefix needed; `mage test` just works.
-- Bare `ta` without a TTY is the MCP server — no explicit subcommand needed when registering in `.mcp.json` / `.codex/config.toml`.
+- All `ta <read-command>` invocations from dispatched roles MUST pass `--json`. ANSI laslig output is for humans.
+- `--json` accepted on: `ta get`, `ta list-sections`, `ta schema`, `ta search`.
+- Mutating commands (`create` / `update` / `delete` / `schema --action=...`) return a concise success notice; use `--verbose` for the post-mutation record.
+- `mage test` / `mage check` / `mage cover` route through `laslig/gotestout` (auto-detects TTY).
+- Bare `ta` without a TTY is the MCP server.
+- **NEVER invoke raw `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`.** Always route through mage.
 
 ## Cascade-managed development — use ta to manage ta
 
-For any non-trivial work in this repo (multi-droplet slice, anything involving planner/builder/QA roles, anything with QA twins), the orchestrator MUST use ta cascade records to track the work, not in-session task lists or markdown plans.
+For any non-trivial work (multi-droplet slice, planner/builder/QA roles, QA twins), track via ta cascade records — not in-session task lists or markdown plans.
 
-**Workflow per `docs/cascade-methodology.md` § 3 (Roles) + § 4 (QA Placement)**:
+Workflow per [`docs/cascade-methodology.md`](docs/cascade-methodology.md) §3 + §4:
 
-1. **Drop record** — `mcp__ta__create` a `cascade.drop` first. id = `drop_NNN.drop.<slug>` (single-segment bracket-key per F38d-2.15; no dots in the slug). Required: `drop_number`, `structural_type='drop'`, `role`, `state`, `title`, `created_at`, `updated_at`.
+1. **Drop record** — `mcp__ta__create` a `cascade.drop`. id = `drop_NNN.drop.<slug>`. Required: `drop_number`, `structural_type='drop'`, `role`, `state`, `title`, `created_at`, `updated_at`.
+2. **Planner record** — `mcp__ta__create` a `cascade.planner` child. Dispatch a `ta-go-planning` (or `ta-fe-planning`) role via the dispatcher; the dispatched role updates the planner record via `mcp__ta__update`.
+3. **Plan-QA twins** — when the planner is created, immediately create `cascade.qa_proof` + `cascade.qa_falsification` children (`target_id = <planner-id>`, `state = 'todo'`). These BLOCK descent. Dispatch as parallel background calls.
+4. **Recursive decomposition** — if a planner would emit more than 4 children OR cross more than 1 domain concern OR cross more than 1 package, it MUST decompose into child planners. Cascade recurses through planner levels — each terminal level emits 3-6 atomic droplets per child planner touching disjoint paths. Plan-QA twins fire at EVERY planner node.
+5. **Builder droplets** — terminal leaves only. One `cascade.droplet` per atomic build slice, each touching ≤4 distinct code-block edits. Builders dispatch in parallel when `paths` are disjoint. No LLM QA at droplet level; build+test is the only droplet-level gate.
+6. **Package-level build+test** — after all droplets for a package report `complete`, run `mage testPkg <path>`. Failures cycle: enclosing planner ingests failure → fix directive → droplet re-runs.
+7. **Build-QA twins at EVERY planner level** — once all direct children of a planner are `complete` AND package gates green, create two QA children targeting the sub-tree. Both must complete+success before the planner reports complete to its parent.
+8. **Closeout + commit** — after L1 drop's build-QA passes, run `mage check`, then commit per segment-close (MCP server bounces after every commit + `mage install` + Claude Code restart; batch reduces friction).
 
-2. **Planner record** — `mcp__ta__create` a `cascade.planner` child. Holds the decomposition (in `objective` / `description` / `decision_log` fields). Dispatch a `ta-go-planning` (or `ta-fe-planning`) agent to author it; the agent updates the planner record via `mcp__ta__update`.
+**State machine**: `todo` → `in_progress` → `complete | failed`. `outcome = success | failure | blocked`. Always `mcp__ta__update` to record transitions.
 
-3. **Plan-QA twins** — when the planner record is created, the orchestrator immediately creates two QA children targeting the planner's output: `cascade.qa_proof` + `cascade.qa_falsification` (set `target_id = <planner-record-id>`, `state = 'todo'`). These BLOCK descent — no builder droplets are spawned until plan-QA twins both return `state=complete + outcome=success`. Dispatch as parallel background agents (one message, two Agent tool calls).
+**Dogfood discipline (MCP-first)**: cascade record CRUD goes through MCP. If `mcp__ta__*` fails, REPORT and PAUSE — don't silently fall back to `./bin/ta` CLI.
 
-4. **Recursive decomposition vs direct droplet emission** — `docs/cascade-methodology.md § 5.3` is the contract: if the planner's output would emit more than 4 children OR cross more than 1 distinct domain concern OR cross more than 1 package, the planner MUST decompose into **child planners** (`cascade.planner` records) instead of emitting droplets directly. The cascade recurses through planner levels — each level designs general direction for the next; the next level decomposes further — until each terminal level emits **3-6 atomic droplets per child planner** that touch disjoint paths. Even a 2-bug slice typically reaches depth 3 (L1 drop → L2 planner → L3 sub-planner per concern → L4 droplets); shallower trees are usually under-decomposed. Plan-QA twins fire at EVERY planner node (§4.3), not just L1.
+## Cascade isolation — test only your slice
 
-5. **Builder droplets** — terminal leaves only. `mcp__ta__create` one `cascade.droplet` per atomic build slice. Each droplet touches **≤4 distinct code-block edits** (this project's user-facing contract; methodology says "few blocks"). **Builders dispatch in parallel** when their `paths` are disjoint (the planner's responsibility to enforce — `paths`-sharing siblings serialize via the `blockers` graph per §7). For a typical decomposed L4 level, expect 3-6 builders firing concurrently from one parallel `Agent` tool call. **No LLM QA at droplet level** — build+test is the only droplet-level gate.
+A dispatched role operating below strict package level MUST run only its slice's tests — not the whole module. Sibling dispatches racing produce polluted working trees; `mage Test` (full module) gives a verdict muddied by other WIP.
 
-6. **Package-level build+test (automated)** — after all droplets for a package report `complete`, the orchestrator runs `mage testPkg <path>` for that package. Failures cycle back: enclosing planner ingests failure → writes fix directive → droplet re-runs.
-
-7. **Build-QA twins at EVERY planner level** — once all direct children of a planner are `complete` AND their package gates green, `mcp__ta__create` two QA children targeting the completed sub-tree: `cascade.qa_proof` + `cascade.qa_falsification`. Dispatch as parallel background. Both must `state=complete + outcome=success` before THIS planner reports `complete` to its parent (or, at L1, before commit). Build-QA fires at L2, L3, L4 separately as each level closes — not just at L1.
-
-8. **Closeout + commit** — after the L1 drop's build-QA passes, the orchestrator runs `mage check` (full module integration gate), then commits per segment-close, **not per-droplet** (the MCP server bounces after every commit + `mage install` + Claude Code restart; batching reduces friction proportionally).
-
-**State machine**: `todo` → `in_progress` (orchestrator sets on dispatch) → `complete | failed` (set on agent return). `outcome = success | failure | blocked`. Always `mcp__ta__update` to record transitions — these are the audit trail.
-
-**Inspection** during a cascade run:
-- MCP: `mcp__ta__list_sections(scope="cascade")`, `mcp__ta__search(scope="cascade.drop", all=true)`, `mcp__ta__get(items=[{id: "..."}])`.
-- CLI (read-only inspection only): `ta search --scope cascade --all --json`, `ta list-sections cascade.drop --json`, `ta get <id> --json`.
-
-**Dogfood discipline (MCP-first)**: cascade record CRUD goes through MCP. If `mcp__ta__*` fails for cascade ops, REPORT and PAUSE — don't silently fall back to `./bin/ta` CLI. CLI is for inspection and for build operations (`mage`-routed Go commands).
-
-**Known limitation (F23 OFF)**: auto_spawn (`{now}` / `{state.initial}` / `{parent.<field>}` token expansion) is not yet implemented; QA twins must be created manually per `mcp__ta__create`. F23 lands as a separate slice.
-
-See `docs/cascade-methodology.md` for the methodology contract and `E2E_FIXES.md` for the open tracker of cascade-related findings.
+- **Below-package**: `mage testFunc TestMyThing` or `mage testFunc 'TestA|TestB|TestC'`. Package narrowing: `TA_TEST_PKG=./internal/ops mage testFunc TestMyThing`.
+- **Package-level**: `mage testPkg ./internal/ops`.
+- **Module-level**: `mage Test` (or `mage Check`). Orchestrator-level QA + commit gate only.
 
 ## MCP server — pinning the project directory
 
-`ta`'s MCP-server invariant is one project per process: the server resolves its schema from the spawn cwd by default. Two ways to make sure the cwd is right:
+ta's MCP-server invariant is one project per process. Two ways to pin cwd:
 
-- **Launch Claude Code FROM the active project checkout.** The Claude Code process inherits its own cwd to spawned MCP servers, so starting Claude in `/abs/path/to/project` gives `ta` the right project automatically. This is the simplest path and the recommended default.
-- **Use `--project <abs-path>` in the MCP server invocation** when the launcher cannot control the spawn cwd. Add the flag to the spawn command in your `.mcp.json` registration:
+- **Launch Claude Code FROM the active project checkout.** Inherits cwd to spawned MCP servers — starting Claude in `/abs/path/to/project` gives `ta` the right project automatically.
+- **`--project <abs-path>`** in the MCP server invocation when the launcher cannot control spawn cwd:
 
   ```json
-  {
-    "mcpServers": {
-      "ta": {
-        "command": "ta",
-        "args": ["--project", "/abs/path/to/project"]
-      }
-    }
-  }
+  {"mcpServers":{"ta":{"command":"ta","args":["--project","/abs/path/to/project"]}}}
   ```
 
-  The path must be absolute, must exist, and must contain `.ta/schema.toml`. Empty / unset → cwd fallback (existing behavior). The flag wins over cwd when both are present.
+  Path must be absolute, must exist, must contain `.ta/schema.toml`. Empty / unset → cwd fallback. The flag wins over cwd when both are present.
+
+## Project-specific docs
+
+- [`docs/agent-backend-routing.md`](docs/agent-backend-routing.md) — full explainer for the routing pattern above; copy-into-other-project guide.
+- [`docs/cascade-methodology.md`](docs/cascade-methodology.md) — the canonical cascade contract; ta dogfoods it.
+- [`docs/pre-mvp-tracker.md`](docs/pre-mvp-tracker.md) — open pre-`v0.1.0` items, what's punted, what's closed.
+- [`docs/tui-guidance.md`](docs/tui-guidance.md) — TUI stack (bubbletea/bubbles/lipgloss/glamour/laslig), teatest + goldens + VHS verification rules.
+- [`docs/PLAN.md`](docs/PLAN.md) — ta-specific drop sequencing.

@@ -1,5 +1,6 @@
 # Binaries
-/bin/
+/bin/*
+!/bin/agent-dispatch.sh
 /dist/
 
 # Test and coverage artifacts
