@@ -18,10 +18,6 @@ coverage.html
 # Playwright MCP cache (ephemeral browser session artifacts)
 .playwright-mcp/
 
-# Ad-hoc screenshots dropped at repo root by Playwright capture
-/*.png
-/*.jpeg
-
 # Mage cache
 mage_output_file.go
 .mcp.json
