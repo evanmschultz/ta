@@ -1,0 +1,140 @@
+---
+// L3-E3-D1 — Stil shell layout.
+//
+// Minimal app-shell layout for the `src/pages/stil/*` view set. Loads the
+// stil token + reset + global CSS directly via deep paths (stil v0.0.1 has
+// no `exports` field in its package.json, so deep paths are the only way in
+// from this side of the boundary).
+//
+// Layout shape:
+//   <html lang="en">
+//     <head> <meta charset> <title> <meta viewport>
+//     <body>
+//       optional <Topbar />
+//       <div class="stil-shell">
+//         optional <aside class="stil-shell-sidebar"><Sidebar /></aside>
+//         <main class="stil-shell-main"><slot /></main>
+//
+// Props:
+//   title       page <title> (string, default "stil views")
+//   chrome      "shell" | "bare" (default "bare")
+//                 - "shell"  renders Sidebar + Topbar at layout level
+//                 - "bare"   renders only the <main> + <slot>, leaving full
+//                            chrome control to the consuming page
+//   sidebarItems / sidebarTitle / topbarTitle
+//                 props forwarded to stil Sidebar + Topbar when chrome=shell
+//
+// AMEND-1 (CE-1 component allowlist): stil components used here are limited
+// to {Sidebar, Topbar, NavRail, BottomTabs, ComponentCard, MailRow, Button,
+// Swatch}. RightAside / MobileCommandFab / SettingsOptions / ThemeToggle /
+// TokenEditor / InputStyles are FORBIDDEN at this layer. Today only Sidebar
+// and Topbar are imported; the allowlist is the upper bound, not the floor.
+//
+// ZERO authored <script> elements live in this file. Imported stil
+// components may carry their own (Topbar's data-* hooks etc.); those are
+// counted against the parent L3-E3 close-gate, not this droplet.
+
+import "@hylla/stil/src/styles/reset.css";
+import "@hylla/stil/src/styles/tokens.css";
+import "@hylla/stil/src/styles/global.css";
+
+import Sidebar from "@hylla/stil/src/components/Sidebar.astro";
+import Topbar from "@hylla/stil/src/components/Topbar.astro";
+
+interface SidebarItem {
+  icon: string;
+  label: string;
+  selected?: boolean;
+  badge?: string;
+  muted?: boolean;
+}
+
+interface Props {
+  title?: string;
+  chrome?: "shell" | "bare";
+  sidebarTitle?: string;
+  sidebarItems?: ReadonlyArray<SidebarItem>;
+  topbarTitle?: string;
+}
+
+const {
+  title = "stil views",
+  chrome = "bare",
+  sidebarTitle = "stil views",
+  sidebarItems = [],
+  topbarTitle,
+} = Astro.props;
+
+const resolvedTopbarTitle = topbarTitle ?? title;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+  </head>
+  <body>
+    {chrome === "shell" ? (
+      <div class="stil-shell" data-stil-shell>
+        <aside class="stil-shell-sidebar" aria-label="View navigation">
+          <Sidebar title={sidebarTitle} items={sidebarItems} />
+        </aside>
+        <div class="stil-shell-main-wrap">
+          <Topbar title={resolvedTopbarTitle} />
+          <main class="stil-shell-main">
+            <slot />
+          </main>
+        </div>
+      </div>
+    ) : (
+      <main class="stil-shell-main stil-shell-main--bare">
+        <slot />
+      </main>
+    )}
+  </body>
+</html>
+
+<style>
+  .stil-shell {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) 1fr;
+    min-height: 100vh;
+    background: var(--bg-canvas, var(--bg-surface));
+    color: var(--text-primary);
+  }
+
+  .stil-shell-sidebar {
+    border-right: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  }
+
+  .stil-shell-main-wrap {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .stil-shell-main {
+    flex: 1;
+    padding: var(--space-6, 1.5rem) var(--space-6, 1.5rem)
+      var(--space-8, 2rem);
+    min-width: 0;
+  }
+
+  .stil-shell-main--bare {
+    padding: var(--space-6, 1.5rem);
+    background: var(--bg-canvas, var(--bg-surface));
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+
+  @media (max-width: 880px) {
+    .stil-shell {
+      grid-template-columns: 1fr;
+    }
+    .stil-shell-sidebar {
+      display: none;
+    }
+  }
+</style>

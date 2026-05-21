@@ -1,0 +1,1 @@
+# expect: thariq drop dashboard rendered
