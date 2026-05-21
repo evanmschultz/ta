@@ -88,7 +88,7 @@ Bash(
 
 Stdin pipe (`echo "<prompt>" | ./bin/agent-dispatch.sh ...`) also works; pick whichever is cleanest at the call site.
 
-The `--prompt-file` form is a fallback for unusual cases (literal backticks + nested quotes in a multi-paragraph string that would break shell quoting). With the record-id-pointer pattern, `--prompt-file` is rarely needed; reach for it only when shell quoting actually breaks.
+**Never use `--prompt-file`.** The dispatcher takes the prompt directly via `--prompt` or stdin — temp files are unnecessary and obscure the call site. The `--prompt-file` flag exists only as a last-resort fallback for pathologically nested shell quoting; in practice it should not appear.
 
 Precedence (dispatcher line 151): `--prompt` > `--prompt-file` > stdin.
 
@@ -97,6 +97,12 @@ Precedence (dispatcher line 151): `--prompt` > `--prompt-file` > stdin.
 - codex-exec served → stdout is raw codex stream output (header lines + body + `tokens used N` footer). The agent's reply is the contiguous non-marker block before the footer.
 - Read **stderr** `[disp] served_by=<backend>:<model>` line to know which parser to use. If line contains `FALLBACK`, the primary tier failed and a fallback served.
 - Cascade record state (via `mcp__ta__get` on the droplet record) is the authoritative completion signal. The agent updates its state via the persona's `mcp__ta__update` allowance (planners + closeout) OR the orchestrator transitions state after parsing the dispatch response (builders + QA roles whose personas are read-only on cascade records by design).
+
+**Tool-call audit (orchestrator MUST do this after every dispatch)**: never trust an agent's self-reported "verdict: pass" or "tool X returned Y". Open the dispatch output file and inspect the actual stream:
+- codex stream lines: each tool invocation surfaces as `mcp: <server>/<tool> (started)` then `(completed)` or `(failed)`. A `(failed)` followed by `user cancelled MCP tool call` is a cancellation, not a tool error.
+- ollama / claude-native JSON envelope: `tool_use` events in the message iteration list; absence of expected tool events with `num_turns: 1` means the agent answered without calling tools.
+- Cross-check every required-work claim against stream evidence: record updates must show `mcp: <ta>/update (completed)`; file edits must show `tool_use: Edit`; tests must show `tool_use: Bash` with the mage command. If the stream doesn't show it, the work didn't happen — re-dispatch or finish it orchestrator-direct.
+- Also flag out-of-scope tool calls (anything outside the persona's `tools:` allowlist) — they shouldn't be possible because Claude Code filters tools by allowlist, but codex's MCP exposure is broader and the orchestrator is the only enforcement.
 
 ## Editing role personas
 
@@ -116,7 +122,7 @@ Evidence order for Go work: (1) Hylla (`mcp__hylla__*`) for committed symbols/re
 
 **Push-often + ingest-after-push**: after every commit batch push to origin, then trigger `mcp__hylla__hylla_ingest`. The `/commit-and-reingest` skill bundles both. Between push and ingest, fall back to `git log` / `Read`.
 
-Spawn prompts for dispatched ta-go-* roles MUST include the Hylla artifact ref (e.g. `github.com/evanmschultz/ta@main`).
+Spawn prompts for dispatched ta-go-* roles MUST include the Hylla artifact ref `github.com/evanmschultz/ta@main`.
 
 ## ta CLI usage
 
