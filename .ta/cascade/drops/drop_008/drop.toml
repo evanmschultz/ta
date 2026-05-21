@@ -1,0 +1,65 @@
+[ta_serve_cascade_browser]
+acceptance_criteria = "1. cmd/ta + internal/server (or equivalent) cleanly separated. 2. No client-side JS required for navigation. 3. Search returns relevant records via mcp__ta__search (or in-process equivalent). 4. Each route returns deterministic HTML for snapshot testing. 5. No semver phrasing in plan content. 6. Builder droplets each ≤2 small code blocks INCLUDING tests. 7. L1 plan-QA twins pass before descent."
+blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"]
+created_at = "2026-05-21T03:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. `ta serve [--port N] [--bind ADDR]` cobra subcommand exists (default 127.0.0.1:4321). 2. HTTP handler reads live .ta/ substrate via internal/ops (cascade.* + roadmap.* + any other db). 3. Routes: `/` cascade tree overview, `/cascade/<id>` record detail, `/roadmap`, `/schema`, `/search?q=...` pure-server full-text. 4. Renders via internal/templates_html_basic (Track A) at RUNTIME, not static dist. 5. Zero-JS navigation: descendant rows + sidebar items + record drilldown all use native links. 6. Integration tests via httptest + Playwright (relies on drop_009 Playwright infra). 7. axe-core a11y pass on every served page (relies on drop_009 mage TemplatesA11y gate). 8. `mage Serve` wrapper target + docs. 9. mage check green."
+drop_number = 8.0
+files = ["cmd/ta/serve_cmd.go", "internal/server/**", "internal/templates_html_basic/templates/**", "magefile.go"]
+labels = ["mvp-primary", "ta-serve", "go-backend", "http", "post-pivot"]
+objective = "Ship `ta serve` subcommand that reads live `.ta/` records via internal/ops and serves HTML at runtime using Track A templates (internal/templates_html_basic). Pure-server, zero-JS. This is the NEW primary mvp-feature-complete target after the 2026-05-21 pivot (drop_005 superseded). Per HANDOFF §4."
+packages = ["cmd/ta", "internal/server", "internal/ops", "internal/templates_html_basic", "magefile"]
+paths = ["cmd/ta/serve_cmd.go", "internal/server/**", "magefile.go", "docs/ta-serve.md"]
+role = "planner"
+state = "in_progress"
+structural_type = "drop"
+title = "ta serve — real cascade browser backed by live .ta/ records (NEW MVP PRIMARY)"
+updated_at = "2026-05-21T03:55:00Z"
+
+[ta_serve_cascade_browser-plan-qa-proof]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.ta_serve_cascade_browser"
+title = "Plan-QA proof of ta serve — real cascade browser backed by live .ta/ records (NEW MVP PRIMARY)"
+updated_at = "2026-05-21T04:19:12Z"
+
+[ta_serve_cascade_browser-plan-qa-falsification]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.ta_serve_cascade_browser"
+title = "Plan-QA falsif of ta serve — real cascade browser backed by live .ta/ records (NEW MVP PRIMARY)"
+updated_at = "2026-05-21T04:19:12Z"
+
+[planner_l1_ta_serve_decompose]
+acceptance_criteria = "1. 3-5 L2 sub-planners, each single-package + single-domain. 2. No overlapping path globs. 3. Each L2's droplet count respects atomicity (≤2 small blocks INCLUDING tests per droplet, ≤6 droplets per L2). 4. HANDOFF §4 routes/handlers/runtime-render mapped to L2 ownership. 5. No semver phrasing. 6. Test-naming honest convention."
+created_at = "2026-05-21T03:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "Planner record description carries full L2 decomposition: per-L2 id, title, objective, DoC, acceptance, path globs, packages, expected droplet count, blockers/depends_on. Plus coverage map mapping HANDOFF §4.1-§4.5 items to L2 ownership. Plus path overlap check."
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "cmd/ta/", "internal/server/", "internal/ops/", "internal/templates_html_basic/", "magefile.go"]
+labels = ["l1-planner", "ta-serve", "decomposition"]
+objective = "Decompose `ta serve` into 3-5 L2 sub-planners per cascade methodology (≤4 children if possible, otherwise recurse). Likely L2 split: L2-A cobra subcommand + server skeleton, L2-B route handlers, L2-C .ta/ read + Track A runtime render, L2-D integration tests + axe-core wiring. Path globs disjoint; each L2 emits 3-6 atomic builder droplets."
+parent_id = "drop_008.drop.ta_serve_cascade_browser"
+role = "planner"
+state = "todo"
+title = "L1 planner — ta serve decomposition into L2 sub-planners"
+updated_at = "2026-05-21T03:55:00Z"
+
+[planner_l1_ta_serve_decompose-plan-qa-proof]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.planner_l1_ta_serve_decompose"
+title = "Plan-QA proof of L1 planner — ta serve decomposition into L2 sub-planners"
+updated_at = "2026-05-21T04:19:12Z"
+
+[planner_l1_ta_serve_decompose-plan-qa-falsification]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.planner_l1_ta_serve_decompose"
+title = "Plan-QA falsif of L1 planner — ta serve decomposition into L2 sub-planners"
+updated_at = "2026-05-21T04:19:12Z"

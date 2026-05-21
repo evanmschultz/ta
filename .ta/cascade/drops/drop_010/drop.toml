@@ -1,0 +1,64 @@
+[pivot_cleanup_thariq_examples_retire_track_b]
+acceptance_criteria = "1. Atomic droplets ≤2 small blocks INCLUDING tests. 2. L1 emits 2-3 L2 sub-planners: L2-A move thariq + scaffold examples Astro project, L2-B retire go:embed + cleanup mage targets, L2-C verification (mage check green, no dangling refs). 3. No JS introduced. 4. No semver phrasing. 5. L1 plan-QA twins pass before descent."
+created_at = "2026-05-21T03:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. examples/thariq/ exists as a standalone Astro project (its own package.json, astro.config.*, src/) carrying the previously-thariq content. 2. web/templates_embed/src/pages/thariq/ removed (or web/templates_embed/ retired entirely if it had no non-thariq purpose — verify first). 3. internal/templates_html_embed/dist/ no longer go:embed'd by any package in the binary. 4. Any mage targets that built Track B for the binary are removed or repointed to examples/thariq build (which is dev-only). 5. cmd/ + internal/ compile clean after the retire. 6. mage check green. 7. Standalone examples/thariq/ buildable via its own pnpm scripts (dev-time only)."
+drop_number = 10.0
+files = ["web/templates_embed/", "internal/templates_html_embed/", "magefile.go", "go.mod"]
+labels = ["pivot-cleanup", "thariq", "track-b", "post-pivot", "blocks-008-009"]
+objective = "Land the 2026-05-21 pivot: (a) move web/templates_embed/src/pages/thariq/* + supporting mock + any thariq-only assets to top-level examples/thariq/ (sibling of web/, internal/, cmd/); (b) retire Astro Track B from the binary entirely — drop internal/templates_html_embed/dist/ from go:embed; (c) keep examples/thariq/ as standalone Astro project for dev-time showcase only, NOT shipped in binary; (d) verify nothing in cmd/ or internal/ depends on the retired embed. UNBLOCKS drop_008 (ta serve uses only Track A) + drop_009 (Playwright lives where examples Astro ends up)."
+packages = ["internal/templates_html_embed", "magefile"]
+paths = ["web/templates_embed/**", "internal/templates_html_embed/**", "examples/thariq/**", "magefile.go"]
+role = "planner"
+state = "in_progress"
+structural_type = "drop"
+title = "Pivot cleanup — mv thariq to examples/ + retire Track B embed from binary"
+updated_at = "2026-05-21T03:55:00Z"
+
+[pivot_cleanup_thariq_examples_retire_track_b-plan-qa-proof]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"
+title = "Plan-QA proof of Pivot cleanup — mv thariq to examples/ + retire Track B embed from binary"
+updated_at = "2026-05-21T04:19:12Z"
+
+[pivot_cleanup_thariq_examples_retire_track_b-plan-qa-falsification]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"
+title = "Plan-QA falsif of Pivot cleanup — mv thariq to examples/ + retire Track B embed from binary"
+updated_at = "2026-05-21T04:19:12Z"
+
+[planner_l1_pivot_cleanup_decompose]
+acceptance_criteria = "1. 2-3 L2 sub-planners. 2. No path overlap. 3. Atomicity. 4. No semver phrasing. 5. Coverage map for each DoC item to L2 ownership."
+created_at = "2026-05-21T03:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "Planner description carries L2 specs. Plus dependency graph (L2-A first, L2-B after, L2-C verifies). Plus inspection of current web/templates_embed/ to identify any non-thariq content that should stay (or retire too)."
+files = ["web/templates_embed/", "internal/templates_html_embed/", "magefile.go"]
+labels = ["l1-planner", "pivot-cleanup", "decomposition"]
+objective = "Decompose pivot cleanup into 2-3 L2 sub-planners. Likely split: L2-A mv thariq + scaffold examples/thariq/ Astro project, L2-B retire internal/templates_html_embed go:embed + mage target cleanup, L2-C verification slice (mage check + dangling-ref scan)."
+parent_id = "drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"
+role = "planner"
+state = "todo"
+title = "L1 planner — pivot cleanup decomposition"
+updated_at = "2026-05-21T03:55:00Z"
+
+[planner_l1_pivot_cleanup_decompose-plan-qa-proof]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
+title = "Plan-QA proof of L1 planner — pivot cleanup decomposition"
+updated_at = "2026-05-21T04:19:12Z"
+
+[planner_l1_pivot_cleanup_decompose-plan-qa-falsification]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
+title = "Plan-QA falsif of L1 planner — pivot cleanup decomposition"
+updated_at = "2026-05-21T04:19:12Z"

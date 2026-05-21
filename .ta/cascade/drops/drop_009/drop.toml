@@ -1,0 +1,65 @@
+[playwright_axe_track_a_contrast]
+acceptance_criteria = "1. Atomic droplets ≤2 small blocks INCLUDING tests. 2. L1 emits 2-3 L2 sub-planners (Playwright infra + Track A contrast fix + integration glue). 3. No JS for the contrast fix; CSS/markup-local. 4. No semver phrasing. 5. L1 plan-QA twins pass before descent."
+blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"]
+created_at = "2026-05-21T03:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. @playwright/test + axe-core dependencies installed (location depends on drop_010 pivot cleanup outcome). 2. playwright.config.* exists with viewport matrix 375/768/1280. 3. Small Playwright axe fixture/spec exists exercising representative `ta serve` HTML output + Track A goldens. 4. magefile.go defines `TemplatesA11y` target wired into `mage check`. 5. Track A `internal/templates_html_basic/templates/schema_browser.html` `.pill[data-value=\"false\"]` contrast reaches AA (4.5:1). 6. Honest test naming throughout. 7. mage check green including the new gate."
+drop_number = 9.0
+files = ["web/templates_embed/package.json", "internal/templates_html_basic/templates/schema_browser.html", "magefile.go"]
+labels = ["mvp-supporting", "playwright", "axe-core", "contrast-fix", "post-pivot", "drop_005-rescope"]
+objective = "Rescoped from drop_005 (superseded). Install Playwright + axe-core in web/templates_embed (or equivalent location given Track B retirement), add `mage TemplatesA11y` target wired into `mage check`, and remediate Track A schema_browser.html `.pill[data-value=\"false\"]` optional-pill contrast to AA. The a11y gate verifies `ta serve` HTML output (built by drop_008)."
+packages = ["magefile", "internal/templates_html_basic", "web/templates_embed"]
+paths = ["web/templates_embed/package.json", "web/templates_embed/playwright.config.*", "web/templates_embed/tests/**", "internal/templates_html_basic/templates/schema_browser.html", "magefile.go"]
+role = "planner"
+state = "in_progress"
+structural_type = "drop"
+title = "Playwright + axe-core infra + Track A schema_browser contrast (drop_005 rescope)"
+updated_at = "2026-05-21T03:55:00Z"
+
+[playwright_axe_track_a_contrast-plan-qa-proof]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_009.drop.playwright_axe_track_a_contrast"
+title = "Plan-QA proof of Playwright + axe-core infra + Track A schema_browser contrast (drop_005 rescope)"
+updated_at = "2026-05-21T04:19:12Z"
+
+[playwright_axe_track_a_contrast-plan-qa-falsification]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_009.drop.playwright_axe_track_a_contrast"
+title = "Plan-QA falsif of Playwright + axe-core infra + Track A schema_browser contrast (drop_005 rescope)"
+updated_at = "2026-05-21T04:19:12Z"
+
+[planner_l1_playwright_track_a_decompose]
+acceptance_criteria = "1. 2-3 L2 sub-planners. 2. No path overlap. 3. Atomicity. 4. Honest test naming (TestTrackA_AsHtml_PillContrast pattern). 5. No semver phrasing. 6. Coordination with drop_010 outcome (Playwright lives where the Astro setup ends up after pivot cleanup)."
+created_at = "2026-05-21T03:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "Planner description carries L2 specs: id, title, objective, DoC, acceptance, paths, packages, droplet count, dependencies. Coverage map to drop_005's surviving L2-A + L2-B carryover. Path overlap check."
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "web/templates_embed/package.json", "internal/templates_html_basic/templates/schema_browser.html", "magefile.go"]
+labels = ["l1-planner", "playwright", "decomposition", "post-pivot"]
+objective = "Decompose into 2-3 L2 sub-planners: L2-A Playwright + axe deps + config + fixture + mage target, L2-B Track A schema_browser contrast fix + regression test. If integration of the two needs its own L2, emit it."
+parent_id = "drop_009.drop.playwright_axe_track_a_contrast"
+role = "planner"
+state = "todo"
+title = "L1 planner — Playwright/axe + Track A contrast decomposition"
+updated_at = "2026-05-21T03:55:00Z"
+
+[planner_l1_playwright_track_a_decompose-plan-qa-proof]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_009.drop.planner_l1_playwright_track_a_decompose"
+title = "Plan-QA proof of L1 planner — Playwright/axe + Track A contrast decomposition"
+updated_at = "2026-05-21T04:19:12Z"
+
+[planner_l1_playwright_track_a_decompose-plan-qa-falsification]
+created_at = "2026-05-21T04:19:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_009.drop.planner_l1_playwright_track_a_decompose"
+title = "Plan-QA falsif of L1 planner — Playwright/axe + Track A contrast decomposition"
+updated_at = "2026-05-21T04:19:12Z"
