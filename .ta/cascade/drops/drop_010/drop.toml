@@ -207,20 +207,20 @@ state = "complete"
 title = "L1 planner — pivot cleanup decomposition"
 updated_at = "2026-05-21T05:45:00Z"
 [planner_l1_pivot_cleanup_decompose-plan-qa-proof]
-completion_contract = {completion_notes = "Round-3 proof PASS. All 6 claims verified verbatim against round-3 description: CE-1 stil-asset reassignment landed (StilLayout.astro + stil_records.ts now in L2-B globs); CE-2 L2-C glob narrowed to 4 exact entries; CE-3 D4 split into D4a/D4b/D4c (count 4→6); 4 lanes preserved; root embed.go unmodified; no semver phrasing. Served by claude-native:opus."}
+completion_contract = {completion_notes = "R4 PASS. CE-A: thariq_records.ts added as L2-A path_globs entry #3 (file exists on disk). CE-B: B5 retire-only (no preserve branch); DoC 4 routes successor stil verification to drop_009 L2-A (registry confirmed) + drop_010 L2-D D4b standalone examples/stil/ build proof. Round-3 wins preserved: 4 lanes, L2-C narrowed (4 entries), L2-D droplet count 6 with D4a/b/c, stil-only assets in L2-B, root embed.go untouched, no semver. Coverage map DoC 1-12 still uniquely owned. Served by claude-native:opus."}
 created_at = "2026-05-21T04:19:12Z"
 outcome = "success"
 role = "qa-proof"
 state = "complete"
 target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
 title = "Plan-QA proof of L1 planner — pivot cleanup decomposition"
-updated_at = "2026-05-21T05:45:00Z"
+updated_at = "2026-05-21T06:00:00Z"
 [planner_l1_pivot_cleanup_decompose-plan-qa-falsification]
 completion_contract = {completion_notes = "Round-3 falsif FAIL with 2 surviving CEs. CE-A (Critical): L2-A omits web/templates_embed/src/mock/thariq_records.ts which 4 thariq routes import; no drop_010 record owns this path. CE-B (Medium): L2-B B5 preserve-branch not atomic — views_stil_test.go is a 7-view golden suite + testdata/stil/** is fixture tree. Round-4 directives: add thariq_records.ts to L2-A; narrow B5 to retire-only (Track B retiring entirely per L2-C; successor verification lives in drop_009 L2-A Playwright). Served by codex-exec:gpt-5.4."}
 created_at = "2026-05-21T04:19:12Z"
 outcome = "failure"
 role = "qa-falsification"
-state = "complete"
+state = "todo"
 target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
 title = "Plan-QA falsif of L1 planner — pivot cleanup decomposition"
 updated_at = "2026-05-21T05:45:00Z"
