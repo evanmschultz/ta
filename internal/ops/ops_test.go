@@ -1741,6 +1741,90 @@ func TestOpsListSections_ThreeSegShadowDisambig(t *testing.T) {
 	}
 }
 
+func TestOps_GetUpdate_AgentsMDSectionRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[agents_md]
+paths = ["AGENTS.md", "CLAUDE.md"]
+
+[agents_md.section]
+description = "An agents markdown section."
+heading = 2
+
+[agents_md.section.fields.body]
+type = "string"
+required = true
+`)
+
+	claudePath := filepath.Join(root, "CLAUDE.md")
+	original := strings.Join([]string{
+		"# CLAUDE",
+		"",
+		"Intro text.",
+		"",
+		"## Project Specific Docs",
+		"",
+		"Original target body.",
+		"",
+		"## Ta CLI Usage",
+		"",
+		"Sibling body stays the same.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(claudePath, []byte(original), 0o644); err != nil {
+		t.Fatalf("write CLAUDE.md: %v", err)
+	}
+
+	const id = "CLAUDE.section.project-specific-docs"
+
+	res, err := ops.Get(root, id, "", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if res.FilePath != claudePath {
+		t.Fatalf("Get FilePath = %q, want %q", res.FilePath, claudePath)
+	}
+	if !strings.Contains(string(res.Bytes), "Original target body.") {
+		t.Fatalf("Get bytes missing target section body; got:\n%s", res.Bytes)
+	}
+	if strings.Contains(string(res.Bytes), "Sibling body stays the same.") {
+		t.Fatalf("Get bytes leaked sibling section; got:\n%s", res.Bytes)
+	}
+
+	newBody := "Updated target body.\n\nStill only this section."
+	if _, _, err := ops.Update(root, id, "", map[string]any{
+		"body": newBody,
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	updated, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("ReadFile CLAUDE.md: %v", err)
+	}
+	updatedText := string(updated)
+	if !strings.Contains(updatedText, "## Project Specific Docs\n\n"+newBody) {
+		t.Fatalf("updated target section missing new body; got:\n%s", updatedText)
+	}
+	if strings.Contains(updatedText, "Original target body.") {
+		t.Fatalf("updated target section still contains old body; got:\n%s", updatedText)
+	}
+	if !strings.Contains(updatedText, "## Ta CLI Usage\n\nSibling body stays the same.") {
+		t.Fatalf("sibling section changed unexpectedly; got:\n%s", updatedText)
+	}
+
+	res, err = ops.Get(root, id, "", nil)
+	if err != nil {
+		t.Fatalf("Get after Update: %v", err)
+	}
+	if !strings.Contains(string(res.Bytes), newBody) {
+		t.Fatalf("Get after Update missing new body; got:\n%s", res.Bytes)
+	}
+	if strings.Contains(string(res.Bytes), "Sibling body stays the same.") {
+		t.Fatalf("Get after Update leaked sibling section; got:\n%s", res.Bytes)
+	}
+}
+
 // hitIDs is a small helper that returns the id of every search hit
 // for friendlier error messages in the F38d-2.16 cluster.
 func hitIDs(hits []search.Result) []string {

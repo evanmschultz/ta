@@ -1,4 +1,4 @@
-format_version = 2
+format_version = 3
 
 [browser_served_ui_option]
 [browser_served_ui_option.tracker]
@@ -2616,6 +2616,106 @@ updated = 2026-05-19T04:18:02.204412Z
 created = 2026-05-15T21:57:13.238972Z
 type = 'planner'
 updated = 2026-05-15T23:24:27.009873Z
+
+[drop_005]
+[drop_005.drop]
+[drop_005.drop.path_a_thariq_visual_fixes]
+created = 2026-05-20T20:49:46.010239Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-21T00:36:15.810207Z
+
+[drop_005.drop.path_a_thariq_visual_fixes-plan-qa-falsification]
+created = 2026-05-20T20:49:46.041665Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-20T20:49:46.041665Z
+
+[drop_005.drop.path_a_thariq_visual_fixes-plan-qa-proof]
+created = 2026-05-20T20:49:46.027015Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-20T20:49:46.027015Z
+
+[drop_005.drop.planner_decompose]
+created = 2026-05-20T20:50:11.948124Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-20T20:50:11.948124Z
+
+[drop_005.drop.planner_decompose-plan-qa-falsification]
+created = 2026-05-20T20:50:11.979361Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-20T20:50:11.979361Z
+
+[drop_005.drop.planner_decompose-plan-qa-proof]
+created = 2026-05-20T20:50:11.965204Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-20T20:50:11.965204Z
+
+[drop_006]
+[drop_006.drop]
+[drop_006.drop.build_qa_falsif_slice]
+created = 2026-05-21T00:29:51.853381Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T00:36:15.77445Z
+
+[drop_006.drop.build_qa_proof_slice]
+created = 2026-05-21T00:29:51.839712Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T00:32:56.878439Z
+
+[drop_006.drop.builder_d1_ops_agents_md_section_repro_fix]
+created = 2026-05-20T23:59:35.016752Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T00:28:48.45323Z
+
+[drop_006.drop.builder_d2_resolver_address_md_section_fix]
+created = 2026-05-20T23:59:35.032111Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T00:28:48.471998Z
+
+[drop_006.drop.planner_decompose]
+created = 2026-05-20T21:52:01.472849Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-20T23:55:13.653669Z
+
+[drop_006.drop.planner_decompose-plan-qa-falsification]
+created = 2026-05-20T21:52:01.502532Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-20T23:58:53.594846Z
+
+[drop_006.drop.planner_decompose-plan-qa-proof]
+created = 2026-05-20T21:52:01.48882Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-20T23:58:53.578964Z
+
+[drop_006.drop.ta_core_agents_md_section_update]
+created = 2026-05-20T21:49:04.20952Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-21T00:36:15.79312Z
+
+[drop_006.drop.ta_core_agents_md_section_update-plan-qa-falsification]
+created = 2026-05-20T21:49:04.240289Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-20T21:49:04.240289Z
+
+[drop_006.drop.ta_core_agents_md_section_update-plan-qa-proof]
+created = 2026-05-20T21:49:04.226323Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-20T21:49:04.226323Z
 
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]

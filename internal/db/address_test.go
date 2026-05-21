@@ -707,3 +707,78 @@ func TestResolvedCanonical(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveID_AgentsMDSectionRoundTrip verifies that ResolveID
+// correctly resolves markdown section-mode ids like
+// "CLAUDE.section.project-specific-docs" where:
+// - agents_md declares section-mode types at heading=2
+// - CLAUDE.md contains multiple H2 sections
+// - the id includes the type name as part of the bracket key
+// - no index seeding is required (no-index branch)
+//
+// This is the resolver-layer regression lock for agents_md.section
+// per-id resolution, complementing D1's ops-layer test.
+func TestResolveID_AgentsMDSectionRoundTrip(t *testing.T) {
+	// Build a registry that mirrors the agents_md shape from the
+	// project's .ta/schema.toml: single-file markdown db with
+	// section-mode types at heading=2.
+	reg := schema.Registry{DBs: map[string]schema.DB{
+		"agents_md": {
+			Name:   "agents_md",
+			Paths:  []string{"CLAUDE.md", "AGENTS.md"},
+			Format: schema.FormatMD,
+			Types: map[string]schema.SectionType{
+				"section": {Name: "section", Heading: 2},
+			},
+		},
+	}}
+
+	r := NewResolver("/proj", reg)
+
+	// Test case 1: resolve CLAUDE.section.project-specific-docs
+	res, dbDecl, err := r.ResolveID("CLAUDE.section.project-specific-docs")
+	if err != nil {
+		t.Fatalf("ResolveID(CLAUDE.section.project-specific-docs): %v", err)
+	}
+	if dbDecl.Name != "agents_md" {
+		t.Errorf("dbDecl.Name = %q, want agents_md", dbDecl.Name)
+	}
+	if res.DBName != "agents_md" {
+		t.Errorf("res.DBName = %q, want agents_md", res.DBName)
+	}
+	if res.FileRelPath != "CLAUDE" {
+		t.Errorf("res.FileRelPath = %q, want CLAUDE", res.FileRelPath)
+	}
+	if res.BracketKey != "section.project-specific-docs" {
+		t.Errorf("res.BracketKey = %q, want section.project-specific-docs", res.BracketKey)
+	}
+	if !res.SingleFileMount {
+		t.Errorf("res.SingleFileMount = false; want true for single-file mount")
+	}
+	want := filepath.Join("/proj", "CLAUDE.md")
+	if res.FilePath != want {
+		t.Errorf("res.FilePath = %q, want %q", res.FilePath, want)
+	}
+	if got := res.Canonical(); got != "CLAUDE.section.project-specific-docs" {
+		t.Errorf("Canonical() = %q, want CLAUDE.section.project-specific-docs", got)
+	}
+
+	// Test case 2: resolve AGENTS.section.ta-cli-usage
+	res2, dbDecl2, err := r.ResolveID("AGENTS.section.ta-cli-usage")
+	if err != nil {
+		t.Fatalf("ResolveID(AGENTS.section.ta-cli-usage): %v", err)
+	}
+	if dbDecl2.Name != "agents_md" {
+		t.Errorf("dbDecl.Name = %q, want agents_md", dbDecl2.Name)
+	}
+	if res2.FileRelPath != "AGENTS" {
+		t.Errorf("res.FileRelPath = %q, want AGENTS", res2.FileRelPath)
+	}
+	if res2.BracketKey != "section.ta-cli-usage" {
+		t.Errorf("res.BracketKey = %q, want section.ta-cli-usage", res2.BracketKey)
+	}
+	want2 := filepath.Join("/proj", "AGENTS.md")
+	if res2.FilePath != want2 {
+		t.Errorf("res.FilePath = %q, want %q", res2.FilePath, want2)
+	}
+}

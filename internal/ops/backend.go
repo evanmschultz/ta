@@ -189,7 +189,7 @@ func backendSectionPath(dbDecl schema.DB, resolved db.Resolved, bareType string)
 		if resolved.FileRelPath != "" {
 			parts = append(parts, resolved.FileRelPath)
 		}
-		if bareType != "" {
+		if bareType != "" && !strings.HasPrefix(resolved.BracketKey, bareType+".") {
 			parts = append(parts, bareType)
 		}
 		if resolved.BracketKey != "" {

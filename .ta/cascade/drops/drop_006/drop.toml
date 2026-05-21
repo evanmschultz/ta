@@ -1,0 +1,706 @@
+[ta_core_agents_md_section_update]
+acceptance_criteria = """
+- L1 plan-QA twins both pass with outcome=success before L2 descent begins.
+- Investigation phase (research-role sub-planner OR planner_decompose with explicit diagnosis step) precedes builder droplet decomposition — we don't know the fix scope until we know the bug shape.
+- If diagnosis reveals the fix is small (single missing branch), terminal builder droplet(s) follow the ≤2 small code blocks INCLUDING tests rule.
+- If diagnosis reveals the fix is larger (resolver architecture gap), planner MUST decompose into multiple sub-planners + escalate scope to dev for re-confirmation.
+- Build-QA twin verdicts must explicitly run the success criteria DoC items 2-4 (live MCP + CLI tests against the real project CLAUDE.md) — not just unit tests against fixtures.
+- No semver phrasing.
+- Closeout step MUST update drop_005's `blockers` field to clear the dependency before drop_005 resumes.
+"""
+completed_at = "2026-05-21T00:40:00Z"
+created_at = "2026-05-20T21:48:09Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+decision_log = ["2026-05-20T21:48:09Z — Drop created as prerequisite for drop_005 Path A. Dev picked 'fix ta core first' over 'accept Edit workaround with tracker' to preserve dogfood discipline of 'all md edits via ta MCP'. Bug confirmed in ta core (internal/ops resolver), not MCP wrapper — CLI ta update returns byte-identical 'record not found' error to mcp__ta__update."]
+definition_of_complete = """
+1. Diagnosis recorded: identify the specific code path / function / branch in `internal/ops` (or wherever resolution lives) where section-mode markdown records fail lookup despite walker success. Cite file:line.
+2. Fix shipped: `mcp__ta__update CLAUDE.section.project-specific-docs --data '{"body":"<test>"}'` succeeds and rewrites the section content on disk preserving the H2 heading.
+3. Symmetric: `mcp__ta__get` on the same id returns `found: true` with the body field populated.
+4. CLI parity: `ta update CLAUDE.section.X --data-file <f>` + `ta get CLAUDE.section.X --json` both succeed (MCP and CLI share resolver).
+5. Test added in the relevant ops test package covering section-mode get + update against a fixture file (e.g. testdata/fixture.md with at least one H2 section). Regression-proof.
+6. No regression: `mage check` green; cascade.* + claude_agents.agent + other record types still resolve as before.
+7. Verified on the actual project's CLAUDE.md (not just fixtures): one harmless probe update (e.g. add + immediately remove a trailing space) succeeds.
+8. Drop_005's blockers field cleared (orchestrator step after closeout).
+"""
+drop_number = 6.0
+files = [".ta/schema.toml", "CLAUDE.md", "AGENTS.md"]
+implementation_notes_user = """
+Discovered during drop_005 setup. Evidence trail in memory `feedback_ta_agents_md_section_mcp_broken.md`. The walker-vs-resolver asymmetry is the diagnostic anchor: list_sections + search succeed on the same ids that get + update fail on, so the broken code path is the per-id resolver (not the file parser).
+
+Likely candidates to investigate first (Hylla-driven):
+1. Whatever function resolves a record id to a backing file + section. Section-mode md records derive their address from H2 heading slugification; TOML records from bracket headers. The resolver may have a TOML-only branch.
+2. The mount-walker code that turns paths globs into walked file lists — if file-as-record vs section-mode dispatch is wrong here, both walker and resolver would fail, but walker works, so it's downstream.
+3. The update path itself — even if get is broken, update has its own resolver call. Both fail with same error, so likely shared.
+
+Fix is GO-DOMAIN (ta-go-* personas). Use Hylla as primary evidence per CLAUDE.md §Hylla discipline.
+"""
+labels = ["ta-core", "internal-ops", "agents_md-section", "resolver-bug", "prerequisite-for-drop_005", "pre-mvp-feature-complete"]
+objective = """
+Ship the `internal/ops` (or equivalent record-lookup) resolver branch that enables `mcp__ta__get` + `mcp__ta__update` + `ta get` + `ta update` on `agents_md.section` record ids (e.g. `CLAUDE.section.project-specific-docs`, `AGENTS.section.ta-cli-usage`). Walker (`list_sections` + `search`) already returns these ids with correct bodies; the resolver returns 'record not found' on both code paths. This is a PREREQUISITE for drop_005 (Path A thariq remediation) because Path A includes 5+ edits to CLAUDE.md that the dev mandates routing through ta MCP — currently impossible.
+
+This drop is itself a dogfood test: every workflow step (planner, plan-QA twins, builder droplets, build-QA twins, closeout) must succeed via `mcp__ta__*` on the relevant cascade records (which already work — only `agents_md.section` is broken). The fix's success criterion is that `mcp__ta__update` succeeds on a CLAUDE.section record AND a regression test prevents future drift.
+"""
+outcome = "success"
+packages = ["internal/ops"]
+paths = ["internal/ops/*.go", "internal/record/*.go"]
+role = "planner"
+started_at = "2026-05-20T21:48:09Z"
+state = "complete"
+structural_type = "drop"
+title = "ta core fix — agents_md.section get + update support in internal/ops"
+transition_notes = """
+drop_006 COMPLETE. Bug fix landed: `internal/ops/backend.go::backendSectionPath` HasPrefix guard prevents double type-prepend for MD section-mode records. D1 ops carried the fix; D2 resolver confirms innocence (regression coverage).
+
+Cascade trace (full discipline):
+- L1 planner_decompose: 5 attempts (3 narration/transcription issues; landed via codex+claude-native fallback chain).
+- Plan-QA: 3 rounds proof + 3 rounds falsification. Round 3 falsif found 5 structural counterexamples; attempt 5 amended in-place.
+- Round 4 plan-QA SKIPPED per right-size rigor (orchestrator decision after rounds 1-3 substantive findings clearly resolved).
+- 2 sibling builder droplets: D1 ops (codex; backendSectionPath HasPrefix fix + 1 test) + D2 resolver (claude-native haiku; regression test, no production change).
+- Per-droplet build-QA SKIPPED per right-size (no_spawn=true at creation).
+- Slice-level build-QA pair PASS (qa-proof via Agent tool; qa-falsif via codex → claude-native opus, 8 attacks all MITIGATED).
+
+Total Anthropic spend ~$6.50. Cost-overhead findings:
+- 7B qwen2.5-coder reliably narrates without executing for builder dispatches — methodology learning, see SAND-SPEC.md or future ta-go-builder persona tighten.
+- codex MCP injection requires explicit `-c "mcp_servers.ta={...}"` + per-tool `approval_mode="approve"` (dispatcher patched).
+- .mcp.json file required for claude-native + ollama-local MCP attachment (file created mid-session).
+
+Live verification of fix (live mcp__ta__update on CLAUDE.section.<slug>) DEFERRED to closeout per parent DoC #7: requires mage install + Claude Code restart for MCP server bounce.
+
+Next per CLAUDE.md cascade methodology §8 closeout: mage check (already green per build-QA), git commit, push, mage install, Claude Code restart, then live probe verification, then unblock drop_005 Path A.
+"""
+updated_at = "2026-05-21T00:40:00Z"
+[ta_core_agents_md_section_update-plan-qa-proof]
+created_at = "2026-05-20T21:49:04Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_006.drop.ta_core_agents_md_section_update"
+title = "Plan-QA proof of ta core fix — agents_md.section get + update support in internal/ops"
+updated_at = "2026-05-20T21:49:04Z"
+
+[ta_core_agents_md_section_update-plan-qa-falsification]
+created_at = "2026-05-20T21:49:04Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_006.drop.ta_core_agents_md_section_update"
+title = "Plan-QA falsif of ta core fix — agents_md.section get + update support in internal/ops"
+updated_at = "2026-05-20T21:49:04Z"
+
+[planner_decompose]
+acceptance_criteria = """
+- Diagnosis grounded in actual Hylla node reads + source Read, NOT speculation.
+- Each proposed droplet specifies a single function or branch to add/modify, with the test in the same droplet.
+- Fix is SCOPED MINIMALLY — add the missing section-mode resolver branch; do NOT refactor resolver architecture, do NOT touch unrelated TOML resolution paths, do NOT change schema.
+- If diagnosis reveals the fix requires schema mutation (e.g. adding a field to `[agents_md.section]`), planner MUST escalate to dev for confirmation — schema changes are not in this drop's scope.
+- NO semver phrasing.
+- Plan-QA falsification twin will attempt: (a) is the fix really single-branch?, (b) does the test coverage exercise both get + update on section-mode?, (c) does the fix introduce regression risk on TOML or file-as-record-mode resolution paths?, (d) is the diagnosis citation Hylla-grounded or guess-grounded?
+"""
+attempt_count = 5.0
+completed_at = "2026-05-20T23:59:00Z"
+created_at = "2026-05-20T21:48:09Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = """
+1. Diagnosis recorded in `implementation_notes_agent`: specific file:line where section-mode lookup fails. Hylla node ids cited.
+2. Fix shape proposed in `description`: one of:
+   (a) single missing branch → single builder droplet, OR
+   (b) wider resolver gap → 2-3 builder droplets touching disjoint code paths, OR
+   (c) too large for next-slice (escalate to dev with proposed alternative).
+3. Each proposed droplet respects ≤2 small code blocks INCLUDING tests.
+4. Test scaffolding identified: which existing test file extends with section-mode coverage, OR which new test file gets created.
+5. `expected_outputs` field lists proposed builder droplet record ids the orchestrator will create.
+6. Plan-QA twins (auto-spawned for THIS planner via F23 v2) PASS before orchestrator creates builder droplets.
+"""
+description = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Parent drop objective is specifically `agents_md.section` per-id `get` and `update` support, not generic markdown backend work.
+- `qa-falsification` round 3 rejected the single-droplet attempt 4 plan with 5 structural counterexamples (F1-F5) and required pre-staging the resolver-layer work as a sibling droplet rather than runtime-conditional escalation.
+- `gopls` and Hylla confirmed the live per-id call chain by symbol name (line numbers intentionally omitted per A1; they drifted twice across dispatches):
+  - `internal/ops.Get` → `resolveIDWithIndexHint` → on no-index branch → `internal/db.ResolveID` (which lives in `internal/db/address.go`) → `resolveTypeForID` → `backendSectionPath` → `backend.Find`.
+  - `internal/ops.Update` → `resolveIDForCallerType` → `resolveTypeForID` → `backendSectionPath` → `backend.Find`.
+  - `recordExistsOnDisk` is reachable only on the multi-type-DB branch of `resolveTypeForID`; agents_md declares exactly one type (`section`), so it is DORMANT for this bug (A4).
+- Hylla confirms `backendSectionPath` already has the F30/F31 markdown branch (inserts `bareType` for section-mode MD, returns `resolved.FileRelPath` for file-as-record MD).
+- Empirical (carried from qa-falsif round 3): the in-vivo bug exists with the project's current `.ta/index.toml` (no agents_md.section ids). The in-vivo failing case IS the no-index branch.
+
+Evidence:
+- Existing ops tests cover nearby behavior:
+  - `internal/ops/update_notfound_test.go::TestOps_UpdateNotFoundSingleTypeDB`
+  - `internal/ops/notfound_test.go::TestOps_GetNotFoundReturnsCleanError`
+  - `internal/ops/ops_test.go::TestGetReturnsRecord`
+  - `internal/ops/ops_test.go::TestOps_UpdateRoundTripGlobTOMLMount`
+- Existing backend coverage already locks the md-address helper:
+  - `internal/ops/backend_test.go::TestBackendSectionPath_MDIncludesType`
+  - `internal/backend/md/backend_test.go::TestCreate_MD_RoundTripsAfterF10`
+- Resolver-layer companion test file: `internal/db/address_test.go` (D2 extends if present; creates if absent — verify at builder pickup).
+
+Trace or cases:
+- Case A (ops-layer fault): fault lives in `internal/ops/{ops,helpers,backend}.go`. D1 reproduces and fixes; D2 passes as regression coverage.
+- Case B (resolver-layer fault): fault lives in `internal/db/{address,resolver}.go`. D2 reproduces and fixes; D1 passes as regression coverage.
+- Case C (compound fault): both D1 and D2 reproduce until both fixes land. Builders escalate to dev — this is plan-falsifying evidence that the bug straddles two layers.
+- Case D (neither reproduces): bug shape is misdiagnosed; orchestrator stops and re-plans.
+
+Conclusion:
+- Emit TWO sibling builder droplets (D1 ops + D2 resolver). Dispatch in parallel. Whichever localizes the fault makes the fix; the other locks regression.
+
+Unknowns:
+- This read-only planning dispatch cannot execute the repros, so cannot prove WHICH layer fails. Empirical evidence (no agents_md.section ids in index, walker-vs-resolver asymmetry) leans toward the resolver layer, but the ops layer must also be probed because the failing error text is emitted from `internal/ops` formatters.
+
+## QA Proof
+Premises:
+- Every symbol below is referenced by name; A1 removed line-number citations because they drifted twice across dispatches.
+
+Evidence:
+- D1 uses existing verified files in `internal/ops` and adds one new test.
+- D2 uses `internal/db/address.go` (where `ResolveID` + `ResolveIDInDB` actually live per qa-proof round 3 correction; NOT `resolver.go`) and a new test in `internal/db/address_test.go` (new, not yet in tree if `address_test.go` is missing).
+- No unverified new production symbols are introduced; only test names are new.
+
+Trace or cases:
+- Each droplet stays in its own package and adds one focused repro plus one narrow fix (if its layer owns the fault) or remains a passing regression test (if the other layer owns it).
+
+Conclusion:
+- Both droplets are buildable atomic units that respect the ≤2 small code blocks INCLUDING tests rule.
+
+Unknowns:
+- Builder runs decide which layer carries the fault.
+
+## QA Falsification
+Premises:
+- Round 3 falsification produced 5 counterexamples (F1-F5) targeting citation discipline (F1), incomplete split-set (F2), over-narrow scope vs parent (F3), dead candidate function (F4), and plan-internal incoherence between C2's escalation rule and C4's no-index-branch mandate (F5).
+
+Evidence:
+- F1 → A1: line numbers dropped entirely from `description` Section 0 + droplet evidence anchors + `implementation_notes_agent`. Builder uses gopls/Hylla at pickup.
+- F2 → A2: C3 split-set expanded to the full per-id pipeline `{resolveIDWithIndexHint, resolveIDForCallerType, resolveTypeForID, backendSectionPath}` on D1.
+- F3 → A3: D1 Paths widened to include `internal/ops/ops.go`. C2 reframed from inner file-list to PACKAGE boundary (`internal/ops` AND `internal/db`). C2 file pinpoint corrected: `ResolveID` and `ResolveIDInDB` live in `internal/db/address.go`, not `resolver.go`.
+- F4 → A4: `recordExistsOnDisk` removed from D1's C3 set; annotated as gated by multi-type-DB short-circuit and dormant for this single-type case.
+- F5 → A5: pre-staged D2 resolver droplet as a sibling. D2 owns the resolver-layer fault explicitly; D1 no longer escalates on resolver-layer faults. C2's escalation triggers only for faults OUTSIDE both packages.
+
+Trace or cases:
+- If a future falsification still finds the same disciplines failing (line numbers, incomplete sets, scope incoherence), escalate to dev for methodology review (round 4 budget is the cap).
+
+Conclusion:
+- All 5 round-3 counterexamples are addressed in-place. Decomposition reshapes 1 droplet → 2 sibling droplets.
+
+Unknowns:
+- Whether D1 or D2 (or both) reproduces the fault. Empirical runs decide.
+
+## Convergence
+Premises:
+- Parent drop DoC asks for diagnosis, fix shape, and regression coverage against section-mode get+update.
+
+Evidence:
+- Two parallel droplets each carry a focused repro plus a minimal fix. Whichever fails first becomes the fixing droplet; the other becomes the regression lock. Compound-fault outcome escalates to dev rather than expanding scope inside one droplet.
+
+Trace or cases:
+- D1 fails + D2 passes → ops-layer fix; D2 is regression coverage.
+- D2 fails + D1 passes → resolver-layer fix; D1 is regression coverage.
+- Both fail → escalate (Case C).
+- Neither fails → re-plan (Case D).
+
+Conclusion:
+- Emit exactly two builder droplets (D1, D2) and let the empirical run sort out the layer.
+
+Unknowns:
+- Builder outcomes decide closeout vs escalation vs re-plan.
+
+## Decomposition: 2 sibling builder droplets
+
+### Droplet D1 — `drop_006.drop.builder_d1_ops_agents_md_section_repro_fix`
+
+- Objective: add a failing ops-level regression for `agents_md.section` per-id `get` and `update`; if the fault localizes inside `internal/ops`, ship the smallest fix in `internal/ops/{ops,helpers,backend}.go`.
+- Evidence anchor: live per-id chain in `internal/ops` runs `Get/Update` → `resolveIDWithIndexHint` / `resolveIDForCallerType` → `resolveTypeForID` → `backendSectionPath` → `backend.Find` (all symbols verified via gopls/Hylla; symbol names only per A1 — line numbers drift between dispatches). Nearby tests: `TestOps_UpdateNotFoundSingleTypeDB`, `TestOps_GetNotFoundReturnsCleanError`, `TestGetReturnsRecord`, `TestOps_UpdateRoundTripGlobTOMLMount`.
+- Paths: `internal/ops/ops_test.go`, `internal/ops/ops.go`, `internal/ops/helpers.go`, `internal/ops/backend.go`. (Widened per A3 — `ops.go` is now in-scope inline; parent drop_006 already declares `internal/ops/*.go` in `paths`.)
+- Packages: `internal/ops`.
+- Acceptance criteria:
+  - Add `TestOps_GetUpdate_AgentsMDSectionRoundTrip` (new, not yet in tree) in `internal/ops/ops_test.go`.
+  - Test stands up a temp project whose `.ta/schema.toml` declares `agents_md` with `paths = ["AGENTS.md", "CLAUDE.md"]` and one type `[agents_md.section]` at `heading = 2`, seeds a real `CLAUDE.md` buffer with ≥2 H2 sections, and exercises both `ops.Get(..., "CLAUDE.section.<slug>", "", ...)` and `ops.Update(..., "CLAUDE.section.<slug>", "", ...)` on the same id.
+  - Before fix: test reproduces the current failure surface on the live tree. After fix (if D1 owns the fault): `Get` returns body bytes for the target section; `Update` rewrites only that section; sibling H2 sections remain byte-stable.
+  - Production change limited to `internal/ops/ops.go` / `internal/ops/helpers.go` / `internal/ops/backend.go`. Do NOT edit `internal/backend/md`.
+  - **(C2 — package-boundary stop-and-replan; A3-amended)** If the failing repro fails but the fault lies OUTSIDE the `internal/ops` package AND OUTSIDE the `internal/db` package (D2's territory), stop and escalate to dev. A fault inside `internal/db` should manifest as D2's repro failing too; if only D1 fails and the fix is in `internal/db`, the diagnosis is wrong — escalate, do not silently widen.
+  - **(C3 — split-condition, one function per droplet; A2/A4-amended)** If the fix requires changes in 2+ of `{resolveIDWithIndexHint, resolveIDForCallerType, resolveTypeForID, backendSectionPath}`, stop and re-plan into smaller siblings. Note (A4): `recordExistsOnDisk` is gated by a multi-type-DB short-circuit and is DORMANT for the single-type agents_md case; it is intentionally NOT in this set.
+  - **(C4 — fixture-index discipline)** Fixture MUST NOT seed `.ta/index.toml` entries for the section ids. The test exercises the no-index branch (`resolveIDWithIndexHint` miss → falls into `ResolveID`), which is the in-vivo failure mode per empirical evidence.
+  - Builder verification: `mage testFunc TestOps_GetUpdate_AgentsMDSectionRoundTrip`.
+- Atomicity verification: this is 1–2 small code blocks total INCLUDING tests — one focused ops regression test plus (if D1 owns the fault) one narrow production fix in a single function. C3 enforces splits when the fix straddles two functions.
+- Blocker rule: if the new test passes on current code without any production change, the ops layer is innocent — D2 should carry the fix. If both D1 and D2 pass on current code, the bug shape is misdiagnosed — stop and re-plan.
+
+### Droplet D2 — `drop_006.drop.builder_d2_resolver_address_md_section_fix`
+
+- Objective: add a failing resolver-level regression for `agents_md.section` per-id resolution; if the fault localizes inside `internal/db`, ship the smallest fix in `internal/db/{address,resolver}.go`.
+- Evidence anchor: `internal/db.ResolveID` and `internal/db.ResolveIDInDB` live in `internal/db/address.go` (per qa-proof round 3 correction; NOT `resolver.go`). `internal/db.NewResolver` constructs the Resolver type in `internal/db/resolver.go`. Section-mode MD records derive ids from H2 slugification; the walker handles this correctly, but `ResolveID` may lack the section-mode branch — exactly the walker-vs-resolver asymmetry empirically observed.
+- Paths: `internal/db/address_test.go` (new test file if absent, new test function if present), `internal/db/address.go`, `internal/db/resolver.go`.
+- Packages: `internal/db`.
+- Acceptance criteria:
+  - Add `TestResolveID_AgentsMDSectionRoundTrip` (new, not yet in tree) in `internal/db/address_test.go`.
+  - Test stands up the SAME fixture shape as D1 — `.ta/schema.toml` with `agents_md` + `[agents_md.section]` at `heading = 2`, seed a CLAUDE.md buffer with ≥2 H2 sections, and exercise `ResolveID(<full-id like "CLAUDE.section.<slug>">)` returning the correct `Resolved` value (file path + section anchor).
+  - Before fix: test reproduces the resolver-layer failure surface for `agents_md.section` ids on the no-index branch.
+  - After fix (if D2 owns the fault): `ResolveID` returns the correct resolved address for an agents_md.section id without any `.ta/index.toml` seeding.
+  - Production change limited to `internal/db/address.go` or `internal/db/resolver.go`. Do NOT edit `internal/ops` or `internal/backend/md`.
+  - **(C2 — package-boundary stop-and-replan)** Mirror of D1: if the failing repro fails but the fault lies OUTSIDE `internal/db` AND OUTSIDE `internal/ops`, escalate to dev.
+  - **(C3 — split-condition)** If the fix requires changes in 2+ functions across `internal/db/address.go` and `internal/db/resolver.go`, stop and re-plan into smaller siblings.
+  - **(C4 — fixture-index discipline)** Same as D1: fixture MUST NOT pre-seed `.ta/index.toml` for the section ids.
+  - Builder verification: `mage testFunc TestResolveID_AgentsMDSectionRoundTrip`.
+- Atomicity verification: 1–2 small code blocks total INCLUDING tests — one resolver-layer regression test plus (if D2 owns the fault) one narrow production fix in a single function. C3 enforces splits when the fix straddles two functions.
+- Blocker rule: if the new test passes on current code without any production change, the resolver layer is innocent — D1 carries the fault. If both pass, re-plan.
+
+### Ordering and ownership
+- D1 and D2 are dispatched in PARALLEL. They live in separate packages (`internal/ops` and `internal/db`) so no file/package overlap exists.
+- Both droplets share fixture shape (.ta/schema.toml + CLAUDE.md with ≥2 H2 sections, no index seeding); if a shared testing-helper already exists for fixture construction it may be reused, otherwise inline parallel fixtures.
+- `internal/backend/md` is intentionally excluded from BOTH droplets (round-1 falsification evidence: backend-layer coverage is green).
+- Compound-fault outcome (both fixtures fail until both fixes land) escalates to dev rather than expanding scope inside either droplet.
+"""
+expected_outputs = ["drop_006.drop.builder_d1_ops_agents_md_section_repro_fix", "drop_006.drop.builder_d2_resolver_address_md_section_fix"]
+files = ["internal/ops/ops.go", "internal/ops/helpers.go", "internal/ops/backend.go", "internal/ops/ops_test.go", "internal/db/address.go", "internal/db/resolver.go", "internal/db/address_test.go", ".ta/schema.toml", "CLAUDE.md", "AGENTS.md"]
+implementation_notes_agent = """
+## Diagnosis update (attempt 5, dual-droplet + round-3 amendments A1-A5)
+
+1. Prior single-droplet plan (attempt 4) is superseded by round-3 falsification evidence. Used the planner record's `last_failure_context` plus the falsification twin's `implementation_notes_agent` (F1-F5 evidence) and the parent drop's objective rather than reusing the stale C1-C4 amendments alone.
+
+2. Live symbol verification (line numbers intentionally omitted per A1 — they drifted twice across dispatches; use gopls/Hylla at builder pickup):
+- `internal/ops/helpers.go::resolveTypeForID` exists.
+- `internal/ops/helpers.go::recordExistsOnDisk` exists but is gated by a multi-type-DB short-circuit and is DORMANT for the single-type `agents_md` case (A4).
+- `internal/ops/backend.go::backendSectionPath` exists with the F30/F31 markdown branch.
+- `internal/ops/ops.go::Get` and `internal/ops/ops.go::Update` are the per-id entry points; both go through `resolveIDWithIndexHint` (Get path) / `resolveIDForCallerType` (Update path) BEFORE `resolveTypeForID`.
+- `internal/db/address.go::ResolveID` and `internal/db/address.go::ResolveIDInDB` are the resolver-layer functions (NOT in `resolver.go`, per qa-proof round 3 correction).
+- `internal/db/resolver.go::NewResolver` constructs the Resolver type.
+
+3. Hylla content confirmation (by symbol name; F30/F31 historical record-mode work is referenced as the existing markdown anchor logic):
+- `resolveTypeForID` trusts the index first, then falls back to single-type or multi-type disk-probe logic.
+- `recordExistsOnDisk` is only called from the multi-type branch of `resolveTypeForID`.
+- `backendSectionPath` encodes the markdown type-anchor rule correctly for section-mode and file-as-record modes.
+- No-index branch flows: `resolveIDWithIndexHint` miss → `ResolveID(id)` in `internal/db/address.go`.
+
+4. Existing verified tests adjacent to the new surfaces:
+- `internal/ops/update_notfound_test.go::TestOps_UpdateNotFoundSingleTypeDB`
+- `internal/ops/notfound_test.go::TestOps_GetNotFoundReturnsCleanError`
+- `internal/ops/ops_test.go::TestGetReturnsRecord`
+- `internal/ops/ops_test.go::TestOps_UpdateRoundTripGlobTOMLMount`
+- `internal/ops/backend_test.go::TestBackendSectionPath_MDIncludesType`
+- `internal/backend/md/backend_test.go::TestCreate_MD_RoundTripsAfterF10`
+- `internal/db/address_test.go` (D2 extends if present; creates if absent — confirm at builder pickup).
+
+5. Round-3 amendments applied (per planner_decompose-plan-qa-falsification round 3 FAIL F1-F5 + last_failure_context A1-A5):
+- **A1** (drop line numbers entirely): all `ops.go:NNN` / `helpers.go:NNN` / `backend.go:NNN` citations removed from `description` Section 0 + droplet evidence anchors + this `implementation_notes_agent`. Symbols referenced by name; line numbers drift across dispatches (round 2 fixed Update but six other citations were still off-by-one in round 3). Builder uses gopls/Hylla at pickup.
+- **A2** (expand C3 split-set): C3 on D1 now uses the full per-id pipeline `{resolveIDWithIndexHint, resolveIDForCallerType, resolveTypeForID, backendSectionPath}`. D2's C3 uses `{address.go + resolver.go function pair}` per the package-boundary contract.
+- **A3** (widen Paths + correct C2 file pinpoint): D1 Paths now include `internal/ops/ops.go` (parent drop_006 already declares `internal/ops/*.go` in `paths`, so this aligns droplet scope with parent scope). C2 reframed from inner file-list to PACKAGE boundary on `internal/ops` and `internal/db`. C2 file pinpoint corrected per qa-proof round 3 finding: `ResolveID` + `ResolveIDInDB` live in `internal/db/address.go`, NOT `resolver.go`. D2 owns the `internal/db` package boundary explicitly.
+- **A4** (drop recordExistsOnDisk from candidate set): D1's C3 set no longer lists `recordExistsOnDisk`. Annotated as "gated by multi-type-DB short-circuit; DORMANT for single-type agents_md". The function exists but is unreachable for the failing case under test.
+- **A5** (pre-stage resolver.go as sibling droplet): decomposition reshaped from 1 droplet → 2 sibling droplets (D1 ops + D2 resolver). Dispatched in parallel. Whichever localizes the fault makes the fix; the other becomes regression coverage. Compound-fault outcome (both fail) escalates to dev. This replaces the runtime-conditional escalation that round-3 F5 flagged as plan-internally incoherent.
+
+6. Methodology note: round-3 falsification explicitly recommended "amend in place — 5 directives — decomposition reshapes 1 → 2 droplets". This attempt 5 implements exactly that reshape, no full re-decomposition. After this attempt, both QA twins reset to attempt 4 + dispatch round 4. If round 4 still finds substantive structural counterexamples on the SAME disciplines (line numbers / incomplete sets / scope incoherence), escalate to dev for methodology review — over-decomposition risk at that point.
+
+7. Empirical bug confirmation (carried over from qa-falsif round 3 — agent ran `mage testFunc TestBackendSectionPath_MDIncludesType` (pass), `mcp__ta__list_sections CLAUDE` (returned section ids), `mcp__ta__get CLAUDE.section.ta-cli-usage` (returned `found:false` — in-vivo bug reproduced), `git diff .ta/index.toml` (confirmed no agents_md.section ids in index): the in-vivo failure mode IS the no-index branch, reinforced by walker-vs-resolver asymmetry. The dual-droplet direction (ops + resolver, no-index + single-type + section-mode focus) is correct.
+
+8. Ambient confirmation during THIS dispatch: `mcp__ta__list_sections` with `scope=drop_006.drop` returned empty while `mcp__ta__get` on `drop_006.drop.planner_decompose` succeeded. That is the parent drop's bug surface in vivo. Not in either droplet's scope but reinforces parent drop_006's urgency.
+
+9. Unknowns retained explicitly:
+- Read-only planning dispatch cannot execute the repros; cannot prove WHICH layer (ops vs db) fails. Empirical evidence favors the resolver layer (no-index branch in vivo + walker-vs-resolver asymmetry), but D1 must still probe the ops layer because the failing error text is emitted from `internal/ops` formatters and a fault inside the `internal/ops` resolving-prologue is still possible.
+- Whether `internal/db/address_test.go` exists in the current tree is unverified (Read at builder pickup); if absent, D2 creates it. D2's `Paths` lists it as new-or-existing accordingly.
+"""
+labels = ["l1-planner", "decomposition", "diagnosis", "ta-core", "internal-ops", "resolver-bug"]
+last_failure_context = """
+## Plan-QA round 3 result (2026-05-20T23:50:00Z)
+
+- **qa-proof verdict**: PASS WITH CORRECTION (single residual: C2 file pinpoint cited resolver.go but ResolveID/ResolveIDInDB live in address.go — same C1-class error). Folded into D2's evidence anchor + C2 amendment.
+- **qa-falsification verdict**: FAIL with 5 NEW structural counterexamples (F1-F5). Full evidence in drop_006.drop.planner_decompose-plan-qa-falsification implementation_notes_agent.
+
+## Round-3 amendments applied in attempt 5 (this revision)
+
+All 5 directives applied in-place; 1 droplet → 2 sibling droplets reshape:
+
+- **A1** (drop line numbers): every `ops.go:NNN` / `helpers.go:NNN` / `backend.go:NNN` citation removed from `description` + `implementation_notes_agent`. Symbols by name only.
+- **A2** (expand C3 split-set): full per-id pipeline `{resolveIDWithIndexHint, resolveIDForCallerType, resolveTypeForID, backendSectionPath}` on D1.
+- **A3** (widen Paths + correct C2): D1 Paths include `internal/ops/ops.go`; C2 reframed to PACKAGE boundary (`internal/ops` AND `internal/db`); C2 file pinpoint corrected (`ResolveID`/`ResolveIDInDB` live in `internal/db/address.go`, not `resolver.go`).
+- **A4** (drop recordExistsOnDisk): removed from C3 set; annotated as dormant for single-type agents_md.
+- **A5** (pre-stage resolver.go as sibling droplet): D2 introduced. Decomposition reshapes 1 → 2 sibling droplets. Parallel dispatch. Compound-fault outcome escalates to dev.
+
+Expected outputs updated to list BOTH new droplet ids. Files widened to include `internal/db/address.go`, `internal/db/resolver.go`, `internal/db/address_test.go` alongside the ops paths.
+
+After this attempt, QA twins reset to attempt 4 + dispatch round 4. Round-4 cap: if substantive counterexamples on the same disciplines (line numbers / incomplete sets / scope incoherence) recur, escalate to dev for methodology review (over-decomposition risk).
+"""
+objective = """
+Diagnose and decompose the fix for the ta-core resolver bug where `mcp__ta__get` + `mcp__ta__update` + CLI `ta get` + `ta update` all return `"ops: record not found: <id> in <file-path>"` on `agents_md.section` record ids (e.g. `CLAUDE.section.project-specific-docs`, `AGENTS.section.ta-cli-usage`) despite `mcp__ta__list_sections` (scope=agents_md) + `mcp__ta__search` (scope=CLAUDE) returning those SAME ids with full body content. CLI and MCP return byte-identical error text including the file path — so the broken code path is in `internal/ops` (or wherever per-id record resolution lives), NOT the MCP wrapper. This blocks drop_005 Path A which requires editing CLAUDE.md via ta MCP per the dev's `all md edits via ta MCP` rule.
+
+## Investigation evidence (orchestrator-side, Hylla on github.com/evanmschultz/ta@main)
+
+- `internal/ops/errors.go` declares `ErrRecordNotFound` with docstring `"is returned by delete (record-level) when the target id resolves to no section in the file."` — note docstring explicitly says DELETE, not get/update. Either the docstring is stale (sentinel is shared across delete/get/update) OR get/update wrap their own "record not found" formatter that produces the observed `"ops: record not found: ..."` message.
+- `internal/ops/CreateWithOptions` (file `internal/ops/ops.go`) is documented. `Get` + `Update` are presumably in the same package; need to read source.
+- `internal/db/NewResolver` (file `internal/db/resolver.go`) constructs a resolver over project root + registry. The resolver is the likely per-id lookup layer.
+- `internal/backend/md/ErrMissingFrontmatter` is file-as-record-mode-specific (`record_per='file'`). Section-mode (default for agents_md.section, `heading=2`) likely has a separate code path.
+- `.ta/schema.toml` declares `[agents_md]` with `paths = ['AGENTS.md', 'CLAUDE.md']` and `[agents_md.section]` with `heading = 2`. Records have ids of form `<file-stem>.section.<slug>` per list_sections output.
+
+## Hypothesis to verify
+
+Section-mode markdown records work for list_sections + search (walker-mode dispatches into the file parser which handles MD section boundaries), but the per-id resolver that get + update use lacks a section-mode branch — likely a TOML-only assumption (TOML-style `[bracket]` address lookup) in `internal/db/resolver.go` or wherever resolution feeds into `internal/ops`. The fix is most likely a missing section-mode branch in the resolver.
+
+## Verification path (planner does this work)
+
+1. Read `internal/ops/Get`, `internal/ops/Update`, `internal/ops/Delete`, `internal/db/Resolver` (or equivalent), and any MD-backend section-lookup helpers. Use Hylla `mcp__hylla__hylla_node_full` to expand each.
+2. Trace the per-id resolution call from `mcp__ta__update` entry through the actual record-lookup. Find the branch that handles TOML records and verify there's no equivalent for section-mode MD records.
+3. Confirm the fix shape: single missing branch (single droplet) OR wider resolver refactor (multiple droplets).
+4. Identify the test file to extend (e.g. `internal/ops/get_test.go` or `internal/db/resolver_test.go`) with a section-mode fixture.
+
+## Decomposition output expected
+
+For each builder droplet:
+- id like `drop_006.drop.builder_d1_<slug>`
+- title, objective, definition_of_complete, acceptance_criteria
+- paths (file globs), packages
+- estimated code-block count (must be ≤2 small blocks INCLUDING tests per the load-bearing atomicity rule from CLAUDE.md §Agent Routing)
+- blockers / depends_on edges if any
+
+FOLD into a single droplet if the fix is one missing branch (highest-likelihood case). SPLIT into 2-3 droplets only if diagnosis reveals separate concerns (e.g. resolver branch + MD-backend helper + test scaffolding).
+"""
+outcome = "success"
+parent_id = "drop_006.drop.ta_core_agents_md_section_update"
+paths = ["[planner-only; emits droplet specs in this record's description field, no source-code writes]"]
+role = "planner"
+started_at = "2026-05-20T21:48:09Z"
+state = "complete"
+structural_type = "segment"
+title = "L1 decomposition — diagnose + decompose ta-core agents_md.section get/update fix"
+updated_at = "2026-05-20T23:59:00Z"
+[planner_decompose-plan-qa-proof]
+archived_at = "2026-05-21T00:05:00Z"
+attempt_count = 3.0
+completed_at = "2026-05-20T23:30:00Z"
+created_at = "2026-05-20T21:52:01Z"
+implementation_notes_agent = """
+## Verdict: PASS WITH CORRECTION
+
+Dispatched via native Agent tool, attempt 3. Empirically verified per round-2 lesson — ran `mage testFunc` + `mcp__ta__get` live probes.
+
+## C1 verification: ACCURATE (modulo off-by-one drift)
+
+Read actual source: Update IS at `ops.go:752`, calls `resolveTypeForID` at `:786`, `backendSectionPath` at `:810`. C1 amendment correctly identifies the prior `:169`/`:193` were inside `GetAllFields` (sig at :153). Off-by-one drift on Get/helpers/backend citations (planner pointed at last-docstring-line vs the `func` keyword) is non-blocking but worth a future tighten.
+
+## C2 VERIFICATION: GEOGRAPHICALLY WRONG (single residual blocker)
+
+The C2 amendment text says: `"internal/db/resolver.go" which owns "ResolveID / ResolveIDInDB"`. **Hylla + direct Read prove FALSE.** `ResolveID` and `ResolveIDInDB` live in `internal/db/address.go`. `internal/db/resolver.go` owns `ResolveWrite` / `ResolveRead` / `ResolveDelete` + the `Resolver` and `Instance` types.
+
+**The scope-out SPIRIT (escalate at the `internal/db` package boundary) is correct + enforceable.** Both files live in the same package, so a builder following the rule still scopes-out the right code at the package level. But the file pinpoint is wrong — repeats the exact false-citation pattern C1 was supposed to fix.
+
+Fix options:
+- Drop file pinpoint, say "internal/db package".
+- OR keep file pinpoint, correct text: "internal/db/address.go (owns ResolveID/ResolveIDInDB); internal/db/resolver.go (owns ResolveRead/ResolveWrite/ResolveDelete)."
+
+## C3 verification: ENFORCEABLE + ATOMIC
+
+"Fix touches 2+ of {resolveTypeForID, recordExistsOnDisk, backendSectionPath} → stop + split" is mechanical + builder-side checkable. Preserves ≤2-small-blocks atomicity. PASS.
+
+## C4 verification: ENFORCEABLE + LOAD-BEARING
+
+"Fixture MUST NOT seed .ta/index.toml" verified via Hylla: no-index branch at `helpers.go:117-138` (`tryLoadIndex` returns nil → falls through to `recordExistsOnDisk` disk-probe). Pre-seeded index would short-circuit at line 119 (`entry.Type`) and never exercise the failing branch. Justified + atomically checkable. PASS.
+
+## Empirical bug confirmation
+
+`mcp__ta__get CLAUDE.section.project-specific-docs` returned `found:false`; `mcp__ta__list_sections` returned the same id with content. Walker-vs-resolver asymmetry holds; bug is real; ops-first direction correct.
+
+## Atomicity preserved
+
+4 stop-conditions sound like a lot but are builder-side decision gates / fixture constraints, not extra code surface. Buildable size remains "1 test + 1 narrow prod fix in 1 of 3 candidate functions". The acceptance criteria policy-elaborate the droplet without enlarging it.
+
+## Verdict: PASS WITH CORRECTION
+
+C2 file pinpoint must be corrected before builder dispatch (single-line amendment). The orchestrator can fold this into the builder droplet's spec when creating it (same pattern as round-2 corrections). Off-by-one drift on other line citations is advisory only.
+"""
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-20T22:18:00Z"
+state = "archived"
+target_id = "drop_006.drop.planner_decompose"
+title = "Plan-QA proof of L1 decomposition — diagnose + decompose ta-core agents_md.section get/update fix"
+transition_notes = "Round 4 SKIPPED per right-size rigor regime (orchestrator decision 2026-05-21). Rounds 1-3 substantive findings (qa-proof PASS-with-corrections rounds 1-3; qa-falsif FAIL rounds 1-3 with empirical mage testFunc evidence) gave clear direction; planner attempt 5 applied all 5 round-3 amendments verbatim including the load-bearing structural reshape (1 droplet → 2 sibling droplets). Orchestrator confidence: HIGH that the amended decomposition is sound. No further plan-QA rounds warranted for this 2-droplet small slice."
+updated_at = "2026-05-21T00:05:00Z"
+[planner_decompose-plan-qa-falsification]
+archived_at = "2026-05-21T00:05:00Z"
+attempt_count = 3.0
+completed_at = "2026-05-20T23:50:00Z"
+created_at = "2026-05-20T21:52:01Z"
+implementation_notes_agent = """
+## Verdict: FAIL (5 confirmed counterexamples, all structural)
+
+Dispatched via bash-dispatcher (codex rate-limited 2 tiers → fell to tier 4 claude-native opus, **$1.49**, 28 turns, 6m duration). Agent ran live empirical checks: `mage testFunc TestBackendSectionPath_MDIncludesType` (pass), `mcp__ta__list_sections CLAUDE` (returned ids), `mcp__ta__get CLAUDE.section.ta-cli-usage` (returned `found:false` — in-vivo bug reproduced), `git diff .ta/index.toml` (confirmed no agents_md.section ids in index — the no-index branch IS the in-vivo failure mode).
+
+Round-2 amendments closed the SPECIFIC counterexamples but the same DISCIPLINES fail again at the adjacent level of detail:
+
+## F1 — Citation-discipline class regression
+
+C1 fixed ONLY Update at `:752/:786/:810`. Six other gopls citations are still off-by-one (lands on doc-comment line preceding `func` keyword):
+- helpers.go:106 (def resolveTypeForID) — actual :107
+- helpers.go:133 (call recordExistsOnDisk) — actual :134
+- helpers.go:187 (def recordExistsOnDisk) — actual :188
+- backend.go:169 (def backendSectionPath) — actual :170
+- ops.go:107 (Get → resolveTypeForID) — actual :108
+- ops.go:130 (Get → backendSectionPath) — actual :131
+
+C1's stated correction holds locally but the same discipline fails immediately next to it. Line numbers WILL drift between dispatches anyway.
+
+## F2 — C3 split-set incomplete
+
+C3 lists `{resolveTypeForID, recordExistsOnDisk, backendSectionPath}`. But `Get(typeName="")` reaches `resolveTypeForID` only AFTER going through `resolveIDWithIndexHint` (ops.go:101) → which falls into `resolver.ResolveID` (helpers.go:287) for the no-index branch — the C4-declared "most plausible production failure mode".
+
+A compound fix touching `resolveIDWithIndexHint` + `resolveTypeForID` is 2 production functions + 1 test = 3 code blocks (violates ≤2-small-blocks-INCLUDING-tests), yet C3 does NOT fire because only one function (`resolveTypeForID`) is in the listed set.
+
+## F3 — C2 over-narrows scope vs parent
+
+C2 stops if fault is outside `internal/ops/helpers.go` / `internal/ops/backend.go`. Droplet `Paths:` agrees — EXCLUDES `internal/ops/ops.go`. But parent drop_006 declares `packages = ["internal/ops"]` + `paths = ["internal/ops/*.go", ...]` (all of ops). And `Get` / `Update` / `wrapRecordNotFound` live in ops.go, with a real asymmetry the agent spotted live: Get calls `resolveTypeForID` BEFORE `os.Stat` (line 108 vs 117); Update calls `resolveTypeForID` AFTER `os.Stat` (line 786 vs 780). If the fix is to harmonize that ordering (one-line move), the droplet ESCALATES under C2 even though parent scope plainly admits it.
+
+## F4 — recordExistsOnDisk dead in single-type DB case
+
+`recordExistsOnDisk` is gated at helpers.go:134 by an outer `if len(declaredTypes) == 1 { ... return n, nil }` short-circuit at lines 129-133. agents_md declares exactly one type (`section`), so single-type branch returns first and `recordExistsOnDisk` is NEVER invoked for this bug. Plan lists it as a candidate fix function but it's dead code for the failing case.
+
+## F5 — Plan-internal incoherence (load-bearing)
+
+Stitching the planner's notes together: the in-vivo bug exists with the project's current `.ta/index.toml` (no agents_md.section ids) → the in-vivo failing case IS the no-index branch → C4 mandates the fixture exercise that branch → no-index flows: `resolveIDWithIndexHint` → `resolver.ResolveID(id)` → `internal/db/resolver.go` → C2 declares resolver.go OUT of scope → ESCALATE.
+
+**Under the planner's OWN most-likely-fault analysis, the expected outcome of running the droplet is "escalate", not "ship a fix".** The droplet's stated purpose contradicts its own diagnosis. This is plan-internally incoherent, not just arithmetically incomplete.
+
+## Required re-amendments (NOT another full re-decomp)
+
+1. **Drop line numbers entirely** from `description` + `implementation_notes_agent`. Name the symbol and let gopls/Hylla recompute on builder pickup. Line numbers drift between dispatches.
+2. **Expand C3 set** to the full per-id pipeline: `{resolveIDWithIndexHint, resolveIDForCallerType, resolveTypeForID, recordExistsOnDisk, backendSectionPath}`.
+3. **Widen droplet Paths** to include `internal/ops/ops.go`; adjust C2 to read "outside `internal/ops/` package AND outside `internal/db/resolver.go`" → escalate. Permit ops.go fixes inline.
+4. **Drop `recordExistsOnDisk`** from the candidate-fix set (or annotate as multi-type-DB-only — dormant for agents_md).
+5. **Pre-stage resolver.go as SIBLING droplet** rather than runtime-conditional escalation. Decomposition shifts 1 droplet → 2 sibling droplets: D1 ops (failing repro + smallest fix in `internal/ops/{ops,helpers,backend}.go` if fault localizes there); D2 resolver (failing repro — possibly shared fixture with D1 — + smallest fix in `internal/db/resolver.go`). Builder runs both; whichever localizes the fault makes the fix; the other becomes a passing regression-coverage droplet.
+
+**VERDICT: FAIL** — amend in place per the 5 directives. Decomposition reshapes 1 → 2 droplets.
+"""
+outcome = "failure"
+role = "qa-falsification"
+started_at = "2026-05-20T22:18:00Z"
+state = "archived"
+target_id = "drop_006.drop.planner_decompose"
+title = "Plan-QA falsif of L1 decomposition — diagnose + decompose ta-core agents_md.section get/update fix"
+transition_notes = "Round 4 SKIPPED per right-size rigor regime (orchestrator decision 2026-05-21). Round 3 produced 5 substantive structural counterexamples (F1-F5, see implementation_notes_agent) and planner attempt 5 applied all 5 amendments. No further plan-QA rounds warranted for this 2-droplet small slice."
+updated_at = "2026-05-21T00:05:00Z"
+
+[builder_d1_ops_agents_md_section_repro_fix]
+acceptance_criteria = """
+- Add `TestOps_GetUpdate_AgentsMDSectionRoundTrip` (new, not yet in tree) in `internal/ops/ops_test.go`.
+- Test stands up a temp project whose `.ta/schema.toml` declares `agents_md` with `paths = ["AGENTS.md", "CLAUDE.md"]` and one type `[agents_md.section]` at `heading = 2`, seeds a real `CLAUDE.md` buffer with ≥2 H2 sections, and exercises both `ops.Get(..., "CLAUDE.section.<slug>", "", ...)` and `ops.Update(..., "CLAUDE.section.<slug>", "", ...)` on the same id.
+- Before fix: test reproduces the current failure surface on the live tree. After fix (if D1 owns the fault): Get returns body bytes for the target section; Update rewrites only that section; sibling H2 sections remain byte-stable.
+- Production change limited to `internal/ops/ops.go` / `internal/ops/helpers.go` / `internal/ops/backend.go`. Do NOT edit `internal/backend/md`.
+- **C2 — package-boundary stop-and-replan**: if the failing repro fails but the fault lies OUTSIDE the `internal/ops` package AND OUTSIDE the `internal/db` package (D2's territory), stop and escalate to dev. A fault inside `internal/db` should manifest as D2's repro failing too; if only D1 fails and the fix is in `internal/db`, the diagnosis is wrong — escalate, do not silently widen.
+- **C3 — split-condition, one function per droplet**: if the fix requires changes in 2+ of `{resolveIDWithIndexHint, resolveIDForCallerType, resolveTypeForID, backendSectionPath}`, stop and re-plan into smaller siblings. Note: `recordExistsOnDisk` is gated by a multi-type-DB short-circuit and is DORMANT for the single-type agents_md case; intentionally NOT in this set.
+- **C4 — fixture-index discipline**: Fixture MUST NOT seed `.ta/index.toml` entries for the section ids. The test exercises the no-index branch (resolveIDWithIndexHint miss → falls into ResolveID), which is the in-vivo failure mode per empirical evidence.
+- Builder verification: `mage testFunc TestOps_GetUpdate_AgentsMDSectionRoundTrip`.
+- Blocker rule: if the new test passes on current code without any production change, the ops layer is innocent — D2 should carry the fix. If both D1 and D2 pass on current code, the bug shape is misdiagnosed — stop and re-plan.
+"""
+attempt_count = 2.0
+completed_at = "2026-05-21T00:25:00Z"
+created_at = "2026-05-21T00:05:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = """
+1. `TestOps_GetUpdate_AgentsMDSectionRoundTrip` (new test, in `internal/ops/ops_test.go`) exists and exercises both `ops.Get` and `ops.Update` on a CLAUDE.section.<slug> id against a temp project whose `.ta/schema.toml` declares `agents_md` per the spec.
+2. Fixture does NOT seed `.ta/index.toml` entries for the section ids (per C4: exercises the no-index branch).
+3. `mage testFunc TestOps_GetUpdate_AgentsMDSectionRoundTrip` runs.
+4. Either: (a) test FAILS on current code + a narrow production fix in ONE of {resolveIDWithIndexHint, resolveIDForCallerType, resolveTypeForID, backendSectionPath} makes it pass, OR (b) test PASSES on current code (ops layer innocent; D2 carries fix; this droplet completes as regression-coverage).
+5. Production change limited to `internal/ops/{ops,helpers,backend}.go` per the package-boundary C2 rule.
+6. Atomicity: 1-2 small code blocks INCLUDING tests.
+"""
+implementation_notes_user = """
+Right-size cascade: per-droplet build-QA twins NOT auto-spawned (no_spawn=true at creation). Single slice-level build-QA pair will be created at drop_006 close after both D1 + D2 complete. Per-droplet QA would be redundant for this small slice; slice-level pair covers both droplets together.
+
+Dispatched in PARALLEL with D2 (sibling droplet drop_006.drop.builder_d2_resolver_address_md_section_fix). Different package (internal/db); no file overlap. Whichever droplet's repro fails first owns the fix; the other becomes regression coverage.
+"""
+labels = ["builder", "ops-layer", "right-size-cascade", "d1-of-d1d2-pair"]
+objective = "Add a failing ops-level regression for `agents_md.section` per-id `get` and `update`; if the fault localizes inside `internal/ops`, ship the smallest fix in `internal/ops/{ops,helpers,backend}.go`. If the test passes on current code without any production change, the ops layer is innocent and D2 should carry the fix — record the no-fix-needed finding and stop. If both D1 and D2 pass on current code, escalate to dev (bug shape misdiagnosed)."
+outcome = "success"
+packages = ["internal/ops"]
+parent_id = "drop_006.drop.planner_decompose"
+paths = ["internal/ops/ops_test.go", "internal/ops/ops.go", "internal/ops/helpers.go", "internal/ops/backend.go"]
+role = "builder"
+started_at = "2026-05-21T00:08:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "D1 ops — agents_md.section get/update repro + smallest internal/ops fix if fault localizes there"
+transition_notes = """
+Attempt 1 (ollama-local qwen2.5-coder:7b): SILENT NARRATION FAILURE — model rendered a plan describing what it would do without calling any tools (zero permission_denials, zero edits, zero test runs). Real cascade-methodology finding: 7B unreliable for tool-calling builder work even at atomic scope.
+
+Attempt 2 (served by codex-exec gpt-5.4 via FORCE_FALLBACK_TO_CLAUDE --model trick — codex rate limit lifted mid-attempt): SUCCESS. Added TestOps_GetUpdate_AgentsMDSectionRoundTrip in internal/ops/ops_test.go:1744 + fixed internal/ops/backend.go:189 by changing `if bareType != ""` to `if bareType != "" && !strings.HasPrefix(resolved.BracketKey, bareType+".")`. Single function fix in backendSectionPath (within C3 set). Atomicity preserved (1 test + 1 narrow fix = 2 small blocks).
+
+Unit test verified PASSING by orchestrator: `TA_TEST_PKG=./internal/ops mage testFunc TestOps_GetUpdate_AgentsMDSectionRoundTrip` → 1 test passed.
+
+Live mcp__ta__update probe on CLAUDE.section.project-specific-docs still returns 'record not found' — expected; the running ta MCP server has the pre-fix binary. Closeout requires mage install + Claude Code restart per cascade methodology §8 (MCP server bounce).
+
+Verdict: D1 carried the fix (Case A from planner). D2 sibling droplet is regression coverage.
+"""
+updated_at = "2026-05-21T00:25:00Z"
+[builder_d2_resolver_address_md_section_fix]
+acceptance_criteria = """
+- Add `TestResolveID_AgentsMDSectionRoundTrip` (new, not yet in tree) in `internal/db/address_test.go` (new test file if `address_test.go` is absent; new test function if present).
+- Test stands up the SAME fixture shape as D1 — `.ta/schema.toml` with `agents_md` + `[agents_md.section]` at `heading = 2`, seed a CLAUDE.md buffer with ≥2 H2 sections, and exercise `ResolveID(<full id like "CLAUDE.section.<slug>">)` returning the correct `Resolved` value (file path + section anchor).
+- Before fix: test reproduces the resolver-layer failure surface for `agents_md.section` ids on the no-index branch.
+- After fix (if D2 owns the fault): `ResolveID` returns the correct resolved address for an agents_md.section id without any `.ta/index.toml` seeding.
+- Production change limited to `internal/db/address.go` or `internal/db/resolver.go`. Do NOT edit `internal/ops` or `internal/backend/md`.
+- **C2 — package-boundary stop-and-replan (mirror of D1)**: if the failing repro fails but the fault lies OUTSIDE `internal/db` AND OUTSIDE `internal/ops`, escalate to dev.
+- **C3 — split-condition**: if the fix requires changes in 2+ functions across `internal/db/address.go` and `internal/db/resolver.go`, stop and re-plan into smaller siblings.
+- **C4 — fixture-index discipline (mirror of D1)**: Fixture MUST NOT pre-seed `.ta/index.toml` for the section ids.
+- Note: `ResolveID` and `ResolveIDInDB` live in `internal/db/address.go` (NOT `internal/db/resolver.go`, despite the name). `NewResolver` lives in `resolver.go`. This is per qa-proof round 3 correction.
+- Builder verification: `mage testFunc TestResolveID_AgentsMDSectionRoundTrip`.
+- Blocker rule: if the new test passes on current code without any production change, the resolver layer is innocent — D1 carries the fault. If both pass, re-plan.
+"""
+attempt_count = 2.0
+completed_at = "2026-05-21T00:25:00Z"
+created_at = "2026-05-21T00:05:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = """
+1. `TestResolveID_AgentsMDSectionRoundTrip` (new test, in `internal/db/address_test.go` — create the test file if it does not yet exist) exists and exercises `ResolveID` on a `CLAUDE.section.<slug>` id against the same fixture shape as D1.
+2. Fixture does NOT seed `.ta/index.toml` entries (per C4).
+3. `mage testFunc TestResolveID_AgentsMDSectionRoundTrip` runs.
+4. Either: (a) test FAILS on current code + a narrow production fix in ONE function in `internal/db/address.go` or `internal/db/resolver.go` makes it pass, OR (b) test PASSES on current code (resolver layer innocent; D1 carries fix; this droplet completes as regression-coverage).
+5. Production change limited to `internal/db/{address,resolver}.go` per the package-boundary C2 rule.
+6. Atomicity: 1-2 small code blocks INCLUDING tests.
+"""
+implementation_notes_user = """
+Right-size cascade: per-droplet build-QA twins NOT auto-spawned (no_spawn=true at creation). Single slice-level build-QA pair will be created at drop_006 close after both D1 + D2 complete.
+
+Dispatched in PARALLEL with D1 (sibling droplet drop_006.drop.builder_d1_ops_agents_md_section_repro_fix). Different package (internal/ops); no file overlap. Whichever droplet's repro fails first owns the fix; the other becomes regression coverage.
+"""
+labels = ["builder", "resolver-layer", "right-size-cascade", "d2-of-d1d2-pair"]
+objective = "Add a failing resolver-level regression for `agents_md.section` per-id resolution; if the fault localizes inside `internal/db`, ship the smallest fix in `internal/db/{address,resolver}.go`. If the test passes on current code without any production change, the resolver layer is innocent and D1 should carry the fix — record the no-fix-needed finding and stop. If both D1 and D2 pass on current code, escalate to dev (bug shape misdiagnosed)."
+outcome = "success"
+packages = ["internal/db"]
+parent_id = "drop_006.drop.planner_decompose"
+paths = ["internal/db/address_test.go", "internal/db/address.go", "internal/db/resolver.go"]
+role = "builder"
+started_at = "2026-05-21T00:08:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "D2 resolver — agents_md.section per-id ResolveID repro + smallest internal/db fix if fault localizes there"
+transition_notes = """
+Attempt 1 (ollama-local qwen2.5-coder:7b): SILENT NARRATION FAILURE — same 7B mode as D1, narrated steps without executing.
+
+Attempt 2 (claude-native haiku via FORCE_FALLBACK_TO_CLAUDE --model trick + codex rate limit): SUCCESS, $0.12. Added TestResolveID_AgentsMDSectionRoundTrip in internal/db/address_test.go. Test PASSES on current code without any production change — resolver layer is INNOCENT for this bug. Per planner Case A: D1 owns the fix; D2 is regression coverage.
+
+Unit test verified PASSING by orchestrator: `TA_TEST_PKG=./internal/db mage testFunc TestResolveID_AgentsMDSectionRoundTrip` → 1 test passed.
+
+No production code changes in this droplet. Atomicity: 1 test-only block.
+
+Verdict: regression coverage locked. Resolver layer confirmed innocent.
+"""
+updated_at = "2026-05-21T00:25:00Z"
+
+[build_qa_proof_slice]
+acceptance_criteria = """
+- D1 fix at internal/ops/backend.go:189 (HasPrefix guard) is semantically correct and minimal. Verify via Read.
+- TestOps_GetUpdate_AgentsMDSectionRoundTrip is well-shaped (real CLAUDE.md fixture, no index seeding, Get+Update+sibling preservation). Run + verify pass via `mage testFunc TestOps_GetUpdate_AgentsMDSectionRoundTrip` (with TA_TEST_PKG=./internal/ops).
+- TestResolveID_AgentsMDSectionRoundTrip locks the resolver-layer regression coverage. Run + verify pass via `mage testFunc TestResolveID_AgentsMDSectionRoundTrip` (with TA_TEST_PKG=./internal/db).
+- `mage check` module-wide green.
+- No semver phrasing in droplet records or notes.
+- The fix is single-function (within C3 split-condition set).
+
+Output VERDICT: PASS or VERDICT: FAIL in your `## 3. Summary` per persona format.
+"""
+completed_at = "2026-05-21T00:35:00Z"
+created_at = "2026-05-21T00:28:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+implementation_notes_agent = """
+## Verdict: PASS
+
+All 4 records read, git diff inspected, both new tests run green, module-wide mage check green, fix scope confirmed within C3 split-condition set.
+
+## D1 fix scope verified
+
+Single line change at `internal/ops/backend.go:192` inside `backendSectionPath`:
+```
+- if bareType != "" {
++ if bareType != "" && !strings.HasPrefix(resolved.BracketKey, bareType+".") {
+```
+Guard prevents double type-anchoring when `BracketKey` already begins with `<type>.`. Within C3 allowed set `{resolveIDWithIndexHint, resolveIDForCallerType, resolveTypeForID, backendSectionPath}`. Minimal + single-function.
+
+## D1 test shape verified
+
+`TestOps_GetUpdate_AgentsMDSectionRoundTrip` at `internal/ops/ops_test.go:1744`: real agents_md schema, CLAUDE.md with 2 H2 sections, no .ta/index.toml seeding (C4 honored), exercises ops.Get + ops.Update + post-Update ops.Get with sibling-section byte-stability assertion (load-bearing invariant for splice safety).
+
+## D2 test shape verified
+
+`TestResolveID_AgentsMDSectionRoundTrip` at `internal/db/address_test.go:711`: same agents_md shape, two distinct ids (CLAUDE.section.project-specific-docs + AGENTS.section.ta-cli-usage), no index seeding, asserts DBName/FileRelPath/BracketKey/SingleFileMount/FilePath/Canonical round-trip. Passes on current code without production change — resolver layer innocent (Case A confirmed).
+
+## Module-wide gate
+
+`mage check` → 1610/1620 pass, 0 fail, 10 expected skips. 26/28 packages PASS, 2 SKIP (no-test packages). FE Astro build (14 pages) complete. Green.
+
+## Self-check
+
+- HasPrefix could over-fire on bracket key 'section' alone? No — requires trailing dot, plain 'section' wouldn't match. Mitigated.
+- mage testFunc stale binary? No — builds + runs from current source. Both tests green on diff-current code.
+- Hidden regressions in test summary? No — 1620 tests, 26/28 PASS pkgs, zero FAIL. Summary semantics correct.
+- Diff scope drift? .ta/index.toml + bin/agent-dispatch.sh changes are unrelated infra (codex MCP injection patches + .mcp.json work); don't affect slice fix correctness.
+
+## Missing evidence
+
+None for slice acceptance gates. Live `mcp__ta__update` end-to-end probe (parent DoC #7) requires MCP server bounce + Claude Code restart — by design deferred to closeout per parent drop's definition_of_complete.
+
+**VERDICT: PASS**
+"""
+objective = "Verify the slice as a whole: D1's fix in internal/ops/backend.go (backendSectionPath HasPrefix guard) is the right shape; D2's regression test locks the resolver innocence; mage check is green; the fix would resolve the live mcp__ta__update bug after MCP server bounce. Read git diff + run mage testFunc on both new tests."
+outcome = "success"
+parent_id = "drop_006.drop.ta_core_agents_md_section_update"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_006.drop.ta_core_agents_md_section_update"
+title = "Slice-level build-QA proof of drop_006 (D1 ops + D2 resolver)"
+transition_notes = "VERDICT: PASS. Dispatched via native Agent tool. Module-wide mage check green (1610/1620 pass, 0 fail, 10 skips, 26 pkg pass, 2 pkg skip, FE Astro build complete)."
+updated_at = "2026-05-21T00:35:00Z"
+[build_qa_falsif_slice]
+acceptance_criteria = """
+Active falsification attacks:
+- A1: Run `mage testPkg ./internal/ops` and `mage testPkg ./internal/db` — zero failures, all existing tests still green.
+- A2: Find all callers of `backendSectionPath` via Hylla (mcp__hylla__hylla_refs_find). Verify the new HasPrefix guard doesn't regress any caller's expected behavior.
+- A3: Construct a counterexample: agents_md-like multi-type DB where BracketKey legitimately needs the bareType prefix. Does the HasPrefix guard accidentally skip a needed prepend?
+- A4: TOML path — does the fix accidentally affect TOML record resolution (backendSectionPath also handles TOML)? Verify via the file's existing TOML test coverage.
+- A5: Check the test fixture for accidental-pass shapes — e.g. test asserts on substring that's present regardless of the bug.
+- A6: Semver / phrasing scan across the slice records.
+
+Output VERDICT: PASS (no unmitigated counterexample) or VERDICT: FAIL in your `## 3. Summary`. Each counterexample labeled MITIGATED or UNMITIGATED.
+"""
+completed_at = "2026-05-21T00:40:00Z"
+created_at = "2026-05-21T00:28:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+implementation_notes_agent = """
+## Verdict: PASS (8 falsification attacks all MITIGATED)
+
+### A1 Integration gate
+`mage check`: 1620 tests / 1610 passed / 0 failed / 10 expected skips across 28 packages. Astro build green. MITIGATED.
+
+### A2 Caller fan-out
+`backendSectionPath` has 8 production callers — `ops.go:131,194,386,437,810,1126`, `move.go:184,405`, `helpers.go:203`. Each pairs the returned path with `backend.Find/Emit/Splice` where `bareType` comes from `resolveTypeForID` (which derives from index entry / caller-supplied type / single-type-DB short-circuit). For an MD section id, the resolver's `BracketKey` ALWAYS begins with `bareType + "."` by construction (`address.go:319` joins all post-FileRelPath parts). Guard fires uniformly across callers. Synthetic test inputs with hand-built `Resolved` (BracketKey=`baz`/`installation`/`task_001`) do NOT match the guard → still get the prepend → existing test contracts preserved. MITIGATED.
+
+### A3 Overlapping type names + prefix collisions
+- Overlapping `{section, subsection}` types: resolver still computes BracketKey from canonical id, guard works correctly. MITIGATED.
+- Slug shaped like type prefix (slug = `section-foo`): BracketKey=`section.section-foo`, guard fires correctly, no double-prepend. MITIGATED.
+- Zero-suffix collision (BracketKey exactly = type name, no dot): `HasPrefix("section", "section.")=false` → prepend fires → pre-fix behavior preserved. MITIGATED.
+
+### A4 TOML path
+Untouched. `case schema.FormatTOML` returns at backend.go:173 via `tomlBracketPath`; guarded line is inside `case schema.FormatMD`. Existing TOML tests at backend_test.go:50-69 unchanged. MITIGATED.
+
+### A5 Synthetic fixture / accidental-pass
+- Existing `TestBackendSectionPath_MDIncludesType` synthetic inputs (`BracketKey="baz"`/`"installation"`) don't match the guard, still get prepend, original `want` strings match exactly. Confirmed via `mage testPkg ./internal/ops`: 160/160 pass. MITIGATED.
+- D1's `TestOps_GetUpdate_AgentsMDSectionRoundTrip` accidental-pass: without the fix, `ops.Get` returns `ErrRecordNotFound` → `res.Bytes` is nil → `strings.Contains("Original target body.")` is false → test fails cleanly. Locks the fix. MITIGATED.
+
+### A6 Semver scan
+Cascade records use `fix`/`narrow fix`/`smallest internal/ops fix` — no `v1.x`/`breaking change`/`deprecate`/`release X.Y.Z` phrasing. CLEAN.
+
+## Working tree state
+Matches pre-attack state — no scratch reproducers created or left behind.
+
+## Resolver invariant verified
+For any MD section id, `BracketKey` always begins with `bareType + "."` by construction in `address.go:319` (joins all post-FileRelPath parts with `.`). The fix is provably-correct surgical patch.
+
+**VERDICT: PASS** — ready for closeout.
+"""
+objective = "Attack the slice. Try to break the fix: does the HasPrefix guard introduce regressions for OTHER MD section-mode dbs? Does it break the TOML path? Are there md fixture cases (e.g. multi-file mounts with section ids on both files) where the fix misfires? Could the test fixture be subtly wrong such that it passes-by-accident vs locking the bug? Run mage check + targeted mage testFunc to confirm no regression. Use Hylla to enumerate callers of backendSectionPath and verify they all still work correctly with the new guard."
+outcome = "success"
+parent_id = "drop_006.drop.ta_core_agents_md_section_update"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_006.drop.ta_core_agents_md_section_update"
+title = "Slice-level build-QA falsification of drop_006 (D1 ops + D2 resolver)"
+transition_notes = "VERDICT: PASS. Dispatched via bash-dispatcher (codex rate-limited → claude-native opus tier 4, $0.997, 26 turns, 4m)."
+updated_at = "2026-05-21T00:40:00Z"
