@@ -59,6 +59,12 @@ func New(cfg Config) *Server {
 	return s
 }
 
+// Mux returns the underlying HTTP mux. This method is primarily used for
+// testing via httptest; production code should call Run instead.
+func (s *Server) Mux() *http.ServeMux {
+	return s.mux
+}
+
 // Run starts the HTTP listener on the configured bind address and port
 // and blocks until ctx is canceled or the listener returns a fatal error.
 // On ctx cancellation the listener performs a graceful shutdown via
