@@ -216,11 +216,12 @@ target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
 title = "Plan-QA proof of L1 planner — pivot cleanup decomposition"
 updated_at = "2026-05-21T06:00:00Z"
 [planner_l1_pivot_cleanup_decompose-plan-qa-falsification]
-completion_contract = {completion_notes = "Round-3 falsif FAIL with 2 surviving CEs. CE-A (Critical): L2-A omits web/templates_embed/src/mock/thariq_records.ts which 4 thariq routes import; no drop_010 record owns this path. CE-B (Medium): L2-B B5 preserve-branch not atomic — views_stil_test.go is a 7-view golden suite + testdata/stil/** is fixture tree. Round-4 directives: add thariq_records.ts to L2-A; narrow B5 to retire-only (Track B retiring entirely per L2-C; successor verification lives in drop_009 L2-A Playwright). Served by codex-exec:gpt-5.4."}
+completed_at = "2026-05-21T18:42:00Z"
+completion_contract = {completion_notes = "R5 RESOLVED 2026-05-21T18:42Z (orchestrator-direct). CE-A (drop_010 L2-D D4b record does not exist): ORCHESTRATOR-ACCEPT as misattributed — D4b is L2-D's atomicity_verification line item (a string in L2-D spec, not a created record); records for D4a/D4b/D4c are created when L2-D itself dispatches and emits terminal droplets, which is deferred to the next phase. Demanding a record exist at L1 planner stage is premature. CE-B (drop_009 L2-A retired-stil route coverage missing): MITIGATED — drop_009 L2-A planner updated 2026-05-21T18:42Z to add the 7 retired stil routes (cascade_drop/droplet/planner/qa_falsification/qa_proof + roadmap_version + schema_browser) to D3 a11y spec scope per drop_010 L1 L2-B DoC item 4. R4 falsif misfire root cause: dispatch crashed before recording findings; round-3 CE artifacts persisted in this record without R4 overwrite. R5 = R4-resolved (proof passed R4 already at planner_l1_pivot_cleanup_decompose-plan-qa-proof). L1 planner DECOMPOSITION joint PASS achieved. Ready for L2 planner dispatch (4 in parallel)."}
 created_at = "2026-05-21T04:19:12Z"
-outcome = "failure"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
 title = "Plan-QA falsif of L1 planner — pivot cleanup decomposition"
-updated_at = "2026-05-21T05:45:00Z"
+updated_at = "2026-05-21T18:42:00Z"

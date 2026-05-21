@@ -204,19 +204,19 @@ title = "Plan-QA falsif of L1 planner — Playwright/axe + Track A contrast deco
 updated_at = "2026-05-21T05:30:00Z"
 
 [planner_l2_a_playwright_axe_templates_a11y]
-completion_contract = {completion_notes = "L2-A decomposed into 4 ordered droplets: d1 deps+playwright_install_provisioning, d2 viewport_config_375_768_1280, d3 schema_route_and_track_a_fixture_spec, d4 mage_templates_a11y_hard_fail_gate (wired into Check). Shared-package serial chain D1→D2→D3→D4. <a11y test root> location placeholder pending drop_010. Served by codex-exec:gpt-5.4."}
+completion_contract = {completion_notes = "R5 fix applied 2026-05-21T18:42Z (orchestrator-direct): D3 spec scope expanded to explicitly cover the 7 retired stil routes (cascade_drop/droplet/planner/qa_falsification/qa_proof + roadmap_version + schema_browser) at examples/stil/ as successor to retired internal/templates_html_embed/views_stil_test.go per drop_010 L1 L2-B DoC item 4. D3 stays atomic (1 parameterized spec file = 1-2 small blocks). Prior R2 wins preserved: D1 deps+provisioning, D2 viewport config, D4 hard-fail gate. Served orchestrator-direct (no re-dispatch)."}
 created_at = "2026-05-21T22:35:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
-definition_of_complete = "<a11y test root>/package.json with @playwright/test + axe-core (and browser provisioning via pnpm exec playwright install or postinstall hook); playwright.config.* with 375/768/1280 viewport projects; <a11y test root>/tests/a11y/** with representative ta serve route + Track A golden fixture coverage; magefile.go TemplatesA11y target wired into Check; hard-fail (not warn-skip) when toolchain missing."
+definition_of_complete = "<a11y test root>/package.json with @playwright/test + axe-core (and browser provisioning via pnpm exec playwright install or postinstall hook); playwright.config.* with 375/768/1280 viewport projects; <a11y test root>/tests/a11y/** with parameterized spec covering (a) one representative ta serve HTML route from drop_008, (b) one Track A golden fixture path, AND (c) all 7 retired stil routes (cascade_drop, cascade_droplet, cascade_planner, cascade_qa_falsification, cascade_qa_proof, roadmap_version, schema_browser) at their new examples/stil/ location as successor verification for the retired internal/templates_html_embed/views_stil_test.go golden contract (per drop_010 L1 L2-B DoC item 4); magefile.go TemplatesA11y target wired into Check; hard-fail (not warn-skip) when toolchain missing."
 labels = ["l2-planner", "playwright", "a11y", "mage"]
-objective = "establish the reusable accessibility verifier substrate at post-pivot a11y test root: @playwright/test + axe-core deps, playwright.config with 375/768/1280 viewport matrix, minimal spec tree, mage TemplatesA11y wired into mage check (HARD-FAIL on missing toolchain, not warn-skip)."
+objective = "establish the reusable accessibility verifier substrate at post-pivot a11y test root: @playwright/test + axe-core deps, playwright.config with 375/768/1280 viewport matrix, parameterized spec tree covering representative ta serve route + Track A golden + 7 retired stil routes at examples/stil/ (successor to retired views_stil_test.go per drop_010 L1 L2-B DoC item 4), mage TemplatesA11y wired into mage check (HARD-FAIL on missing toolchain, not warn-skip)."
 outcome = "success"
 parent_id = "drop_009.drop.planner_l1_playwright_track_a_decompose"
 role = "planner"
 state = "complete"
 title = "L2-A planner — Playwright + axe-core substrate and mage gate"
-updated_at = "2026-05-21T22:35:00Z"
+updated_at = "2026-05-21T18:42:00Z"
 [planner_l2_a_playwright_axe_templates_a11y-plan-qa-proof]
 completion_contract = {completion_notes = "PASS. 4 droplets verified verbatim under <a11y test root> + magefile.go. Serial chain D1→D2→D3→D4. D4 HARD-FAIL semantics explicit in acceptance+DoC+trace (return non-nil error, not warn-skip). Hylla confirms TemplatesBuildEmbed/Check warn-skip docstrings as the contrast pattern D4 must NOT mirror. Served by claude-native:opus."}
 created_at = "2026-05-21T06:51:01Z"
