@@ -76,11 +76,11 @@ The cascade agent methodology — documented in [`docs/cascade-methodology.md`](
 
 > A builder droplet touches **≤4 small blocks of code**. If more, the planner has under-decomposed and must split further. Builders are NOT general-purpose programmers; they are focused leaf-level workers.
 
-This constraint is **load-bearing** for the routing design. Because builder droplets are atomic 1-4 block edits, **a small coder model handles them fine**. The reference implementation uses **exactly one local model — `qwen2.5-coder:7b`** — as the builder primary. Larger local models (20B, 30B) are NOT in any chain because:
+This constraint is **load-bearing** for the routing design. Because builder droplets are atomic 1-4 block edits, the model only needs to handle bounded edits + honest tool-call invocation. The reference implementation uses **`qwen3-coder:30b`** as the builder primary (slot count 2 for VRAM/thermal). Q7B (`qwen2.5-coder:7b`) was the original choice but was dropped 2026-05-21 after repeated silent-failure pattern: the agent emits plausible response text without invoking any Edit/Write tool calls, and the dispatcher counts the zero-exit as success while files never get written.
 
-- A 30B local model carries ~24 GB of KV cache at moderate context sizes (measured: qwen3-coder:30b loaded with `model weights: 17.1 GiB device=Metal` + `kv cache: 24.0 GiB device=Metal` + compute graph = 42 GB total resident). That melts the fan and starves the rest of the machine.
-- Reaching a larger local model in a builder dispatch would only happen if a planner emitted an under-decomposed droplet. The right fix is **fix the planner, not the model** — split the droplet smaller.
-- Builder fallback when the 7B slot is unavailable: route to cloud (codex cheap effort, then claude haiku). Faster, doesn't thermal-throttle, and frees the local slot for other projects.
+- 30B trade-off: ~42 GB total resident (17.1 GiB weights + 24.0 GiB KV cache + compute graph). Higher load than 7B but reliable on tool-call honesty. Slot count is 2 (not 4) to manage VRAM/thermal budget for sustained dispatch.
+- Builder fallback when the local slot is unavailable: route to cloud (codex gpt-5.5 effort=low, then claude haiku, then claude sonnet). Faster, doesn't thermal-throttle.
+- If a planner emits an under-decomposed droplet that exceeds even 30B's effective capacity, the right fix remains **fix the planner, not escalate the model** — split the droplet smaller.
 
 **Planning + QA roles never use local Ollama at all.** They need stronger reasoning, and their per-cascade volume is small (one planner call per planning step; one QA pair per planner level). Cost of cloud API calls is justified by the volume.
 
@@ -111,7 +111,7 @@ Canonical reference implementation on the user's system:
 
 Four backends are supported by the dispatcher:
 
-- **`ollama-local`** — Local Ollama daemon at `http://localhost:11434`. Spawns `claude -p` with `ANTHROPIC_BASE_URL` redirected. Subagent runs as a full Claude Code session (Read/Edit/Bash/MCP all work) with the local model doing inference. Anthropic token cost = zero. ONLY model in chains: `qwen2.5-coder:7b` (builder primary).
+- **`ollama-local`** — Local Ollama daemon at `http://localhost:11434`. Spawns `claude -p` with `ANTHROPIC_BASE_URL` redirected. Subagent runs as a full Claude Code session (Read/Edit/Bash/MCP all work) with the local model doing inference. Anthropic token cost = zero. ONLY model in chains: `qwen3-coder:30b` (builder primary).
 - **`codex-exec`** — `codex exec --ephemeral --ignore-user-config --ignore-rules` spawns a headless Codex session. Codex's own tool surface (NOT Claude Code's). Persona pre-pended to the prompt. No AGENTS.md in project root → full isolation per call. Default model: `gpt-5.5` (verified working on ChatGPT-tier subscription; `gpt-5-codex` does NOT work for ChatGPT-tier auth).
 - **`claude-native`** — `claude -p` with `ANTHROPIC_BASE_URL` UNSET — uses the user's actual Anthropic subscription against api.anthropic.com. CONSUMES ANTHROPIC TOKENS. Used as a fallback when ollama and codex are unavailable, OR as the primary for qa-proof + closeout roles (where Claude Opus is the right tool for the job).
 
@@ -148,7 +148,7 @@ Defined in `<project>/.claude/agent-chains.sh`. Each project's chains can differ
 
 ```
 builder chain (1-4 small blocks per cascade methodology — small models suffice):
-  tier 1: ollama-local qwen2.5-coder:7b           (20s wait, 4 slots) ← PRIMARY
+  tier 1: ollama-local qwen3-coder:30b           (20s wait, 4 slots) ← PRIMARY
   tier 2: codex-exec gpt-5.5 (effort=low)         (no wait, no slot)
   tier 3: claude-native haiku                     (no wait, no slot)
 
@@ -178,7 +178,7 @@ closeout chain (cloud APIs only):
 
 ### Builder Tier Ordering Rationale
 
-Tier 1 is the ONLY local coder model in the chain — qwen2.5-coder:7b. The cascade methodology guarantees builder droplets are 1-4 small blocks; a 7B coder handles them fine. Tiers 2-3 are cloud APIs as the local-overloaded fallback (codex cheap effort, then claude haiku). No larger local models exist in the chain — sustained 20B+ inference thermal-throttles the machine, and reaching them would only happen if a planner under-decomposed a droplet (fix the planner, not the model).
+Tier 1 is the ONLY local coder model in the chain — qwen3-coder:30b (slot count 2 for VRAM/thermal). The cascade methodology guarantees builder droplets are 1-4 small blocks; 30B handles them with reliable tool-call honesty. Tiers 2-4 are cloud APIs as fallback (codex gpt-5.5 effort=low, then claude haiku, then claude sonnet). Q7B was tried as the original primary and dropped due to silent-failure pattern (text without Edit/Write tool calls). If a planner under-decomposes a droplet beyond what 30B handles cleanly, fix the planner, not escalate further.
 
 ### Planning + QA-Falsification Tier Ordering Rationale
 
@@ -231,7 +231,7 @@ Proof verification and closeout coordinate across artifacts and need the orchest
                 │                      │  │                      │  │                      │
                 │ Local model (qwen3-  │  │ gpt-5.5          │  │ Without              │
                 │ coder, gpt-oss,      │  │ (high|medium|low     │  │ ANTHROPIC_BASE_URL   │
-                │ qwen2.5-coder)       │  │  effort)             │  │ → api.anthropic.com  │
+                │ qwen3-coder)       │  │  effort)             │  │ → api.anthropic.com  │
                 │                      │  │                      │  │ (consumes tokens)    │
                 │ OR cloud-tagged      │  │                      │  │                      │
                 │ model (cloud proxy)  │  │                      │  │                      │
@@ -282,7 +282,7 @@ This works because the suffix is the LAST thing in the spawned session's system 
    echo "Reply with one sentence: ping." | \
      ANTHROPIC_BASE_URL=http://localhost:11434 \
      ANTHROPIC_AUTH_TOKEN=ollama \
-     claude -p --model qwen2.5-coder:7b --output-format json --no-session-persistence
+     claude -p --model qwen3-coder:30b --output-format json --no-session-persistence
    ```
    Expected: a JSON blob with `result` containing the model's reply. This is the canonical "Claude Code + Ollama endpoint" smoke — if this works, the whole inference path is wired correctly.
 3. **Set Ollama daemon env vars** for parallel work:
@@ -292,7 +292,7 @@ This works because the suffix is the LAST thing in the spawned session's system 
    export OLLAMA_KEEP_ALIVE=24h
    ```
    (Or `launchctl setenv` + relaunch menubar Ollama.app.)
-4. **Pull THE builder model** (only one): `ollama pull qwen2.5-coder:7b` (~5 GB Q4). This is the ONLY local model in the chains. Do not pull bigger local coder models for the dispatcher — they aren't in any chain (see "Cascade Methodology Constraint" above for why).
+4. **Pull THE builder model** (only one): `ollama pull qwen3-coder:30b` (~5 GB Q4). This is the ONLY local model in the chains. Do not pull bigger local coder models for the dispatcher — they aren't in any chain (see "Cascade Methodology Constraint" above for why).
 5. **Install codex CLI**: `brew install codex` or per OpenAI's current install instructions. Authenticate: `codex login`. Verify the model your tier supports: `codex exec --ephemeral --skip-git-repo-check -m gpt-5.5 "ping"` — if it returns "model not supported", check `~/.codex/config.toml`'s `model =` line and update `.claude/agent-chains.sh` to match. ChatGPT-tier subscriptions typically do NOT have `gpt-5-codex`; use `gpt-5.5` or whatever your config has set.
 6. **Verify Claude Code is current**: `claude --version` — needs `-p`, `--model`, `--allowedTools`, `--no-session-persistence`, `--append-system-prompt`. Present as of Claude Code 2026-04+.
 
@@ -336,11 +336,11 @@ Before running cascades across 5+ projects simultaneously:
 ```
 □ Ollama daemon up:               pgrep -x ollama
 □ Env vars active:                env | grep OLLAMA_NUM_PARALLEL  (=4)
-□ qwen2.5-coder:7b pulled:        ollama list | grep qwen2.5-coder
+□ qwen3-coder:30b pulled:        ollama list | grep qwen3-coder
                                   (this is the ONLY local model needed)
 □ Primary model warm via Claude Code (NOT raw ollama):
     echo "ping" | ANTHROPIC_BASE_URL=http://localhost:11434 \
-      ANTHROPIC_AUTH_TOKEN=ollama claude -p --model qwen2.5-coder:7b \
+      ANTHROPIC_AUTH_TOKEN=ollama claude -p --model qwen3-coder:30b \
       --output-format json --no-session-persistence >/dev/null
 □ Codex auth valid:               codex --version
 □ Claude auth valid:              claude --version
@@ -367,7 +367,7 @@ If `OLLAMA_NUM_PARALLEL=4` and you run 5+ projects, expect 4 concurrent local-bu
 5. **Anti-recursion is prompt-shaped.** It's an instruction in the system prompt, not a hard runtime block. A misbehaving model could ignore it. If recursion symptoms appear, harden by adding `--disallowedTools "Bash(./bin/agent-dispatch.sh *)"` to the dispatcher's `claude -p` invocation.
 6. **MCP server proliferation.** Each `claude -p` spawns the project's `.mcp.json` server set. 25 concurrent builder spawns = ~25 ta-MCP + ~25 hylla-MCP + ~25 context7-client processes. Each is small (~30 MB) but the count is real (~2-3 GB total).
 7. **Stale lock cleanup.** If a dispatcher process dies abnormally (kill -9, OOM), its lock dir persists in `/tmp/agent-dispatch/`. Stale-lock detection via PID file + `kill -0` reaps these on the next acquire attempt. Worst case: one slot is unavailable for ~1 second per acquire-loop iteration. Reboot clears `/tmp` on most macOS setups; otherwise `rm -rf /tmp/agent-dispatch/*` resets manually.
-8. **Cascade methodology compliance.** The builder chain's primary is a SMALL model (qwen2.5-coder:7b) because the cascade contract says builders are atomic 1-4 block edits. If your planners are emitting larger builder droplets, you're using the wrong tool — fix the planner, not the routing. The 30B fallback exists for genuine edge cases, not as a hedge against under-decomposition.
+8. **Cascade methodology compliance.** The builder chain's primary is `qwen3-coder:30b` because the cascade contract says builders are atomic 1-4 block edits AND because tool-call honesty matters more than token cost. If your planners are emitting larger builder droplets than 30B handles cleanly, you're using the wrong tool — fix the planner, not the routing. Cloud fallback tiers (codex/claude) exist for slot contention, not as a hedge against under-decomposition.
 
 ---
 
@@ -385,8 +385,8 @@ If `OLLAMA_NUM_PARALLEL=4` and you run 5+ projects, expect 4 concurrent local-bu
 - [Ollama Anthropic API compatibility docs](https://docs.ollama.com/api/anthropic-compatibility) — confirms `/v1/messages` endpoint, supported features, known limitations.
 - [Ollama Claude blog (Jan 2026)](https://ollama.com/blog/claude) — release announcement.
 - [Anthropic Claude Code headless docs](https://code.claude.com/docs/en/headless) — `claude -p`, `--allowedTools`, `--no-session-persistence`, env-var routing.
-- [Qwen2.5-Coder:7B HF model card](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct) — the recommended builder primary.
-- [Qwen3-Coder:30B HF model card](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct) — deep fallback for non-atomic droplets.
+- [Qwen3-Coder:30B HF model card](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct) — the recommended builder primary (since 2026-05-21).
+- [Qwen2.5-Coder:7B HF model card](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct) — historical; dropped 2026-05-21 due to silent-failure on tool calls.
 - [OpenAI Codex subagents docs](https://developers.openai.com/codex/subagents) — codex subagent .toml schema (we don't use this; persona injection goes via prompt prefix).
 - `docs/cascade-methodology.md` (in `ta/main`) — the cascade contract whose atomic-builder rule justifies the small-model-primary design for builders.
 - `docs/agent-routing-options.md` — the five capacity-management options considered, with rationale for the file-lock-semaphore choice and the eventual `agentq` broker.

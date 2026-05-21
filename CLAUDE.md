@@ -8,7 +8,7 @@ Project-local guidance for working inside the `ta` tree. Global rules (Tillsyn c
 
 Chain definitions: [`.claude/agent-chains.sh`](.claude/agent-chains.sh). Dispatcher: [`bin/agent-dispatch.sh`](bin/agent-dispatch.sh). Full explainer: [`docs/agent-backend-routing.md`](docs/agent-backend-routing.md).
 
-**Cascade methodology constraint** ([`docs/cascade-methodology.md`](docs/cascade-methodology.md)): builder droplets touch **1-2 small blocks of code INCLUDING their tests**. The 7B coder handles atomic edits fine. **Only ONE local model is in the chains** — `qwen2.5-coder:7b`. Larger local models melt the machine (a 30B carries ~24 GB KV cache) and aren't in any chain.
+**Cascade methodology constraint** ([`docs/cascade-methodology.md`](docs/cascade-methodology.md)): builder droplets touch **1-2 small blocks of code INCLUDING their tests**. Builder primary is `claude-native|haiku` via the `Agent` tool (3x cheaper per-token than sonnet per Anthropic pricing); sonnet fallback if haiku fails. Local Ollama was dropped 2026-05-21 — Q7B silent-failed on tool calls (text without Edit/Write); 30B pressured VRAM/thermal under sustained concurrent dispatch and slowed iteration. Haiku trades local-free compute for cloud-speed + predictable concurrency.
 
 **Planner + plan-QA enforcement rule (load-bearing)**: every planner output MUST be reviewed by plan-QA to confirm each terminal builder droplet is 1-2 small blocks (with tests included in that count). If a droplet would be larger, the planner MUST decompose further before plan-QA passes. The 7B builder backend will FAIL LOUDLY on under-decomposed droplets — that is the desired feedback signal. Do not "fix" by routing to a bigger model; fix by re-decomposing.
 
@@ -48,18 +48,18 @@ closeout         Bash(mage check), Bash(git diff *), Bash(git log *),           
 
 ```
 role-primaries{role,backend,model,dispatch}:
-ta-go-builder,ollama-local,qwen2.5-coder:7b,bash-dispatcher
-ta-fe-builder,ollama-local,qwen2.5-coder:7b,bash-dispatcher
+ta-go-builder,claude-native,haiku,agent-tool
+ta-fe-builder,claude-native,haiku,agent-tool
 ta-go-planning,codex-exec,gpt-5.5+low,bash-dispatcher
 ta-fe-planning,codex-exec,gpt-5.5+low,bash-dispatcher
-ta-go-qa-falsification,codex-exec,gpt-5.5+xhigh,bash-dispatcher
-ta-fe-qa-falsification,codex-exec,gpt-5.5+xhigh,bash-dispatcher
+ta-go-qa-falsification,codex-exec,gpt-5.5+medium,bash-dispatcher
+ta-fe-qa-falsification,codex-exec,gpt-5.5+medium,bash-dispatcher
 ta-go-qa-proof,claude-native,opus,agent-tool
 ta-fe-qa-proof,claude-native,opus,agent-tool
 ta-closeout,claude-native,opus,agent-tool
 ```
 
-Builder fallback chain: 7B → codex gpt-5.5 (effort=low) → claude haiku. NOT a larger local model. Planning + QA + closeout chains never use local Ollama — they fall over cloud APIs only.
+Builder fallback chain: claude haiku → claude sonnet. No Ollama, no Codex tier for builders — Anthropic-only via Agent tool. Planning + QA-falsification chains route through bash dispatcher (codex primary, Anthropic fallback); QA-proof + closeout are agent-tool primary (Opus).
 
 **Dispatch**:
 
