@@ -54,8 +54,8 @@ The cascade methodology hasn't changed. Only the spawn mechanism for builder/pla
 
 - 2.1 **For builder / planning / qa-falsification roles**: dispatch via `./bin/agent-dispatch.sh --role <role> --cwd "$(pwd)"`. Walks the chain in `.claude/agent-chains.sh` until one tier succeeds. Backends:
   - builder → ollama-local `qwen2.5-coder:7b` (local, $0 API). Atomic 1-2 block droplets per cascade methodology.
-  - planning → codex-exec gpt-5.4 effort=medium (cloud).
-  - qa-falsification → codex-exec gpt-5.4 effort=xhigh.
+  - planning → codex-exec gpt-5.5 effort=low (cloud); fallback gpt-5.5 effort=medium, then claude-native sonnet, then opus.
+  - qa-falsification → codex-exec gpt-5.5 effort=xhigh.
   - Fallbacks per chain.
 - 2.2 **For qa-proof + closeout roles**: native `Agent` tool with `subagent_type = <role>`. Reads `.claude/agents/<role>.md`. Anthropic Opus.
 - 2.3 **Output format**: ollama-routed + claude-native return Claude Code JSON envelope (parse `.result`). codex-exec returns raw text stream. Read stderr `[disp] served_by=<backend>:<model>` to discriminate.

@@ -9,7 +9,7 @@
 # Fields:
 #   backend   ollama-local | codex-exec | claude-native
 #             (ollama-cloud removed — no verified cloud model tag in user's plan)
-#   model     model tag (qwen2.5-coder:7b, gpt-5.4, opus, haiku, sonnet)
+#   model     model tag (qwen2.5-coder:7b, gpt-5.5, opus, haiku, sonnet)
 #   opts      backend-specific flags (codex: --sandbox / -c effort=...) or empty
 #   wait_max  seconds to wait acquiring a lock slot (Ollama tier only)
 #   slots     max concurrent slots for the Ollama tier (4 default; bounded by NUM_PARALLEL)
@@ -54,7 +54,7 @@ emit_chain_for_role() {
 chain_builder() {
   cat <<'EOF'
 ollama-local|qwen2.5-coder:7b||20|4
-codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=low||
+codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=low||
 claude-native|haiku||||
 EOF
 }
@@ -63,10 +63,10 @@ EOF
 # Decomposition needs strong reasoning. Cloud APIs throughout.
 chain_planning() {
   cat <<'EOF'
-codex-exec|gpt-5.4|--sandbox read-only -c model_reasoning_effort=medium||
-codex-exec|gpt-5.4|--sandbox read-only -c model_reasoning_effort=low||
-claude-native|opus||||
+codex-exec|gpt-5.5|--sandbox read-only -c model_reasoning_effort=low||
+codex-exec|gpt-5.5|--sandbox read-only -c model_reasoning_effort=medium||
 claude-native|sonnet||||
+claude-native|opus||||
 EOF
 }
 
@@ -76,7 +76,7 @@ EOF
 # working with current ChatGPT-tier auth as of 2026-05-19). If you switch
 # to a business / API-key tier that exposes gpt-5-codex, swap the tier-1
 # model to gpt-5-codex (which is reasoning-specialized and outperforms
-# gpt-5.4 at xhigh effort for adversarial tasks).
+# gpt-5.5 at xhigh effort for adversarial tasks).
 #
 # Sandbox: workspace-write so the QA agent can run `mage check` / `mage testPkg`
 # (which writes to go build cache + pnpm node_modules + /tmp). The persona's
@@ -84,9 +84,9 @@ EOF
 # codex's sandbox is defense-in-depth, not the primary gate.
 chain_qa_falsification() {
   cat <<'EOF'
-codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=xhigh||
-codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=high||
-codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=medium||
+codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=xhigh||
+codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=high||
+codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
 claude-native|opus||||
 claude-native|sonnet||||
 EOF
@@ -99,7 +99,7 @@ EOF
 chain_qa_proof() {
   cat <<'EOF'
 claude-native|opus||||
-codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=medium||
+codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
 claude-native|sonnet||||
 EOF
 }
@@ -111,7 +111,7 @@ EOF
 chain_closeout() {
   cat <<'EOF'
 claude-native|opus||||
-codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=medium||
+codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
 claude-native|sonnet||||
 EOF
 }

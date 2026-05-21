@@ -112,7 +112,7 @@ Canonical reference implementation on the user's system:
 Four backends are supported by the dispatcher:
 
 - **`ollama-local`** — Local Ollama daemon at `http://localhost:11434`. Spawns `claude -p` with `ANTHROPIC_BASE_URL` redirected. Subagent runs as a full Claude Code session (Read/Edit/Bash/MCP all work) with the local model doing inference. Anthropic token cost = zero. ONLY model in chains: `qwen2.5-coder:7b` (builder primary).
-- **`codex-exec`** — `codex exec --ephemeral --ignore-user-config --ignore-rules` spawns a headless Codex session. Codex's own tool surface (NOT Claude Code's). Persona pre-pended to the prompt. No AGENTS.md in project root → full isolation per call. Default model: `gpt-5.4` (verified working on ChatGPT-tier subscription; `gpt-5-codex` does NOT work for ChatGPT-tier auth).
+- **`codex-exec`** — `codex exec --ephemeral --ignore-user-config --ignore-rules` spawns a headless Codex session. Codex's own tool surface (NOT Claude Code's). Persona pre-pended to the prompt. No AGENTS.md in project root → full isolation per call. Default model: `gpt-5.5` (verified working on ChatGPT-tier subscription; `gpt-5-codex` does NOT work for ChatGPT-tier auth).
 - **`claude-native`** — `claude -p` with `ANTHROPIC_BASE_URL` UNSET — uses the user's actual Anthropic subscription against api.anthropic.com. CONSUMES ANTHROPIC TOKENS. Used as a fallback when ollama and codex are unavailable, OR as the primary for qa-proof + closeout roles (where Claude Opus is the right tool for the job).
 
 **`ollama-cloud` was previously a backend but is REMOVED from the reference chains** — the user's plan exposes specific cloud model tags (e.g. `glm-4.7:cloud`, `minimax-m2.1:cloud`) but `qwen3-coder:cloud` is NOT one of them. The dispatcher's preflight can't distinguish "tag exists" from "tag doesn't exist" without making an API call, so we drop the tier entirely to avoid 404 noise. If your Ollama Cloud plan exposes a coder-class model and you want it as a builder fallback, add it back to `.claude/agent-chains.sh` with the verified tag — but be aware of the 3-concurrent cap.
@@ -149,29 +149,30 @@ Defined in `<project>/.claude/agent-chains.sh`. Each project's chains can differ
 ```
 builder chain (1-4 small blocks per cascade methodology — small models suffice):
   tier 1: ollama-local qwen2.5-coder:7b           (20s wait, 4 slots) ← PRIMARY
-  tier 2: codex-exec gpt-5.4 (effort=low)         (no wait, no slot)
+  tier 2: codex-exec gpt-5.5 (effort=low)         (no wait, no slot)
   tier 3: claude-native haiku                     (no wait, no slot)
 
-planning chain (decomposition needs reasoning — cloud APIs only):
-  tier 1: codex-exec gpt-5.4 (effort=medium)      (no wait) ← PRIMARY
-  tier 2: codex-exec gpt-5.4 (effort=low)         (no wait)
-  tier 3: claude-native opus                      (no wait)
-  tier 4: claude-native sonnet                    (no wait)
+planning chain (decomposition needs reasoning — cloud APIs only; escalate from cheap to expensive):
+  tier 1: codex-exec gpt-5.5 (effort=low)         (no wait) ← PRIMARY
+  tier 2: codex-exec gpt-5.5 (effort=medium)      (no wait)
+  tier 3: claude-native sonnet                    (no wait)
+  tier 4: claude-native opus                      (no wait)
 
 qa-falsification chain (adversarial — deepest reasoning, cloud APIs only):
-  tier 1: codex-exec gpt-5.4 (effort=high)        (no wait) ← PRIMARY
-  tier 2: codex-exec gpt-5.4 (effort=medium)      (no wait)
-  tier 3: claude-native opus                      (no wait)
-  tier 4: claude-native sonnet                    (no wait)
+  tier 1: codex-exec gpt-5.5 (effort=xhigh)       (no wait) ← PRIMARY
+  tier 2: codex-exec gpt-5.5 (effort=high)        (no wait)
+  tier 3: codex-exec gpt-5.5 (effort=medium)      (no wait)
+  tier 4: claude-native opus                      (no wait)
+  tier 5: claude-native sonnet                    (no wait)
 
 qa-proof chain (evidence verification, cloud APIs only):
   tier 1: claude-native opus                      (no wait) ← PRIMARY
-  tier 2: codex-exec gpt-5.4 (effort=medium)      (no wait)
+  tier 2: codex-exec gpt-5.5 (effort=medium)      (no wait)
   tier 3: claude-native sonnet                    (no wait)
 
 closeout chain (cloud APIs only):
   tier 1: claude-native opus                      (no wait) ← PRIMARY
-  tier 2: codex-exec gpt-5.4 (effort=medium)      (no wait)
+  tier 2: codex-exec gpt-5.5 (effort=medium)      (no wait)
   tier 3: claude-native sonnet                    (no wait)
 ```
 
@@ -228,7 +229,7 @@ Proof verification and closeout coordinate across artifacts and need the orchest
                 │ Ollama Daemon        │  │ Codex CLI            │  │ Claude Code CLI      │
                 │ localhost:11434      │  │ codex exec --ephem.  │  │ claude -p            │
                 │                      │  │                      │  │                      │
-                │ Local model (qwen3-  │  │ gpt-5.4          │  │ Without              │
+                │ Local model (qwen3-  │  │ gpt-5.5          │  │ Without              │
                 │ coder, gpt-oss,      │  │ (high|medium|low     │  │ ANTHROPIC_BASE_URL   │
                 │ qwen2.5-coder)       │  │  effort)             │  │ → api.anthropic.com  │
                 │                      │  │                      │  │ (consumes tokens)    │
@@ -292,7 +293,7 @@ This works because the suffix is the LAST thing in the spawned session's system 
    ```
    (Or `launchctl setenv` + relaunch menubar Ollama.app.)
 4. **Pull THE builder model** (only one): `ollama pull qwen2.5-coder:7b` (~5 GB Q4). This is the ONLY local model in the chains. Do not pull bigger local coder models for the dispatcher — they aren't in any chain (see "Cascade Methodology Constraint" above for why).
-5. **Install codex CLI**: `brew install codex` or per OpenAI's current install instructions. Authenticate: `codex login`. Verify the model your tier supports: `codex exec --ephemeral --skip-git-repo-check -m gpt-5.4 "ping"` — if it returns "model not supported", check `~/.codex/config.toml`'s `model =` line and update `.claude/agent-chains.sh` to match. ChatGPT-tier subscriptions typically do NOT have `gpt-5-codex`; use `gpt-5.4` or whatever your config has set.
+5. **Install codex CLI**: `brew install codex` or per OpenAI's current install instructions. Authenticate: `codex login`. Verify the model your tier supports: `codex exec --ephemeral --skip-git-repo-check -m gpt-5.5 "ping"` — if it returns "model not supported", check `~/.codex/config.toml`'s `model =` line and update `.claude/agent-chains.sh` to match. ChatGPT-tier subscriptions typically do NOT have `gpt-5-codex`; use `gpt-5.5` or whatever your config has set.
 6. **Verify Claude Code is current**: `claude --version` — needs `-p`, `--model`, `--allowedTools`, `--no-session-persistence`, `--append-system-prompt`. Present as of Claude Code 2026-04+.
 
 ### Per-Project Setup

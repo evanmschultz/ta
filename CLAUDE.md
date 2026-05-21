@@ -50,16 +50,16 @@ closeout         Bash(mage check), Bash(git diff *), Bash(git log *),           
 role-primaries{role,backend,model,dispatch}:
 ta-go-builder,ollama-local,qwen2.5-coder:7b,bash-dispatcher
 ta-fe-builder,ollama-local,qwen2.5-coder:7b,bash-dispatcher
-ta-go-planning,codex-exec,gpt-5.4+medium,bash-dispatcher
-ta-fe-planning,codex-exec,gpt-5.4+medium,bash-dispatcher
-ta-go-qa-falsification,codex-exec,gpt-5.4+xhigh,bash-dispatcher
-ta-fe-qa-falsification,codex-exec,gpt-5.4+xhigh,bash-dispatcher
+ta-go-planning,codex-exec,gpt-5.5+low,bash-dispatcher
+ta-fe-planning,codex-exec,gpt-5.5+low,bash-dispatcher
+ta-go-qa-falsification,codex-exec,gpt-5.5+xhigh,bash-dispatcher
+ta-fe-qa-falsification,codex-exec,gpt-5.5+xhigh,bash-dispatcher
 ta-go-qa-proof,claude-native,opus,agent-tool
 ta-fe-qa-proof,claude-native,opus,agent-tool
 ta-closeout,claude-native,opus,agent-tool
 ```
 
-Builder fallback chain: 7B → codex gpt-5.4 (effort=low) → claude haiku. NOT a larger local model. Planning + QA + closeout chains never use local Ollama — they fall over cloud APIs only.
+Builder fallback chain: 7B → codex gpt-5.5 (effort=low) → claude haiku. NOT a larger local model. Planning + QA + closeout chains never use local Ollama — they fall over cloud APIs only.
 
 **Dispatch**:
 
