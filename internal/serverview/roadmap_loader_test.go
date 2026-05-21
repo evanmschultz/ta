@@ -6,10 +6,10 @@ import (
 	"github.com/evanmschultz/ta/internal/serverview"
 )
 
-// TestServeView_LoadDetail validates LoadDetail error handling on empty projects.
-func TestServeView_LoadDetail(t *testing.T) {
+// TestServeView_LoadRoadmapVersion validates LoadRoadmapVersion error handling on empty projects.
+func TestServeView_LoadRoadmapVersion(t *testing.T) {
 	root := t.TempDir()
-	result, err := serverview.LoadDetail(root, "drop_001.drop.test")
+	result, err := serverview.LoadRoadmapVersion(root, "roadmap.version.test-v1")
 
 	if err == nil {
 		t.Fatal("expected error for empty project")
@@ -19,3 +19,4 @@ func TestServeView_LoadDetail(t *testing.T) {
 		t.Errorf("TemplateName: expected empty, got %q", result.TemplateName)
 	}
 }
+
