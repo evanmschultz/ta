@@ -282,3 +282,1177 @@ state = "complete"
 target_id = "drop_008.drop.planner_l1_ta_serve_decompose"
 title = "Plan-QA falsif of L1 planner — ta serve decomposition into L2 sub-planners"
 updated_at = "2026-05-21T05:30:00Z"
+
+[planner_l2_a_ta_serve_cmd]
+acceptance_criteria = """
+- `cmd/ta/serve_cmd.go` defines `newServeCmd()` and preserves bare-`ta` MCP serve behavior.
+- `cmd/ta/main.go` registers `newServeCmd()` under `newRootCmd()`.
+- The CLI contract pins default bind = `127.0.0.1` and default port = `4321`.
+- `drop_008.drop.builder_a3_serve_cmd_narrow_tests` includes `new, not yet in tree: TestServeCmd_DefaultBindAndPort` asserting those defaults alongside the existing registration and flag-delegation tests.
+- The slice remains atomic for the downstream builders: each child droplet is still 1-2 small blocks.
+"""
+completion_contract = {completion_notes = "L2-A FULLY COMPLETE. Round-2 pinned defaults landed (bind=127.0.0.1, port=4321) per L2-E cross-coupled CE-1 fix. a1+a2+a3 all landed orchestrator-direct (Q7B kept silent-failing). cmd/ta/{serve_cmd.go, serve_cmd_test.go, main.go} edits green via mage testPkg ./cmd/ta + mage testFunc TestServeCmd_*."}
+created_at = "2026-05-21T22:35:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "cmd/ta/serve_cmd.go defines newServeCmd(); cmd/ta/main.go registers newServeCmd() under newRootCmd() without changing runRoot()/bare-ta MCP behavior; flag parsing delegates into a server config object; default bind is pinned to `127.0.0.1` and default port is pinned to `4321`; honest tests for subcommand registration, flag-to-config delegation, and default bind/port behavior."
+expected_outputs = ["drop_008.drop.builder_a1_serve_cmd_file", "drop_008.drop.builder_a2_register_serve_subcommand", "drop_008.drop.builder_a3_serve_cmd_narrow_tests"]
+labels = ["l2-planner", "ta-serve", "cmd-ta"]
+objective = "add the user-facing `ta serve [--port N] [--bind ADDR]` cobra entrypoint while preserving bare-`ta` MCP serve behavior. owns only `cmd/ta` wiring; delegates runtime work to a new internal server package."
+outcome = "success"
+parent_id = "drop_008.drop.planner_l1_ta_serve_decompose"
+role = "planner"
+state = "complete"
+title = "L2-A planner — cobra subcommand for ta serve"
+updated_at = "2026-05-21T22:35:00Z"
+[planner_l2_a_ta_serve_cmd-plan-qa-proof]
+completed_at = "2026-05-21T22:42:00Z"
+completion_contract = {completion_notes = "PASS — L2-A decomposed verbatim into 3 droplets matching parent expected_outputs verbatim: drop_008.drop.builder_a1_serve_cmd_file (cmd/ta/serve_cmd.go, no deps), drop_008.drop.builder_a2_register_serve_subcommand (cmd/ta/main.go, depends_on a1), drop_008.drop.builder_a3_serve_cmd_narrow_tests (cmd/ta/serve_cmd_test.go, depends_on a1+a2). Each droplet ≤2 small blocks INCL tests. Honest test names TestServeCmd_RegistersSubcommand and TestServeCmd_BindAndPortFlagsDelegate match parent L1 evidence verbatim. Path scope locked to cmd/ta/** with no overlap on L2-B/C/D/E siblings. Hylla github.com/evanmschultz/ta@main confirms newGetCmd@cmd/ta/get_cmd.go, newRootCmd@cmd/ta/main.go, runServe@cmd/ta/main.go, runRoot@cmd/ta/main.go all committed — the construction pattern cited by L2-A is real. completion_notes properly nested under completion_contract on the L2-A planner record. Section 0 5-field certificate emitted in proof report."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-21T22:38:00Z"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_a_ta_serve_cmd"
+title = "Plan-QA proof of L2-A planner — cobra subcommand for ta serve"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_a_ta_serve_cmd-plan-qa-falsification]
+completion_contract = {completion_notes = "PASS. No falsifying defect found. Only wording-drift findings (agent confused existing runServe MCP path with new serve_cmd.go HTTP subcommand). Counterexample attempts all failed: mage testFunc TestServeFlag_/TestRootCmdWiring green, mage testPkg ./cmd/ta green (452/0), mage check green (1612/10). Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_a_ta_serve_cmd"
+title = "Plan-QA falsif of L2-A planner — cobra subcommand for ta serve"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_b_ta_serve_http_routes]
+completion_contract = {completion_notes = "Round-2 planner repair after round-1 falsif FAIL. Applied all 3 CE fixes: (1) B3 narrowed from view-boundary 'unknown record rejection' to handler-side status passthrough only; L2-C owns Go-error/not-found mapping. (2) Dependency chain loosened: B4 now blocks on `drop_008.drop.builder_l2_b2_ta_serve_root_route`, not B3, because `/roadmap` and `/schema` only need the mux established by B2 and are parallel-safe with B3. (3) Old combined B5 slice split for atomicity into `drop_008.drop.builder_l2_b5a_ta_serve_search_route` and `drop_008.drop.builder_l2_b5b_ta_serve_status_method_tests`; the legacy `drop_008.drop.builder_l2_b5_ta_serve_search_route_status_tests` record is retained only as a superseded audit stub because `ta update` cannot physically rename/delete it in this dispatch. Authoritative active chain is B1 -> B2 -> {B3 || B4} -> B5a -> B5b. Served by codex-exec:gpt-5.4 with gopls evidence only; no Read/Grep/Glob or Hylla query tool was exposed in this turn."}
+created_at = "2026-05-21T22:35:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "internal/server/*.go defines Server, config, mux, route handlers; handlers delegate to view layer; URL parsing stable for /cascade/<record-id> and tree-style aliases; explicit HTTP status for malformed input, unknown records, unsupported methods."
+description = """
+Round-2 update after falsification FAIL with 3 substantive counterexamples.
+
+Evidence:
+- `drop_008.drop.planner_l1_ta_serve_decompose` assigns `/`, `/cascade/<record-id>`, tree-style cascade aliases, `/roadmap`, `/schema`, and `/search?q=...` to L2-B inside `internal/server/**`.
+- `drop_008.drop.builder_l2_b1_ta_serve_server_config_bootstrap` and `drop_008.drop.builder_l2_b2_ta_serve_root_route` are the committed earlier droplets that establish the mux seam and root route; later route droplets must depend on those exact ids.
+- `mcp__gopls__.go_search(query="ErrRecordNotFound")` verified committed symbol `internal/ops.ErrRecordNotFound` in `internal/ops/errors.go`, and `mcp__gopls__.go_symbol_references` showed existing perimeter mappings in `cmd/ta/commands.go` and `internal/mcpsrv/tools.go`; that evidence supports moving Go-error classification responsibility out of B3 and into L2-C / view-layer policy.
+- `mcp__gopls__.go_search` returned no existing symbols for `TestServe_CascadeDetailRejectsUnknownRecord`, `TestServe_SearchRouteParsesQueryString`, or `TestServe_MethodNotAllowed`, so those test names remain new and can be stated honestly.
+- Dispatch limitation remains explicit: no `Read`/`Grep`/`Glob` tool and no Hylla query tool were exposed in this turn, so live evidence comes from durable ta records plus available `gopls` symbol queries only.
+
+Authoritative round-2 droplet graph:
+- `drop_008.drop.builder_l2_b1_ta_serve_server_config_bootstrap` — bootstrap seam.
+- `drop_008.drop.builder_l2_b2_ta_serve_root_route` — root route on top of B1.
+- `drop_008.drop.builder_l2_b3_ta_serve_cascade_detail_route` — cascade detail route as handler-side status passthrough only; blocked by B2.
+- `drop_008.drop.builder_l2_b4_ta_serve_roadmap_schema_routes` — `/roadmap` + `/schema`; blocked by B2 and parallel-safe with B3.
+- `drop_008.drop.builder_l2_b5a_ta_serve_search_route` — `/search?q=` route parsing; blocked by B4.
+- `drop_008.drop.builder_l2_b5b_ta_serve_status_method_tests` — cross-cutting method/status assertions; blocked by B5a plus B2-B4.
+
+Atomicity verification:
+- Each builder droplet remains 1-2 small code blocks including tests.
+- The previous combined B5 slice was not atomic enough because it mixed `/search` implementation with cross-route status assertions; round-2 splits that work into `B5a` and `B5b`.
+- File/package blocking remains explicit: B3 and B4 share package scope but not file paths and are ordered only through B2; B5b is serialized after B5a and the earlier route droplets so shared-package status tests do not race route implementation.
+"""
+labels = ["l2-planner", "ta-serve", "internal-server"]
+objective = "own the pure HTTP package: listener config, mux construction, route registration, path parsing, and handler-to-view delegation for /, /cascade/<id>, /roadmap, /schema, /search. delegates record loading/rendering to an injected view layer."
+outcome = "success"
+parent_id = "drop_008.drop.planner_l1_ta_serve_decompose"
+role = "planner"
+state = "complete"
+title = "L2-B planner — HTTP server lifecycle and route handlers"
+updated_at = "2026-05-21T22:35:00Z"
+[planner_l2_b_ta_serve_http_routes-plan-qa-proof]
+completion_contract = {completion_notes = "PASS. 5 droplets B1-B5 verified verbatim. All 4 L1-fixed test names present (TestServe_AsHTTP_CascadeTreeOnGet, _CascadeDetailRejectsUnknownRecord, _SearchRouteParsesQueryString, _MethodNotAllowed). Atomicity ≤2 small blocks. Serial chain B1→B5. Served by claude-native:opus."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
+title = "Plan-QA proof of L2-B planner — HTTP server lifecycle and route handlers"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_b_ta_serve_http_routes-plan-qa-falsification]
+completion_contract = {completion_notes = "FAIL with 3 substantive CEs: (1) B3 cascade detail route claims to reject unknown records but that's a view-layer concern (L2-C owns ops.Get error mapping); (2) B1→B5 serial chain is over-strict — /roadmap, /schema, /search don't consume cascade-id parsing so shouldn't wait on B3; (3) B5 'search route+status tests' is two slices (search route + cross-cutting status tests). Round-2 fix needed: thin B3 to error-passthrough, allow B4 parallel to B3, split B5. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "failure"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
+title = "Plan-QA falsif of L2-B planner — HTTP server lifecycle and route handlers"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_c_ta_serve_views]
+completion_contract = {completion_notes = "Round-2 fixes applied after falsif FAIL: (1) D6 split into 5 atomic test droplets — `drop_008.drop.builder_l2_c_test_load_cascade_tree`, `drop_008.drop.builder_l2_c_test_render_cascade_drop`, `drop_008.drop.builder_l2_c_test_render_roadmap`, `drop_008.drop.builder_l2_c_test_render_schema_browser`, and `drop_008.drop.builder_l2_c_test_search_results` — and the original `drop_008.drop.builder_l2_c_serveview_narrow_tests` retired as superseded because it was not atomic; (2) D5 now explicitly owns `new, not yet in tree: internal/templates_html_basic/templates/search_results.html` plus the minimal Render integration instead of overclaiming committed search-template reuse. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T22:35:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "internal/serverview/*.go loads live .ta/ state via ops.Get/ListSections/Search; runtime-only template selection via committed templates_html_basic.Render; /search?q=... is backend-rendered (no client JS); exposes narrow funcs for cascade tree, record detail, roadmap, schema, search."
+labels = ["l2-planner", "ta-serve", "internal-serverview"]
+objective = "own the data-and-render adapter layer: live record enumeration via internal/ops, template selection, view-model shaping, pure-server search result rendering via committed Track A runtime template package."
+outcome = "success"
+parent_id = "drop_008.drop.planner_l1_ta_serve_decompose"
+role = "planner"
+state = "complete"
+title = "L2-C planner — live .ta reads and Track A runtime rendering"
+updated_at = "2026-05-21T22:35:00Z"
+[planner_l2_c_ta_serve_views-plan-qa-proof]
+completion_contract = {completion_notes = "PASS. 6 droplets created under internal/serverview/**. Committed substrate verified (internal/ops + templates_html_basic.Render). Honest test names. Cosmetic: completion_notes doesn't enumerate serial chain (B2's pattern). Served by claude-native:opus."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+title = "Plan-QA proof of L2-C planner — live .ta reads and Track A runtime rendering"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_c_ta_serve_views-plan-qa-falsification]
+completion_contract = {completion_notes = "FAIL with 2 substantive CEs: (1) D6 narrow_tests packs 5 mandatory tests — not atomic; (2) D5 search_loader_rendering overclaims committed render reuse — no committed search template exists yet; D5 must own new search template OR be re-scoped. Round-2 fix needed: split D6; clarify D5's new-template ownership or rescope. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "failure"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+title = "Plan-QA falsif of L2-C planner — live .ta reads and Track A runtime rendering"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_d_ta_serve_integration]
+completion_contract = {completion_notes = "ROUND 2 — all 3 substantive CE fixes applied. CE-1: D1 blockers re-anchored from L2-B/L2-C planner records to the terminal builder records `drop_008.drop.builder_l2_b5_ta_serve_search_route_status_tests` and `drop_008.drop.builder_l2_c_serveview_narrow_tests`, so scheduling waits for builder-complete truth instead of planner-complete truth. CE-2: D1 fixture ownership narrowed to shared harness plumbing plus `new, not yet in tree: func newFixtureProject(t, recs ...record) string` and minimal shared fixture material; D2/D3 now build richer per-test fixtures inline via the helper instead of leaking shared `testdata/**` ownership. CE-3: D2 restores explicit `/schema` integration coverage with `new, not yet in tree: TestServeE2E_HTTPSchemaOnGet`; D4 restores both blocked Playwright specs, `TestServe_AsHTTP_CascadeTreeOnGet_Playwright` and `TestServe_AsHTTP_SearchFlow_PlaywrightAxe`. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T22:35:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "internal/servee2e/*.go boots real server against fixture project via httptest; verifies root tree, cascade detail drill-down, roadmap/schema pages, search results over real HTTP. Playwright + axe verification reserved with blocked-by-drop_009 specs."
+labels = ["l2-planner", "ta-serve", "internal-servee2e"]
+objective = "verify end-to-end HTTP slice with Go integration tests immediately; stage browser/axe verification behind drop_009 substrate dependency."
+outcome = "success"
+parent_id = "drop_008.drop.planner_l1_ta_serve_decompose"
+role = "planner"
+state = "complete"
+title = "L2-D planner — httptest integration and Playwright contract"
+updated_at = "2026-05-21T22:35:00Z"
+[planner_l2_d_ta_serve_integration-plan-qa-proof]
+completion_contract = {completion_notes = "PASS. 4 droplets verified verbatim (d1 server_fixture_boot, d2 route_flow_tests, d3 search_detail_tests, d4 playwright_contract_shim). All in internal/servee2e/**. Serial chain d1→d2→d3→d4. d4 reserves TestServe_AsHTTP_CascadeTreeOnGet_Playwright with drop_009 blocker. Minor gap M1: second blocked spec TestServe_AsHTTP_SearchFlow_PlaywrightAxe not verbatim-anchored in d4 acceptance_criteria (covered semantically by L2-D DoC). Served by claude-native:opus."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_d_ta_serve_integration"
+title = "Plan-QA proof of L2-D planner — httptest integration and Playwright contract"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_d_ta_serve_integration-plan-qa-falsification]
+completion_contract = {completion_notes = "FAIL with 3 substantive CEs: (1) Dep chain wrong — D1-D4 block on L2-B/L2-C PLANNER records (already complete) not on B/C BUILDER outputs; scheduler could start D1 prematurely. (2) D1 fixture testdata ownership lock blocks D2/D3 from adding fixtures (atomicity sprawl OR scope leak). (3) Contract loss: D2 omits /schema coverage; D4 drops TestServe_AsHTTP_SearchFlow_PlaywrightAxe (only preserved CascadeTreeOnGet_Playwright). Round-2 fix needed: re-anchor D1-D4 blockers to B/C terminal builders; allow D2/D3 to add per-test fixtures or factor fixture ownership into shared helper; restore /schema integration coverage + both blocked Playwright spec names. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "failure"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_d_ta_serve_integration"
+title = "Plan-QA falsif of L2-D planner — httptest integration and Playwright contract"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_e_ta_serve_supporting_docs]
+completion_contract = {completion_notes = "L2-E decomposed into 2 droplets: d1 mage_serve_target (magefile.go Serve wrapper, blocked by L2-A), d2 ta_serve_docs (new docs/ta-serve.md, blocked by L2-A). Served by codex-exec:gpt-5.4. Round-2 fixes applied: default bind/port pinning was routed upstream into `drop_008.drop.planner_l2_a_ta_serve_cmd` so this planner's docs/default-listener alignment claim is now grounded in the CLI contract, and `drop_008.drop.builder_l2_e_d2_ta_serve_docs` metadata was cleaned so `files` no longer leaks `magefile.go`."}
+created_at = "2026-05-21T22:35:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "magefile.go has Serve wrapper target launching ta serve with documented defaults; docs/ta-serve.md (or equivalent) explains routes, bind/port defaults, zero-JS search behavior."
+labels = ["l2-planner", "ta-serve", "mage-docs"]
+objective = "own non-runtime support slice: mage Serve wrapper target + operator-facing docs."
+outcome = "success"
+parent_id = "drop_008.drop.planner_l1_ta_serve_decompose"
+role = "planner"
+state = "complete"
+title = "L2-E planner — mage wrapper, docs, and cascade bookkeeping support"
+updated_at = "2026-05-21T22:35:00Z"
+[planner_l2_e_ta_serve_supporting_docs-plan-qa-proof]
+completion_contract = {completion_notes = "PASS. 2 droplets verbatim (d1 magefile.go Serve wrapper, d2 docs/ta-serve.md). Both blocked by L2-A. Atomic. Hylla confirms no Serve() in magefile.go yet + docs/ta-serve.md not in tree. Served by claude-native:opus."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_e_ta_serve_supporting_docs"
+title = "Plan-QA proof of L2-E planner — mage wrapper, docs, and cascade bookkeeping support"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_e_ta_serve_supporting_docs-plan-qa-falsification]
+completion_contract = {completion_notes = "FAIL with 2 CEs: (1) CRITICAL L2-E claims default bind/port alignment to L2-A but L2-A never pins default values — divergent implementations can both pass; (2) MEDIUM D2 docs droplet has magefile.go in files metadata (paths are docs-only but files leaks). Round-2 fix needed: pin L2-A defaults in DoC + test droplet; remove magefile.go from D2.files. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "failure"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_l2_e_ta_serve_supporting_docs"
+title = "Plan-QA falsif of L2-E planner — mage wrapper, docs, and cascade bookkeeping support"
+updated_at = "2026-05-21T06:51:01Z"
+[builder_l2_b1_ta_serve_server_config_bootstrap]
+acceptance_criteria = """
+1. Writes only `internal/server/server.go` and `internal/server/server_test.go` or equivalent new `internal/server/**` files.
+2. No direct `internal/ops` calls from bootstrap code; view dependency stays injected.
+3. Constructor/mux surface is small enough that later droplets add handlers, not another bootstrap abstraction.
+4. The two new bootstrap tests are present and targeted via `mage testFunc`.
+5. This droplet stays within 1-2 small code blocks including tests.
+"""
+created_at = "2026-05-20T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "`internal/server` exists with a narrow config/server bootstrap surface; mux construction is centralized; later route droplets can attach handlers without changing the constructor seam; bootstrap tests cover defaults and base mux assembly."
+description = """
+Evidence:
+- `drop_008.drop.planner_l1_ta_serve_decompose` cites committed `cmd/ta/main.go::runServe(...)` as proof that lifecycle bootstrap is already separated from business logic in the repo.
+- The same L1 record defines L2-B ownership as `internal/server/**/*.go` for listener config, mux construction, route registration, path parsing, and handler-to-view delegation.
+- `drop_008.drop.planner_l2_b_ta_serve_http_routes` narrows the package contract further: `internal/server/*.go` defines `Server`, config, mux, and route handlers, with view delegation and explicit HTTP statuses.
+- Live symbol verification is partially degraded in this dispatch: `Read/Grep/Glob` are not exposed here and `gopls` transport closed, so this droplet intentionally relies on the parent planner's committed-code citations rather than claiming fresh symbol inspection.
+
+Trace:
+- Add new, not yet in tree, bootstrap code under `internal/server` for config defaults, `Server` construction, and mux assembly.
+- Keep the constructor/view seam consumer-side: injected view interface only, no direct `internal/ops` dependency.
+- Reserve later route registration hooks so B2-B5 extend the same package without reshaping bootstrap.
+- Atomicity verification: this is 1-2 small blocks including tests, specifically one bootstrap implementation block and one narrow bootstrap test block.
+
+Tests:
+- new, not yet in tree: `TestServe_NewConfigDefaults`
+- new, not yet in tree: `TestServe_NewRegistersBaseMux`
+- Builder validation target: `TA_TEST_PKG=./internal/server mage testFunc 'TestServe_NewConfigDefaults|TestServe_NewRegistersBaseMux'`
+"""
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "cmd/ta/main.go"]
+labels = ["droplet", "ta-serve", "internal-server", "bootstrap"]
+objective = "Create the new, not yet in tree, `internal/server` package bootstrap surface: config type, server constructor, and mux-entrypoint plumbing that later route droplets hang from, without reaching into `internal/ops` directly."
+packages = ["github.com/evanmschultz/ta/internal/server"]
+parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
+paths = ["internal/server/server.go", "internal/server/server_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "B1 — internal/server config bootstrap and mux entrypoint"
+updated_at = "2026-05-20T19:00:00Z"
+validation_plan = "Run `TA_TEST_PKG=./internal/server mage testFunc 'TestServe_NewConfigDefaults|TestServe_NewRegistersBaseMux'` after implementing the bootstrap seam."
+
+[builder_l2_b1_ta_serve_server_config_bootstrap-qa-proof]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b1_ta_serve_server_config_bootstrap"
+title = "QA proof of B1 — internal/server config bootstrap and mux entrypoint"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b1_ta_serve_server_config_bootstrap-qa-falsification]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b1_ta_serve_server_config_bootstrap"
+title = "QA falsif of B1 — internal/server config bootstrap and mux entrypoint"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b2_ta_serve_root_route]
+acceptance_criteria = """
+1. Writes only `internal/server/**`.
+2. Adds `/` registration and handler code without reopening constructor design from B1.
+3. `TestServe_AsHTTP_CascadeTreeOnGet` is added with honest coverage of GET `/` through the HTTP surface.
+4. The droplet remains 1 implementation block plus 1 focused test block.
+"""
+blockers = ["drop_008.drop.builder_l2_b1_ta_serve_server_config_bootstrap"]
+created_at = "2026-05-20T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "GET `/` is registered in the package mux, delegates to the injected view layer, and has a focused route test proving the cascade tree response path."
+description = """
+Evidence:
+- `drop_008.drop.planner_l1_ta_serve_decompose` assigns `/` to L2-B and names the honest test `TestServe_AsHTTP_CascadeTreeOnGet` for this route family.
+- The same parent record states handlers must be pure-server and delegate rendering through an injected view layer rather than loading records directly.
+- `drop_008.drop.planner_l2_b_ta_serve_http_routes` requires explicit HTTP status handling and keeps all work inside `internal/server/**/*.go`.
+- Live file/symbol verification remains partially unavailable in this dispatch because `gopls` transport is closed and read tools are not exposed; this droplet therefore cites the durable L1/L2 record contract directly.
+
+Trace:
+- Extend the bootstrap mux from B1 with `/` GET registration only.
+- Delegate successful GET handling to the view seam for cascade-tree HTML/body production.
+- Keep non-GET behavior minimal; broad method-status coverage is deferred to B5's shared status-test droplet.
+- Atomicity verification: this is 1-2 small blocks including tests, specifically one route handler/registration block and one route test block.
+
+Tests:
+- `TestServe_AsHTTP_CascadeTreeOnGet`
+- Builder validation target: `TA_TEST_PKG=./internal/server mage testFunc TestServe_AsHTTP_CascadeTreeOnGet`
+"""
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md"]
+labels = ["droplet", "ta-serve", "internal-server", "root-route"]
+objective = "Add the `/` route in `internal/server` so GET requests delegate to the injected view layer for the cascade tree page while preserving the bootstrap seam from B1."
+packages = ["github.com/evanmschultz/ta/internal/server"]
+parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
+paths = ["internal/server/routes_root.go", "internal/server/routes_root_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "B2 — root route serves the cascade tree on GET"
+updated_at = "2026-05-20T19:00:00Z"
+validation_plan = "Run `TA_TEST_PKG=./internal/server mage testFunc TestServe_AsHTTP_CascadeTreeOnGet` after wiring the root route."
+
+[builder_l2_b2_ta_serve_root_route-qa-proof]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b2_ta_serve_root_route"
+title = "QA proof of B2 — root route serves the cascade tree on GET"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b2_ta_serve_root_route-qa-falsification]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b2_ta_serve_root_route"
+title = "QA falsif of B2 — root route serves the cascade tree on GET"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b3_ta_serve_cascade_detail_route]
+acceptance_criteria = """
+1. Writes only `internal/server/**`.
+2. Covers `/cascade/<id>` plus tree-style alias parsing in one tight handler path.
+3. The handler delegates the resolved record id to the injected view seam and treats not-found as a handler-surface passthrough outcome, not a route-owned record lookup policy.
+4. `TestServe_CascadeDetailRejectsUnknownRecord` exercises the HTTP route surface by proving the route returns 404 when the view seam reports not-found, without asserting that `internal/server` maps raw `internal/ops` errors itself.
+5. The droplet remains within 1-2 small code blocks including tests.
+"""
+blockers = ["drop_008.drop.builder_l2_b2_ta_serve_root_route"]
+created_at = "2026-05-20T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Cascade detail routing exists for both URL shapes, the handler delegates to the view seam by resolved record id, and the package has a focused HTTP-surface test that verifies not-found passthrough without pulling error-classification policy into `internal/server`."
+description = """
+Evidence:
+- `drop_008.drop.planner_l1_ta_serve_decompose` makes L2-B responsible for `/cascade/<record-id>` and tree-style `/cascade/<drop>/<planner>/...` aliases in `internal/server/**`.
+- `drop_008.drop.builder_l2_b2_ta_serve_root_route` is the exact mux predecessor this droplet must extend.
+- `mcp__gopls__.go_search(query="ErrRecordNotFound")` verified committed symbol `internal/ops.ErrRecordNotFound`, and `mcp__gopls__.go_symbol_references(file="/Users/evanschultz/Documents/Code/hylla/ta/main/internal/ops/errors.go", symbol="ErrRecordNotFound")` showed existing perimeter mappings outside `internal/server`; that is evidence that route-local mapping should stay out of B3.
+- `mcp__gopls__.go_search(query="TestServe_CascadeDetailRejectsUnknownRecord")` returned no existing symbol, so the test name remains honest as new, not yet in tree.
+
+Trace:
+- Add cascade detail path parsing for both direct record-id form and tree-style alias form.
+- Delegate only the resolved record identifier to the injected view seam.
+- Keep B3 thin: it verifies handler-surface 404 passthrough when the view seam reports not-found, but it does not own the lower-layer rule that decides which Go error counts as not-found.
+- Atomicity verification: this is 1-2 small blocks including tests, specifically one route-parser/handler block and one focused HTTP-surface not-found test block.
+
+Tests:
+- `TestServe_CascadeDetailRejectsUnknownRecord`
+- Builder validation target: `TA_TEST_PKG=./internal/server mage testFunc TestServe_CascadeDetailRejectsUnknownRecord`
+"""
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md"]
+labels = ["droplet", "ta-serve", "internal-server", "cascade-route"]
+objective = "Implement `/cascade/<id>` and tree-style cascade alias parsing in `internal/server`, delegating resolved record ids to the view layer and limiting this slice to handler-surface status passthrough for not-found outcomes."
+packages = ["github.com/evanmschultz/ta/internal/server"]
+parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
+paths = ["internal/server/routes_cascade.go", "internal/server/routes_cascade_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "B3 — cascade detail route passes through view-layer not-found status"
+updated_at = "2026-05-20T19:00:00Z"
+validation_plan = "Run `TA_TEST_PKG=./internal/server mage testFunc TestServe_CascadeDetailRejectsUnknownRecord` after implementing cascade route parsing and handler-surface not-found passthrough."
+[builder_l2_b3_ta_serve_cascade_detail_route-qa-proof]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b3_ta_serve_cascade_detail_route"
+title = "QA proof of B3 — cascade detail route parses ids and rejects unknown records"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b3_ta_serve_cascade_detail_route-qa-falsification]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b3_ta_serve_cascade_detail_route"
+title = "QA falsif of B3 — cascade detail route parses ids and rejects unknown records"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b4_ta_serve_roadmap_schema_routes]
+acceptance_criteria = """
+1. Writes only `internal/server/**`.
+2. Implements `/roadmap` and `/schema` without changing earlier route behavior or bootstrap structure.
+3. Test coverage proves both GET routes are registered and delegated.
+4. The droplet remains 1 implementation block and 1 focused test block.
+"""
+blockers = ["drop_008.drop.builder_l2_b2_ta_serve_root_route"]
+created_at = "2026-05-20T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "`/roadmap` and `/schema` are registered and delegated through the common server/view seam, with a focused test confirming successful GET wiring for both routes."
+description = """
+Evidence:
+- `drop_008.drop.planner_l1_ta_serve_decompose` assigns `/roadmap` and `/schema` route ownership to L2-B.
+- `drop_008.drop.builder_l2_b2_ta_serve_root_route` is the exact mux predecessor these two GET routes need.
+- Round-2 falsification established that `/roadmap` and `/schema` do not consume cascade-id parsing from B3, so they are parallel-safe with `drop_008.drop.builder_l2_b3_ta_serve_cascade_detail_route` once B2 has established the mux.
+- The test symbol `TestServe_RoadmapAndSchemaOnGet` is still new, not yet in tree, and is retained as a planned honest name rather than claimed as an existing symbol.
+
+Trace:
+- Register `/roadmap` and `/schema` on the mux created by B1/B2.
+- Keep both handlers thin wrappers around view calls and shared HTTP response plumbing.
+- Do not depend on B3; this slice is intentionally parallel-safe with the cascade-detail route.
+- Atomicity verification: this is 1-2 small blocks including tests, specifically one combined route-registration/handler block and one focused GET-route test block.
+
+Tests:
+- new, not yet in tree: `TestServe_RoadmapAndSchemaOnGet`
+- Builder validation target: `TA_TEST_PKG=./internal/server mage testFunc TestServe_RoadmapAndSchemaOnGet`
+"""
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md"]
+labels = ["droplet", "ta-serve", "internal-server", "roadmap-route", "schema-route"]
+objective = "Add the `/roadmap` and `/schema` GET routes in `internal/server`, each delegating to the injected view layer through the same bootstrap and status conventions established earlier in L2-B."
+packages = ["github.com/evanmschultz/ta/internal/server"]
+parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
+paths = ["internal/server/routes_docs.go", "internal/server/routes_docs_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "B4 — roadmap and schema GET routes"
+updated_at = "2026-05-20T19:00:00Z"
+validation_plan = "Run `TA_TEST_PKG=./internal/server mage testFunc TestServe_RoadmapAndSchemaOnGet` after wiring `/roadmap` and `/schema` on top of the B2 mux."
+[builder_l2_b4_ta_serve_roadmap_schema_routes-qa-proof]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b4_ta_serve_roadmap_schema_routes"
+title = "QA proof of B4 — roadmap and schema GET routes"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b4_ta_serve_roadmap_schema_routes-qa-falsification]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b4_ta_serve_roadmap_schema_routes"
+title = "QA falsif of B4 — roadmap and schema GET routes"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b5_ta_serve_search_route_status_tests]
+acceptance_criteria = """
+1. This record is not an active builder target.
+2. Active successors are `drop_008.drop.builder_l2_b5a_ta_serve_search_route` and `drop_008.drop.builder_l2_b5b_ta_serve_status_method_tests`.
+3. No builder should claim completion against this superseded combined slice.
+"""
+blockers = []
+created_at = "2026-05-20T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Superseded by round-2 planner repair; retained only so the prior record id remains auditable."
+description = """
+Round-2 supersession note:
+- Counterexample CE-3 showed this combined slice was not atomic because it mixed `/search` implementation with cross-route status assertions.
+- The authoritative replacements are `drop_008.drop.builder_l2_b5a_ta_serve_search_route` for `/search?q=` parsing and `drop_008.drop.builder_l2_b5b_ta_serve_status_method_tests` for cross-cutting method/status coverage.
+- This record is retained only because the available `ta update` tool can patch and upsert records but cannot physically rename/delete the prior id during this dispatch.
+"""
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md"]
+labels = ["droplet", "ta-serve", "internal-server", "search-route", "status-tests"]
+objective = "Superseded audit stub only. Do not dispatch this combined droplet; use `drop_008.drop.builder_l2_b5a_ta_serve_search_route` and `drop_008.drop.builder_l2_b5b_ta_serve_status_method_tests` instead."
+packages = []
+parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
+paths = []
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "B5 (superseded) — replaced by B5a search route and B5b status tests"
+updated_at = "2026-05-20T19:00:00Z"
+validation_plan = "Do not dispatch; validate the successor droplets instead."
+[builder_l2_b5_ta_serve_search_route_status_tests-qa-proof]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b5_ta_serve_search_route_status_tests"
+title = "QA proof of B5 — search query parsing and shared method/status coverage"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_b5_ta_serve_search_route_status_tests-qa-falsification]
+created_at = "2026-05-21T06:57:42Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_b5_ta_serve_search_route_status_tests"
+title = "QA falsif of B5 — search query parsing and shared method/status coverage"
+updated_at = "2026-05-21T06:57:42Z"
+
+[builder_l2_c_serveview_cascade_tree_loader]
+blockers = []
+created_at = "2026-05-20T00:00:00Z"
+objective = "Build the cascade tree loader in `new, not yet in tree: internal/serverview/cascade_tree.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed `internal/ops.ListSections` as the live tree-enumeration surface and committed `internal/templates_html_basic.Render` as the runtime render substrate to reuse rather than replacing. Scope: load the top-level cascade browser tree from live `.ta/` records, shape the minimal view model the HTTP layer can consume later, and keep template/render decisions out of this droplet. Acceptance: path scope stays inside `internal/serverview/**`; no client-side search/template substrate is introduced; builder leaves the new symbol `TestServeView_LoadCascadeTree` for the narrow-test droplet unless a tiny helper-local test is unavoidable. Atomicity verification: this is 1 small production block plus at most 1 tiny helper block."
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/cascade_tree.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D1 builder — serveview cascade tree loader"
+updated_at = "2026-05-20T00:00:00Z"
+
+[builder_l2_c_serveview_cascade_tree_loader-qa-proof]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_cascade_tree_loader"
+title = "QA proof of L2-C D1 builder — serveview cascade tree loader"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_cascade_tree_loader-qa-falsification]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_cascade_tree_loader"
+title = "QA falsif of L2-C D1 builder — serveview cascade tree loader"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_detail_loader_template_mapper]
+blockers = ["drop_008.drop.builder_l2_c_serveview_cascade_tree_loader"]
+created_at = "2026-05-20T00:00:00Z"
+objective = "Build the cascade detail loader and record-kind to Track A template mapping in `new, not yet in tree: internal/serverview/detail.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed `internal/ops.Get` for live record reads and committed render coverage already in tree for cascade drop/planner/droplet/qa templates, so this droplet must reuse those existing render contracts rather than invent a new template substrate. Scope: load one cascade record by id, resolve the committed Track A template family for the record kind, and return a narrow render request/value object for later HTTP use. Acceptance: template selection is runtime-only through committed `internal/templates_html_basic.Render`; any additional template name beyond the committed cascade drop/planner/droplet/qa set must be marked `new, not yet in tree` instead of assumed; the honest new test name reserved for D6 is `new, not yet in tree: TestServeView_RenderCascadeDrop`. Atomicity verification: this is 1 production block plus at most 1 small mapping/helper block."
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/detail.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D2 builder — serveview cascade detail loader and template mapper"
+updated_at = "2026-05-20T00:00:00Z"
+
+[builder_l2_c_serveview_detail_loader_template_mapper-qa-proof]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_detail_loader_template_mapper"
+title = "QA proof of L2-C D2 builder — serveview cascade detail loader and template mapper"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_detail_loader_template_mapper-qa-falsification]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_detail_loader_template_mapper"
+title = "QA falsif of L2-C D2 builder — serveview cascade detail loader and template mapper"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_roadmap_loader]
+blockers = ["drop_008.drop.builder_l2_c_serveview_detail_loader_template_mapper"]
+created_at = "2026-05-20T00:00:00Z"
+objective = "Build the roadmap page loader in `new, not yet in tree: internal/serverview/roadmap.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed runtime template coverage for roadmap rendering (`TestRenderBasic_RoadmapVersion` already in tree) and committed `internal/ops.Get`/`ListSections` as the live `.ta/` read surface. Scope: load the live roadmap data needed for the Track A roadmap page, shape the view model, and hand back a narrow render-ready value without introducing new HTTP concerns. Acceptance: path scope stays inside `internal/serverview/**`; render path reuses committed `internal/templates_html_basic.Render`; the honest new test name reserved for D6 is `new, not yet in tree: TestServeView_RenderRoadmap`. Atomicity verification: this is 1 small production block plus at most 1 tiny loader/helper block."
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/roadmap.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D3 builder — serveview roadmap loader"
+updated_at = "2026-05-20T00:00:00Z"
+
+[builder_l2_c_serveview_roadmap_loader-qa-proof]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_roadmap_loader"
+title = "QA proof of L2-C D3 builder — serveview roadmap loader"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_roadmap_loader-qa-falsification]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_roadmap_loader"
+title = "QA falsif of L2-C D3 builder — serveview roadmap loader"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_schema_loader]
+blockers = ["drop_008.drop.builder_l2_c_serveview_roadmap_loader"]
+created_at = "2026-05-20T00:00:00Z"
+objective = "Build the schema browser loader in `new, not yet in tree: internal/serverview/schema.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed Track A schema-browser render coverage (`TestRenderBasic_SchemaBrowser` already in tree) and committed `internal/ops` live-read surfaces, so this droplet should adapt live schema data to the existing runtime template contract. Scope: load the live schema/browser data needed by `/schema`, shape a narrow render value, and keep the result pure-server with no new client behavior. Acceptance: no edits outside `internal/serverview/**`; no new template substrate; the honest new test name reserved for D6 is `new, not yet in tree: TestServeView_RenderSchemaBrowser`. Atomicity verification: this is 1 small production block plus at most 1 tiny helper block."
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/schema.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D4 builder — serveview schema loader"
+updated_at = "2026-05-20T00:00:00Z"
+
+[builder_l2_c_serveview_schema_loader-qa-proof]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_schema_loader"
+title = "QA proof of L2-C D4 builder — serveview schema loader"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_schema_loader-qa-falsification]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_schema_loader"
+title = "QA falsif of L2-C D4 builder — serveview schema loader"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_search_loader_rendering]
+blockers = ["drop_008.drop.builder_l2_c_serveview_schema_loader"]
+created_at = "2026-05-20T00:00:00Z"
+objective = "Build the backend-rendered search path in `new, not yet in tree: internal/serverview/search.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed `internal/ops.Search` as the live search surface and explicitly chooses HANDOFF §4.3 Option A: backend-rendered `/search?q=...` with no client JS or lunr island; committed search template reuse was overclaimed, so this droplet now explicitly owns `new, not yet in tree: internal/templates_html_basic/templates/search_results.html` plus the minimal runtime render integration needed to call it. Scope: load live search results, shape a render value/body for the server route, create the new search template, and keep the search page fully server-rendered via committed `internal/templates_html_basic.Render` with a minimal new adapter for the search template. Acceptance: no client-side search island is introduced; path scope stays limited to `new, not yet in tree: internal/serverview/search.go` and `new, not yet in tree: internal/templates_html_basic/templates/search_results.html` plus the minimal committed Render-call integration required to select that template; the honest new test name reserved for the split test droplets is `new, not yet in tree: TestServeView_SearchResults`. Atomicity verification: this is 1 template file plus 1 small Render-call adapter block, so it remains 1-2 small blocks total."
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/search.go", "internal/templates_html_basic/templates/search_results.html"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D5 builder — serveview search loader and backend rendering"
+updated_at = "2026-05-20T00:00:00Z"
+[builder_l2_c_serveview_search_loader_rendering-qa-proof]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_search_loader_rendering"
+title = "QA proof of L2-C D5 builder — serveview search loader and backend rendering"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_search_loader_rendering-qa-falsification]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_search_loader_rendering"
+title = "QA falsif of L2-C D5 builder — serveview search loader and backend rendering"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_narrow_tests]
+blockers = ["drop_008.drop.builder_l2_c_serveview_search_loader_rendering"]
+completion_contract = {completion_notes = "Retired and superseded in round-2 planner repair because D6 overpacked five mandatory tests into one non-atomic droplet. Replaced by five atomic test droplets: `drop_008.drop.builder_l2_c_test_load_cascade_tree`, `drop_008.drop.builder_l2_c_test_render_cascade_drop`, `drop_008.drop.builder_l2_c_test_render_roadmap`, `drop_008.drop.builder_l2_c_test_render_schema_browser`, and `drop_008.drop.builder_l2_c_test_search_results`."}
+created_at = "2026-05-20T00:00:00Z"
+objective = "Add the narrow serveview tests in `new, not yet in tree: internal/serverview/serveview_test.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan already fixed the honest test names for this slice and scoped them to this package. Scope: add only the narrow tests that prove the five prior droplets: `new, not yet in tree: TestServeView_LoadCascadeTree`, `new, not yet in tree: TestServeView_RenderCascadeDrop`, `new, not yet in tree: TestServeView_RenderRoadmap`, `new, not yet in tree: TestServeView_RenderSchemaBrowser`, and `new, not yet in tree: TestServeView_SearchResults`. Test strategy: table-driven where multiple record/template cases exist; search-path checks should cover backend-rendered result shaping rather than client behavior. Acceptance: no production code expansion beyond tiny test-enabling seams if strictly necessary; all tests stay inside `internal/serverview/**`; builder test gate should be a `mage testFunc` pattern covering the five honest names above. Atomicity verification: this is 1 test file plus at most 1 tiny test-enabling seam in production code."
+outcome = "blocked"
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/serveview_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "L2-C D6 builder — serveview narrow tests"
+transition_notes = "Round-2 planner repair retired this non-atomic D6 droplet and superseded it with five atomic test droplets, one per honest test symbol."
+updated_at = "2026-05-20T00:00:00Z"
+[builder_l2_c_serveview_narrow_tests-qa-proof]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_narrow_tests"
+title = "QA proof of L2-C D6 builder — serveview narrow tests"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_c_serveview_narrow_tests-qa-falsification]
+created_at = "2026-05-21T06:57:57Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_serveview_narrow_tests"
+title = "QA falsif of L2-C D6 builder — serveview narrow tests"
+updated_at = "2026-05-21T06:57:57Z"
+
+[builder_l2_e_d1_mage_serve_target]
+acceptance_criteria = """
+- Path scope is exactly `magefile.go`.
+- Reuse evidence is honored: existing `run(...)`/top-level mage target patterns in `magefile.go` are reused instead of a new helper abstraction.
+- Dependency is honored: builder does not invent CLI flags or defaults ahead of `drop_008.drop.planner_l2_a_ta_serve_cmd`; if L2-A is incomplete, this droplet remains blocked.
+- If a test is added, it uses the honest reserved name `new, not yet in tree: TestMageServe_TargetExists`.
+- If no isolated test is added, the builder states that explicitly in completion notes and keeps the slice to one small code block.
+"""
+blockers = ["drop_008.drop.planner_l2_a_ta_serve_cmd"]
+completion_contract = {completion_notes = "Record whether the droplet stayed testless or added `TestMageServe_TargetExists`, and state how the final wrapper delegates to the L2-A command without duplicating runtime logic."}
+created_at = "2026-05-21T06:57:15Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- `magefile.go` exports `Serve() error`.
+- The target is a thin wrapper over the L2-A `ta serve` command and does not embed HTTP lifecycle logic.
+- The target's documented defaults stay aligned with the `ta serve` defaults owned by `drop_008.drop.planner_l2_a_ta_serve_cmd`.
+- No files outside `magefile.go` are edited in this droplet.
+"""
+depends_on = ["drop_008.drop.planner_l2_a_ta_serve_cmd"]
+description = """
+Evidence-first scope:
+- `magefile.go` exists on `github.com/evanmschultz/ta@main` and currently exposes `Build`, `Install`, `Test`, `TestFunc`, `TestPkg`, `Cover`, `Vhs`, `Vet`, `Fmt`, `FmtCheck`, `Tidy`, `Check`, `TemplatesBuildEmbed`, `TemplatesBuildVerifyStable`, and `Clean`; there is no committed `Serve()` target yet.
+- The same file already contains the local helpers `run(name string, args ...string) error`, `binDir`, and `localBuildVCSFlag`, so the wrapper should reuse the existing magefile idiom instead of inventing a helper package.
+- Parent `drop_008.drop.planner_l1_ta_serve_decompose` assigns HANDOFF §4.4 D6 to `drop_008.drop.planner_l2_e_ta_serve_supporting_docs` and marks this slice dependent on `drop_008.drop.planner_l2_a_ta_serve_cmd`.
+
+Build task:
+- Edit `magefile.go` only.
+- Add `new, not yet in tree: Serve() error` as a thin wrapper around the L2-A `ta serve` CLI entrypoint.
+- Reuse existing magefile patterns (`run(...)`, existing top-level target comment style, and existing local-dev binary conventions) rather than adding new abstractions.
+- If builder adds an isolated Go-side mage test, the honest reserved name is `new, not yet in tree: TestMageServe_TargetExists`; otherwise the builder must state explicitly that the wrapper stayed testless because the change is a one-function delegation in `magefile.go` and verification is deferred to integrated mage/CLI checks after L2-A lands.
+
+Atomicity verification:
+- This is 1–2 small blocks including tests: one block for the `Serve()` target addition in `magefile.go`, plus at most one narrow test block if the builder chooses to add `TestMageServe_TargetExists`.
+"""
+expected_outputs = ["magefile.go"]
+files = ["magefile.go", "docs/HANDOFF-pre-mvp-feature-complete.md"]
+labels = ["l2-e", "ta-serve", "mage"]
+objective = "Add a thin `Serve() error` mage target in `magefile.go` that launches the L2-A `ta serve` command with the same default bind/port contract, without introducing a new package or broadening this slice beyond mage wiring."
+packages = ["non-Go support surface; no new Go package"]
+parent_id = "drop_008.drop.planner_l2_e_ta_serve_supporting_docs"
+paths = ["magefile.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-E-D1 builder — add `mage Serve` wrapper target in `magefile.go`"
+updated_at = "2026-05-21T06:57:15Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = """
+- Optional narrow check: `mage testFunc TestMageServe_TargetExists` if the builder adds the reserved test.
+- Otherwise integrated validation happens after L2-A lands: confirm `mage -l` exposes `Serve` and that the wrapper delegates to the new `ta serve` command rather than duplicating server logic.
+"""
+
+[builder_l2_e_d1_mage_serve_target-qa-proof]
+created_at = "2026-05-21T06:58:27Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_e_d1_mage_serve_target"
+title = "QA proof of L2-E-D1 builder — add `mage Serve` wrapper target in `magefile.go`"
+updated_at = "2026-05-21T06:58:27Z"
+
+[builder_l2_e_d1_mage_serve_target-qa-falsification]
+created_at = "2026-05-21T06:58:27Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_e_d1_mage_serve_target"
+title = "QA falsif of L2-E-D1 builder — add `mage Serve` wrapper target in `magefile.go`"
+updated_at = "2026-05-21T06:58:27Z"
+
+[builder_l2_e_d2_ta_serve_docs]
+acceptance_criteria = """
+- Path scope is exactly `docs/ta-serve.md`.
+- The document covers `/`, `/cascade/<record-id>`, `/cascade/<drop>/<planner>/...`, `/roadmap`, `/schema`, and `/search?q=...`.
+- The document states the default listener contract from HANDOFF §4.1: `127.0.0.1:4321` unless overridden by the CLI surface landed by L2-A.
+- The document states that first-version search is server-rendered / zero-JS rather than a client-side island.
+- The builder explicitly notes that no isolated automated test was added because this droplet is docs-only.
+"""
+blockers = ["drop_008.drop.planner_l2_a_ta_serve_cmd"]
+completion_contract = {completion_notes = "State which route list and default listener contract were documented, and explicitly note that this docs-only droplet added no isolated automated test."}
+created_at = "2026-05-21T06:57:15Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- `docs/ta-serve.md` exists.
+- The page documents default bind/port behavior, route surface, and zero-JS backend search behavior.
+- The page scopes itself to the real `ta serve` cascade browser and does not drift into unrelated Path A or post-Path-B cleanup work.
+"""
+depends_on = ["drop_008.drop.planner_l2_a_ta_serve_cmd"]
+description = """
+Evidence-first scope:
+- `docs/HANDOFF-pre-mvp-feature-complete.md` §4.1–§4.5 is the committed Path B spec for `ta serve`: default `127.0.0.1:4321`, routes `/`, `/cascade/<record-id>`, `/cascade/<drop>/<planner>/...`, `/roadmap`, `/schema`, and `/search?q=...`, plus Option A pure-server search.
+- Parent `drop_008.drop.planner_l1_ta_serve_decompose` assigns HANDOFF §4.4 D6 to `drop_008.drop.planner_l2_e_ta_serve_supporting_docs` and requires route/default/zero-JS-search coverage in the docs slice.
+- `docs/ta-serve.md` is not present on `github.com/evanmschultz/ta@main` (GitHub fetch returned 404), so this file is `new, not yet in tree`.
+
+Build task:
+- Create `new, not yet in tree: docs/ta-serve.md`.
+- Document the operator surface only: purpose of `ta serve`, default bind/port, route map, live `.ta/` backing, and the fact that `/search?q=...` is backend-rendered zero-JS search for the first version.
+- Keep the page aligned with L2-A/L2-B/L2-C terminology and avoid promising Track B or browser-automation behavior that belongs to later integration/QA slices.
+
+Atomicity verification:
+- This is 1 small block including tests: one new docs file, with no isolated automated test expected for the docs-only slice.
+"""
+expected_outputs = ["docs/ta-serve.md"]
+files = ["docs/ta-serve.md"]
+labels = ["l2-e", "ta-serve", "docs"]
+objective = "Create the operator-facing `docs/ta-serve.md` page that explains the `ta serve` routes, default bind/port behavior, and zero-JS backend search contract for the real cascade browser."
+packages = ["non-Go support surface; no new Go package"]
+parent_id = "drop_008.drop.planner_l2_e_ta_serve_supporting_docs"
+paths = ["docs/ta-serve.md"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-E-D2 builder — add `docs/ta-serve.md` operator documentation"
+updated_at = "2026-05-21T06:57:15Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = """
+- Manual content review against HANDOFF §4.1–§4.5 and the final L2-A/L2-B/L2-C implementation.
+- No isolated automated test is expected for this docs-only droplet; correctness is semantic/documentation alignment.
+"""
+[builder_l2_e_d2_ta_serve_docs-qa-proof]
+created_at = "2026-05-21T06:58:27Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_e_d2_ta_serve_docs"
+title = "QA proof of L2-E-D2 builder — add `docs/ta-serve.md` operator documentation"
+updated_at = "2026-05-21T06:58:27Z"
+
+[builder_l2_e_d2_ta_serve_docs-qa-falsification]
+created_at = "2026-05-21T06:58:27Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_e_d2_ta_serve_docs"
+title = "QA falsif of L2-E-D2 builder — add `docs/ta-serve.md` operator documentation"
+updated_at = "2026-05-21T06:58:27Z"
+
+[builder_l2_d_d1_server_fixture_boot]
+acceptance_criteria = "1. `internal/servee2e/fixture_test.go` introduces `new, not yet in tree: func newFixtureProject(t, recs ...record) string` as the shared fixture-project helper for later droplets. 2. `new, not yet in tree: record` values are consumed by that helper so D2 and D3 can build per-test fixtures inline instead of extending shared testdata ownership. 3. Any shared fixture material stays minimal and confined to `new, not yet in tree: internal/servee2e/testdata/minimal-shared/**`; D1 does not own per-test fixture expansions. 4. The droplet does not assert route-specific page content beyond proving the harness can boot and issue one successful GET. 5. Builder verification target is a narrow `mage testFunc` slice for the new harness test(s), not full-module `mage check`."
+blockers = ["drop_008.drop.builder_l2_b5_ta_serve_search_route_status_tests", "drop_008.drop.builder_l2_c_serveview_narrow_tests"]
+completion_contract = {completion_notes = "Complete when the reusable `internal/servee2e` harness boots the real server over `httptest`, `new, not yet in tree: func newFixtureProject(t, recs ...record) string` exists as the shared fixture API, any shared fixture material stays minimal under `internal/servee2e/testdata/minimal-shared/**`, and later droplets are expected to add per-test fixtures inline via the helper rather than extending D1-owned testdata. This is 1-2 small blocks."}
+created_at = "2026-05-21T00:00:00Z"
+description = "Atomic droplet 1 of 4. Own the reusable test harness and shared fixture API only. D1 creates the fixture skeleton plus `new, not yet in tree: func newFixtureProject(t, recs ...record) string`; later droplets use that helper to write richer per-test fixture records inline instead of claiming shared `testdata/**` ownership. If shared fixture material is still needed, keep it minimal under `new, not yet in tree: internal/servee2e/testdata/minimal-shared/**`. Do not add route assertions here beyond a smoke-level server boot check. Package scope stays `github.com/evanmschultz/ta/internal/servee2e`. Atomicity verification: this is 1-2 small blocks total, limited to fixture boot plumbing plus the shared helper API and its narrow harness test."
+labels = ["builder", "ta-serve", "internal-servee2e"]
+objective = "Boot the real `ta serve` HTTP stack under `internal/servee2e/**` against a fixture project and establish the shared fixture helper API so later droplets can assert over real GET responses with per-test inline records instead of direct function calls. Evidence: `drop_008.drop.planner_l1_ta_serve_decompose` routes L2-D to real `httptest` integration; `drop_008.drop.builder_l2_b5_ta_serve_search_route_status_tests` is the terminal L2-B builder; `drop_008.drop.builder_l2_c_serveview_narrow_tests` is the terminal L2-C builder; those two builder-complete records now gate D1. "
+packages = ["github.com/evanmschultz/ta/internal/servee2e"]
+parent_id = "drop_008.drop.planner_l2_d_ta_serve_integration"
+paths = ["internal/servee2e/fixture_test.go", "internal/servee2e/testdata/minimal-shared/**"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-D-D1 builder — servee2e server fixture boot"
+updated_at = "2026-05-21T00:00:00Z"
+[builder_l2_d_d1_server_fixture_boot-qa-proof]
+created_at = "2026-05-21T06:59:34Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_d_d1_server_fixture_boot"
+title = "QA proof of L2-D-D1 builder — servee2e server fixture boot"
+updated_at = "2026-05-21T06:59:34Z"
+
+[builder_l2_d_d1_server_fixture_boot-qa-falsification]
+created_at = "2026-05-21T06:59:34Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_d_d1_server_fixture_boot"
+title = "QA falsif of L2-D-D1 builder — servee2e server fixture boot"
+updated_at = "2026-05-21T06:59:34Z"
+
+[builder_l2_d_d2_route_flow_tests]
+acceptance_criteria = "1. Add `new, not yet in tree: TestServeE2E_HTTPCascadeTreeOnGet` covering `GET /` against the real server fixture. 2. Add `new, not yet in tree: TestServeE2E_HTTPRoadmapOnGet` covering `GET /roadmap` against the real server fixture. 3. Add `new, not yet in tree: TestServeE2E_HTTPSchemaOnGet` covering `GET /schema` against the real server fixture. 4. D2 uses D1's `newFixtureProject` helper to build any route-specific fixture records inline instead of expanding shared testdata ownership. 5. Assertions stay contract-level: HTTP 200 plus route-specific HTML markers the builder can prove from the implemented server/view slice, without reaching into internal functions. 6. Builder verification target is a narrow `mage testFunc 'TestServeE2E_HTTPCascadeTreeOnGet|TestServeE2E_HTTPRoadmapOnGet|TestServeE2E_HTTPSchemaOnGet'` slice."
+blockers = ["drop_008.drop.planner_l2_b_ta_serve_http_routes", "drop_008.drop.planner_l2_c_ta_serve_views", "drop_008.drop.builder_l2_d_d1_server_fixture_boot"]
+completion_contract = {completion_notes = "Complete when the route-flow file adds only the three named GET tests for `/`, `/roadmap`, and `/schema`, all run through the D1 real-server harness and shared fixture helper, and no search/detail/browser scope leaks in. This remains 1-2 small blocks."}
+created_at = "2026-05-21T00:00:00Z"
+description = "Atomic droplet 2 of 4. Own only the route-flow GET tests that prove the top-level tree, roadmap, and schema pages render over real HTTP. Reuse the D1 harness plus D1's shared fixture helper, and build any richer route-specific fixture records inline in this droplet rather than claiming shared `testdata/**` ownership. Keep this droplet off search and detail drill-down; those belong to D3. Package scope stays `github.com/evanmschultz/ta/internal/servee2e`. Atomicity verification: this is 1-2 small blocks total, limited to one test file with the three named top-level GET tests and any tiny helper local to that file."
+labels = ["builder", "ta-serve", "internal-servee2e"]
+objective = "Add the first real HTTP flow assertions in `internal/servee2e/**` for the cascade tree root, roadmap, and schema GET routes using the D1 harness and shared fixture helper. Evidence: `drop_008.drop.planner_l1_ta_serve_decompose` already reserved `TestServeE2E_HTTPCascadeTreeOnGet`, `TestServeE2E_HTTPRoadmapOnGet`, and blocked browser specs for this L2-D slice; round-2 falsification restores explicit `/schema` integration coverage here."
+packages = ["github.com/evanmschultz/ta/internal/servee2e"]
+parent_id = "drop_008.drop.planner_l2_d_ta_serve_integration"
+paths = ["internal/servee2e/routes_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-D-D2 builder — route-flow GET tests"
+updated_at = "2026-05-21T00:00:00Z"
+[builder_l2_d_d2_route_flow_tests-qa-proof]
+created_at = "2026-05-21T06:59:34Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_d_d2_route_flow_tests"
+title = "QA proof of L2-D-D2 builder — route-flow GET tests"
+updated_at = "2026-05-21T06:59:34Z"
+
+[builder_l2_d_d2_route_flow_tests-qa-falsification]
+created_at = "2026-05-21T06:59:34Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_d_d2_route_flow_tests"
+title = "QA falsif of L2-D-D2 builder — route-flow GET tests"
+updated_at = "2026-05-21T06:59:34Z"
+
+[builder_l2_d_d3_search_detail_tests]
+acceptance_criteria = "1. Add `new, not yet in tree: TestServeE2E_HTTPCascadeDetailOnGet` covering `GET /cascade/<record-id>` against a known fixture record id. 2. Add `new, not yet in tree: TestServeE2E_HTTPSearchOnQuery` covering `GET /search?q=...` against the real server fixture. 3. D3 uses D1's `newFixtureProject` helper to build detail/search-specific fixture records inline instead of expanding shared testdata ownership. 4. Search assertions verify server-rendered HTML results, not a JS island or direct function return. 5. Detail assertions prove drill-down content for one known fixture record id and stay honest about any fixture record symbol by marking it `new, not yet in tree` if introduced here. 6. Builder verification target is a narrow `mage testFunc 'TestServeE2E_HTTPCascadeDetailOnGet|TestServeE2E_HTTPSearchOnQuery'` slice."
+blockers = ["drop_008.drop.planner_l2_b_ta_serve_http_routes", "drop_008.drop.planner_l2_c_ta_serve_views", "drop_008.drop.builder_l2_d_d1_server_fixture_boot", "drop_008.drop.builder_l2_d_d2_route_flow_tests"]
+completion_contract = {completion_notes = "Complete when the detail/search file adds only the two named top-level tests for cascade detail and query search, both run through the real HTTP harness, and no browser-blocker scaffolding is mixed into the file. This is 1-2 small blocks."}
+created_at = "2026-05-21T00:00:00Z"
+description = "Atomic droplet 3 of 4. Own only detail and search GET coverage. Reuse the D1 harness and D1 shared fixture helper, and build any richer detail/search fixture records inline in this droplet rather than extending shared D1-owned testdata. Keep the file separate from D2 so the route-flow and search/detail contracts stay isolated. Package scope stays `github.com/evanmschultz/ta/internal/servee2e`. Atomicity verification: this is 1-2 small blocks total, limited to one test file with the two named top-level tests and minimal local setup."
+labels = ["builder", "ta-serve", "internal-servee2e"]
+objective = "Add the remaining immediate HTTP contract tests for cascade detail drill-down and server-side search query handling in `internal/servee2e/**`, using the D1 harness plus the shared fixture helper for per-test inline records. Evidence: `drop_008.drop.planner_l1_ta_serve_decompose` explicitly names `new, not yet in tree: TestServeE2E_HTTPCascadeDetailOnGet` and `new, not yet in tree: TestServeE2E_HTTPSearchOnQuery` for L2-D."
+packages = ["github.com/evanmschultz/ta/internal/servee2e"]
+parent_id = "drop_008.drop.planner_l2_d_ta_serve_integration"
+paths = ["internal/servee2e/search_detail_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-D-D3 builder — search and cascade detail HTTP tests"
+updated_at = "2026-05-21T00:00:00Z"
+[builder_l2_d_d3_search_detail_tests-qa-proof]
+created_at = "2026-05-21T06:59:34Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_d_d3_search_detail_tests"
+title = "QA proof of L2-D-D3 builder — search and cascade detail HTTP tests"
+updated_at = "2026-05-21T06:59:34Z"
+
+[builder_l2_d_d3_search_detail_tests-qa-falsification]
+created_at = "2026-05-21T06:59:34Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_d_d3_search_detail_tests"
+title = "QA falsif of L2-D-D3 builder — search and cascade detail HTTP tests"
+updated_at = "2026-05-21T06:59:34Z"
+
+[builder_l2_d_d4_playwright_contract_shim]
+acceptance_criteria = "1. Reserve `new, not yet in tree, blocked by drop_009: TestServe_AsHTTP_CascadeTreeOnGet_Playwright` in planner-facing builder notes or shim comments without pretending the browser substrate exists today. 2. Reserve `new, not yet in tree, blocked by drop_009: TestServe_AsHTTP_SearchFlow_PlaywrightAxe` alongside the cascade-tree browser spec. 3. Any code added in this droplet is non-executing blocker plumbing only; it must not make `mage` depend on Playwright before `drop_009` lands. 4. The droplet explicitly records the cross-drop blocker on `drop_009` in addition to the L2-B/L2-C implementation blockers. 5. Builder verification target, if any code exists, is a narrow local `mage testFunc` slice that proves the shim compiles without invoking browser tooling."
+blockers = ["drop_008.drop.planner_l2_b_ta_serve_http_routes", "drop_008.drop.planner_l2_c_ta_serve_views", "drop_008.drop.builder_l2_d_d1_server_fixture_boot", "drop_008.drop.builder_l2_d_d2_route_flow_tests", "drop_008.drop.builder_l2_d_d3_search_detail_tests", "drop_009.drop.playwright_axe_track_a_contrast"]
+completion_contract = {completion_notes = "Complete when the durable plan preserves the blocked Playwright contract seam under `internal/servee2e/**`, names both `TestServe_AsHTTP_CascadeTreeOnGet_Playwright` and `TestServe_AsHTTP_SearchFlow_PlaywrightAxe` exactly as blocked by `drop_009`, and adds no real browser execution. This is 1-2 small blocks."}
+created_at = "2026-05-21T00:00:00Z"
+description = "Atomic droplet 4 of 4. Own only contract-shim and blocker plumbing for the future browser pass. Do not implement real Playwright execution here. The durable record must preserve both honest blocked spec names exactly: `new, not yet in tree, blocked by drop_009: TestServe_AsHTTP_CascadeTreeOnGet_Playwright` and `new, not yet in tree, blocked by drop_009: TestServe_AsHTTP_SearchFlow_PlaywrightAxe`. Package scope stays `github.com/evanmschultz/ta/internal/servee2e`. Atomicity verification: this is 1-2 small blocks total, limited to one shim/blocker file plus any tiny TODO or skip-style plumbing needed to reserve the seam."
+labels = ["builder", "ta-serve", "internal-servee2e", "blocked-by-drop_009"]
+objective = "Reserve the blocked browser-contract seam under `internal/servee2e/**` without claiming browser evidence before the Playwright substrate lands in `drop_009`. Evidence: L1 marks Playwright + axe verification blocked by `drop_009`; this dispatch explicitly pins `TestServe_AsHTTP_CascadeTreeOnGet_Playwright` as blocked-by-drop_009."
+packages = ["github.com/evanmschultz/ta/internal/servee2e"]
+parent_id = "drop_008.drop.planner_l2_d_ta_serve_integration"
+paths = ["internal/servee2e/playwright_contract_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-D-D4 builder — Playwright contract shim and blocker plumbing"
+updated_at = "2026-05-21T00:00:00Z"
+[builder_l2_d_d4_playwright_contract_shim-qa-proof]
+created_at = "2026-05-21T06:59:34Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_d_d4_playwright_contract_shim"
+title = "QA proof of L2-D-D4 builder — Playwright contract shim and blocker plumbing"
+updated_at = "2026-05-21T06:59:34Z"
+
+[builder_l2_d_d4_playwright_contract_shim-qa-falsification]
+created_at = "2026-05-21T06:59:34Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_d_d4_playwright_contract_shim"
+title = "QA falsif of L2-D-D4 builder — Playwright contract shim and blocker plumbing"
+updated_at = "2026-05-21T06:59:34Z"
+
+[builder_a1_serve_cmd_file]
+acceptance_criteria = "Path scope is exactly cmd/ta/serve_cmd.go (new file). Reuse cobra/fang pattern from newGetCmd. No HTTP details inline — delegates to a server config object. No edits outside cmd/ta/."
+blockers = []
+completion_contract = {completion_notes = "a1 landed orchestrator-direct (Q7B silent-failed — foot-gun §6.2). cmd/ta/serve_cmd.go created: newServeCmd() with --bind/--port (defaults 127.0.0.1/4321 per L2-A round-2 pin); serveConfig struct as L2-A→L2-B contract; runServeHTTPFunc seam swappable by tests; runServeHTTP placeholder body."}
+created_at = "2026-05-21T06:58:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "cmd/ta/serve_cmd.go exists with newServeCmd() returning a cobra.Command. Flag plumbing extracts --bind and --port into a server config struct (not direct http.ListenAndServe in cmd/ta). Pattern mirrors cmd/ta/get_cmd.go newGetCmd()."
+depends_on = []
+description = "D1 of L2-A. Per parent drop_008.drop.planner_l2_a_ta_serve_cmd: create the cobra subcommand wiring file. Atomicity: 1-2 small blocks INCL tests (no tests in D1; tests live in D3)."
+expected_outputs = ["cmd/ta/serve_cmd.go"]
+files = ["cmd/ta/serve_cmd.go"]
+labels = ["l2-a", "ta-serve", "cmd-ta"]
+objective = "Add cmd/ta/serve_cmd.go defining newServeCmd() using the same cobra/fang construction style as newGetCmd. Flag parsing for --bind and --port delegates into a server config object."
+outcome = "success"
+packages = ["github.com/evanmschultz/ta/cmd/ta"]
+parent_id = "drop_008.drop.planner_l2_a_ta_serve_cmd"
+paths = ["cmd/ta/serve_cmd.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "L2-A-D1 builder — add cmd/ta/serve_cmd.go (newServeCmd)"
+updated_at = "2026-05-21T06:58:00Z"
+validation_plan = "Verify file exists and compiles via mage testPkg ./cmd/ta after D2 wires registration."
+[builder_a1_serve_cmd_file-qa-proof]
+created_at = "2026-05-21T07:01:35Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_a1_serve_cmd_file"
+title = "QA proof of L2-A-D1 builder — add cmd/ta/serve_cmd.go (newServeCmd)"
+updated_at = "2026-05-21T07:01:35Z"
+
+[builder_a1_serve_cmd_file-qa-falsification]
+created_at = "2026-05-21T07:01:35Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_a1_serve_cmd_file"
+title = "QA falsif of L2-A-D1 builder — add cmd/ta/serve_cmd.go (newServeCmd)"
+updated_at = "2026-05-21T07:01:35Z"
+
+[builder_a2_register_serve_subcommand]
+acceptance_criteria = "Path scope is exactly cmd/ta/main.go. Single registration edit; no changes to runRoot or runServe (bare MCP). All existing TestServeFlag_* tests still pass."
+blockers = []
+completion_contract = {completion_notes = "a2 landed orchestrator-direct. cmd/ta/main.go: newServeCmd() added to newRootCmd().AddCommand list. runRoot/runServe (bare-ta MCP) untouched."}
+created_at = "2026-05-21T06:58:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "newServeCmd() is added as a subcommand of newRootCmd() in cmd/ta/main.go. runRoot() and bare-ta MCP serve behavior are unchanged. The existing TestServeFlag_* tests continue to pass."
+depends_on = ["drop_008.drop.builder_a1_serve_cmd_file"]
+description = "D2 of L2-A. Per parent drop_008.drop.planner_l2_a_ta_serve_cmd: thread newServeCmd into newRootCmd registration. Atomicity: 1 small targeted edit."
+expected_outputs = ["cmd/ta/main.go"]
+files = ["cmd/ta/main.go"]
+labels = ["l2-a", "ta-serve", "cmd-ta"]
+objective = "Register newServeCmd() under newRootCmd() in cmd/ta/main.go without changing runRoot() or bare-ta MCP serve behavior."
+outcome = "success"
+packages = ["github.com/evanmschultz/ta/cmd/ta"]
+parent_id = "drop_008.drop.planner_l2_a_ta_serve_cmd"
+paths = ["cmd/ta/main.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "L2-A-D2 builder — register newServeCmd in cmd/ta/main.go"
+updated_at = "2026-05-21T06:58:00Z"
+validation_plan = "Verify via mage testPkg ./cmd/ta — existing TestServeFlag_* must stay green."
+[builder_a2_register_serve_subcommand-qa-proof]
+created_at = "2026-05-21T07:01:35Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_a2_register_serve_subcommand"
+title = "QA proof of L2-A-D2 builder — register newServeCmd in cmd/ta/main.go"
+updated_at = "2026-05-21T07:01:35Z"
+
+[builder_a2_register_serve_subcommand-qa-falsification]
+created_at = "2026-05-21T07:01:35Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_a2_register_serve_subcommand"
+title = "QA falsif of L2-A-D2 builder — register newServeCmd in cmd/ta/main.go"
+updated_at = "2026-05-21T07:01:35Z"
+
+[builder_a3_serve_cmd_narrow_tests]
+acceptance_criteria = "Path scope is exactly `cmd/ta/serve_cmd_test.go` (new file). All three tests use cobra command tree walking + flag-value assertions; no HTTP boot in test. `TestServeCmd_DefaultBindAndPort` asserts default bind=`127.0.0.1` and port=`4321`. Each test is a small block."
+blockers = []
+completion_contract = {completion_notes = "a3 landed orchestrator-direct. cmd/ta/serve_cmd_test.go: TestServeCmd_RegistersSubcommand (root tree walk) + TestServeCmd_DefaultBindAndPort (round-2 default pin) + TestServeCmd_BindAndPortFlagsDelegate (runServeHTTPFunc swap captures cfg). 3/3 green."}
+created_at = "2026-05-21T06:58:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "cmd/ta/serve_cmd_test.go exists with new, not yet in tree TestServeCmd_RegistersSubcommand verifying newServeCmd is reachable under newRootCmd; new, not yet in tree TestServeCmd_BindAndPortFlagsDelegate verifying --bind and --port flags populate a server config object; and new, not yet in tree TestServeCmd_DefaultBindAndPort asserting the default bind is `127.0.0.1` and the default port is `4321`."
+depends_on = ["drop_008.drop.builder_a1_serve_cmd_file", "drop_008.drop.builder_a2_register_serve_subcommand"]
+description = "D3 of L2-A. Tests for D1+D2 plus pinned CLI defaults. Atomicity: 1-2 small blocks (three narrow tests in one file, each a small block)."
+expected_outputs = ["cmd/ta/serve_cmd_test.go"]
+files = ["cmd/ta/serve_cmd_test.go"]
+labels = ["l2-a", "ta-serve", "cmd-ta", "tests"]
+objective = "Add `cmd/ta/serve_cmd_test.go` with three narrow tests: `TestServeCmd_RegistersSubcommand`, `TestServeCmd_BindAndPortFlagsDelegate`, and `TestServeCmd_DefaultBindAndPort`. Each is a single small assertion block."
+outcome = "success"
+packages = ["github.com/evanmschultz/ta/cmd/ta"]
+parent_id = "drop_008.drop.planner_l2_a_ta_serve_cmd"
+paths = ["cmd/ta/serve_cmd_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "L2-A-D3 builder — cmd/ta/serve_cmd_test.go narrow tests"
+updated_at = "2026-05-21T06:58:00Z"
+validation_plan = "`mage testFunc TestServeCmd_RegistersSubcommand`, `mage testFunc TestServeCmd_BindAndPortFlagsDelegate`, and `mage testFunc TestServeCmd_DefaultBindAndPort` each pass."
+[builder_a3_serve_cmd_narrow_tests-qa-proof]
+created_at = "2026-05-21T07:01:35Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_a3_serve_cmd_narrow_tests"
+title = "QA proof of L2-A-D3 builder — cmd/ta/serve_cmd_test.go narrow tests"
+updated_at = "2026-05-21T07:01:35Z"
+
+[builder_a3_serve_cmd_narrow_tests-qa-falsification]
+created_at = "2026-05-21T07:01:35Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_a3_serve_cmd_narrow_tests"
+title = "QA falsif of L2-A-D3 builder — cmd/ta/serve_cmd_test.go narrow tests"
+updated_at = "2026-05-21T07:01:35Z"
+
+[builder_l2_c_test_load_cascade_tree]
+blockers = ["drop_008.drop.builder_l2_c_serveview_cascade_tree_loader"]
+completion_contract = {completion_notes = "Complete when `TestServeView_LoadCascadeTree` exists as the only top-level test symbol owned by this droplet, proves only the D1 cascade-tree behavior, and remains 1-2 small blocks total."}
+created_at = "2026-05-21T00:00:00Z"
+objective = "Add only `new, not yet in tree: TestServeView_LoadCascadeTree` in `new, not yet in tree: internal/serverview/serveview_test.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan and L2-C planner already pinned this honest test name for the cascade-tree loader slice, and `drop_008.drop.builder_l2_c_serveview_cascade_tree_loader` owns `new, not yet in tree: internal/serverview/cascade_tree.go`. Scope: prove only the cascade tree loader behavior from `drop_008.drop.builder_l2_c_serveview_cascade_tree_loader`; do not add roadmap, schema, detail, or search assertions here. Test strategy: table-driven only if multiple tree-shape cases are necessary; otherwise keep one focused test with minimal fixture setup. Acceptance: no production code expansion beyond a tiny test seam if strictly necessary; test scope stays inside `internal/serverview/**`; builder verification target is `mage testFunc TestServeView_LoadCascadeTree`. Atomicity verification: this is 1 small test function plus at most 1 tiny local setup helper, so it is 1-2 small blocks total."
+packages = ["github.com/evanmschultz/ta/internal/serverview"]
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/serveview_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D6a builder — test load cascade tree"
+updated_at = "2026-05-21T00:00:00Z"
+
+[builder_l2_c_test_load_cascade_tree-qa-proof]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_load_cascade_tree"
+title = "QA proof of L2-C D6a builder — test load cascade tree"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_load_cascade_tree-qa-falsification]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_load_cascade_tree"
+title = "QA falsif of L2-C D6a builder — test load cascade tree"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_render_cascade_drop]
+blockers = ["drop_008.drop.builder_l2_c_serveview_detail_loader_template_mapper"]
+completion_contract = {completion_notes = "Complete when `TestServeView_RenderCascadeDrop` exists as the only top-level test symbol owned by this droplet, proves only the D2 cascade-detail render path, and remains 1-2 small blocks total."}
+created_at = "2026-05-21T00:00:00Z"
+objective = "Add only `new, not yet in tree: TestServeView_RenderCascadeDrop` in `new, not yet in tree: internal/serverview/serveview_test.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the L2-C planner pins this honest test name against the cascade detail/template-mapper slice, and `drop_008.drop.builder_l2_c_serveview_detail_loader_template_mapper` owns `new, not yet in tree: internal/serverview/detail.go` plus runtime mapping to the committed cascade Track A templates. Scope: prove only cascade drop detail rendering/template selection from `drop_008.drop.builder_l2_c_serveview_detail_loader_template_mapper`; do not add roadmap, schema, tree, or search assertions here. Test strategy: keep fixture setup minimal and local. Acceptance: no production code expansion beyond a tiny test seam if strictly necessary; test scope stays inside `internal/serverview/**`; builder verification target is `mage testFunc TestServeView_RenderCascadeDrop`. Atomicity verification: this is 1 small test function plus at most 1 tiny local setup helper, so it is 1-2 small blocks total."
+packages = ["github.com/evanmschultz/ta/internal/serverview"]
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/serveview_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D6b builder — test render cascade drop"
+updated_at = "2026-05-21T00:00:00Z"
+
+[builder_l2_c_test_render_cascade_drop-qa-proof]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_render_cascade_drop"
+title = "QA proof of L2-C D6b builder — test render cascade drop"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_render_cascade_drop-qa-falsification]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_render_cascade_drop"
+title = "QA falsif of L2-C D6b builder — test render cascade drop"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_render_roadmap]
+blockers = ["drop_008.drop.builder_l2_c_serveview_roadmap_loader"]
+completion_contract = {completion_notes = "Complete when `TestServeView_RenderRoadmap` exists as the only top-level test symbol owned by this droplet, proves only the D3 roadmap path, and remains 1-2 small blocks total."}
+created_at = "2026-05-21T00:00:00Z"
+objective = "Add only `new, not yet in tree: TestServeView_RenderRoadmap` in `new, not yet in tree: internal/serverview/serveview_test.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the L2-C planner pins this honest test name for the roadmap loader slice, and `drop_008.drop.builder_l2_c_serveview_roadmap_loader` owns `new, not yet in tree: internal/serverview/roadmap.go` with reuse of the committed roadmap render contract. Scope: prove only the roadmap render-ready value produced by `drop_008.drop.builder_l2_c_serveview_roadmap_loader`; do not add tree, detail, schema, or search assertions here. Test strategy: keep setup minimal and local. Acceptance: no production code expansion beyond a tiny test seam if strictly necessary; test scope stays inside `internal/serverview/**`; builder verification target is `mage testFunc TestServeView_RenderRoadmap`. Atomicity verification: this is 1 small test function plus at most 1 tiny local setup helper, so it is 1-2 small blocks total."
+packages = ["github.com/evanmschultz/ta/internal/serverview"]
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/serveview_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D6c builder — test render roadmap"
+updated_at = "2026-05-21T00:00:00Z"
+
+[builder_l2_c_test_render_roadmap-qa-proof]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_render_roadmap"
+title = "QA proof of L2-C D6c builder — test render roadmap"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_render_roadmap-qa-falsification]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_render_roadmap"
+title = "QA falsif of L2-C D6c builder — test render roadmap"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_render_schema_browser]
+blockers = ["drop_008.drop.builder_l2_c_serveview_schema_loader"]
+completion_contract = {completion_notes = "Complete when `TestServeView_RenderSchemaBrowser` exists as the only top-level test symbol owned by this droplet, proves only the D4 schema-browser path, and remains 1-2 small blocks total."}
+created_at = "2026-05-21T00:00:00Z"
+objective = "Add only `new, not yet in tree: TestServeView_RenderSchemaBrowser` in `new, not yet in tree: internal/serverview/serveview_test.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the L2-C planner pins this honest test name for the schema-browser slice, and `drop_008.drop.builder_l2_c_serveview_schema_loader` owns `new, not yet in tree: internal/serverview/schema.go` with reuse of the committed schema-browser render contract. Scope: prove only the schema-browser render-ready value from `drop_008.drop.builder_l2_c_serveview_schema_loader`; do not add tree, detail, roadmap, or search assertions here. Test strategy: keep setup minimal and local. Acceptance: no production code expansion beyond a tiny test seam if strictly necessary; test scope stays inside `internal/serverview/**`; builder verification target is `mage testFunc TestServeView_RenderSchemaBrowser`. Atomicity verification: this is 1 small test function plus at most 1 tiny local setup helper, so it is 1-2 small blocks total."
+packages = ["github.com/evanmschultz/ta/internal/serverview"]
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/serveview_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D6d builder — test render schema browser"
+updated_at = "2026-05-21T00:00:00Z"
+
+[builder_l2_c_test_render_schema_browser-qa-proof]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_render_schema_browser"
+title = "QA proof of L2-C D6d builder — test render schema browser"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_render_schema_browser-qa-falsification]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_render_schema_browser"
+title = "QA falsif of L2-C D6d builder — test render schema browser"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_search_results]
+blockers = ["drop_008.drop.builder_l2_c_serveview_search_loader_rendering"]
+completion_contract = {completion_notes = "Complete when `TestServeView_SearchResults` exists as the only top-level test symbol owned by this droplet, proves only the D5 search-results path, and remains 1-2 small blocks total."}
+created_at = "2026-05-21T00:00:00Z"
+objective = "Add only `new, not yet in tree: TestServeView_SearchResults` in `new, not yet in tree: internal/serverview/serveview_test.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the L2-C planner pins this honest test name for the search slice, and `drop_008.drop.builder_l2_c_serveview_search_loader_rendering` now owns the new search template integration. Scope: prove only backend-rendered search result shaping/rendering from `drop_008.drop.builder_l2_c_serveview_search_loader_rendering`; do not add tree, detail, roadmap, or schema assertions here. Test strategy: keep setup minimal and local, covering server-rendered result output rather than client behavior. Acceptance: no production code expansion beyond a tiny test seam if strictly necessary; test scope stays inside `internal/serverview/**`; builder verification target is `mage testFunc TestServeView_SearchResults`. Atomicity verification: this is 1 small test function plus at most 1 tiny local setup helper, so it is 1-2 small blocks total."
+packages = ["github.com/evanmschultz/ta/internal/serverview"]
+parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
+paths = ["internal/serverview/serveview_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-C D6e builder — test search results"
+updated_at = "2026-05-21T00:00:00Z"
+
+[builder_l2_c_test_search_results-qa-proof]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_search_results"
+title = "QA proof of L2-C D6e builder — test search results"
+updated_at = "2026-05-21T17:17:16Z"
+
+[builder_l2_c_test_search_results-qa-falsification]
+created_at = "2026-05-21T17:17:16Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_008.drop.builder_l2_c_test_search_results"
+title = "QA falsif of L2-C D6e builder — test search results"
+updated_at = "2026-05-21T17:17:16Z"

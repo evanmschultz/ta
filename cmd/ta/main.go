@@ -115,6 +115,7 @@ func newRootCmd() *cobra.Command {
 		newTemplateCmd(),
 		newInitCmd(),
 		newIndexCmd(),
+		newServeCmd(),
 	)
 	// Custom help command so `ta h` and `ta h <cmd>` work in addition
 	// to cobra's default `ta help [cmd]`. Mirrors cobra's default help

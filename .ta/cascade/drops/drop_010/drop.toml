@@ -48,7 +48,7 @@ updated_at = "2026-05-21T04:19:12Z"
 [planner_l1_pivot_cleanup_decompose]
 acceptance_criteria = "1. 4 L2 sub-planners with disjoint path scopes. 2. Every parent DoC item 1-12 maps to exactly one L2 owner. 3. Every L2 specifies packages, blockers, expected droplet count, and atomicity verification (each builder droplet is 1-2 small blocks including tests). 4. Stil pages plus views_stil_test.go have explicit ownership. 5. Mage cleanup explicitly names TemplatesBuildEmbed, TemplatesBuildVerifyStable, Check, errPnpmAbsent, and ensurePnpm. 6. No semver phrasing. 7. Root embed.go remains unowned-by-change unless an L2 explicitly justifies touching it."
 completed_at = "2026-05-21T05:45:00Z"
-completion_contract = {completion_notes = "ROUND 3 — all 3 CE fixes applied. CE-1 (path-disjointness): stil-only legacy assets (StilLayout.astro + stil_records.ts) reassigned from L2-A to L2-B. CE-2 (internal/** overlap): L2-C glob narrowed to exact files {doc.go, embed.go, embed_test.go, dist/**} excluding views_stil_test.go + testdata/stil/** owned by L2-B. CE-3 (D4 atomicity): L2-D D4 split into D4a (compile clean + mage check), D4b (standalone example builds), D4c (binary embed + install proof). L2-D droplet count 4→6. Round-2 structure preserved (4 lanes, explicit stil owner, 5 mage symbols enumerated, install separated, root embed.go untouched). Served by codex-exec gpt-5.4."}
+completion_contract = {completion_notes = "ROUND 4 fixes applied: CE-A thariq_records.ts added to L2-A path_globs (4th glob); CE-B L2-B B5 narrowed to retire-only (no preserve branch). Successor stil Go verification routed to drop_009 L2-A + L2-D examples/stil/ build proof. Served by codex-exec gpt-5.4."}
 created_at = "2026-05-21T03:55:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
@@ -72,7 +72,8 @@ L2-A
 - path_globs:
   1. `examples/thariq/**`
   2. `web/templates_embed/src/pages/thariq/**`
-  3. `web/templates_embed/testdata/thariq/**`
+  3. `web/templates_embed/src/mock/thariq_records.ts`
+  4. `web/templates_embed/testdata/thariq/**`
 - packages: `none (Astro-only lane)`
 - expected_droplet_count: `4`
 - atomicity_verification: `A1 Astro project shell; A2 move 2-3 route files plus imports; A3 move remaining route files plus fixtures; A4 local build/test wiring. Each droplet is constrained to 1-2 small blocks including tests/artifacts.`
@@ -81,13 +82,13 @@ L2-A
 L2-B
 - id: `drop_010.drop.planner_l2_b_stil_standalone_examples_and_tests`
 - title: `L2-B planner — stil standalone Astro project and stil test disposition`
-- objective: Move the stil cascade-view surface into `examples/stil/` as its own standalone Astro project and make the `views_stil_test.go` preservation-vs-retirement decision explicit as first-class scope. Evidence: `web/templates_embed/src/pages/stil/` contains `index.astro` plus the 7 substantive view routes `cascade_drop`, `cascade_droplet`, `cascade_planner`, `cascade_qa_falsification`, `cascade_qa_proof`, `roadmap_version`, `schema_browser`; `src/pages/stil/index.astro` imports `../../layouts/StilLayout.astro`; `src/pages/stil/cascade_drop.astro` imports `../../layouts/StilLayout.astro` plus `../../mock/stil_records.ts`; `internal/templates_html_embed/views_stil_test.go` regression-pins those same 7 route stems and treats them as the authoritative test set.
+- objective: Move the stil cascade-view surface into `examples/stil/` as its own standalone Astro project and retire the embed-tied `views_stil_test.go` golden surface explicitly as first-class scope. Evidence: `web/templates_embed/src/pages/stil/` contains `index.astro` plus the 7 substantive view routes `cascade_drop`, `cascade_droplet`, `cascade_planner`, `cascade_qa_falsification`, `cascade_qa_proof`, `roadmap_version`, `schema_browser`; `src/pages/stil/index.astro` imports `../../layouts/StilLayout.astro`; `src/pages/stil/cascade_drop.astro` imports `../../layouts/StilLayout.astro` plus `../../mock/stil_records.ts`; `internal/templates_html_embed/views_stil_test.go` regression-pins those same 7 route stems and treats them as the authoritative test set.
 - definition_of_complete:
   1. `examples/stil/` has its own `package.json`, `astro.config.mjs`, `tsconfig.json` as needed, `src/`, and build output contract targeting `examples/stil/dist/`.
   2. The 7 substantive stil routes move under `examples/stil/src/pages/`; `index.astro` is either preserved intentionally or dropped with explicit acceptance.
   3. Stil-owned shared assets move with the lane: the current `web/templates_embed/src/layouts/StilLayout.astro` and `web/templates_embed/src/mock/stil_records.ts` dependencies are either relocated into `examples/stil/` or retired with an explicit replacement plan inside the stil project.
-  4. The current `views_stil_test.go` contract is handled explicitly: either preserved at a new stil-owned location under `examples/stil/` (or equivalent) with updated expectations, OR retired intentionally with acceptance of losing that exact Go-package golden surface.
-  5. Any moved stil goldens/fixtures are colocated with the new stil project; legacy `internal/templates_html_embed/views_stil_test.go` is not left orphaned.
+  4. The current embed-tied `views_stil_test.go` contract is retired explicitly: `internal/templates_html_embed/views_stil_test.go` and `internal/templates_html_embed/testdata/stil/**` are deleted with the Track B retirement. Successor stil verification lives in `drop_009` L2-A (Playwright + axe + a11y root) plus L2-D standalone `examples/stil/` build proof.
+  5. Legacy embed-tied stil goldens are removed with the test file; no orphaned `internal/templates_html_embed` stil fixtures remain.
 - acceptance_criteria:
   1. Stil ownership includes the route/test decision and the verified stil-only legacy assets, not just page movement.
   2. No edits to root `embed.go`.
@@ -101,7 +102,7 @@ L2-B
   6. `internal/templates_html_embed/testdata/stil/**`
 - packages: `none for Astro sources; legacy Go test surface currently lives in internal/templates_html_embed`
 - expected_droplet_count: `5`
-- atomicity_verification: `B1 stil project shell; B2 move cascade trio routes; B3 move QA twin routes; B4 move roadmap/schema routes plus verified stil-only shared assets; B5 preserve-or-retire stil Go test/goldens. Each droplet is constrained to 1-2 small blocks including tests.`
+- atomicity_verification: `B1 stil project shell; B2 move cascade trio routes; B3 move QA twin routes; B4 move roadmap/schema routes plus verified stil-only shared assets; B5 retire embed-tied stil Go test/goldens by deleting `internal/templates_html_embed/views_stil_test.go` and `internal/templates_html_embed/testdata/stil/**`. Each droplet is constrained to 1-2 small blocks including tests.`
 - blockers_depends_on: `none`
 
 L2-C
@@ -168,9 +169,9 @@ Coverage map: exact parent DoC ownership
 - 1 -> L2-A (`examples/thariq/` standalone Astro project)
 - 2 -> L2-B (`examples/stil/` standalone Astro project)
 - 3 -> L2-C (`web/templates_embed/` removed entirely)
-- 4 -> L2-C (`internal/templates_html_embed/` retired except L2-B's explicit stil carve-out during the migration decision)
+- 4 -> L2-C (`internal/templates_html_embed/` retired except L2-B's explicit stil carve-out during the migration retirement)
 - 5 -> L2-C (mage cleanup across the 5 named symbols)
-- 6 -> L2-B (`views_stil_test.go` preserved or retired explicitly)
+- 6 -> L2-B (`views_stil_test.go` retired explicitly)
 - 7 -> L2-D (install opt-in entries for thariq/stil)
 - 8 -> L2-D (`cmd/` + `internal/` compile clean verification)
 - 9 -> L2-D (`mage check` green)
@@ -185,7 +186,7 @@ Dependency graph
 - `L2-D` -> `L2-A`, `L2-B`, `L2-C`
 
 Path overlap check
-- `L2-A` and `L2-B` are now machine-disjoint: A owns thariq pages/testdata and `examples/thariq/**`; B owns stil pages/testdata and the verified stil-only legacy assets `web/templates_embed/src/layouts/StilLayout.astro` and `web/templates_embed/src/mock/stil_records.ts`.
+- `L2-A` and `L2-B` are now machine-disjoint: A owns thariq pages/testdata plus `web/templates_embed/src/mock/thariq_records.ts` and `examples/thariq/**`; B owns stil pages/testdata and the verified stil-only legacy assets `web/templates_embed/src/layouts/StilLayout.astro` and `web/templates_embed/src/mock/stil_records.ts`.
 - `L2-B` and `L2-C` are now machine-disjoint by explicit glob, not prose only: B owns `internal/templates_html_embed/views_stil_test.go` and `internal/templates_html_embed/testdata/stil/**`; C owns only `internal/templates_html_embed/{doc.go,embed.go,embed_test.go,dist/**}` plus legacy workspace root manifests and `magefile.go`.
 - `L2-A` and `L2-C` are disjoint: A owns thariq migration surfaces only; C owns only legacy workspace root manifests, narrowed non-stil embed package retirement, and mage cleanup.
 - `L2-D` is disjoint from A/B/C on write scope: installconfig/install/initapply/dotta/examples README only.
@@ -206,18 +207,20 @@ state = "complete"
 title = "L1 planner — pivot cleanup decomposition"
 updated_at = "2026-05-21T05:45:00Z"
 [planner_l1_pivot_cleanup_decompose-plan-qa-proof]
-completion_contract = {completion_notes = "ROUND 2 PASS — all 12 parent DoC items uniquely owned across 4 lanes; all 7 acceptance criteria; round-1 architectural gaps closed; 17 droplets atomic. 2 non-blocking observations noted. Served by claude-native opus."}
+completion_contract = {completion_notes = "Round-3 proof PASS. All 6 claims verified verbatim against round-3 description: CE-1 stil-asset reassignment landed (StilLayout.astro + stil_records.ts now in L2-B globs); CE-2 L2-C glob narrowed to 4 exact entries; CE-3 D4 split into D4a/D4b/D4c (count 4→6); 4 lanes preserved; root embed.go unmodified; no semver phrasing. Served by claude-native:opus."}
 created_at = "2026-05-21T04:19:12Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
 title = "Plan-QA proof of L1 planner — pivot cleanup decomposition"
 updated_at = "2026-05-21T05:45:00Z"
 [planner_l1_pivot_cleanup_decompose-plan-qa-falsification]
-completion_contract = {completion_notes = "ROUND 2 FAIL — 3 SUBSTANTIVE CEs blocking descent. CE-1 CRITICAL: L2-A/B path-disjointness false (stil pages import L2-A-owned StilLayout.astro + stil_records.ts). CE-2 HIGH: L2-C internal/** glob overlaps L2-B's explicit ownership of views_stil_test.go + testdata/stil/** (carve-out only in prose). CE-3 MEDIUM: L2-D D4 droplet compresses DoC 8-12 (5 items) into one droplet; violates ≤2-blocks atomicity. Round-3 dispatched. Served by codex-exec gpt-5.4 xhigh."}
+completion_contract = {completion_notes = "Round-3 falsif FAIL with 2 surviving CEs. CE-A (Critical): L2-A omits web/templates_embed/src/mock/thariq_records.ts which 4 thariq routes import; no drop_010 record owns this path. CE-B (Medium): L2-B B5 preserve-branch not atomic — views_stil_test.go is a 7-view golden suite + testdata/stil/** is fixture tree. Round-4 directives: add thariq_records.ts to L2-A; narrow B5 to retire-only (Track B retiring entirely per L2-C; successor verification lives in drop_009 L2-A Playwright). Served by codex-exec:gpt-5.4."}
 created_at = "2026-05-21T04:19:12Z"
+outcome = "failure"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
 title = "Plan-QA falsif of L1 planner — pivot cleanup decomposition"
 updated_at = "2026-05-21T05:45:00Z"

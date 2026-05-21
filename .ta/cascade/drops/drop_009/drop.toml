@@ -202,3 +202,410 @@ state = "complete"
 target_id = "drop_009.drop.planner_l1_playwright_track_a_decompose"
 title = "Plan-QA falsif of L1 planner — Playwright/axe + Track A contrast decomposition"
 updated_at = "2026-05-21T05:30:00Z"
+
+[planner_l2_a_playwright_axe_templates_a11y]
+completion_contract = {completion_notes = "L2-A decomposed into 4 ordered droplets: d1 deps+playwright_install_provisioning, d2 viewport_config_375_768_1280, d3 schema_route_and_track_a_fixture_spec, d4 mage_templates_a11y_hard_fail_gate (wired into Check). Shared-package serial chain D1→D2→D3→D4. <a11y test root> location placeholder pending drop_010. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T22:35:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "<a11y test root>/package.json with @playwright/test + axe-core (and browser provisioning via pnpm exec playwright install or postinstall hook); playwright.config.* with 375/768/1280 viewport projects; <a11y test root>/tests/a11y/** with representative ta serve route + Track A golden fixture coverage; magefile.go TemplatesA11y target wired into Check; hard-fail (not warn-skip) when toolchain missing."
+labels = ["l2-planner", "playwright", "a11y", "mage"]
+objective = "establish the reusable accessibility verifier substrate at post-pivot a11y test root: @playwright/test + axe-core deps, playwright.config with 375/768/1280 viewport matrix, minimal spec tree, mage TemplatesA11y wired into mage check (HARD-FAIL on missing toolchain, not warn-skip)."
+outcome = "success"
+parent_id = "drop_009.drop.planner_l1_playwright_track_a_decompose"
+role = "planner"
+state = "complete"
+title = "L2-A planner — Playwright + axe-core substrate and mage gate"
+updated_at = "2026-05-21T22:35:00Z"
+[planner_l2_a_playwright_axe_templates_a11y-plan-qa-proof]
+created_at = "2026-05-21T06:51:01Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
+title = "Plan-QA proof of L2-A planner — Playwright + axe-core substrate and mage gate"
+updated_at = "2026-05-21T06:51:01Z"
+
+[planner_l2_a_playwright_axe_templates_a11y-plan-qa-falsification]
+created_at = "2026-05-21T06:51:01Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
+title = "Plan-QA falsif of L2-A planner — Playwright + axe-core substrate and mage gate"
+updated_at = "2026-05-21T06:51:01Z"
+
+[planner_l2_b_track_a_schema_browser_contrast]
+completion_contract = {completion_notes = "Round-2 planner fixes applied: D1 is now token-only and may only edit `--optional-bg` / `--optional-fg` token values (or equivalent design-token swap) in `schema_browser.html`; no markup expansion, no new classes, no wrapper elements. If AA `4.5:1` cannot be reached token-only, surface a blocker requiring design-token-system change. D2 now requires a numeric contrast-ratio assertion that computes the actual optional-pill foreground/background ratio and asserts `>= 4.5`; snapshot-only or token-presence tests are not sufficient. L2-B closeout now explicitly depends on downstream `mage TemplatesA11y` passing the schema_browser route across `375`/`768`/`1280`, coordinated through drop_009 L2-A rather than expanded inside L2-B."}
+created_at = "2026-05-21T22:35:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "schema_browser.html raises optional-pill false-state contrast to AA (4.5:1) via token-only remediation of `--optional-bg` / `--optional-fg` (or equivalent design-token swap) in the template surface, with no markup expansion, no new classes, no wrapper elements, and no JS or layout churn; if token-only remediation cannot reach AA, that is surfaced as a blocker requiring design-token-system change. Go regression test `TestTrackA_AsHtml_PillContrastOnSchemaBrowser` (or equivalent honest variant) in `internal/templates_html_basic/**/*_test.go` computes the actual optional-pill foreground/background contrast ratio and asserts `>= 4.5` rather than relying on snapshots or token presence. L2-B closeout requires both `mage testPkg ./internal/templates_html_basic` and downstream `mage TemplatesA11y` proof on the schema_browser route across `375`/`768`/`1280`, with the viewport gate routed through drop_009 L2-A ownership."
+labels = ["l2-planner", "track-a", "templates-html-basic", "contrast"]
+objective = "remediate .pill[data-value=\"false\"] contrast failure in internal/templates_html_basic/templates/schema_browser.html with CSS/markup-local change + Go regression test inside Track A package boundary."
+outcome = "success"
+parent_id = "drop_009.drop.planner_l1_playwright_track_a_decompose"
+role = "planner"
+state = "complete"
+title = "L2-B planner — Track A schema-browser optional-pill contrast"
+updated_at = "2026-05-21T22:35:00Z"
+[planner_l2_b_track_a_schema_browser_contrast-plan-qa-proof]
+completion_contract = {completion_notes = "PASS. 2 droplets D1+D2 verbatim. CSS-first, no JS. Honest test name family. Write-disjoint. Served by claude-native:opus."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_009.drop.planner_l2_b_track_a_schema_browser_contrast"
+title = "Plan-QA proof of L2-B planner — Track A schema-browser optional-pill contrast"
+updated_at = "2026-05-21T06:51:01Z"
+[planner_l2_b_track_a_schema_browser_contrast-plan-qa-falsification]
+completion_contract = {completion_notes = "FAIL with 3 CEs: (1) D1 could expand markup beyond minimal token swap; (2) D2 may snapshot-pass without proving AA contrast semantically; (3) no viewport proof for 375/768/1280. Round-2 fix needed: tighten D1 to token-only, D2 must compute contrast ratio not just snapshot, attach viewport gate via drop_009 L2-A. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T06:51:01Z"
+outcome = "failure"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_009.drop.planner_l2_b_track_a_schema_browser_contrast"
+title = "Plan-QA falsif of L2-B planner — Track A schema-browser optional-pill contrast"
+updated_at = "2026-05-21T06:51:01Z"
+[builder_d1_track_a_schema_browser_optional_pill_contrast]
+acceptance_criteria = """
+1. Owns only the template remediation half of `drop_009.drop.planner_l2_b_track_a_schema_browser_contrast`.
+2. Does not touch Go test files or Playwright/a11y substrate paths.
+3. Keeps the existing schema-browser layout and pill semantics intact.
+4. Builder verifies the narrow package gate first (`mage testPkg ./internal/templates_html_basic`) and records downstream `mage TemplatesA11y` status as close-gate evidence or blocker.
+5. D1 is TOKEN-ONLY: it may only edit `--optional-bg` / `--optional-fg` token values, or perform an equivalent design-token swap, in `internal/templates_html_basic/templates/schema_browser.html`; no markup expansion, no new classes, and no wrapper elements.
+6. If a token-only remediation cannot reach AA (`4.5:1`), D1 must stop and surface that as a blocker requiring design-token-system change rather than widening the template surface.
+"""
+completion_contract = {completion_notes = "Report the exact token-only change used for the false-state optional pill, confirm no markup expansion/classes/wrappers or JS/layout churn were introduced, and include the `mage testPkg ./internal/templates_html_basic` result plus downstream `mage TemplatesA11y` status or blocker. If token-only remediation cannot reach AA, report that explicitly as a design-token-system blocker."}
+created_at = "2026-05-21T22:45:00Z"
+definition_of_complete = """
+1. `internal/templates_html_basic/templates/schema_browser.html` is the only file touched.
+2. The false-state optional pill selector (`.pill[data-key="required"][data-value="false"]`) reaches AA (`4.5:1`) through a token-only update to `--optional-bg` / `--optional-fg`, or an equivalent design-token swap, without relying on markup expansion, new classes, or wrapper elements.
+3. The remediation is CSS-first and template-local: token-only, no JS, and no new client-side behavior.
+4. Responsive behavior and semantics remain unchanged across the planned viewport set `375`, `768`, and `1280`.
+5. If token-only changes cannot reach AA, the droplet closes with a blocker that explicitly calls for design-token-system change instead of template expansion.
+6. Atomicity: this droplet stays within 1-2 small code blocks INCLUDING tests; in practice it should be a single token edit block in the template.
+"""
+labels = ["builder", "track-a", "templates-html-basic", "contrast", "d1"]
+objective = "Apply a token-only remediation in `internal/templates_html_basic/templates/schema_browser.html` so `.pill[data-key=\"required\"][data-value=\"false\"]` reaches AA contrast (`4.5:1`) by editing `--optional-bg` / `--optional-fg` or an equivalent design-token swap, without JS, hydration, layout churn, markup expansion, new classes, or wrapper elements."
+packages = ["internal/templates_html_basic"]
+parent_id = "drop_009.drop.planner_l2_b_track_a_schema_browser_contrast"
+paths = ["internal/templates_html_basic/templates/schema_browser.html"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "D1 builder — raise schema-browser optional-pill false-state contrast to AA"
+updated_at = "2026-05-21T22:45:00Z"
+[builder_d2_track_a_schema_browser_pill_contrast_regression]
+acceptance_criteria = """
+1. Owns only the regression-test half of `drop_009.drop.planner_l2_b_track_a_schema_browser_contrast`.
+2. Does not edit `internal/templates_html_basic/templates/schema_browser.html`; that file remains D1-owned.
+3. Uses honest test naming and package-local assertions rather than FE-spec-path coverage.
+4. Builder reports the narrow package gate result first and cites downstream `mage TemplatesA11y` only as the broader close gate.
+5. The regression test MUST compute the actual contrast ratio between the optional-pill background and foreground colors and assert `>= 4.5` (WCAG AA); snapshot-only, token-presence, or name-only assertions are not sufficient.
+6. The test may use a small Go contrast-ratio helper inline if no existing helper in `internal/templates_html_basic` already proves the contract honestly.
+7. L2-B closeout also depends on downstream `mage TemplatesA11y` proof for the schema_browser route at `375`, `768`, and `1280`, owned by drop_009 L2-A; D2 names that gate but does not expand into Playwright ownership.
+"""
+blockers = ["drop_009.drop.builder_d1_track_a_schema_browser_optional_pill_contrast"]
+completion_contract = {completion_notes = "Report the final test name, the exact `internal/templates_html_basic/**/*_test.go` file chosen, how the test computes the numeric contrast ratio, and the exact `>= 4.5` assertion it locks. Include the `mage testPkg ./internal/templates_html_basic` result plus downstream `mage TemplatesA11y` status or blocker for schema_browser at `375` / `768` / `1280`. Snapshot-only or token-presence-only proof is not acceptable."}
+created_at = "2026-05-21T22:45:00Z"
+definition_of_complete = """
+1. A Go regression test exists under `internal/templates_html_basic/**/*_test.go` with an honest Track A/schema-browser-specific name in the `TestTrackA_AsHtml_PillContrastOnSchemaBrowser` family.
+2. The test computes the actual optional-pill false-state foreground/background contrast ratio from rendered HTML or token resolution and asserts `>= 4.5` (WCAG AA); snapshots alone or token-presence checks do not satisfy this droplet.
+3. The test proves the schema-browser false-state optional-pill contrast contract at the package boundary without touching Playwright or FE verifier-substrate files.
+4. The test scope stays inside `internal/templates_html_basic` and does not widen into unrelated template packages.
+5. `mage testPkg ./internal/templates_html_basic` is the primary verification gate for this droplet, and L2-B closeout additionally requires downstream `mage TemplatesA11y` proof on the schema_browser route across `375` / `768` / `1280` through drop_009 L2-A ownership.
+6. Atomicity: this droplet stays within 1-2 small code blocks INCLUDING tests; in practice it should be one test block plus at most one tiny helper/table in the same test file.
+"""
+labels = ["builder", "track-a", "templates-html-basic", "contrast", "tests", "d2"]
+objective = "Add an honest Go regression test in `internal/templates_html_basic/**/*_test.go` named `TestTrackA_AsHtml_PillContrastOnSchemaBrowser` or an equivalent honest variant that computes the schema-browser false-state optional-pill contrast ratio and asserts `>= 4.5`, locking the remediation into the package-local test surface."
+packages = ["internal/templates_html_basic"]
+parent_id = "drop_009.drop.planner_l2_b_track_a_schema_browser_contrast"
+paths = ["internal/templates_html_basic/**/*_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "D2 builder — add Go regression for schema-browser optional-pill contrast"
+updated_at = "2026-05-21T22:45:00Z"
+[builder_l2_a_d1_playwright_deps_and_browser_provisioning]
+acceptance_criteria = """
+- The only write path is `<a11y test root>/package.json`.
+- Dependency additions are limited to the minimum substrate needed for Playwright + axe execution; if an extra adapter package is introduced, the builder must justify it against direct browser-side axe injection.
+- Provisioning ownership is explicit and reviewable in `package.json`; acceptable examples are `pnpm exec playwright install --with-deps` in a dedicated script or equivalent postinstall wiring.
+- This droplet remains atomic: one file, one dependency/script edit cluster, no tests/config/mage wiring.
+- Because `mage TemplatesA11y` does not exist yet, narrow verification is limited to package-manifest review here; executable gate coverage is deferred to D4 and must be referenced, not invented.
+"""
+blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"]
+completion_contract = {completion_notes = "Atomicity certified at planning time: one placeholder-root manifest block only. completion_notes intentionally nested under completion_contract per dispatch."}
+created_at = "2026-05-21T23:15:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- `<a11y test root>/package.json` exists or is updated with `@playwright/test` and `axe-core` under devDependencies.
+- Browser provisioning ownership is explicit in that same file via a script or postinstall path that invokes Playwright browser installation; no builder-time guesswork remains.
+- No other file is touched by this droplet.
+- Placeholder root naming remains generic pending drop_010.
+"""
+depends_on = ["drop_008.drop.ta_serve_cascade_browser"]
+description = """
+Evidence:
+- Parent `drop_009.drop.planner_l1_playwright_track_a_decompose` routes dependency installation and browser provisioning into L2-A D1 explicitly.
+- Parent `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y` requires `@playwright/test`, `axe-core`, and explicit provisioning ownership.
+- Playwright docs (`/microsoft/playwright`) document `pnpm install --save-dev @playwright/test` followed by `pnpm exec playwright install --with-deps` as the supported browser-binary install path, and also note browser packages as an alternate install-on-dependency strategy.
+- `drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b` leaves the final a11y root unresolved, so this droplet must keep placeholder paths rather than concretizing a repo location.
+
+Trace:
+- Edit only `<a11y test root>/package.json`.
+- Add `@playwright/test` and `axe-core` as dev dependencies.
+- Add one explicit provisioning mechanism: either a `postinstall` hook that installs required browsers or a documented script entry consumed by the later mage target; do not leave provisioning implicit.
+- Record the placeholder root honestly in comments/scripts if needed; do not invent a final filesystem home before drop_010 closes.
+
+Atomicity verification: this is 1–2 small blocks total, limited to one `package.json` dependency/script edit block plus, at most, one adjacent script stanza. No config file, spec file, or Go change belongs here.
+"""
+files = ["magefile.go", ".ta/schema.toml", "docs/HANDOFF-pre-mvp-feature-complete.md"]
+irreducible = false
+labels = ["drop-009", "l2-a", "builder", "playwright", "a11y", "deps"]
+objective = "Create the placeholder-root package substrate for accessibility verification by adding Playwright test dependencies and explicit browser-binary provisioning ownership at `<a11y test root>/package.json`. This slice must close the parent planner's browser-install Unknown rather than leaving runtime provisioning to builder-time discovery."
+packages = ["<a11y test root>"]
+parent_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
+paths = ["<a11y test root>/package.json"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-A-D1 builder — Playwright deps and browser provisioning"
+updated_at = "2026-05-21T23:15:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = """
+- Builder must verify the manifest expresses both dependency installation and browser provisioning ownership.
+- Integration proof is downstream: `mage TemplatesA11y` after D4, then `mage check`.
+- No narrower mage gate exists yet for this slice; that gap is intentional and must not be papered over.
+"""
+
+[builder_l2_a_d1_playwright_deps_and_browser_provisioning-qa-proof]
+created_at = "2026-05-21T07:00:10Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_009.drop.builder_l2_a_d1_playwright_deps_and_browser_provisioning"
+title = "QA proof of L2-A-D1 builder — Playwright deps and browser provisioning"
+updated_at = "2026-05-21T07:00:10Z"
+
+[builder_l2_a_d1_playwright_deps_and_browser_provisioning-qa-falsification]
+created_at = "2026-05-21T07:00:10Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_009.drop.builder_l2_a_d1_playwright_deps_and_browser_provisioning"
+title = "QA falsif of L2-A-D1 builder — Playwright deps and browser provisioning"
+updated_at = "2026-05-21T07:00:10Z"
+
+[builder_l2_a_d2_playwright_config_viewport_matrix]
+acceptance_criteria = """
+- The only write path is `<a11y test root>/playwright.config.*`.
+- Viewport entries are explicit and reviewable; the builder must not hide the required widths behind indirect helper math.
+- If device presets are used, `viewport` overrides must still resolve to the required widths.
+- This droplet remains atomic: config only, no spec bodies or mage wiring.
+- Shared placeholder package scope with D1 is handled by explicit ordering: D2 starts after D1 completes.
+"""
+blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b", "drop_009.drop.builder_l2_a_d1_playwright_deps_and_browser_provisioning"]
+completion_contract = {completion_notes = "Atomicity certified at planning time: one config file block plus, at most, one adjacent project/use stanza. completion_notes intentionally nested under completion_contract per dispatch."}
+created_at = "2026-05-21T23:15:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- `<a11y test root>/playwright.config.*` exists.
+- The config declares three explicit viewport runs covering widths `375`, `768`, and `1280`.
+- Config structure is reusable for both served-page and fixture-page specs without embedding route-specific logic.
+- No non-config file is touched by this droplet.
+"""
+depends_on = ["drop_008.drop.ta_serve_cascade_browser"]
+description = """
+Evidence:
+- Parent `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y` assigns viewport configuration to D2 and requires the exact `375`, `768`, `1280` matrix.
+- Playwright docs (`/microsoft/playwright`) show `projects` as the supported way to run the same spec suite across multiple configurations, and show that `use.viewport` must be set after device spreads when overriding viewport dimensions.
+- The final root stays blocked by `drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b`, so the config path remains placeholder-based.
+
+Trace:
+- Edit only `<a11y test root>/playwright.config.*`.
+- Declare three named projects (or equivalent explicit entries) for widths `375`, `768`, and `1280`.
+- Keep config substrate-focused: reporter, testDir, baseURL/script glue only if strictly required by D3; do not pull spec logic into config.
+
+Atomicity verification: this is 1–2 small blocks total, limited to one new config file plus, at most, one tiny adjacent config stanza. No package manifest, spec body, or mage code belongs here.
+"""
+files = [".ta/schema.toml", "docs/HANDOFF-pre-mvp-feature-complete.md"]
+irreducible = false
+labels = ["drop-009", "l2-a", "builder", "playwright", "config"]
+objective = "Add `<a11y test root>/playwright.config.*` with an explicit 375/768/1280 viewport matrix so later specs run against the three required sizes without duplicating viewport setup in each test."
+packages = ["<a11y test root>"]
+parent_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
+paths = ["<a11y test root>/playwright.config.*"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-A-D2 builder — Playwright config viewport matrix"
+updated_at = "2026-05-21T23:15:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = """
+- Builder verifies the config exposes three runnable viewport projects at 375/768/1280.
+- Executable gate remains downstream until D4 lands `mage TemplatesA11y`.
+- No narrower mage target should be invented for this config-only slice.
+"""
+
+[builder_l2_a_d2_playwright_config_viewport_matrix-qa-proof]
+created_at = "2026-05-21T07:00:10Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_009.drop.builder_l2_a_d2_playwright_config_viewport_matrix"
+title = "QA proof of L2-A-D2 builder — Playwright config viewport matrix"
+updated_at = "2026-05-21T07:00:10Z"
+
+[builder_l2_a_d2_playwright_config_viewport_matrix-qa-falsification]
+created_at = "2026-05-21T07:00:10Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_009.drop.builder_l2_a_d2_playwright_config_viewport_matrix"
+title = "QA falsif of L2-A-D2 builder — Playwright config viewport matrix"
+updated_at = "2026-05-21T07:00:10Z"
+
+[builder_l2_a_d3_minimal_schema_route_and_track_a_fixture_spec]
+acceptance_criteria = """
+- The only write scope is `<a11y test root>/tests/a11y/**`.
+- The served-page target is `/schema`, not an invented route.
+- The Track A fixture reference is `internal/templates_html_basic/templates/schema_browser.html`, not an invented fixture path.
+- Names are honest: runtime-served coverage and Track A fixture coverage are distinguished in file or test names.
+- This droplet remains atomic: one small spec file plus, at most, one tiny helper/fixture file.
+- Shared placeholder package scope with D1/D2 is handled by explicit ordering: D3 starts after D2 completes.
+"""
+blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b", "drop_009.drop.builder_l2_a_d2_playwright_config_viewport_matrix"]
+completion_contract = {completion_notes = "Atomicity certified at planning time: one spec block plus, at most, one tiny fixture/helper block. completion_notes intentionally nested under completion_contract per dispatch."}
+created_at = "2026-05-21T23:15:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- A minimal spec tree exists under `<a11y test root>/tests/a11y/**`.
+- One spec targets the concrete served route `/schema`.
+- One spec or helper targets the concrete Track A fixture `internal/templates_html_basic/templates/schema_browser.html`.
+- Axe serious+critical failures are treated as failures in the spec assertions.
+- No non-test-root file is touched by this droplet.
+"""
+depends_on = ["drop_008.drop.ta_serve_cascade_browser", "drop_008.drop.planner_l2_b_ta_serve_http_routes", "drop_008.drop.planner_l2_d_ta_serve_integration"]
+description = """
+Evidence:
+- `drop_008.drop.planner_l2_b_ta_serve_http_routes` proves `/schema` is one of the committed ta-serve routes.
+- `drop_008.drop.planner_l2_d_ta_serve_integration` explicitly reserves Playwright + axe verification behind drop_009 substrate work, making `/schema` the clean concrete served-page target.
+- Parent `drop_009.drop.planner_l1_playwright_track_a_decompose` and sibling `drop_009.drop.planner_l2_b_track_a_schema_browser_contrast` prove the Track A fixture path `internal/templates_html_basic/templates/schema_browser.html` and the need for honest naming around schema-browser coverage.
+- Placeholder path policy remains blocked by `drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b`.
+
+Trace:
+- Edit only `<a11y test root>/tests/a11y/**`.
+- Add one served-page spec that exercises the `/schema` route through the ta-serve substrate contract.
+- Add one fixture-oriented spec or fixture helper that loads the schema-browser HTML fixture path for Track A.
+- Keep names honest and scope-specific; do not call the served-page spec `TrackA` if it also covers ta-serve runtime output.
+
+Atomicity verification: this is 1–2 small blocks total, limited to one small spec file and, at most, one tiny adjacent fixture/helper file under the same test root. No manifest/config/mage edits belong here.
+"""
+files = ["internal/templates_html_basic/templates/schema_browser.html", "docs/HANDOFF-pre-mvp-feature-complete.md", ".ta/schema.toml"]
+irreducible = false
+labels = ["drop-009", "l2-a", "builder", "playwright", "axe", "spec"]
+objective = "Create the smallest honest Playwright/axe spec surface under the placeholder a11y root: one served-page accessibility spec for the concrete ta-serve `/schema` route and one Track A fixture spec anchored to `internal/templates_html_basic/templates/schema_browser.html`."
+packages = ["<a11y test root>"]
+parent_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
+paths = ["<a11y test root>/tests/a11y/**"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-A-D3 builder — minimal /schema route and Track A fixture spec"
+updated_at = "2026-05-21T23:15:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = """
+- Builder verifies one served `/schema` spec and one Track A fixture spec exist under the a11y test root.
+- Final executable gate is `mage TemplatesA11y` once D4 lands; until then, builder must avoid inventing a narrower mage target.
+- Integration close remains `mage check` after D4.
+"""
+
+[builder_l2_a_d3_minimal_schema_route_and_track_a_fixture_spec-qa-proof]
+created_at = "2026-05-21T07:00:10Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_009.drop.builder_l2_a_d3_minimal_schema_route_and_track_a_fixture_spec"
+title = "QA proof of L2-A-D3 builder — minimal /schema route and Track A fixture spec"
+updated_at = "2026-05-21T07:00:10Z"
+
+[builder_l2_a_d3_minimal_schema_route_and_track_a_fixture_spec-qa-falsification]
+created_at = "2026-05-21T07:00:10Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_009.drop.builder_l2_a_d3_minimal_schema_route_and_track_a_fixture_spec"
+title = "QA falsif of L2-A-D3 builder — minimal /schema route and Track A fixture spec"
+updated_at = "2026-05-21T07:00:10Z"
+
+[builder_l2_a_d4_mage_templates_a11y_hard_fail_gate]
+acceptance_criteria = """
+- The only write path is `magefile.go`.
+- `TemplatesA11y` is a hard-fail gate, distinct from `TemplatesBuildEmbed` warn-skip semantics.
+- `Check` integration is explicit and reviewable in code.
+- This droplet remains atomic: mage target plus `Check` wiring only.
+- D4 starts only after D1, D2, and D3 complete, which avoids shared-package/file coordination problems and ensures the target has something concrete to run.
+- Builder verification names the narrow gate first: `mage TemplatesA11y`; integration close is `mage check`.
+"""
+blockers = ["drop_009.drop.builder_l2_a_d1_playwright_deps_and_browser_provisioning", "drop_009.drop.builder_l2_a_d2_playwright_config_viewport_matrix", "drop_009.drop.builder_l2_a_d3_minimal_schema_route_and_track_a_fixture_spec"]
+completion_contract = {completion_notes = "Atomicity certified at planning time: one mage target block plus one `Check` wiring block. completion_notes intentionally nested under completion_contract per dispatch."}
+created_at = "2026-05-21T23:15:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- `magefile.go` defines `TemplatesA11y`.
+- `Check` invokes `TemplatesA11y`.
+- Missing a11y toolchain prerequisites fail the target and fail `Check`.
+- The target points at the placeholder a11y root without prematurely concretizing the drop_010 location.
+- No file outside `magefile.go` is touched by this droplet.
+"""
+depends_on = ["drop_008.drop.ta_serve_cascade_browser"]
+description = """
+Evidence:
+- Hylla committed-code docstrings for `TemplatesBuildEmbed` and `Check` show the current Track B behavior: `TemplatesBuildEmbed` returns wrapped `errPnpmAbsent`, and `Check` downgrades that absence to a WARN-and-continue path.
+- Parent `drop_009.drop.planner_l1_playwright_track_a_decompose` and child planner `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y` require the opposite semantics for accessibility verification: no false-green path when toolchain execution is impossible.
+- D1–D3 establish the substrate this target must execute, so D4 must run after those droplets.
+
+Trace:
+- Edit only `magefile.go`.
+- Add `TemplatesA11y` that invokes the placeholder-root Playwright/axe test command.
+- Wire `TemplatesA11y` into `Check` after the existing core gates.
+- Missing pnpm, missing Playwright CLI, or missing browser binaries must return a non-nil error and fail `Check`; do not reuse the skip-on-absent semantics from `TemplatesBuildEmbed`.
+
+Atomicity verification: this is 1–2 small blocks total, limited to one mage target block plus one adjacent `Check` wiring/error-handling block. No JS files or specs belong here.
+"""
+files = ["magefile.go", "docs/HANDOFF-pre-mvp-feature-complete.md", ".ta/schema.toml"]
+irreducible = false
+labels = ["drop-009", "l2-a", "builder", "mage", "a11y", "gate"]
+objective = "Add the `TemplatesA11y` mage target in `magefile.go`, wire it into `Check`, and make missing pnpm/Playwright/browser toolchain a hard failure rather than the existing warn-skip behavior used by `TemplatesBuildEmbed`."
+packages = ["magefile"]
+parent_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
+paths = ["magefile.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "L2-A-D4 builder — mage TemplatesA11y hard-fail gate"
+updated_at = "2026-05-21T23:15:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = """
+- Narrow gate: `mage TemplatesA11y`.
+- Integration gate: `mage check`.
+- Proof obligation for the builder: toolchain absence must fail loud; no WARN-and-continue path may remain for this target.
+"""
+
+[builder_l2_a_d4_mage_templates_a11y_hard_fail_gate-qa-proof]
+created_at = "2026-05-21T07:00:10Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_009.drop.builder_l2_a_d4_mage_templates_a11y_hard_fail_gate"
+title = "QA proof of L2-A-D4 builder — mage TemplatesA11y hard-fail gate"
+updated_at = "2026-05-21T07:00:10Z"
+
+[builder_l2_a_d4_mage_templates_a11y_hard_fail_gate-qa-falsification]
+created_at = "2026-05-21T07:00:10Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_009.drop.builder_l2_a_d4_mage_templates_a11y_hard_fail_gate"
+title = "QA falsif of L2-A-D4 builder — mage TemplatesA11y hard-fail gate"
+updated_at = "2026-05-21T07:00:10Z"
