@@ -38,7 +38,7 @@ func newFixtureProject(t *testing.T, recs ...record) string {
 
 	// Create .ta directory
 	taDir := filepath.Join(projectPath, ".ta")
-	if err := os.Mkdir(taDir, 0755); err != nil {
+	if err := os.Mkdir(taDir, 0o755); err != nil {
 		t.Fatalf("mkdir .ta: %v", err)
 	}
 
@@ -106,13 +106,13 @@ required = true
 type = 'string'
 `
 	schemaPath := filepath.Join(taDir, "schema.toml")
-	if err := os.WriteFile(schemaPath, []byte(schemaTOML), 0644); err != nil {
+	if err := os.WriteFile(schemaPath, []byte(schemaTOML), 0o644); err != nil {
 		t.Fatalf("write schema.toml: %v", err)
 	}
 
 	// Create .ta/cascade/drops directory
 	dropsDir := filepath.Join(taDir, "cascade", "drops")
-	if err := os.MkdirAll(dropsDir, 0755); err != nil {
+	if err := os.MkdirAll(dropsDir, 0o755); err != nil {
 		t.Fatalf("mkdir cascade/drops: %v", err)
 	}
 
