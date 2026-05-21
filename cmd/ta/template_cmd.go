@@ -449,7 +449,7 @@ func newTemplateSaveCmd() *cobra.Command {
 				emitLegacyWarning(c.ErrOrStderr())
 				return runTemplateSave(c.OutOrStdout(), args, overwrite, asJSON)
 			case "agent":
-				return runTemplateSaveAgent(c.OutOrStdout(), path, group, overwrite, asJSON)
+				return runTemplateSaveAgent(c.OutOrStdout(), path, group, canonical, overwrite, asJSON)
 			case "config":
 				return runTemplateSaveFlat(c.OutOrStdout(), path, canonical, overwrite, asJSON, "config")
 			case "docs-template":
@@ -464,7 +464,7 @@ func newTemplateSaveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&kind, "kind", "", "what to save: schema (default) | agent | config | docs-template")
 	cmd.Flags().StringVar(&path, "path", "", "source file path (required for kind=agent|config|docs-template)")
 	cmd.Flags().StringVar(&group, "group", "", "agent subdir name under ~/.ta/agents/ (kind=agent only; empty = flat)")
-	cmd.Flags().StringVar(&canonical, "canonical", "", "destination filename (kind=config|docs-template; defaults to basename of --path)")
+	cmd.Flags().StringVar(&canonical, "canonical", "", "destination filename (kind=agent|config|docs-template; defaults to basename of --path)")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace existing destination without prompting")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered notice")
 	return cmd
@@ -472,7 +472,10 @@ func newTemplateSaveCmd() *cobra.Command {
 
 // runTemplateSaveAgent reads --path and copies it into
 // `~/.ta/agents/<group>/<basename>`. Empty group → flat layout.
-func runTemplateSaveAgent(out io.Writer, srcPath, group string, overwrite, asJSON bool) error {
+// When canonical is non-empty, it overrides the destination name
+// (so `<path>=./.claude/agents/ta-go-builder.md --canonical=go-builder`
+// writes `~/.ta/agents/<group>/go-builder.md`).
+func runTemplateSaveAgent(out io.Writer, srcPath, group, canonical string, overwrite, asJSON bool) error {
 	if srcPath == "" {
 		return errors.New("save --kind=agent: --path is required")
 	}
@@ -485,6 +488,9 @@ func runTemplateSaveAgent(out io.Writer, srcPath, group string, overwrite, asJSO
 		return fmt.Errorf("save --kind=agent: source %q must end in .md", srcPath)
 	}
 	name := strings.TrimSuffix(base, ".md")
+	if canonical != "" {
+		name = strings.TrimSuffix(canonical, ".md")
+	}
 	if err := templates.SaveAgent(name, group, body, overwrite); err != nil {
 		return err
 	}

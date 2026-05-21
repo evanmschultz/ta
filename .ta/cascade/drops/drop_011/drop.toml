@@ -1,0 +1,168 @@
+[ta_template_save_canonical_flag]
+acceptance_criteria = "1. Existing kind=schema|config|docs-template behavior unchanged. 2. kind=agent --canonical=<name> writes to ~/.ta/agents/<group>/<name>.md. 3. kind=agent without --canonical writes to basename(--path) (backward compat). 4. New test in template save CLI tests. 5. No semver phrasing."
+completion_contract = {completion_notes = "drop_011 complete. D1 + D2 landed orchestrator-direct (Q7B silent-failed on both dispatches — foot-gun §6.2). --canonical flag now extends to --kind=agent; HOME library promotion no longer requires /tmp scratch files. mage testPkg ./cmd/ta green."}
+created_at = "2026-05-21T22:30:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. `--canonical <name>` flag accepted on `ta template save --kind=agent`. 2. When provided, destination file is `~/.ta/agents/<group>/<canonical>.md` instead of basename(--path). 3. Flag mirrors existing kind=config|docs-template semantics (already has --canonical). 4. Behavior preserved when --canonical absent (basename default). 5. Test coverage for new flag path. 6. mage check green."
+drop_number = 11.0
+expected_outputs = ["drop_011.drop.planner_template_save_canonical_decompose", "drop_011.drop.planner_template_save_canonical_decompose-plan-qa-proof", "drop_011.drop.planner_template_save_canonical_decompose-plan-qa-falsification"]
+files = ["cmd/ta/template_save.go (or wherever the subcommand lives)", "cmd/ta/template_save_test.go"]
+labels = ["ta-core", "substrate-fix", "post-pivot"]
+objective = "Add --canonical flag to `ta template save --kind=agent` so a project's `ta-<role>.md` source file can be promoted to the HOME library as `<role>.md` (without prefix). Closes the prefix-redundancy foot-gun observed during the 2026-05-21 persona-fix work where the only way to push refined ta/main personas as canonical HOME templates was via /tmp scratch files."
+outcome = "success"
+role = "planner"
+state = "complete"
+structural_type = "drop"
+title = "drop_011 — ta template save --canonical for kind=agent"
+updated_at = "2026-05-21T22:30:00Z"
+[ta_template_save_canonical_flag-plan-qa-proof]
+created_at = "2026-05-21T06:49:21Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_011.drop.ta_template_save_canonical_flag"
+title = "Plan-QA proof of drop_011 — ta template save --canonical for kind=agent"
+updated_at = "2026-05-21T06:49:21Z"
+
+[ta_template_save_canonical_flag-plan-qa-falsification]
+created_at = "2026-05-21T06:49:21Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_011.drop.ta_template_save_canonical_flag"
+title = "Plan-QA falsif of drop_011 — ta template save --canonical for kind=agent"
+updated_at = "2026-05-21T06:49:21Z"
+
+[planner_template_save_canonical_decompose]
+acceptance_criteria = "1. ≤2 atomic droplets. 2. Each ≤2 small blocks including tests. 3. Honest test names. 4. No semver phrasing. 5. mage check green claim is explicit."
+completion_contract = {completion_notes = "Planner decomposition written. Two atomic droplets only: D1 command-layer flag+dest-path wiring in `cmd/ta/template_cmd.go`; D2 CLI regression test in `cmd/ta/template_cmd_test.go`. Verified symbols: `newTemplateSaveCmd` (`cmd/ta/template_cmd.go:411`), `runTemplateSaveAgent` (`:474`), `runTemplateSaveFlat` (`:502`), `templates.SaveAgent` (`internal/templates/templates.go:1044`), `templates.SaveConfig` (`:1078`), `templates.SaveDocsTemplate` (`:1086`), `TestTemplateSaveKindAgent` (`cmd/ta/template_cmd_test.go:665`), `TestTemplateSaveKindConfigDefaultsCanonical` (`:697`). Both droplets satisfy the 1–2 small-block atomicity rule. Ordering is explicit because both live in package `cmd/ta` and D2 depends on D1 behavior."}
+created_at = "2026-05-21T22:30:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "Planner record description carries the L2 decomposition (single L2 likely sufficient given small scope): per-droplet acceptance criteria, paths, packages, test names, atomicity verification. Plus a path-overlap check (trivial here — 1 package)."
+description = """
+L2 decomposition for `drop_011.drop.ta_template_save_canonical_flag`.
+
+D1 — CLI flag wiring + agent destination resolution.
+Evidence: `newTemplateSaveCmd` exists at `cmd/ta/template_cmd.go:411`; `runTemplateSaveAgent` is the agent branch at `cmd/ta/template_cmd.go:474`; `runTemplateSaveFlat` already handles the shared `--canonical` flow for `config` and `docs-template` at `cmd/ta/template_cmd.go:502` with call sites at `:453` and `:455`; agent persistence currently goes through `templates.SaveAgent` at `cmd/ta/template_cmd.go:487` into `internal/templates/templates.go:1044`.
+Scope: package `cmd/ta`, file `cmd/ta/template_cmd.go` only.
+Work: add `--canonical` handling for `--kind=agent` by threading a canonical-name value through the agent save path and resolving the saved filename to `<canonical>.md` when present, otherwise preserving the current basename(`--path`) behavior. Reuse the existing `runTemplateSaveFlat`/`SaveConfig`/`SaveDocsTemplate` canonical pattern as the reference contract; do not widen scope into `internal/templates` unless the command-layer evidence proves it is required.
+Acceptance criteria: (1) `ta template save --kind=agent --group <group> --path <src> --canonical <name>` writes to `~/.ta/agents/<group>/<name>.md`; (2) `--kind=schema|config|docs-template` behavior remains byte-identical; (3) `--kind=agent` without `--canonical` still writes to `~/.ta/agents/<group>/basename(--path)`; (4) builder explicitly claims `mage check` green as part of its completion report.
+Test execution target: `mage testFunc TestTemplateSaveKindAgent` should cover the command seam after the edit.
+Atomicity verification: this is 1–2 small code blocks total — one CLI flag/plumbing block in `newTemplateSaveCmd`, one destination-selection block in `runTemplateSaveAgent`.
+
+D2 — CLI regression test for canonical agent save.
+Evidence: existing agent save CLI test anchor `TestTemplateSaveKindAgent` lives at `cmd/ta/template_cmd_test.go:665`; existing canonical-reference test `TestTemplateSaveKindConfigDefaultsCanonical` lives at `cmd/ta/template_cmd_test.go:697`; test helpers in the same file already exercise temp HOME roots via `templates.SetRootForTest` exposed through the test package context.
+Scope: package `cmd/ta`, file `cmd/ta/template_cmd_test.go` only.
+Work: extend `TestTemplateSaveKindAgent` or add a new test named `TestTemplateSaveKindAgentCanonical` (new, not yet in tree) that invokes `ta template save --kind=agent --canonical <name>` and asserts the file lands at the canonical destination while the source-basename fallback still covers the no-canonical case. Keep the test table-driven if it needs both cases; do not duplicate unrelated config/docs-template assertions because `TestTemplateSaveKindConfigDefaultsCanonical` already anchors that contract.
+Acceptance criteria: (1) honest test name matches the implemented function name; (2) assertion checks both path existence and file contents at `~/.ta/agents/<group>/<canonical>.md`; (3) if both canonical and fallback cases are covered in one test, they stay in the same file/package and require no production-file changes beyond D1; (4) builder reports `mage testFunc 'TestTemplateSaveKindAgent|TestTemplateSaveKindAgentCanonical'` as applicable, then `mage check` green.
+Atomicity verification: this is 1–2 small code blocks total — one new/expanded test function plus at most one small helper or table literal inside `cmd/ta/template_cmd_test.go`.
+
+Path/package overlap check: both droplets touch package `cmd/ta`; D2 must run after D1 because the test text depends on the new `--canonical` agent behavior and both would otherwise overlap `cmd/ta/template_cmd_test.go` via expected-CLI surface changes. No sibling parallelism claimed.
+
+Unknowns: the attached tool surface did not expose generic `Read`/`Grep`; evidence is therefore anchored through `gopls` symbol references and `go_file_context`. No unresolved symbol-name ambiguity remains for the paths and tests named above.
+"""
+labels = ["l1-planner", "ta-core", "substrate-fix"]
+objective = "Decompose the --canonical flag addition into 1-2 atomic builder droplets per cascade methodology. Likely shape: D1 = flag definition + dest-path resolution; D2 = test coverage. Both droplets ≤2 small blocks INCLUDING tests."
+parent_id = "drop_011.drop.ta_template_save_canonical_flag"
+role = "planner"
+state = "todo"
+title = "L1 planner — ta template save --canonical decomposition"
+updated_at = "2026-05-21T22:30:00Z"
+[planner_template_save_canonical_decompose-plan-qa-proof]
+completion_contract = {completion_notes = "PASS. All 4 claims verified against planner record: D1 cmd/ta/template_cmd.go only (1-2 small blocks), D2 cmd/ta/template_cmd_test.go only, D2-after-D1 explicit, command-layer-only confirmed (SaveAgent already accepts name param at line 488). Cosmetic finding: line anchors uniformly off-by-one (point to doc-comment/blank line above func decl). Non-blocking. Served by claude-native:opus."}
+created_at = "2026-05-21T06:50:03Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_011.drop.planner_template_save_canonical_decompose"
+title = "Plan-QA proof of L1 planner — ta template save --canonical decomposition"
+updated_at = "2026-05-21T06:50:03Z"
+[planner_template_save_canonical_decompose-plan-qa-falsification]
+completion_contract = {completion_notes = "ORCHESTRATOR-ACCEPTED as joint PASS. Falsif raised cmd/ta package overlap with drop_008.drop.planner_l2_a_ta_serve_cmd, but this is a builder-time coordination concern (package lock at build), NOT a planner-correctness defect. Files are disjoint (template_cmd.go vs serve_cmd.go/main.go). Confirmed D1/D2 stay command-layer-only and SaveAgent API needs no change. Served by codex-exec:gpt-5.4."}
+created_at = "2026-05-21T06:50:03Z"
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_011.drop.planner_template_save_canonical_decompose"
+title = "Plan-QA falsif of L1 planner — ta template save --canonical decomposition"
+updated_at = "2026-05-21T06:50:03Z"
+
+[builder_template_save_canonical_d1_flag_wiring]
+acceptance_criteria = "1. Path scope exactly cmd/ta/template_cmd.go. 2. --canonical flag accepted for kind=agent. 3. Behavior preserved when --canonical absent (basename default). 4. No internal/templates changes. 5. mage testPkg ./cmd/ta green."
+blockers = []
+completion_contract = {completion_notes = "D1 landed orchestrator-direct (Q7B silent-failed on dispatch — foot-gun §6.2 confirmed 4th time). cmd/ta/template_cmd.go: added --canonical to runTemplateSaveAgent signature + agent case dispatch + flag help text. mage testPkg ./cmd/ta green (452/0)."}
+created_at = "2026-05-21T10:00:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "cmd/ta/template_cmd.go: newTemplateSaveCmd (line ~412) registers --canonical flag (already exists for kind=config|docs-template; extend to kind=agent path). runTemplateSaveAgent (line ~475) uses canonical value when set, else falls back to strings.TrimSuffix(base, '.md'). templates.SaveAgent signature unchanged (already accepts name param). No edits to internal/templates."
+depends_on = []
+description = "D1 of drop_011 per planner decomposition. Atomicity: 1-2 small blocks (one flag binding block + one name-override conditional before templates.SaveAgent call)."
+expected_outputs = ["cmd/ta/template_cmd.go"]
+files = ["cmd/ta/template_cmd.go"]
+labels = ["drop_011", "ta-core", "cmd-ta"]
+objective = "Add --canonical flag to ta template save --kind=agent in cmd/ta/template_cmd.go. When provided, destination filename uses --canonical instead of basename(--path)."
+outcome = "success"
+packages = ["github.com/evanmschultz/ta/cmd/ta"]
+parent_id = "drop_011.drop.planner_template_save_canonical_decompose"
+paths = ["cmd/ta/template_cmd.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "drop_011 D1 — add --canonical flag to ta template save --kind=agent"
+updated_at = "2026-05-21T10:00:00Z"
+validation_plan = "mage testPkg ./cmd/ta green; existing TestTemplateSaveKindAgent + TestTemplateSaveKindConfigDefaultsCanonical still pass."
+[builder_template_save_canonical_d1_flag_wiring-qa-proof]
+created_at = "2026-05-21T17:13:10Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_011.drop.builder_template_save_canonical_d1_flag_wiring"
+title = "QA proof of drop_011 D1 — add --canonical flag to ta template save --kind=agent"
+updated_at = "2026-05-21T17:13:10Z"
+
+[builder_template_save_canonical_d1_flag_wiring-qa-falsification]
+created_at = "2026-05-21T17:13:10Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_011.drop.builder_template_save_canonical_d1_flag_wiring"
+title = "QA falsif of drop_011 D1 — add --canonical flag to ta template save --kind=agent"
+updated_at = "2026-05-21T17:13:10Z"
+
+[builder_template_save_canonical_d2_test]
+acceptance_criteria = "1. Path scope exactly cmd/ta/template_cmd_test.go. 2. Test uses table-driven shape mirroring TestTemplateSaveKindConfigDefaultsCanonical (line ~698). 3. mage testFunc TestTemplateSaveKindAgentCanonical passes. 4. No production code edits."
+blockers = []
+completion_contract = {completion_notes = "D2 landed orchestrator-direct. cmd/ta/template_cmd_test.go: TestTemplateSaveKindAgentCanonical with 2 subtests (canonical overrides basename + no canonical fallback). 3/3 tests green."}
+created_at = "2026-05-21T10:00:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "cmd/ta/template_cmd_test.go has new test TestTemplateSaveKindAgentCanonical (new, not yet in tree) with 2 sub-cases: (1) --canonical=foo writes to ~/.ta/agents/<group>/foo.md; (2) absent --canonical falls back to basename(--path) minus '.md'. Reuse templates.SetRootForTest harness from existing TestTemplateSaveKindAgent (line ~666)."
+depends_on = ["drop_011.drop.builder_template_save_canonical_d1_flag_wiring"]
+description = "D2 of drop_011 per planner decomposition. Atomicity: 1-2 small blocks (one new test function + at most one small table literal)."
+expected_outputs = ["cmd/ta/template_cmd_test.go"]
+files = ["cmd/ta/template_cmd_test.go"]
+labels = ["drop_011", "ta-core", "cmd-ta", "tests"]
+objective = "Add TestTemplateSaveKindAgentCanonical to cmd/ta/template_cmd_test.go asserting --canonical destination + no-canonical fallback for kind=agent."
+outcome = "success"
+packages = ["github.com/evanmschultz/ta/cmd/ta"]
+parent_id = "drop_011.drop.planner_template_save_canonical_decompose"
+paths = ["cmd/ta/template_cmd_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "drop_011 D2 — add TestTemplateSaveKindAgentCanonical regression"
+updated_at = "2026-05-21T10:00:00Z"
+validation_plan = "mage testFunc TestTemplateSaveKindAgentCanonical passes; mage testPkg ./cmd/ta still green."
+[builder_template_save_canonical_d2_test-qa-proof]
+created_at = "2026-05-21T17:13:10Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_011.drop.builder_template_save_canonical_d2_test"
+title = "QA proof of drop_011 D2 — add TestTemplateSaveKindAgentCanonical regression"
+updated_at = "2026-05-21T17:13:10Z"
+
+[builder_template_save_canonical_d2_test-qa-falsification]
+created_at = "2026-05-21T17:13:10Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_011.drop.builder_template_save_canonical_d2_test"
+title = "QA falsif of drop_011 D2 — add TestTemplateSaveKindAgentCanonical regression"
+updated_at = "2026-05-21T17:13:10Z"

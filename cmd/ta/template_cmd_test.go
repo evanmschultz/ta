@@ -695,6 +695,52 @@ func TestTemplateSaveKindAgent(t *testing.T) {
 	}
 }
 
+// TestTemplateSaveKindAgentCanonical verifies the --canonical flag
+// extension to --kind=agent (drop_011 D1+D2). When --canonical is
+// provided, the destination filename uses the canonical name instead
+// of basename(--path). When absent, basename fallback is preserved.
+func TestTemplateSaveKindAgentCanonical(t *testing.T) {
+	t.Run("canonical overrides basename", func(t *testing.T) {
+		root := t.TempDir()
+		restore := templates.SetRootForTest(root)
+		t.Cleanup(restore)
+		src := filepath.Join(t.TempDir(), "ta-go-builder.md")
+		if err := os.WriteFile(src, []byte("# go-builder\nbody\n"), 0o644); err != nil {
+			t.Fatalf("seed src: %v", err)
+		}
+
+		_, _, err := runTemplateCmd(t, "save", "--kind=agent", "--path", src, "--group", "ta", "--canonical", "go-builder", "--json")
+		if err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "agents", "ta", "go-builder.md")); err != nil {
+			t.Errorf("agent not at canonical path %s: %v", filepath.Join(root, "agents", "ta", "go-builder.md"), err)
+		}
+		// And NOT at the basename path
+		if _, err := os.Stat(filepath.Join(root, "agents", "ta", "ta-go-builder.md")); err == nil {
+			t.Errorf("agent unexpectedly present at basename path; --canonical should have overridden")
+		}
+	})
+
+	t.Run("no canonical falls back to basename", func(t *testing.T) {
+		root := t.TempDir()
+		restore := templates.SetRootForTest(root)
+		t.Cleanup(restore)
+		src := filepath.Join(t.TempDir(), "ta-go-planning.md")
+		if err := os.WriteFile(src, []byte("# go-planning\nbody\n"), 0o644); err != nil {
+			t.Fatalf("seed src: %v", err)
+		}
+
+		_, _, err := runTemplateCmd(t, "save", "--kind=agent", "--path", src, "--group", "ta", "--json")
+		if err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "agents", "ta", "ta-go-planning.md")); err != nil {
+			t.Errorf("agent not at basename path: %v", err)
+		}
+	})
+}
+
 func TestTemplateSaveKindConfigDefaultsCanonical(t *testing.T) {
 	root := t.TempDir()
 	restore := templates.SetRootForTest(root)
