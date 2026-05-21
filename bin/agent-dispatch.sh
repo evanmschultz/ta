@@ -342,6 +342,19 @@ ${TASK_PROMPT}"
   done
   cmd+=( -c "mcp_servers.ta={command=\"ta\",args=[\"--project\",\"${CWD}\"],tools={${ta_tools_toml}}}" )
 
+  # Hylla MCP injection (HTTP transport). Codex's mcp_servers config
+  # supports HTTP-mode via {url=...}. Without this, codex-routed
+  # planners + QA cannot reach mcp__hylla__* even though the persona
+  # allowlist names them — they fall back to Read/Grep/GitHub fetch,
+  # which is slower and less authoritative than the Hylla committed-
+  # Go-evidence index. Mirrors .mcp.json's "hylla" HTTP entry.
+  local hylla_tools_toml="" hylla_tool
+  for hylla_tool in hylla_search hylla_search_keyword hylla_node_full hylla_refs_find hylla_graph_nav hylla_artifact_list hylla_artifact_metadata hylla_artifact_overview hylla_run_list hylla_run_get hylla_dql_query hylla_graph_list hylla_search_vector hylla_task_get; do
+    [[ -n "${hylla_tools_toml}" ]] && hylla_tools_toml+=","
+    hylla_tools_toml+="${hylla_tool}={approval_mode=\"approve\"}"
+  done
+  cmd+=( -c "mcp_servers.hylla={url=\"http://127.0.0.1:7389/mcp\",tools={${hylla_tools_toml}}}" )
+
   if [[ -n "${opts}" ]]; then
     # shellcheck disable=SC2206  # intentional word-split on opts
     local opt_arr=( ${opts} )
