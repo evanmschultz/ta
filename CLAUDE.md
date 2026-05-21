@@ -14,8 +14,8 @@ Chain definitions: [`.claude/agent-chains.sh`](.claude/agent-chains.sh). Dispatc
 
 **Role-appropriate tool allowlists (the actual sandbox)**: every dispatched agent — regardless of backend — runs inside its host runtime (Claude Code via Ollama endpoint, Claude Code via Anthropic OAuth, or codex exec). Each role gets a tool allowlist scoped to what THAT role needs:
 
-- **Planners**: ta create/update/get (to write plans) + read tools (Read, Grep, hylla) + context7. NO Edit/Write/Bash — planners write plans into ta records, not code.
-- **Plan-QA + Build-QA**: read-only — Read, Grep, Glob, hylla, ta get/search, `Bash(git diff *)` + `Bash(git log *)` for diff inspection. NO Edit/Write — QA verifies, doesn't change.
+- **Planners**: ta create/update/get (to write plans) + read tools (Read, Grep, hylla **for Go personas only**) + context7. NO Edit/Write/Bash — planners write plans into ta records, not code.
+- **Plan-QA + Build-QA**: read-only — Read, Grep, Glob, hylla **(Go personas only)**, ta get/search, `Bash(git diff *)` + `Bash(git log *)` for diff inspection. NO Edit/Write — QA verifies, doesn't change.
 - **Builders**: Edit, Write, Read, Grep, Glob, Bash, LSP for the code they're editing. ta get/search (read context) but NOT ta create/update (cascade records are planner/closeout territory). Builders DO the actual file edits — that's the entire point of having builders.
 - **Closeout**: Read + `Bash(git *)` + `Bash(mage check)` (verify) + ta update (mark cascade nodes complete). No Edit/Write — closeout coordinates, doesn't author.
 
@@ -63,7 +63,7 @@ Builder fallback chain: 7B → codex gpt-5.4 (effort=low) → claude haiku. NOT 
 
 **Dispatch**:
 
-- `bash-dispatcher` rows → `echo "<prompt>" | ./bin/agent-dispatch.sh --role <role> --cwd "$(pwd)"`. Walks the chain in `.claude/agent-chains.sh` until one tier succeeds. The dispatched agent runs in its backend (Claude Code with Ollama endpoint / codex exec / Claude Code with Anthropic OAuth) and **performs the work itself** using its role-appropriate tools. The orchestrator's job is to construct the dispatch prompt, monitor the result, and route the next cascade step — NOT to do the file edits. Parse stdout JSON for the response (`result` field for Claude-Code-based backends; codex stream events for codex). Read stderr for `served_by=...` line — note FALLBACK if a non-primary tier served.
+- `bash-dispatcher` rows → `./bin/agent-dispatch.sh --role <role> --cwd "$(pwd)" --prompt "<short pointer>"` (stdin pipe also works). Walks the chain in `.claude/agent-chains.sh` until one tier succeeds. The dispatched agent runs in its backend (Claude Code with Ollama endpoint / codex exec / Claude Code with Anthropic OAuth) and **performs the work itself** using its role-appropriate tools. The orchestrator's job is to construct a SHORT dispatch prompt (pointer to the ta cascade record + Section 0 directive + Hylla ref if Go — see §Orchestrator dispatch pattern below for shape), monitor the result, and route the next cascade step — NOT to do the file edits. Parse stdout JSON for the response (`result` field for Claude-Code-based backends; codex stream events for codex). Read stderr for `served_by=...` line — note FALLBACK if a non-primary tier served.
 - `agent-tool` rows → native Claude `Agent` tool with `subagent_type = <role>`. Reads `.claude/agents/<role>.md`. Anthropic Opus.
 - **Dry-run before live dispatch**: `--dry-run` flag prints the tier-1 command without acquiring a slot or dispatching. Useful for verifying wiring.
 - **Atomic-builder override**: for proper-cascade 1-2 block droplets, the default 7B is correct. For an unusual case needing a larger model, pass `--model qwen3-coder:30b`.
@@ -75,29 +75,22 @@ Builder fallback chain: 7B → codex gpt-5.4 (effort=low) → claude haiku. NOT 
 
 **Fallback consumes tokens**: when ollama AND codex are unavailable, the chain falls through to `claude-native` which uses your Anthropic subscription. Deliberate trade-off — better than failing the dispatch entirely. Watch your usage if claude-native fires frequently.
 
-**Orchestrator dispatch pattern** (concrete `Bash()` invocation for `bash-dispatcher` rows):
+**Orchestrator dispatch pattern**: spawn prompts are SHORT pointers, not embedded specs. Task content lives in the ta cascade record (read by the agent via `mcp__ta__get <record-id>`); persona framing lives in `.claude/agents/<role>.md` (injected automatically by the dispatcher via `--append-system-prompt`). The orchestrator hands the agent: (a) the record id(s) to read, (b) Section 0 directive verbatim, (c) Hylla artifact ref for Go roles, (d) anything genuinely task-specific that's NOT in the record yet. Nothing else — duplicating acceptance_criteria, definition_of_complete, file paths, etc. into the spawn prompt is anti-pattern; the agent reads the record.
 
-For short prompts (single-line):
+Default form — inline `--prompt`:
 ```
 Bash(
-  command='echo "<task prompt>" | ./bin/agent-dispatch.sh --role ta-go-builder --cwd "$(pwd)"',
+  command='./bin/agent-dispatch.sh --role ta-fe-planning --cwd "$(pwd)" --prompt "Task record: drop_005.drop.planner_l2_a_templates_a11y_d0 (read it + parent drop_005.drop.path_a_thariq_visual_fixes + L1 decomposition drop_005.drop.planner_decompose for context). Section 0 directive: <verbatim>. Hylla: github.com/evanmschultz/ta@main (Go only). Begin."',
   run_in_background=true,
-  description='ta-go-builder: <short>',
+  description='ta-fe-planning: L2-A decompose',
 )
 ```
 
-For long prompts (multi-line with Section 0 directive, file paths, acceptance gates), write the prompt to a temp file first and use `--prompt-file`:
-```
-# 1. Write prompt
-Write(file_path="/tmp/dispatch-<role>-<id>.md", content="<full multi-line prompt>")
+Stdin pipe (`echo "<prompt>" | ./bin/agent-dispatch.sh ...`) also works; pick whichever is cleanest at the call site.
 
-# 2. Dispatch
-Bash(
-  command='./bin/agent-dispatch.sh --role ta-go-builder --cwd "$(pwd)" --prompt-file /tmp/dispatch-<role>-<id>.md',
-  run_in_background=true,
-  description='ta-go-builder: <short>',
-)
-```
+The `--prompt-file` form is a fallback for unusual cases (literal backticks + nested quotes in a multi-paragraph string that would break shell quoting). With the record-id-pointer pattern, `--prompt-file` is rarely needed; reach for it only when shell quoting actually breaks.
+
+Precedence (dispatcher line 151): `--prompt` > `--prompt-file` > stdin.
 
 **Parsing the response** (orchestrator-side after dispatch returns):
 - ollama-local / claude-native served → stdout is Claude Code JSON envelope. The agent's text reply is `.result`. Parse via `jq -r .result` or read the JSON object directly.
@@ -176,8 +169,9 @@ ta's MCP-server invariant is one project per process. Two ways to pin cwd:
 
 ## Project-specific docs
 
+- [`docs/HANDOFF-pre-mvp-feature-complete.md`](docs/HANDOFF-pre-mvp-feature-complete.md) — current source-of-truth for the post-drop_004 reality, the in-flight drop_005 Path A + Path B plan, and the no-semver-phrasing rule.
 - [`docs/agent-backend-routing.md`](docs/agent-backend-routing.md) — full explainer for the routing pattern above; copy-into-other-project guide.
 - [`docs/cascade-methodology.md`](docs/cascade-methodology.md) — the canonical cascade contract; ta dogfoods it.
-- [`docs/pre-mvp-tracker.md`](docs/pre-mvp-tracker.md) — open pre-`v0.1.0` items, what's punted, what's closed.
+- [`docs/pre-mvp-tracker.md`](docs/pre-mvp-tracker.md) — open pre-mvp-feature-complete items, what's punted, what's closed.
 - [`docs/tui-guidance.md`](docs/tui-guidance.md) — TUI stack (bubbletea/bubbles/lipgloss/glamour/laslig), teatest + goldens + VHS verification rules.
 - [`docs/PLAN.md`](docs/PLAN.md) — ta-specific drop sequencing.
