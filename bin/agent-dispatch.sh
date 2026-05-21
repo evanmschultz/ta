@@ -493,5 +493,5 @@ while IFS='|' read -r backend model opts wait_max slots; do
 done <<<"${TIER_TABLE}"
 
 echo "[disp] CHAIN FAILED: ${TIER_NUM} tiers exhausted for role=${ROLE}" >&2
-echo "[disp] CODEX_EXHAUSTED role=${ROLE} — orchestrator should re-dispatch via the native Agent tool with subagent_type=${ROLE} model=sonnet (or opus for high-stakes QA-falsif). Do NOT invoke 'claude -p' as a subprocess — that path was retired 2026-05-21 to keep claude-native billing on the subscription, not on ANTHROPIC_API_KEY." >&2
+echo "[disp] CODEX_EXHAUSTED role=${ROLE} — orchestrator should re-dispatch via the native Agent tool with subagent_type=${ROLE} model=sonnet (equal-tier Anthropic substitute). Escalate to opus ONLY on repeated sonnet failures for plan-QA-falsif slices (orch judgment, not automatic). Do NOT invoke 'claude -p' as a subprocess — that path was retired 2026-05-21 to keep claude-native billing on the subscription, not on ANTHROPIC_API_KEY." >&2
 exit 1

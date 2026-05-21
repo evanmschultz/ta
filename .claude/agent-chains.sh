@@ -60,54 +60,55 @@ EOF
 }
 
 # --- Planning --------------------------------------------------------------
-# Cheap-first: codex 5.5 low primary (cheapest sufficient for decomposition);
-# codex 5.5 medium tier-2 if low fails. No claude-native fallback row: if
-# both codex tiers exhaust, the dispatcher exits with CODEX_EXHAUSTED so
-# the orchestrator re-dispatches via the native Agent tool (subscription,
-# never `claude -p` subprocess).
+# Single tier: codex 5.4 with high reasoning. No claude-native fallback row.
+# On codex failure (rate-limit or otherwise), dispatcher exits with
+# CODEX_EXHAUSTED and the orchestrator re-dispatches via the native Agent
+# tool with `subagent_type=<role> model=sonnet` — sonnet is the *equal-tier*
+# Anthropic substitute for planning, NOT an upgrade. Orchestrator may
+# escalate to opus only on REPEATED failures (judgment call, not automatic).
 chain_planning() {
   cat <<'EOF'
-codex-exec|gpt-5.5|--sandbox read-only -c model_reasoning_effort=low||
-codex-exec|gpt-5.5|--sandbox read-only -c model_reasoning_effort=medium||
+codex-exec|gpt-5.4|--sandbox read-only -c model_reasoning_effort=high||
 EOF
 }
 
 # --- QA Falsification ------------------------------------------------------
-# Adversarial reasoning. Cheap-first: medium handles build-QA-falsif (the
-# typical case where the plan was already vetted in plan-QA); high tier-2
-# handles plan-QA-falsif via escalation when medium is insufficient.
-# Claude opus is cross-backend redundancy.
+# Single tier: codex 5.4 high — adversarial reasoning is high-stakes
+# enough that we don't want to bother with a cheaper try-first. No
+# claude-native fallback row. On codex failure, dispatcher exits with
+# CODEX_EXHAUSTED and the orchestrator re-dispatches via the native Agent
+# tool with `model=sonnet` — sonnet is the equal-tier Anthropic substitute
+# for build-QA-falsif (the typical case). For plan-QA-falsif slices (rarer,
+# higher stakes), the orchestrator may escalate to opus on REPEATED
+# sonnet failures — judgment call, not automatic.
 #
-# Sandbox: workspace-write so the QA agent can run `mage check` / `mage testPkg`
-# (which writes to go build cache + pnpm node_modules + /tmp). The persona's
-# tools: line is the actual write-discipline (no Edit/Write/Bash(go *)/etc.);
-# codex's sandbox is defense-in-depth, not the primary gate.
+# Sandbox: workspace-write so the QA agent can run `mage check` / `mage
+# testPkg` (which writes to go build cache + pnpm node_modules + /tmp).
+# The persona's tools: line is the actual write-discipline; codex's
+# sandbox is defense-in-depth, not the primary gate.
 chain_qa_falsification() {
   cat <<'EOF'
-codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
-codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=high||
+codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=high||
 EOF
 }
 
 # --- QA Proof --------------------------------------------------------------
-# Evidence verification. Quality floor IS opus — no graceful-degradation
-# tier to sonnet (if opus fails, fall to codex; sonnet would underqualify
-# for proof reasoning). Sandbox: workspace-write so the QA agent can run
-# `mage check`. Persona tools: line gates source-write discipline.
+# Single tier: Agent-tool opus. Quality floor IS opus — sonnet would
+# underqualify for proof reasoning. No codex fallback row in this chain
+# because qa_proof routes via agent-tool dispatch (never invokes the
+# bash dispatcher in practice); the row is the orchestrator's model hint.
 chain_qa_proof() {
   cat <<'EOF'
 claude-native|opus||||
-codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
 EOF
 }
 
 # --- Closeout -------------------------------------------------------------
-# Final coordinator before commit. Quality floor IS opus. Sandbox:
-# workspace-write so closeout can run `mage check`. Persona tools: line
-# gates source-write discipline (no Edit/Write tools).
+# Single tier: Agent-tool opus. Final coordinator before commit; quality
+# floor IS opus. Routes via agent-tool dispatch; the row is the
+# orchestrator's model hint.
 chain_closeout() {
   cat <<'EOF'
 claude-native|opus||||
-codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
 EOF
 }

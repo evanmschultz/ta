@@ -50,10 +50,10 @@ closeout         Bash(mage check), Bash(git diff *), Bash(git log *),           
 role-primaries{role,backend,model,dispatch}:
 ta-go-builder,claude-native,haiku,agent-tool
 ta-fe-builder,claude-native,haiku,agent-tool
-ta-go-planning,codex-exec,gpt-5.5+low,bash-dispatcher
-ta-fe-planning,codex-exec,gpt-5.5+low,bash-dispatcher
-ta-go-qa-falsification,codex-exec,gpt-5.5+medium,bash-dispatcher
-ta-fe-qa-falsification,codex-exec,gpt-5.5+medium,bash-dispatcher
+ta-go-planning,codex-exec,gpt-5.4+high,bash-dispatcher
+ta-fe-planning,codex-exec,gpt-5.4+high,bash-dispatcher
+ta-go-qa-falsification,codex-exec,gpt-5.4+high,bash-dispatcher
+ta-fe-qa-falsification,codex-exec,gpt-5.4+high,bash-dispatcher
 ta-go-qa-proof,claude-native,opus,agent-tool
 ta-fe-qa-proof,claude-native,opus,agent-tool
 ta-closeout,claude-native,opus,agent-tool
