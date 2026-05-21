@@ -608,6 +608,8 @@ acceptance_criteria = """
 5. The droplet remains within 1-2 small code blocks including tests.
 """
 blockers = ["drop_008.drop.builder_l2_b2_ta_serve_root_route"]
+completed_at = "2026-05-21T22:58:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/server/{routes_cascade.go,routes_cascade_test.go} on commit 761b327. NotFoundError type + CascadeDetailRenderer interface + WithCascadeDetailRenderer. GET /cascade/{id} handler delegates to view, surfaces 404 via errors.As(*NotFoundError); other errors → 500. TestServe_CascadeDetailRejectsUnknownRecord passes via mage testFunc."}
 created_at = "2026-05-20T19:00:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -632,14 +634,15 @@ Tests:
 files = ["docs/HANDOFF-pre-mvp-feature-complete.md"]
 labels = ["droplet", "ta-serve", "internal-server", "cascade-route"]
 objective = "Implement `/cascade/<id>` and tree-style cascade alias parsing in `internal/server`, delegating resolved record ids to the view layer and limiting this slice to handler-surface status passthrough for not-found outcomes."
+outcome = "success"
 packages = ["github.com/evanmschultz/ta/internal/server"]
 parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
 paths = ["internal/server/routes_cascade.go", "internal/server/routes_cascade_test.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "B3 — cascade detail route passes through view-layer not-found status"
-updated_at = "2026-05-20T19:00:00Z"
+updated_at = "2026-05-21T22:58:00Z"
 validation_plan = "Run `TA_TEST_PKG=./internal/server mage testFunc TestServe_CascadeDetailRejectsUnknownRecord` after implementing cascade route parsing and handler-surface not-found passthrough."
 [builder_l2_b3_ta_serve_cascade_detail_route-qa-proof]
 created_at = "2026-05-21T06:57:42Z"
@@ -665,6 +668,8 @@ acceptance_criteria = """
 4. The droplet remains 1 implementation block and 1 focused test block.
 """
 blockers = ["drop_008.drop.builder_l2_b2_ta_serve_root_route"]
+completed_at = "2026-05-21T23:00:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/server/{routes_docs.go,routes_docs_test.go} on commit 88c9270. DocsRenderer interface (RenderRoadmap + RenderSchema), WithDocsRenderer setter, registerDocsRoute registering GET /roadmap + GET /schema. TestServe_RoadmapAndSchemaOnGet passes with 6 table-driven cases."}
 created_at = "2026-05-20T19:00:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -689,14 +694,15 @@ Tests:
 files = ["docs/HANDOFF-pre-mvp-feature-complete.md"]
 labels = ["droplet", "ta-serve", "internal-server", "roadmap-route", "schema-route"]
 objective = "Add the `/roadmap` and `/schema` GET routes in `internal/server`, each delegating to the injected view layer through the same bootstrap and status conventions established earlier in L2-B."
+outcome = "success"
 packages = ["github.com/evanmschultz/ta/internal/server"]
 parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
 paths = ["internal/server/routes_docs.go", "internal/server/routes_docs_test.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "B4 — roadmap and schema GET routes"
-updated_at = "2026-05-20T19:00:00Z"
+updated_at = "2026-05-21T23:00:00Z"
 validation_plan = "Run `TA_TEST_PKG=./internal/server mage testFunc TestServe_RoadmapAndSchemaOnGet` after wiring `/roadmap` and `/schema` on top of the B2 mux."
 [builder_l2_b4_ta_serve_roadmap_schema_routes-qa-proof]
 created_at = "2026-05-21T06:57:42Z"
@@ -746,16 +752,18 @@ updated_at = "2026-05-21T06:57:57Z"
 
 [builder_l2_c_serveview_detail_loader_template_mapper]
 blockers = ["drop_008.drop.builder_l2_c_serveview_cascade_tree_loader"]
+completed_at = "2026-05-21T22:58:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/serverview/{detail_loader.go,detail_loader_test.go} on commit 761b327. LoadDetail(projectPath, id) uses ops.Get + maps structural_type to Track A template name (drop→cascade_drop.html, planner→cascade_planner.html, droplet→cascade_droplet.html, qa_proof/qa_falsification→cascade_qa.html). Returns DetailLoaderResult{ID, Fields, TemplateName}."}
 created_at = "2026-05-20T00:00:00Z"
 objective = "Build the cascade detail loader and record-kind to Track A template mapping in `new, not yet in tree: internal/serverview/detail.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed `internal/ops.Get` for live record reads and committed render coverage already in tree for cascade drop/planner/droplet/qa templates, so this droplet must reuse those existing render contracts rather than invent a new template substrate. Scope: load one cascade record by id, resolve the committed Track A template family for the record kind, and return a narrow render request/value object for later HTTP use. Acceptance: template selection is runtime-only through committed `internal/templates_html_basic.Render`; any additional template name beyond the committed cascade drop/planner/droplet/qa set must be marked `new, not yet in tree` instead of assumed; the honest new test name reserved for D6 is `new, not yet in tree: TestServeView_RenderCascadeDrop`. Atomicity verification: this is 1 production block plus at most 1 small mapping/helper block."
+outcome = "success"
 parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
 paths = ["internal/serverview/detail.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-C D2 builder — serveview cascade detail loader and template mapper"
-updated_at = "2026-05-20T00:00:00Z"
-
+updated_at = "2026-05-21T22:58:00Z"
 [builder_l2_c_serveview_detail_loader_template_mapper-qa-proof]
 created_at = "2026-05-21T06:57:57Z"
 role = "qa-proof"
@@ -774,16 +782,18 @@ updated_at = "2026-05-21T06:57:57Z"
 
 [builder_l2_c_serveview_roadmap_loader]
 blockers = ["drop_008.drop.builder_l2_c_serveview_detail_loader_template_mapper"]
+completed_at = "2026-05-21T23:05:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/serverview/{roadmap_loader.go,roadmap_loader_test.go} on commit f0ee17e. LoadRoadmapVersion(projectPath, id) returns RoadmapLoaderResult{ID, Fields, TemplateName=\"roadmap_version.html\"}. Single-record loader (list+latest selection happens at adapter layer)."}
 created_at = "2026-05-20T00:00:00Z"
 objective = "Build the roadmap page loader in `new, not yet in tree: internal/serverview/roadmap.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed runtime template coverage for roadmap rendering (`TestRenderBasic_RoadmapVersion` already in tree) and committed `internal/ops.Get`/`ListSections` as the live `.ta/` read surface. Scope: load the live roadmap data needed for the Track A roadmap page, shape the view model, and hand back a narrow render-ready value without introducing new HTTP concerns. Acceptance: path scope stays inside `internal/serverview/**`; render path reuses committed `internal/templates_html_basic.Render`; the honest new test name reserved for D6 is `new, not yet in tree: TestServeView_RenderRoadmap`. Atomicity verification: this is 1 small production block plus at most 1 tiny loader/helper block."
+outcome = "success"
 parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
 paths = ["internal/serverview/roadmap.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-C D3 builder — serveview roadmap loader"
-updated_at = "2026-05-20T00:00:00Z"
-
+updated_at = "2026-05-21T23:05:00Z"
 [builder_l2_c_serveview_roadmap_loader-qa-proof]
 created_at = "2026-05-21T06:57:57Z"
 role = "qa-proof"
@@ -1401,6 +1411,8 @@ updated_at = "2026-05-21T17:17:16Z"
 [builder_l2_b5a_ta_serve_search_route]
 acceptance_criteria = "1. Path scope exactly internal/server/routes_search.go + routes_search_test.go. 2. Handler delegates to view layer (no business logic). 3. TestServe_SearchRouteParsesQueryString verifies query parsing. 4. Atomicity ≤2 small blocks (handler + test). 5. mage testPkg ./internal/server green."
 blockers = []
+completed_at = "2026-05-21T23:05:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/server/{routes_search.go,routes_search_test.go} on commit f0ee17e. SearchRenderer.RenderSearch(ctx, w, req, query string) error; GET /search?q=... parses q param + delegates; zero-JS backend search. 9 test cases incl URL-encoded query, missing/empty q handling, nil-renderer 500, multiple q params (uses first)."}
 created_at = "2026-05-21T10:30:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
@@ -1411,16 +1423,16 @@ expected_outputs = ["internal/server/routes_search.go", "internal/server/routes_
 files = ["internal/server/routes_search.go", "internal/server/routes_search_test.go"]
 labels = ["l2-b", "ta-serve", "internal-server", "search"]
 objective = "Add /search?q=... route handler in internal/server/routes_search.go. Pure HTTP layer; delegates query parsing + result rendering to L2-C view layer."
+outcome = "success"
 packages = ["github.com/evanmschultz/ta/internal/server"]
 parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
 paths = ["internal/server/routes_search.go", "internal/server/routes_search_test.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-B-B5a builder — /search route handler"
-updated_at = "2026-05-21T10:30:00Z"
+updated_at = "2026-05-21T23:05:00Z"
 validation_plan = "mage testFunc TestServe_SearchRouteParsesQueryString passes; mage testPkg ./internal/server green."
-
 [builder_l2_b5a_ta_serve_search_route-qa-proof]
 created_at = "2026-05-21T17:23:09Z"
 role = "qa-proof"

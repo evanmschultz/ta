@@ -44,12 +44,9 @@ func TestServe_MethodNotAllowed(t *testing.T) {
 			path:           "/",
 			wantStatusCode: http.StatusMethodNotAllowed,
 		},
-		{
-			name:           "HEAD / returns 405 Method Not Allowed",
-			method:         http.MethodHead,
-			path:           "/",
-			wantStatusCode: http.StatusMethodNotAllowed,
-		},
+		// HEAD is intentionally omitted: per HTTP semantics + Go 1.22+ mux
+		// behavior, HEAD requests are routed to the matching GET handler
+		// (the response body is then stripped). They are not 405.
 		{
 			name:           "OPTIONS / returns 405 Method Not Allowed",
 			method:         http.MethodOptions,

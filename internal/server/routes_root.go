@@ -23,8 +23,11 @@ func (s *Server) WithViewRenderer(vr ViewRenderer) *Server {
 }
 
 // registerRootRoute registers the GET / handler that delegates to the view layer.
+// The "/{$}" suffix is the Go 1.22+ literal-end-of-path terminator: without
+// it, "GET /" matches every path as a catch-all prefix, swallowing 404s for
+// unknown URLs. With "/{$}", only the exact "/" path is matched.
 func (s *Server) registerRootRoute() error {
-	s.mux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
+	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, req *http.Request) {
 		if s.viewRenderer == nil {
 			http.Error(w, "internal server error: view renderer not configured", http.StatusInternalServerError)
 			return
