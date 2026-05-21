@@ -1,1 +1,0 @@
-# expect: thariq qa-twins rendered

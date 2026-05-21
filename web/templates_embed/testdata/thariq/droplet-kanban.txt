@@ -1,1 +1,0 @@
-# expect: thariq droplet kanban rendered

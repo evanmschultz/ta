@@ -14,16 +14,11 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/evanmschultz/laslig"
@@ -296,170 +291,17 @@ func Tidy() error {
 	return nil
 }
 
-// Check is the composite gate: fmtcheck, vet, test, tidy, templates-embed.
-// The TemplatesBuildEmbed step is skip-on-pnpm-absent: if pnpm is not on
-// PATH, Check emits a verbose WARN line and proceeds without Track B
-// build verification. Any other failure from TemplatesBuildEmbed (e.g.
-// pnpm present but `pnpm run build` non-zero) bubbles up and fails Check.
+// Check is the composite gate: fmtcheck, vet, test, tidy. Each terminal
+// example under examples/<sub>/ is built independently via its local
+// pnpm scripts; root //go:embed all:examples picks up the produced dist
+// trees at compile time.
 func Check() error {
 	for _, step := range []func() error{FmtCheck, Vet, Test, Tidy} {
 		if err := step(); err != nil {
 			return err
 		}
 	}
-	if err := TemplatesBuildEmbed(); err != nil {
-		if errors.Is(err, errPnpmAbsent) {
-			fmt.Fprintln(os.Stderr,
-				"WARN: pnpm not on PATH; skipping TemplatesBuildEmbed for Track B; "+
-					"mage Check passes WITHOUT Track B build verification")
-			return nil
-		}
-		return err
-	}
 	return nil
-}
-
-// errPnpmAbsent is the sentinel returned by ensurePnpm when the `pnpm`
-// binary is not resolvable on PATH. Check uses errors.Is against this
-// sentinel to distinguish "skip Track B silently" from "real build
-// failure that must fail the gate".
-var errPnpmAbsent = errors.New("pnpm not on PATH")
-
-// ensurePnpm resolves the `pnpm` binary on PATH. Parallel in shape to
-// ensureGofumpt — but pnpm CANNOT be auto-installed reliably across
-// platforms (npm, corepack, brew, asdf all reasonable; no canonical
-// `go install`-equivalent), so this helper only locates an existing
-// pnpm and returns errPnpmAbsent when missing. Direct callers
-// (TemplatesBuildEmbed) propagate the error; Check downgrades it to a
-// WARN-and-skip via errors.Is.
-func ensurePnpm() (string, error) {
-	path, err := exec.LookPath("pnpm")
-	if err != nil {
-		return "", errPnpmAbsent
-	}
-	return path, nil
-}
-
-// TemplatesBuildEmbed builds the Astro project under web/templates_embed/
-// that feeds internal/templates_html_embed/dist/ for go:embed (Track B).
-// Returns errPnpmAbsent (wrapped) if pnpm is not on PATH so callers can
-// distinguish "skip" from "build failed". Any other non-zero pnpm exit
-// bubbles up as a wrapped error — a present-pnpm build failure is
-// always a hard failure (CONTRIBUTING.md documents that devs with pnpm
-// must run `pnpm install -C web/templates_embed` once before `mage
-// check`).
-func TemplatesBuildEmbed() error {
-	pnpm, err := ensurePnpm()
-	if err != nil {
-		return fmt.Errorf("templates build embed: %w", err)
-	}
-	cmd := exec.Command(pnpm, "run", "build")
-	cmd.Dir = "web/templates_embed"
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("templates build embed: pnpm run build: %w", err)
-	}
-	// Restore the dist/.keep placeholder that Astro's build step wipes when
-	// clearing dist/ before writing output. Without this restore, the embed
-	// package's TestEmbeddedEmbed_DistKeepPresent fails after any TemplatesBuildEmbed
-	// run, and a fresh clone (with no prior build) can lose the placeholder
-	// the moment a dev runs the build target. The //go:embed all:dist
-	// directive requires at least one file at the embed root at compile time;
-	// the .keep sentinel guarantees that round-trip across dev workflows.
-	const keep = "internal/templates_html_embed/dist/.keep"
-	keepBody := []byte("# placeholder; do not delete. //go:embed all:dist requires this file at fresh-clone state.\n")
-	if err := os.WriteFile(keep, keepBody, 0o644); err != nil {
-		return fmt.Errorf("templates build embed: restore %s: %w", keep, err)
-	}
-	return nil
-}
-
-// TemplatesBuildVerifyStable rebuilds the Astro dist tree twice and
-// compares the sha256 of the dist directory between runs. If the two
-// hashes diverge on the first try (Astro flake, timestamp drift, etc.),
-// the target rebuilds ONCE MORE and compares the second run's hash to
-// the third. If THAT compare also fails, the target returns an error
-// summarizing the divergent hashes — three builds total max. This is
-// the "retry-once-then-fail" flake policy: tolerate a single
-// non-deterministic build, but persistent drift is a real bug in the
-// Astro pipeline and fails loud.
-func TemplatesBuildVerifyStable() error {
-	const distDir = "internal/templates_html_embed/dist"
-	if err := TemplatesBuildEmbed(); err != nil {
-		return err
-	}
-	hashA, err := hashDistTree(distDir)
-	if err != nil {
-		return fmt.Errorf("templates verify stable: hash first build: %w", err)
-	}
-	if err := TemplatesBuildEmbed(); err != nil {
-		return err
-	}
-	hashB, err := hashDistTree(distDir)
-	if err != nil {
-		return fmt.Errorf("templates verify stable: hash second build: %w", err)
-	}
-	if hashA == hashB {
-		return nil
-	}
-	// First pair diverged; retry once.
-	if err := TemplatesBuildEmbed(); err != nil {
-		return err
-	}
-	hashC, err := hashDistTree(distDir)
-	if err != nil {
-		return fmt.Errorf("templates verify stable: hash retry build: %w", err)
-	}
-	if hashB == hashC {
-		return nil
-	}
-	return fmt.Errorf(
-		"templates verify stable: dist tree non-deterministic across three builds "+
-			"(hashA=%s hashB=%s hashC=%s)",
-		hashA, hashB, hashC,
-	)
-}
-
-// hashDistTree walks dir and returns a hex sha256 over the sorted list
-// of (relative path, file content sha256) tuples. Sorting the entries
-// before hashing makes the result independent of filesystem walk order.
-// Used by TemplatesBuildVerifyStable to detect non-deterministic Astro
-// builds.
-func hashDistTree(dir string) (string, error) {
-	type entry struct {
-		path string
-		sum  string
-	}
-	var entries []entry
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		sum := sha256.Sum256(data)
-		rel, relErr := filepath.Rel(dir, path)
-		if relErr != nil {
-			return relErr
-		}
-		entries = append(entries, entry{path: rel, sum: hex.EncodeToString(sum[:])})
-		return nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("walk %q: %w", dir, err)
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
-	roll := sha256.New()
-	for _, e := range entries {
-		fmt.Fprintf(roll, "%s\x00%s\n", e.path, e.sum)
-	}
-	return hex.EncodeToString(roll.Sum(nil)), nil
 }
 
 // Clean removes build artifacts.

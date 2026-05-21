@@ -141,3 +141,20 @@ source = "~/.ta/agents-md"
 destination = "AGENTS.md"
 destination_merge = "AGENTS.md"
 merge_strategy = "append"
+
+# --- 13. example_thariq ----------------------------------------------------
+# Standalone Astro demo project (drop_010 L2-A). The binary embeds the built
+# tree at examples/thariq/ via root //go:embed all:examples; this substrate
+# materializes that tree into ~/.ta/examples/thariq/ on first install and
+# copies it to the project's examples/thariq/ when applied. Plain copy, no
+# merge — demo content has no project-side document to merge into.
+[substrate.example_thariq]
+source = "~/.ta/examples/thariq"
+destination = "examples/thariq"
+
+# --- 14. example_stil ------------------------------------------------------
+# Standalone Astro demo project (drop_010 L2-B). Same shape as substrate 13
+# but targeting the stil cascade-view surface. Plain copy.
+[substrate.example_stil]
+source = "~/.ta/examples/stil"
+destination = "examples/stil"

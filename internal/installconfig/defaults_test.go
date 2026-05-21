@@ -4,10 +4,12 @@ import (
 	"testing"
 )
 
-// expectedSubstrateNames is the canonical list of 12 install-substrate names
+// expectedSubstrateNames is the canonical list of 14 install-substrate names
 // the embedded defaults.toml must declare. Order matches the file's section
-// order (claude_agents → agents_md) but lookup is map-based so order does
-// not affect assertion semantics.
+// order (claude_agents → example_stil) but lookup is map-based so order
+// does not affect assertion semantics. example_thariq + example_stil were
+// added in drop_010 L2-D D1 as opt-in copies of the standalone Astro demo
+// projects under examples/<sub>/.
 var expectedSubstrateNames = []string{
 	"claude_agents",
 	"claude_hooks",
@@ -21,6 +23,8 @@ var expectedSubstrateNames = []string{
 	"codex_config_fragments",
 	"codex_mcp_servers",
 	"agents_md",
+	"example_thariq",
+	"example_stil",
 }
 
 // TestEmbeddedDefaults_NotEmpty pins the //go:embed directive: if defaults.toml
@@ -61,11 +65,11 @@ func TestEmbeddedDefaults_ValidatesCleanly(t *testing.T) {
 	}
 }
 
-// TestEmbeddedDefaults_Contains12Substrates asserts both the exact count and
+// TestEmbeddedDefaults_Contains14Substrates asserts both the exact count and
 // the exact set of substrate names. A missing name produces a per-name
 // t.Errorf so a missing-key drift surfaces with the precise identifier rather
 // than just a count delta.
-func TestEmbeddedDefaults_Contains12Substrates(t *testing.T) {
+func TestEmbeddedDefaults_Contains14Substrates(t *testing.T) {
 	cfg, err := Defaults()
 	if err != nil {
 		t.Fatalf("Defaults(): %v", err)
