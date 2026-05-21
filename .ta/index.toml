@@ -3333,13 +3333,13 @@ updated = 2026-05-21T17:48:48.408027Z
 created = 2026-05-21T06:51:01.81595Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-21T17:58:49.322798Z
+updated = 2026-05-21T18:07:54.670924Z
 
 [drop_008.drop.planner_l2_c_ta_serve_views-plan-qa-proof]
 created = 2026-05-21T06:51:01.803295Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-21T17:58:49.305627Z
+updated = 2026-05-21T18:07:54.653474Z
 
 [drop_008.drop.planner_l2_d_ta_serve_integration]
 created = 2026-05-21T06:51:01.828859Z
@@ -3351,13 +3351,13 @@ updated = 2026-05-21T17:29:23.628932Z
 created = 2026-05-21T06:51:01.855206Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-21T17:58:49.357133Z
+updated = 2026-05-21T18:10:03.400359Z
 
 [drop_008.drop.planner_l2_d_ta_serve_integration-plan-qa-proof]
 created = 2026-05-21T06:51:01.841954Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-21T17:58:49.339748Z
+updated = 2026-05-21T18:07:54.687525Z
 
 [drop_008.drop.planner_l2_e_ta_serve_supporting_docs]
 created = 2026-05-21T06:51:01.868233Z
@@ -3713,20 +3713,21 @@ updated = 2026-05-20T03:09:47.03384Z
 
 [ta-fe-planning]
 created = 2026-05-19T04:14:08.958005Z
+db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-20T03:09:47.067412Z
+updated = 2026-05-21T18:09:31.909792Z
 
 [ta-fe-qa-falsification]
 created = 2026-05-19T04:14:08.942606Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-21T05:55:44.275083Z
+updated = 2026-05-21T18:09:31.948734Z
 
 [ta-fe-qa-proof]
 created = 2026-05-19T04:14:08.92824Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-21T05:55:44.259585Z
+updated = 2026-05-21T18:09:31.929225Z
 
 [ta-go-builder]
 created = 2026-05-16T21:58:40.656117Z

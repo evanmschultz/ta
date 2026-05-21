@@ -397,20 +397,20 @@ state = "complete"
 title = "L2-C planner — live .ta reads and Track A runtime rendering"
 updated_at = "2026-05-21T22:35:00Z"
 [planner_l2_c_ta_serve_views-plan-qa-proof]
-completion_contract = {completion_notes = "R3 PASS. Both fixes verified verbatim: 5 atomic test droplets bind to 5 distinct test files under internal/serverview/; old D6 builder_l2_c_serveview_narrow_tests deleted (found:false + git diff -14 lines). R2 win preserved (D5 owns new search_results.html + Render integration). 4 orphan QA sidecars cleaned up post-verdict. Served by claude-native:opus."}
+completion_contract = {completion_notes = "R4 PASS / CONVERGED. All 5 D6x objectives now cite per-droplet test files matching paths arrays (cascade_tree/detail/roadmap/schema/search _test.go). R3 win preserved (single-sink atomicity); R2 win preserved (D5 owns search_results.html). Hylla confirms internal/ops.ListSections + templates_html_basic.EmbeddedBasicHTML + Render still live at cited paths. Served by claude-native:opus."}
 created_at = "2026-05-21T06:51:01Z"
 outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_008.drop.planner_l2_c_ta_serve_views"
 title = "Plan-QA proof of L2-C planner — live .ta reads and Track A runtime rendering"
 updated_at = "2026-05-21T06:51:01Z"
 [planner_l2_c_ta_serve_views-plan-qa-falsification]
-completion_contract = {completion_notes = "FAIL with 2 substantive CEs: (1) D6 narrow_tests packs 5 mandatory tests — not atomic; (2) D5 search_loader_rendering overclaims committed render reuse — no committed search template exists yet; D5 must own new search template OR be re-scoped. Round-2 fix needed: split D6; clarify D5's new-template ownership or rescope. Served by codex-exec:gpt-5.4."}
+completion_contract = {completion_notes = "R4 PASS. No surviving CE. All 5 D6x objectives cite distinct per-droplet test files; current-project search found ZERO references to serveview_test.go; old D6 record confirmed deleted. completion_notes properly nested. Served by codex-exec:gpt-5.4."}
 created_at = "2026-05-21T06:51:01Z"
-outcome = "failure"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_008.drop.planner_l2_c_ta_serve_views"
 title = "Plan-QA falsif of L2-C planner — live .ta reads and Track A runtime rendering"
 updated_at = "2026-05-21T06:51:01Z"
@@ -429,20 +429,20 @@ state = "complete"
 title = "L2-D planner — httptest integration and Playwright contract"
 updated_at = "2026-05-21T22:35:00Z"
 [planner_l2_d_ta_serve_integration-plan-qa-proof]
-completion_contract = {completion_notes = "R3 PASS. D1-D4 blockers re-anchored to live terminals builder_l2_b5b_ta_serve_status_method_tests + builder_l2_c_test_search_results (both atomic, ≤2 small blocks each). Superseded stubs DELETED. R2 wins preserved verbatim: newFixtureProject helper in D1, TestServeE2E_HTTPSchemaOnGet in D2, both Playwright spec names in D4. Side defect cleared: no planner records in D2/D3/D4 blockers. Served by claude-native:opus."}
+completion_contract = {completion_notes = "R4 PASS. D1 objective + acceptance + completion_notes cite only LIVE records (builder_l2_b5b + builder_l2_c_test_search_results both found:true); deleted R3 ids both found:false; git diff confirms full-block removal. R2 wins preserved (D1 newFixtureProject, D2 /schema, D4 both Playwright specs). R3 side-fix to D2/D3/D4 blockers sustained. Served by claude-native:opus."}
 created_at = "2026-05-21T06:51:01Z"
 outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_008.drop.planner_l2_d_ta_serve_integration"
 title = "Plan-QA proof of L2-D planner — httptest integration and Playwright contract"
 updated_at = "2026-05-21T23:30:00Z"
 [planner_l2_d_ta_serve_integration-plan-qa-falsification]
-completion_contract = {completion_notes = "FAIL with 3 substantive CEs: (1) Dep chain wrong — D1-D4 block on L2-B/L2-C PLANNER records (already complete) not on B/C BUILDER outputs; scheduler could start D1 prematurely. (2) D1 fixture testdata ownership lock blocks D2/D3 from adding fixtures (atomicity sprawl OR scope leak). (3) Contract loss: D2 omits /schema coverage; D4 drops TestServe_AsHTTP_SearchFlow_PlaywrightAxe (only preserved CascadeTreeOnGet_Playwright). Round-2 fix needed: re-anchor D1-D4 blockers to B/C terminal builders; allow D2/D3 to add per-test fixtures or factor fixture ownership into shared helper; restore /schema integration coverage + both blocked Playwright spec names. Served by codex-exec:gpt-5.4."}
+completion_contract = {completion_notes = "R4 PASS. No finding. D1 objective + blockers rewritten to live terminals; D2-D4 do NOT reintroduce deleted IDs. Direct git inspection HEAD confirmed. Served by codex-exec:gpt-5.4."}
 created_at = "2026-05-21T06:51:01Z"
-outcome = "failure"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_008.drop.planner_l2_d_ta_serve_integration"
 title = "Plan-QA falsif of L2-D planner — httptest integration and Playwright contract"
 updated_at = "2026-05-21T06:51:01Z"
