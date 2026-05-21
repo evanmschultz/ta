@@ -14,9 +14,22 @@
 #   wait_max  unused now that ollama is removed
 #   slots     unused now that ollama is removed
 #
-# Lock policy: codex-exec and claude-native dispatch directly — the external
-# API returns 429/401 on overload or auth, and any non-zero exit advances
-# the dispatcher to the next tier.
+# Fallback policy (2026-05-21 hardening): claude-native rows are present
+# ONLY for agent-tool roles (chain_builder / chain_qa_proof / chain_closeout)
+# where the orchestrator reads them as model hints and dispatches via
+# Claude Code's native Agent tool (subscription-billed, no claude -p
+# subprocess). For bash-dispatched roles (chain_planning + chain_qa_falsif)
+# there is NO claude-native fallback row in the chain — codex exhaustion
+# exits the dispatcher with a non-zero code + CODEX_EXHAUSTED marker on
+# stderr telling the orchestrator to re-dispatch via the Agent tool.
+# This guarantees no `claude -p` subprocess (which could pick up
+# ANTHROPIC_API_KEY billing in mis-configured envs) ever fires through
+# the bash dispatcher's automatic fallback path.
+#
+# Lock policy: codex-exec dispatches directly — the external API returns
+# 429/401 on overload or auth, and any non-zero exit advances the
+# dispatcher to the next tier (or exits with CODEX_EXHAUSTED for
+# bash-dispatched roles).
 #
 # Chain principle: cheap-first → escalate ON FAILURE. Tier 1 = cheapest tier
 # that clears the role's quality floor for its TYPICAL work. Higher tiers
@@ -48,14 +61,14 @@ EOF
 
 # --- Planning --------------------------------------------------------------
 # Cheap-first: codex 5.5 low primary (cheapest sufficient for decomposition);
-# codex 5.5 medium tier-2 if low fails; claude sonnet + opus as cross-backend
-# redundancy.
+# codex 5.5 medium tier-2 if low fails. No claude-native fallback row: if
+# both codex tiers exhaust, the dispatcher exits with CODEX_EXHAUSTED so
+# the orchestrator re-dispatches via the native Agent tool (subscription,
+# never `claude -p` subprocess).
 chain_planning() {
   cat <<'EOF'
 codex-exec|gpt-5.5|--sandbox read-only -c model_reasoning_effort=low||
 codex-exec|gpt-5.5|--sandbox read-only -c model_reasoning_effort=medium||
-claude-native|sonnet||||
-claude-native|opus||||
 EOF
 }
 
@@ -73,7 +86,6 @@ chain_qa_falsification() {
   cat <<'EOF'
 codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
 codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=high||
-claude-native|opus||||
 EOF
 }
 

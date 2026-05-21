@@ -59,7 +59,7 @@ ta-fe-qa-proof,claude-native,opus,agent-tool
 ta-closeout,claude-native,opus,agent-tool
 ```
 
-Builder fallback chain: claude haiku → claude sonnet. No Ollama, no Codex tier for builders — Anthropic-only via Agent tool. Planning + QA-falsification chains route through bash dispatcher (codex primary, Anthropic fallback); QA-proof + closeout are agent-tool primary (Opus).
+Builder fallback chain: claude haiku → claude sonnet. No Ollama, no Codex tier for builders — Anthropic-only via Agent tool. Planning + QA-falsification chains route through bash dispatcher (**codex-only, no `claude -p` fallback subprocess**); when codex exhausts, the dispatcher exits with `CODEX_EXHAUSTED` on stderr and the orchestrator re-dispatches via the native Agent tool (subscription). QA-proof + closeout are agent-tool primary (Opus).
 
 **Dispatch**:
 
@@ -73,7 +73,7 @@ Builder fallback chain: claude haiku → claude sonnet. No Ollama, no Codex tier
 
 **Anti-recursion**: the dispatcher appends a "you ARE the role" suffix to spawned sessions so they don't recurse into another dispatch.
 
-**Fallback consumes tokens**: when codex is unavailable, the chain falls through to `claude-native` which uses your Anthropic subscription. Deliberate trade-off — better than failing the dispatch entirely. Watch your usage if claude-native fires frequently.
+**Codex exhaustion → orchestrator-managed fallback (no `claude -p` subprocess)**: when both codex tiers fail (rate-limit, account, transport), the dispatcher exits non-zero with `[disp] CODEX_EXHAUSTED role=<role>` on stderr instead of subprocessing `claude -p`. The orchestrator parses that signal and re-dispatches the role via the native `Agent` tool with `subagent_type=<role>` + `model=sonnet` (or `opus` for high-stakes QA-falsif). Rationale: `claude -p` as a subprocess can pick up `ANTHROPIC_API_KEY` from the environment (API-key billing), bypassing the Claude Code subscription; the Agent tool always uses the subscription. The `dispatch_claude_native` function in `bin/agent-dispatch.sh` survives only as a safety-net for `chain_qa_proof` / `chain_closeout` manual overrides, and even there it unsets `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` in its subshell so an API-key bill can never appear.
 
 **Orchestrator dispatch pattern**: spawn prompts are SHORT pointers, not embedded specs. Task content lives in the ta cascade record (read by the agent via `mcp__ta__get <record-id>`); persona framing lives in `.claude/agents/<role>.md` (injected automatically by the dispatcher via `--append-system-prompt`). The orchestrator hands the agent: (a) the record id(s) to read, (b) Section 0 directive verbatim, (c) Hylla artifact ref for Go roles, (d) anything genuinely task-specific that's NOT in the record yet. Nothing else — duplicating acceptance_criteria, definition_of_complete, file paths, etc. into the spawn prompt is anti-pattern; the agent reads the record.
 
