@@ -89,13 +89,14 @@ func resolveSelector(m format.Manifest, name string) (string, bool) {
 // Parse is not the validation surface; the manifest loader and Find
 // are. A nil manifest yields an empty Blocks slice.
 //
-// Multi-match note: when the SAME selector path matches multiple
-// heading subtrees (e.g. duplicate heading-text under different roots),
-// Parse currently emits ONLY the first match because FindByPath returns
-// the first hit. This is consistent with the duplicate-path policy
-// implemented in Find/Splice but does mean Parse output is incomplete
-// in the rare duplicate-heading-path case. Find/Splice surface
-// ErrAmbiguousMatch so callers can detect and tighten the selector.
+// Multi-match policy: when one or more selectors match multiple heading
+// subtrees (duplicate heading-text under different roots), Parse emits
+// the FIRST match per selector AND returns a wrapped
+// format.ErrAmbiguousMatch alongside the populated Blocks slice. This is
+// symmetric with Find/Splice's first-match + wrapped sentinel contract;
+// callers consume the blocks and use errors.Is to detect the ambiguity
+// and decide whether to accept first-match or tighten the manifest
+// selectors. Returns a zero-valued Blocks slice + nil when m is nil.
 func (b *Backend) Parse(buf []byte, m format.Manifest) (format.Blocks, error) {
 	if m == nil {
 		return format.Blocks{}, nil
@@ -107,6 +108,7 @@ func (b *Backend) Parse(buf []byte, m format.Manifest) (format.Blocks, error) {
 		bytes []byte
 	}
 	var hits []emitted
+	var ambiguous []string
 	for _, sel := range m.Selectors() {
 		name, ok := m.BlockName(sel)
 		if !ok {
@@ -115,17 +117,19 @@ func (b *Backend) Parse(buf []byte, m format.Manifest) (format.Blocks, error) {
 			// skip silently and let the manifest loader catch this.
 			continue
 		}
-		node, body, err := FindByPath(buf, sel)
-		if err != nil {
-			// ErrBlockNotFound is the expected miss; any other error
-			// would be a substrate bug. Skip the miss.
+		matches := findAllByPath(buf, sel)
+		if len(matches) == 0 {
 			continue
 		}
+		if len(matches) > 1 {
+			ambiguous = append(ambiguous, sel)
+		}
+		node := matches[0]
 		hits = append(hits, emitted{
 			name:  name,
 			start: node.ByteRange[0],
 			end:   node.ByteRange[1],
-			bytes: append([]byte(nil), body...),
+			bytes: append([]byte(nil), buf[node.ByteRange[0]:node.ByteRange[1]]...),
 		})
 	}
 	sort.SliceStable(hits, func(i, j int) bool {
@@ -139,6 +143,10 @@ func (b *Backend) Parse(buf []byte, m format.Manifest) (format.Blocks, error) {
 			Start: h.start,
 			End:   h.end,
 		})
+	}
+	if len(ambiguous) > 0 {
+		return out, fmt.Errorf("md_explicit backend: parse: %d selector(s) matched multiple headings (first: %q): %w",
+			len(ambiguous), ambiguous[0], format.ErrAmbiguousMatch)
 	}
 	return out, nil
 }

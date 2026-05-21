@@ -36,6 +36,7 @@ type Server struct {
 	mux                    *http.ServeMux
 	viewRenderer           ViewRenderer
 	cascadeDetailRenderer  CascadeDetailRenderer
+	docsRenderer           DocsRenderer
 }
 
 // New constructs a new Server with the given config and a base mux.
@@ -51,6 +52,7 @@ func New(cfg Config) *Server {
 	// using methods like registerRootRoute.
 	_ = s.registerRootRoute()
 	_ = s.registerCascadeRoute()
+	_ = s.registerDocsRoute()
 	return s
 }
 

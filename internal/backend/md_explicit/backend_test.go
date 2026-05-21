@@ -279,15 +279,15 @@ func TestMdExplicitBackend_DuplicatePathMultiMatch(t *testing.T) {
 	}
 }
 
-// TestMdExplicitBackend_ParseDuplicatePathFirstMatch pins the documented
-// asymmetry between Parse and Find/Splice on duplicate-path selectors:
-// Parse silently emits the FIRST match (via FindByPath which returns the
-// first hit), whereas Find/Splice return wrapped format.ErrAmbiguousMatch
-// alongside the first-match bytes. The asymmetry is tracked in
-// CLAUDE.md's pre-MVP "md_explicit Parse vs Find/Splice ambiguity"
-// item; this test pins the CURRENT behavior so a future refactor cannot
-// silently flip it without flagging the change in CI.
-func TestMdExplicitBackend_ParseDuplicatePathFirstMatch(t *testing.T) {
+// TestMdExplicitBackend_ParseDuplicatePathReturnsFirstMatchPlusAmbiguousErr
+// pins the now-symmetric multi-match contract between Parse and
+// Find/Splice. When one or more manifest selectors resolve to multiple
+// heading subtrees, Parse returns the FIRST match per selector AND a
+// wrapped format.ErrAmbiguousMatch alongside the populated Blocks
+// slice — same shape Find/Splice use. Callers consume blocks and
+// errors.Is-detect the ambiguity to decide whether to accept first-match
+// or tighten manifest selectors.
+func TestMdExplicitBackend_ParseDuplicatePathReturnsFirstMatchPlusAmbiguousErr(t *testing.T) {
 	buf := []byte("# A\n## B\nbody1\n# A\n## B\nbody2\n")
 	m := newManifest(map[string]string{
 		"target": "A > B",
@@ -295,11 +295,14 @@ func TestMdExplicitBackend_ParseDuplicatePathFirstMatch(t *testing.T) {
 	be := &Backend{}
 
 	blocks, err := be.Parse(buf, m)
-	if err != nil {
-		t.Fatalf("Parse on duplicate-path manifest: unexpected error %v", err)
+	if err == nil {
+		t.Fatal("Parse on duplicate-path manifest: expected wrapped ErrAmbiguousMatch, got nil")
+	}
+	if !errors.Is(err, format.ErrAmbiguousMatch) {
+		t.Errorf("Parse error %v: want errors.Is(err, format.ErrAmbiguousMatch) = true", err)
 	}
 	if got, want := len(blocks), 1; got != want {
-		t.Fatalf("Parse blocks count = %d, want %d (silent first-match contract)", got, want)
+		t.Fatalf("Parse blocks count = %d, want %d (first-match contract preserved alongside ambiguity error)", got, want)
 	}
 	if !bytes.Contains(blocks[0].Bytes, []byte("body1")) {
 		t.Errorf("Parse first-match block should contain %q, got %q", "body1", blocks[0].Bytes)
