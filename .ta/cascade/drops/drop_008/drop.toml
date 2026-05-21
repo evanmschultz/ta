@@ -35,31 +35,250 @@ updated_at = "2026-05-21T04:19:12Z"
 
 [planner_l1_ta_serve_decompose]
 acceptance_criteria = "1. 3-5 L2 sub-planners, each single-package + single-domain. 2. No overlapping path globs. 3. Each L2's droplet count respects atomicity (≤2 small blocks INCLUDING tests per droplet, ≤6 droplets per L2). 4. HANDOFF §4 routes/handlers/runtime-render mapped to L2 ownership. 5. No semver phrasing. 6. Test-naming honest convention."
+completed_at = "2026-05-21T05:00:00Z"
+completion_contract = {completion_notes = "ROUND 2 mechanical fixes per round-1 falsif: (1) L2-B Depends_on cleared (no L2-A prerequisite per committed code); (2) L2-C Depends_on cleared; (3) L2-E orchestration-metadata DoC bullet removed (planner-output naming was orchestrator concern, not magefile/docs work); (4) Dependency graph updated: A/B/C/E all parallel-safe, L2-D after B+C, browser/axe still blocked by drop_009. Rest of plan preserved. Served by codex-exec gpt-5.4."}
 created_at = "2026-05-21T03:55:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
 definition_of_complete = "Planner record description carries full L2 decomposition: per-L2 id, title, objective, DoC, acceptance, path globs, packages, expected droplet count, blockers/depends_on. Plus coverage map mapping HANDOFF §4.1-§4.5 items to L2 ownership. Plus path overlap check."
+description = """
+L1 decomposition for `ta serve` into 5 L2 sub-planners. Scope is the pre-mvp-feature-complete Path B cascade browser from HANDOFF §4. This record is the coordination artifact for HANDOFF §4.6; child L2s cover the buildable implementation slices.
+
+Evidence basis used before decomposition:
+- `cmd/ta/main.go` already exposes cobra/fang command registration via `newRootCmd()` and existing serve-adjacent lifecycle via `runServe(...)`; `cmd/ta/get_cmd.go` confirms the subcommand construction pattern through `newGetCmd` (gopls verified `newGetCmd` in the active checkout).
+- `internal/ops.Get`, `internal/ops.ListSections`, and `internal/ops.Search` are committed live-read surfaces in `internal/ops/ops.go` (gopls verified `ListSections` and `Search`; Hylla summary confirms `ListSections` delegates to `search.Run`, `Get` resolves live files and reads bytes directly, and `Search` returns `SearchHit{ID,Bytes,Fields}`).
+- `internal/templates_html_basic.EmbeddedBasicHTML` and `internal/templates_html_basic.Render` are committed runtime template APIs in `internal/templates_html_basic/embed.go` and `render.go` (gopls verified both in the active checkout).
+- Existing committed Track A template coverage already includes `new, already in tree: TestRenderBasic_CascadeDrop`, `TestRenderBasic_CascadePlanner`, `TestRenderBasic_CascadeDroplet`, `TestRenderBasic_CascadeQA`, `TestRenderBasic_RoadmapVersion`, and `TestRenderBasic_SchemaBrowser` in `internal/templates_html_basic/render_test.go`; that means Path B can reuse runtime template contracts rather than inventing a new rendering substrate.
+- Existing committed CLI tests already include `TestServeFlag_ProjectWinsOverCwd`, `TestServeFlag_NoFlag_FallsBackToCwd`, `TestServeFlag_ProjectNonexistent_Errors`, `TestServeFlag_ProjectRelativePath_Errors`, `TestServeFlag_ProjectMissingSchema_Errors`, and `TestServeFlag_ProjectAbsolutePath_AcceptsExistingSchema` in `cmd/ta/main_test.go`; Path B should preserve that root serve-mode behavior and add a distinct `ta serve` subcommand rather than mutating MCP serve semantics.
+- Active `gopls` verification was available in the ta checkout for symbol names. Tillsyn project bootstrap for the ta repo itself was not present in `till_project list`; that coordination gap is routed below as an explicit Unknown rather than silently ignored.
+
+## L2-A
+
+Proposed id: `drop_008.drop.planner_l2_a_ta_serve_cmd`
+Title: `L2-A planner — cobra subcommand for ta serve`
+Objective: add the user-facing `ta serve [--port N] [--bind ADDR]` cobra entrypoint while preserving bare-`ta` MCP serve behavior. This slice owns only `cmd/ta` wiring and delegates runtime work to a new internal server package rather than implementing HTTP details inline.
+Definition of complete:
+- `new, not yet in tree: cmd/ta/serve_cmd.go` defines `newServeCmd()` using the same cobra/fang construction style as `newGetCmd()` and sibling commands.
+- `cmd/ta/main.go` registers `newServeCmd()` under `newRootCmd()` without changing `runRoot()` / bare-`ta` MCP behavior.
+- Flag parsing for `--bind` and `--port` delegates into a server config object rather than calling `http.ListenAndServe` from `cmd/ta`.
+- Honest command tests are added in `cmd/ta` for subcommand registration and flag-to-config delegation.
+Acceptance criteria:
+- Evidence citation: `newRootCmd()` and `runServe(...)` already exist in `cmd/ta/main.go`; `newGetCmd()` is the committed command-construction pattern to mirror.
+- New tests use honest names and are marked new symbols now: `new, not yet in tree: TestServeCmd_RegistersSubcommand`, `new, not yet in tree: TestServeCmd_BindAndPortFlagsDelegate`.
+- No edits outside `cmd/ta/**`.
+- Expected droplet count stays `3`, and this is 1-2 small blocks per droplet including tests: command file creation, root registration/plumbing, narrow tests.
+Path globs:
+- `cmd/ta/serve_cmd.go`
+- `cmd/ta/serve_cmd_test.go`
+- `cmd/ta/main.go`
+Packages:
+- `github.com/evanmschultz/ta/cmd/ta`
+Expected droplet count:
+- `3`
+Atomicity verification:
+- Droplet 1 can add `serve_cmd.go`; droplet 2 can register/delegate in `main.go`; droplet 3 can add the narrow command tests. Each is 1-2 small blocks including tests.
+Depends_on:
+- none
+Blockers:
+- none
+
+## L2-B
+
+Proposed id: `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+Title: `L2-B planner — HTTP server lifecycle and route handlers`
+Objective: own the pure HTTP package: listener config, mux construction, route registration, path parsing, and handler-to-view delegation for `/`, `/cascade/<id>`, `/roadmap`, `/schema`, and `/search`.
+Definition of complete:
+- `new, not yet in tree: internal/server/*.go` defines a single HTTP package for `Server`, config, mux construction, and route handlers.
+- Route handlers are pure-server and delegate record loading/rendering to an injected view layer instead of reaching into `internal/ops` directly.
+- URL parsing is stable for both `/cascade/<record-id>` and any tree-style `/cascade/<drop>/<planner>/...` aliases defined in HANDOFF §4.2.
+- The package returns HTTP status codes explicitly for malformed route input, unknown records, and unsupported methods.
+Acceptance criteria:
+- Evidence citation: HANDOFF §4.2 defines the route contract; existing `cmd/ta/main.go::runServe(...)` proves the repo already separates lifecycle bootstrap from business logic; committed `TestServeFlag_*` tests prove root serve-mode config already has explicit validation patterns worth mirroring.
+- New tests use honest names and are marked new symbols now: `new, not yet in tree: TestServe_AsHTTP_CascadeTreeOnGet`, `new, not yet in tree: TestServe_CascadeDetailRejectsUnknownRecord`, `new, not yet in tree: TestServe_SearchRouteParsesQueryString`, `new, not yet in tree: TestServe_MethodNotAllowed`.
+- No edits outside `internal/server/**`.
+- Expected droplet count stays `5`, and this is 1-2 small blocks per droplet including tests: server config/bootstrap, root route, cascade detail route, roadmap/schema routes, search route/status tests.
+Path globs:
+- `internal/server/**/*.go`
+Packages:
+- `github.com/evanmschultz/ta/internal/server`
+Expected droplet count:
+- `5`
+Atomicity verification:
+- Lifecycle bootstrap, root/cascade handler pair, roadmap/schema handler pair, search handler, and narrow route tests fit into 5 droplets with 1-2 small blocks each including tests.
+Depends_on:
+- none
+Blockers:
+- none
+
+## L2-C
+
+Proposed id: `drop_008.drop.planner_l2_c_ta_serve_views`
+Title: `L2-C planner — live .ta reads and Track A runtime rendering`
+Objective: own the data-and-render adapter layer: live record enumeration with `internal/ops`, template selection, view-model shaping, and pure-server search result rendering using the committed Track A runtime template package.
+Definition of complete:
+- `new, not yet in tree: internal/serverview/*.go` defines a single package that loads live `.ta/` state via `internal/ops.Get`, `internal/ops.ListSections`, and `internal/ops.Search`.
+- Template selection is runtime-only and reuses committed `internal/templates_html_basic.Render`, not a new template substrate.
+- Search is implemented as backend-side page rendering for `/search?q=...` per HANDOFF §4.3 Option A; no client JS or lunr island is introduced.
+- The package exposes narrow functions the HTTP layer can call for cascade tree, record detail, roadmap page, schema page, and search result page bodies.
+Acceptance criteria:
+- Evidence citation: committed `internal/ops.Get`, `ListSections`, and `Search` provide the live-read surface; committed `internal/templates_html_basic.EmbeddedBasicHTML` and `Render` provide the runtime render surface; committed render tests already prove template names exist for cascade drop/planner/droplet/qa, roadmap version, and schema browser.
+- New tests use honest names and are marked new symbols now: `new, not yet in tree: TestServeView_LoadCascadeTree`, `new, not yet in tree: TestServeView_RenderCascadeDrop`, `new, not yet in tree: TestServeView_RenderRoadmap`, `new, not yet in tree: TestServeView_RenderSchemaBrowser`, `new, not yet in tree: TestServeView_SearchResults`.
+- No edits outside `internal/serverview/**`.
+- Expected droplet count stays `6`, and this is 1-2 small blocks per droplet including tests: cascade tree loader, detail loader/template mapper, roadmap loader, schema loader, search loader/rendering, narrow tests.
+Path globs:
+- `internal/serverview/**/*.go`
+Packages:
+- `github.com/evanmschultz/ta/internal/serverview`
+Expected droplet count:
+- `6`
+Atomicity verification:
+- Six droplets map cleanly to five view families plus tests; each terminal droplet is 1-2 small code blocks including tests. No L3 recursion required at this level.
+Depends_on:
+- none
+Blockers:
+- none
+
+## L2-D
+
+Proposed id: `drop_008.drop.planner_l2_d_ta_serve_integration`
+Title: `L2-D planner — httptest integration and Playwright contract`
+Objective: verify the end-to-end HTTP slice with Go integration tests immediately and stage browser/axe verification behind the drop_009 substrate dependency.
+Definition of complete:
+- `new, not yet in tree: internal/servee2e/*.go` defines a single Go integration-test package that boots the real server against a fixture project via `httptest` and verifies the key GET flows.
+- The L2 description explicitly treats Playwright + axe verification as blocked by drop_009, but reserves honest spec names and acceptance gates so the future builder does not invent scope.
+- The integration package verifies root tree rendering, cascade detail drill-down, roadmap/schema pages, and search result HTML over real HTTP rather than direct function calls.
+Acceptance criteria:
+- Evidence citation: HANDOFF §4.4 D5 and §4.5 require `httptest` plus Playwright; drop_009 is the named verifier substrate dependency; existing committed `TestServeFlag_*` tests prove the repo already validates serve-mode paths through Go tests.
+- New tests use honest names and are marked new symbols now: `new, not yet in tree: TestServeE2E_HTTPCascadeTreeOnGet`, `new, not yet in tree: TestServeE2E_HTTPCascadeDetailOnGet`, `new, not yet in tree: TestServeE2E_HTTPRoadmapOnGet`, `new, not yet in tree: TestServeE2E_HTTPSearchOnQuery`.
+- Browser specs are planned but explicitly marked blocked symbols until drop_009 lands: `new, not yet in tree, blocked by drop_009: TestServe_AsHTTP_CascadeTreeOnGet_Playwright`, `new, not yet in tree, blocked by drop_009: TestServe_AsHTTP_SearchFlow_PlaywrightAxe`.
+- No edits outside `internal/servee2e/**`.
+- Expected droplet count stays `4`, and this is 1-2 small blocks per droplet including tests: server fixture boot, route-flow tests, search/detail tests, Playwright contract shim/blocker plumbing.
+Path globs:
+- `internal/servee2e/**/*.go`
+Packages:
+- `github.com/evanmschultz/ta/internal/servee2e`
+Expected droplet count:
+- `4`
+Atomicity verification:
+- Four droplets are enough for fixture boot, primary route flows, search/detail flows, and blocked-browser contract scaffolding. Each remains 1-2 small blocks including tests.
+Depends_on:
+- `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+- `drop_008.drop.planner_l2_c_ta_serve_views`
+Blockers:
+- `drop_009` for Playwright + axe-core browser verification only
+
+## L2-E
+
+Proposed id: `drop_008.drop.planner_l2_e_ta_serve_supporting_docs`
+Title: `L2-E planner — mage wrapper, docs, and cascade bookkeeping support`
+Objective: own the non-runtime support slice: `mage Serve` wrapper, operator-facing docs, and the bookkeeping needed so HANDOFF §4.6 is reflected in the child-plan outputs rather than left implicit.
+Definition of complete:
+- `magefile.go` exposes a `Serve` wrapper target that launches `ta serve` with the documented defaults or thin pass-through flags.
+- `new, not yet in tree: docs/ta-serve.md` or equivalent documented surface explains routes, bind/port defaults, and zero-JS search behavior.
+Acceptance criteria:
+- Evidence citation: HANDOFF §4.4 D6 explicitly calls for documentation + `mage Serve`; HANDOFF §4.6 requires this slice to exist as a new cascade drop rather than an untracked sidecar.
+- New tests or checks are honest and marked new only where appropriate: `new, not yet in tree: TestMageServe_TargetExists` if the builder chooses to add a Go-side mage test; otherwise the absence of a Go test must be stated explicitly in the child plan.
+- Path scope is limited to support files only.
+- Expected droplet count stays `2`, and this is 1-2 small blocks per droplet including tests: mage target wiring, docs/bookkeeping update.
+Path globs:
+- `magefile.go`
+- `docs/ta-serve*.md`
+Packages:
+- `non-Go support surface; no new Go package`
+Expected droplet count:
+- `2`
+Atomicity verification:
+- One droplet for mage wrapper wiring and one for docs/bookkeeping is sufficient; each remains 1-2 small blocks including tests or an explicitly testless docs-only note.
+Depends_on:
+- `drop_008.drop.planner_l2_a_ta_serve_cmd`
+Blockers:
+- none
+
+## Coverage map
+
+Routes:
+- `/` -> `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+- `/cascade/<record-id>` -> `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+- `/cascade/<drop>/<planner>/...` -> `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+- `/roadmap` -> `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+- `/schema` -> `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+- `/search?q=...` -> `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+
+HANDOFF §4 ownership:
+- `§4.1` substrate (new CLI subcommand, live `.ta/` reads, runtime Track A render, Track B embed exposure contract) -> split by implementation seam: `drop_008.drop.planner_l2_a_ta_serve_cmd` owns the subcommand; `drop_008.drop.planner_l2_c_ta_serve_views` owns the live-read + runtime-render half; `drop_008.drop.planner_l2_e_ta_serve_supporting_docs` owns the wrapper/docs half.
+- `§4.2` routing contract -> `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+- `§4.3` pure-server search option A -> `drop_008.drop.planner_l2_c_ta_serve_views`
+- `§4.4 D1` cobra subcommand -> `drop_008.drop.planner_l2_a_ta_serve_cmd`
+- `§4.4 D2` route handlers -> `drop_008.drop.planner_l2_b_ta_serve_http_routes`
+- `§4.4 D3` live `.ta/` reads via `internal/ops` -> `drop_008.drop.planner_l2_c_ta_serve_views`
+- `§4.4 D4` render via `internal/templates_html_basic` -> `drop_008.drop.planner_l2_c_ta_serve_views`
+- `§4.4 D5` integration tests via `httptest` + Playwright -> `drop_008.drop.planner_l2_d_ta_serve_integration`
+- `§4.4 D6` documentation + `mage Serve` -> `drop_008.drop.planner_l2_e_ta_serve_supporting_docs`
+- `§4.5` acceptance gates -> `drop_008.drop.planner_l2_d_ta_serve_integration`
+- `§4.6` cascade-record this as the new drop -> satisfied by this L1 planner plus `drop_008.drop.planner_l2_e_ta_serve_supporting_docs` for downstream bookkeeping surfaces.
+
+## Dependency graph
+
+- All 4 of L2-A, L2-B, L2-C, L2-E are parallel-safe (per round-1 falsif: committed cmd/ta code does NOT require A-first sequencing; internal/server + internal/serverview are NEW packages with no dependency on the cobra subcommand existing first).
+- Then: `drop_008.drop.planner_l2_d_ta_serve_integration` after both `L2-B` and `L2-C` (D's httptest needs server + view to compile).
+- Browser/axe verification inside `L2-D` remains blocked by `drop_009`.
+
+## Path overlap check
+
+- `L2-A` owns only `cmd/ta/**` serve-subcommand files plus the one required `cmd/ta/main.go` registration edit.
+- `L2-B` owns only `internal/server/**`.
+- `L2-C` owns only `internal/serverview/**`.
+- `L2-D` owns only `internal/servee2e/**`.
+- `L2-E` owns only `magefile.go` and `docs/ta-serve*.md`.
+- No path glob overlaps remain across siblings.
+- Package overlap is also removed except for `L2-E`, which is intentionally non-Go support-only and therefore does not contend with builder package locks.
+
+## Rationale
+
+- The handoff’s likely split (command, routes, live reads/render, tests, docs) is preserved, but the runtime half is split into a route package and a view package so `L2-B` and `L2-C` can actually run in parallel without sharing files or packages.
+- A separate support slice is justified because `magefile.go` and docs do not belong inside the runtime packages, and forcing them into `cmd/ta` or `internal/server` would violate path isolation.
+- No L2 exceeds six droplets, so no L3 recursion is required on this pass.
+
+## Unknowns routed forward
+
+- Tillsyn project bootstrap gap: `till_project list` did not show a dedicated ta project. Coordination should decide whether that setup is needed before downstream implementation/QA begins.
+- Exact existing Track A template filename mapping for every cascade record kind beyond the currently committed render tests should be rechecked by `L2-C`; if a route needs a new template name, the child planner must mark it `new, not yet in tree` rather than assume it already exists.
+- Track B `/embed/*` serving in HANDOFF §4.1 is acknowledged, but this L1 plan intentionally keeps first-pass implementation centered on the live `.ta` cascade browser plus a support-note in `L2-E`; if the child planners find that `/embed/*` needs a distinct package or more than six droplets, they must recurse before builder dispatch.
+- Playwright + axe verification is explicitly dependent on drop_009; `L2-D` must not claim browser evidence before that substrate exists.
+
+## expected_outputs rationale
+
+The orchestrator should create one L2 planner record and two plan-QA twin records per L2, using the hyphen-form twin suffixes required by this dispatch.
+"""
+expected_outputs = ["drop_008.drop.planner_l2_a_ta_serve_cmd", "drop_008.drop.planner_l2_a_ta_serve_cmd-plan-qa-proof", "drop_008.drop.planner_l2_a_ta_serve_cmd-plan-qa-falsification", "drop_008.drop.planner_l2_b_ta_serve_http_routes", "drop_008.drop.planner_l2_b_ta_serve_http_routes-plan-qa-proof", "drop_008.drop.planner_l2_b_ta_serve_http_routes-plan-qa-falsification", "drop_008.drop.planner_l2_c_ta_serve_views", "drop_008.drop.planner_l2_c_ta_serve_views-plan-qa-proof", "drop_008.drop.planner_l2_c_ta_serve_views-plan-qa-falsification", "drop_008.drop.planner_l2_d_ta_serve_integration", "drop_008.drop.planner_l2_d_ta_serve_integration-plan-qa-proof", "drop_008.drop.planner_l2_d_ta_serve_integration-plan-qa-falsification", "drop_008.drop.planner_l2_e_ta_serve_supporting_docs", "drop_008.drop.planner_l2_e_ta_serve_supporting_docs-plan-qa-proof", "drop_008.drop.planner_l2_e_ta_serve_supporting_docs-plan-qa-falsification"]
 files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "cmd/ta/", "internal/server/", "internal/ops/", "internal/templates_html_basic/", "magefile.go"]
 labels = ["l1-planner", "ta-serve", "decomposition"]
 objective = "Decompose `ta serve` into 3-5 L2 sub-planners per cascade methodology (≤4 children if possible, otherwise recurse). Likely L2 split: L2-A cobra subcommand + server skeleton, L2-B route handlers, L2-C .ta/ read + Track A runtime render, L2-D integration tests + axe-core wiring. Path globs disjoint; each L2 emits 3-6 atomic builder droplets."
+outcome = "success"
 parent_id = "drop_008.drop.ta_serve_cascade_browser"
 role = "planner"
-state = "todo"
+state = "complete"
 title = "L1 planner — ta serve decomposition into L2 sub-planners"
-updated_at = "2026-05-21T03:55:00Z"
-
+updated_at = "2026-05-21T05:00:00Z"
 [planner_l1_ta_serve_decompose-plan-qa-proof]
+completed_at = "2026-05-21T05:30:00Z"
+completion_contract = {completion_notes = "ROUND 2 PASS — all 4 mechanical fixes verified verbatim. Parallel-safety claim survives proof attack. No regression. Served by claude-native opus."}
 created_at = "2026-05-21T04:19:12Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-21T04:40:00Z"
+state = "complete"
 target_id = "drop_008.drop.planner_l1_ta_serve_decompose"
 title = "Plan-QA proof of L1 planner — ta serve decomposition into L2 sub-planners"
-updated_at = "2026-05-21T04:19:12Z"
-
+updated_at = "2026-05-21T05:30:00Z"
 [planner_l1_ta_serve_decompose-plan-qa-falsification]
+completed_at = "2026-05-21T05:30:00Z"
+completion_contract = {completion_notes = "ROUND 2 — falsif FAIL but on MISATTRIBUTED finding (expected_outputs IS planner job, NOT contamination). Substantive round-1 CEs FIXED. Orchestrator-accept. Served by codex-exec gpt-5.4 xhigh."}
 created_at = "2026-05-21T04:19:12Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-21T04:40:00Z"
+state = "complete"
 target_id = "drop_008.drop.planner_l1_ta_serve_decompose"
 title = "Plan-QA falsif of L1 planner — ta serve decomposition into L2 sub-planners"
-updated_at = "2026-05-21T04:19:12Z"
+updated_at = "2026-05-21T05:30:00Z"

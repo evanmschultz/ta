@@ -2823,19 +2823,19 @@ updated = 2026-05-21T02:53:17.115175Z
 created = 2026-05-21T04:19:12.512221Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-21T04:19:12.512221Z
+updated = 2026-05-21T05:04:16.648536Z
 
 [drop_008.drop.planner_l1_ta_serve_decompose-plan-qa-falsification]
 created = 2026-05-21T04:19:12.536469Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-21T04:19:12.536469Z
+updated = 2026-05-21T05:13:23.029014Z
 
 [drop_008.drop.planner_l1_ta_serve_decompose-plan-qa-proof]
 created = 2026-05-21T04:19:12.524401Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-21T04:19:12.524401Z
+updated = 2026-05-21T05:13:23.011111Z
 
 [drop_008.drop.ta_serve_cascade_browser]
 created = 2026-05-21T04:19:12.47445Z
@@ -2861,19 +2861,19 @@ updated = 2026-05-21T04:19:12.487436Z
 created = 2026-05-21T04:19:12.585461Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-21T04:19:12.585461Z
+updated = 2026-05-21T05:04:16.665589Z
 
 [drop_009.drop.planner_l1_playwright_track_a_decompose-plan-qa-falsification]
 created = 2026-05-21T04:19:12.610532Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-21T04:19:12.610532Z
+updated = 2026-05-21T05:13:23.064644Z
 
 [drop_009.drop.planner_l1_playwright_track_a_decompose-plan-qa-proof]
 created = 2026-05-21T04:19:12.597152Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-21T04:19:12.597152Z
+updated = 2026-05-21T05:13:23.046536Z
 
 [drop_009.drop.playwright_axe_track_a_contrast]
 created = 2026-05-21T04:19:12.548703Z
@@ -2899,7 +2899,7 @@ updated = 2026-05-21T04:19:12.560628Z
 created = 2026-05-21T04:19:12.622409Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-21T04:19:12.622409Z
+updated = 2026-05-21T04:56:51.706344Z
 
 [drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b-plan-qa-falsification]
 created = 2026-05-21T04:19:12.647186Z
@@ -2917,19 +2917,19 @@ updated = 2026-05-21T04:19:12.634569Z
 created = 2026-05-21T04:19:12.659399Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-21T04:19:12.659399Z
+updated = 2026-05-21T05:16:52.515143Z
 
 [drop_010.drop.planner_l1_pivot_cleanup_decompose-plan-qa-falsification]
 created = 2026-05-21T04:19:12.683741Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-21T04:19:12.683741Z
+updated = 2026-05-21T05:16:52.547038Z
 
 [drop_010.drop.planner_l1_pivot_cleanup_decompose-plan-qa-proof]
 created = 2026-05-21T04:19:12.671682Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-21T04:19:12.671682Z
+updated = 2026-05-21T05:16:52.531195Z
 
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]

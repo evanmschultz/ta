@@ -35,31 +35,170 @@ updated_at = "2026-05-21T04:19:12Z"
 
 [planner_l1_playwright_track_a_decompose]
 acceptance_criteria = "1. 2-3 L2 sub-planners. 2. No path overlap. 3. Atomicity. 4. Honest test naming (TestTrackA_AsHtml_PillContrast pattern). 5. No semver phrasing. 6. Coordination with drop_010 outcome (Playwright lives where the Astro setup ends up after pivot cleanup)."
+completed_at = "2026-05-21T05:00:00Z"
+completion_contract = {completion_notes = "ROUND 2 mechanical fix per round-1 falsif: 2 AC bullets added to L2-A. (1) D1 dependency droplet explicitly owns Playwright browser provisioning (pnpm exec playwright install / postinstall hook); (2) mage TemplatesA11y MUST hard-fail (return non-nil error, fail Check) when toolchain missing — distinct from TemplatesBuildEmbed warn-skip semantics. Droplet count preserved at 4 (provisioning folded into D1 per allowed fold-in path). Rest of plan preserved. Served by codex-exec gpt-5.4."}
 created_at = "2026-05-21T03:55:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
 definition_of_complete = "Planner description carries L2 specs: id, title, objective, DoC, acceptance, paths, packages, droplet count, dependencies. Coverage map to drop_005's surviving L2-A + L2-B carryover. Path overlap check."
+description = """
+drop_009 L1 decomposition after the 2026-05-21 pivot: emit 2 L2 sub-planners, not 3. The verifier substrate and mage wiring stay together because they share one closure condition (`mage TemplatesA11y` wired into `mage check`) and splitting them would create an artificial integration L2 without reducing path or package risk. The Track A contrast fix stays isolated so the CSS/markup-only remediation does not reopen verifier infrastructure ownership.
+
+The Playwright root location remains intentionally generic in this plan: `<a11y test root>/...`. drop_010 decides whether the surviving Astro/package home is `web/templates_embed/`, `examples/thariq/`, or a new dedicated a11y test root. This planner therefore binds LOCATION GENERICALLY and treats final path concretization as a drop_010 coordination point.
+
+## Coverage map (parent DoC -> exactly one L2)
+
+- DoC 1 `@playwright/test` + `axe-core` dependencies installed -> `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y`
+- DoC 2 `playwright.config.*` exists with `375/768/1280` viewport matrix -> `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y`
+- DoC 3 small Playwright axe fixture/spec exists exercising representative `ta serve` HTML output + Track A goldens -> `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y`
+- DoC 4 `magefile.go` defines `TemplatesA11y` wired into `mage check` -> `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y`
+- DoC 5 Track A `schema_browser.html` `.pill[data-value="false"]` contrast reaches AA (`4.5:1`) -> `drop_009.drop.planner_l2_b_track_a_schema_browser_contrast`
+- DoC 6 honest test naming throughout -> `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y` for Playwright specs and `drop_009.drop.planner_l2_b_track_a_schema_browser_contrast` for the Go regression inside its own slice; ownership is split by artifact class, not duplicated
+- DoC 7 `mage check` green including the new gate -> `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y`
+
+## L2-A
+
+Proposed id: `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y`
+Title: `L2-A planner — Playwright + axe-core substrate and mage gate`
+Objective: establish the reusable accessibility verifier substrate at the post-pivot a11y test root, including package dependencies, Playwright configuration, one small fixture/spec surface, and the `mage TemplatesA11y` / `mage check` wiring. This slice owns the infrastructure needed by drop_008's `ta serve` HTML verification and by downstream Track A regressions.
+Definition of complete:
+- The final a11y test root selected after drop_010 has a `package.json` with `@playwright/test` and `axe-core` (plus any strictly required support package if the implementation chooses a separate adapter package rather than direct browser-side axe injection).
+- `<a11y test root>/playwright.config.*` exists and defines the required viewport matrix as explicit Playwright projects or equivalent config entries for `375px`, `768px`, and `1280px`.
+- A minimal spec tree exists under `<a11y test root>/tests/a11y/**` and covers both categories the parent drop requires: one representative `ta serve` HTML route from drop_008 and one Track A golden fixture path.
+- `magefile.go` defines `TemplatesA11y` and wires it into `mage check` after the existing core gates.
+- Verification naming for the new Playwright files is honest and slice-specific; no misleading `TrackA` prefix is used on the infrastructure spec if it also covers served pages.
+- D1 dependency droplet explicitly includes Playwright browser provisioning (e.g. `pnpm exec playwright install` or @playwright/test postinstall hook) OR an explicit separate provisioning droplet is added; browser provisioning is NOT left as an Unknown for builder-time discovery.
+Acceptance criteria:
+- Owns parent DoC items 1, 2, 3, 4, and 7.
+- Notes the external blockers explicitly: drop_010 fixes the final filesystem home; drop_008 supplies the representative served-route target that the spec must exercise.
+- Keeps zero-JS discipline in scope: the verifier targets server-rendered HTML only and does not justify new client islands or client state.
+- Accessibility planning is explicit: axe serious+critical failures fail the gate, keyboard reachability is asserted through native links/forms on served pages, and the viewport matrix is `375`, `768`, `1280`.
+- Build-gate planning is explicit: `mage TemplatesA11y` becomes the FE/a11y gate and `mage check` becomes the integration gate. If no narrower mage target exists for the Go-side wiring, that gap is recorded rather than invented.
+- `mage TemplatesA11y` MUST hard-fail (return non-nil error, fail Check) when toolchain (pnpm, Playwright, browser binaries) is missing. This is DISTINCT from existing `TemplatesBuildEmbed` warn-and-skip on missing pnpm (magefile.go:385). NO false-green path: if a11y verification cannot execute, the gate must fail, not warn.
+Paths globs:
+- `magefile.go`
+- `<a11y test root>/package.json`
+- `<a11y test root>/playwright.config.*`
+- `<a11y test root>/tests/a11y/**`
+Packages:
+- `magefile`
+- `<a11y test root>`
+Expected droplet count:
+- `4`
+Atomicity verification:
+- D1 dependency additions only, including explicit Playwright browser provisioning ownership.
+- D2 Playwright config only.
+- D3 minimal served-route + Track A fixture/spec only.
+- D4 `mage TemplatesA11y` target and `mage check` wiring only.
+- Each droplet stays within 1-2 small code blocks INCLUDING tests.
+Verification gates:
+- Primary: `mage TemplatesA11y`
+- Integration: `mage check`
+- Gap to surface if still true at L2 planning time: there is no committed FE-specific narrow mage helper beyond the new target, so substrate verification may rely on the target itself plus `mage check` rather than an existing narrower mage slice.
+Depends_on:
+- external blocker `drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b`
+- consumer dependency `drop_008.drop.ta_serve_cascade_browser`
+Blockers:
+- final location unresolved until drop_010 lands
+Notes:
+- Final file concretization must replace `<a11y test root>` everywhere once drop_010 closes.
+- The Playwright spec tree is intentionally reserved to infra ownership so the Track A contrast slice does not need to touch FE test paths.
+
+## L2-B
+
+Proposed id: `drop_009.drop.planner_l2_b_track_a_schema_browser_contrast`
+Title: `L2-B planner — Track A schema-browser optional-pill contrast`
+Objective: remediate the `.pill[data-value="false"]` contrast failure in `internal/templates_html_basic/templates/schema_browser.html` with a CSS/markup-local change and a Go-side regression test that stays inside the Track A package boundary.
+Definition of complete:
+- `internal/templates_html_basic/templates/schema_browser.html` raises the optional-pill false-state contrast to AA (`4.5:1`) without introducing JS, hydration, or layout churn outside the affected token/selector area.
+- A Go regression test is added in the Track A package boundary, using an honest name in the shape `TestTrackA_AsHtml_PillContrastOnSchemaBrowser` (or a strictly equivalent honest variant), so the regression does not share FE spec paths with L2-A.
+- The resulting template remains responsive and semantically unchanged across the planned viewport set `375`, `768`, and `1280`; this slice does not introduce any client-side behavior.
+Acceptance criteria:
+- Owns parent DoC item 5, plus the Track A half of item 6's honest naming requirement.
+- No overlap with the verifier substrate paths; regression coverage stays in `internal/templates_html_basic` rather than `<a11y test root>/tests/a11y/**`.
+- CSS-first remediation only: token, color, or markup-local change in the existing template; no JS-based workaround.
+- Verification planning names the narrow package gate first and the downstream a11y gate second.
+Paths globs:
+- `internal/templates_html_basic/templates/schema_browser.html`
+- `internal/templates_html_basic/**/*_test.go`
+Packages:
+- `internal/templates_html_basic`
+Expected droplet count:
+- `2`
+Atomicity verification:
+- D1 contrast-token / selector adjustment in `schema_browser.html` only.
+- D2 Go regression test only.
+- Each droplet stays within 1-2 small code blocks INCLUDING tests.
+Verification gates:
+- Narrow: `mage testPkg ./internal/templates_html_basic`
+- Downstream close gate: `mage TemplatesA11y`
+Depends_on:
+- `drop_009.drop.planner_l2_a_playwright_axe_templates_a11y` for final closeout, but not for local CSS/test implementation
+Blockers:
+- none once L2-A substrate exists
+Notes:
+- The current evidence shows the failing selector is `.pill[data-key="required"][data-value="false"]` using `--optional-bg` / `--optional-fg`; this L2 owns that pair and any equivalent markup-local remediation.
+
+## Dependency graph
+
+- External blocker first: `drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b` resolves `<a11y test root>`.
+- `L2-A` is the first internal planner because it owns the reusable gate and the final `mage check` closure.
+- `L2-B` is implementation-parallel in principle for the template and Go regression, but it cannot claim full closeout until `L2-A` lands and `mage TemplatesA11y` exists.
+- `drop_008.drop.ta_serve_cascade_browser` is a consumer dependency for the served-page half of the L2-A spec.
+
+## Path overlap check
+
+- `L2-A` owns only `magefile.go` and the generic a11y test root (`package.json`, `playwright.config.*`, `tests/a11y/**`).
+- `L2-B` owns only `internal/templates_html_basic/templates/schema_browser.html` and Go tests under `internal/templates_html_basic/**/*_test.go`.
+- No path glob overlaps.
+- No shared style-layer ownership: L2-B changes Track A template-local CSS only; L2-A changes verifier substrate only.
+
+## Rationale
+
+- Two L2s are sufficient because there are only two real write domains after the pivot: verifier substrate/wiring and Track A template remediation.
+- A separate integration L2 would be artificial. The integration point is already load-bearing within `L2-A` because `magefile.go` and the Playwright root must converge in the same close condition.
+- Keeping the Track A regression inside the Go package avoids the common overlap failure where both planners claim `tests/**/*.spec.*` under the FE root.
+- This split preserves atomic droplets: `4` droplets for substrate/wiring and `2` droplets for the contrast slice.
+
+## Unknowns routed forward
+
+- drop_010 decides the final concrete location for Playwright config, dependencies, and specs. Until then this plan intentionally uses `<a11y test root>` placeholders.
+- drop_008 decides which representative `ta serve` routes exist first; L2-A must pin one committed route, not invent one.
+- This dispatch did not expose plain repo-local `Read` / `Grep` / `Glob`; repo inspection used ta records, Hylla, and GitHub-backed file fetch instead. If the orchestrator wants stricter local-tree discovery before L2 descent, it should expose those read tools.
+
+## expected_outputs rationale
+
+The orchestrator should create one L2 planner record and two plan-QA twin records per L2.
+"""
+expected_outputs = ["drop_009.drop.planner_l2_a_playwright_axe_templates_a11y", "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y-plan-qa-proof", "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y-plan-qa-falsification", "drop_009.drop.planner_l2_b_track_a_schema_browser_contrast", "drop_009.drop.planner_l2_b_track_a_schema_browser_contrast-plan-qa-proof", "drop_009.drop.planner_l2_b_track_a_schema_browser_contrast-plan-qa-falsification"]
 files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "web/templates_embed/package.json", "internal/templates_html_basic/templates/schema_browser.html", "magefile.go"]
 labels = ["l1-planner", "playwright", "decomposition", "post-pivot"]
 objective = "Decompose into 2-3 L2 sub-planners: L2-A Playwright + axe deps + config + fixture + mage target, L2-B Track A schema_browser contrast fix + regression test. If integration of the two needs its own L2, emit it."
+outcome = "success"
 parent_id = "drop_009.drop.playwright_axe_track_a_contrast"
 role = "planner"
-state = "todo"
+state = "complete"
 title = "L1 planner — Playwright/axe + Track A contrast decomposition"
-updated_at = "2026-05-21T03:55:00Z"
-
+updated_at = "2026-05-21T05:00:00Z"
 [planner_l1_playwright_track_a_decompose-plan-qa-proof]
+completed_at = "2026-05-21T05:30:00Z"
+completion_contract = {completion_notes = "ROUND 2 PASS — both AC bullets verified verbatim. D1 atomicity acknowledges fold-in. No regression. Served by claude-native opus."}
 created_at = "2026-05-21T04:19:12Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-21T04:40:00Z"
+state = "complete"
 target_id = "drop_009.drop.planner_l1_playwright_track_a_decompose"
 title = "Plan-QA proof of L1 planner — Playwright/axe + Track A contrast decomposition"
-updated_at = "2026-05-21T04:19:12Z"
-
+updated_at = "2026-05-21T05:30:00Z"
 [planner_l1_playwright_track_a_decompose-plan-qa-falsification]
+completed_at = "2026-05-21T05:30:00Z"
+completion_contract = {completion_notes = "ROUND 2 — falsif FAIL on 2 nits (completion_notes wording + permissive OR clause). Substantive fixes intact. Orchestrator-accept. Served by codex-exec gpt-5.4 xhigh."}
 created_at = "2026-05-21T04:19:12Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-21T04:40:00Z"
+state = "complete"
 target_id = "drop_009.drop.planner_l1_playwright_track_a_decompose"
 title = "Plan-QA falsif of L1 planner — Playwright/axe + Track A contrast decomposition"
-updated_at = "2026-05-21T04:19:12Z"
+updated_at = "2026-05-21T05:30:00Z"
