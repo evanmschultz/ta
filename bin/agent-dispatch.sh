@@ -35,6 +35,7 @@ LOCK_DIR="/tmp/agent-dispatch"
 ROLE=""
 CWD="${PWD}"
 PROMPT_FILE=""
+PROMPT_STRING=""
 DRY_RUN=0
 MODEL_OVERRIDE=""
 HELD_LOCK=""
@@ -50,6 +51,10 @@ to stderr. Exit 0 on success (any tier), exit 1 if all tiers exhausted.
 Options:
   --role <name>          Required. e.g. ta-go-builder, ta-go-qa-falsification
   --cwd <abs-path>       Working directory for the dispatched agent (default: PWD)
+  --prompt <string>      Inline task prompt string. Highest precedence: wins over
+                         --prompt-file and stdin. Use when the orchestrator wants
+                         to avoid `echo "..." | dispatcher` (each new echo + pipe
+                         triggers a fresh permission prompt; --prompt does not).
   --prompt-file <path>   Read task prompt from this file (default: stdin)
   --model <tag>          Override tier-1 model (later tiers unchanged).
                          For atomic 1-4 block builder droplets per cascade
@@ -90,6 +95,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --role)         ROLE="$2";           shift 2 ;;
     --cwd)          CWD="$2";            shift 2 ;;
+    --prompt)       PROMPT_STRING="$2";  shift 2 ;;
     --prompt-file)  PROMPT_FILE="$2";    shift 2 ;;
     --model)        MODEL_OVERRIDE="$2"; shift 2 ;;
     --dry-run)      DRY_RUN=1;           shift ;;
@@ -142,8 +148,12 @@ TOOLS_LINE="$(awk '
   }
 ' "${PERSONA_FILE}")"
 
-# Read task prompt.
-if [[ -n "${PROMPT_FILE}" ]]; then
+# Read task prompt. Precedence: --prompt (inline string) > --prompt-file > stdin.
+# --prompt is the orchestrator-friendly path: avoids `echo "..." | dispatcher`
+# which triggers a fresh permission prompt on every distinct compound command.
+if [[ -n "${PROMPT_STRING}" ]]; then
+  TASK_PROMPT="${PROMPT_STRING}"
+elif [[ -n "${PROMPT_FILE}" ]]; then
   [[ ! -f "${PROMPT_FILE}" ]] && { echo "Prompt file missing: ${PROMPT_FILE}" >&2; exit 1; }
   TASK_PROMPT="$(cat "${PROMPT_FILE}")"
 else
@@ -308,12 +318,29 @@ ${TASK_PROMPT}"
 
   local cmd=( codex exec
     --ephemeral
-    --ignore-user-config
     --ignore-rules
     --skip-git-repo-check
     -C "${CWD}"
     -m "${model}"
   )
+
+  # Codex MCP injection. Two reasons codex sessions previously had zero ta
+  # access:
+  #   (1) --ignore-user-config was set (removed above) — that stripped
+  #       ~/.codex/config.toml MCPs leaving codex with zero tools.
+  #   (2) ta is NOT in user codex config (Claude-Code-only MCP today), so
+  #       removing the flag alone doesn't help — inject ta explicitly.
+  #   (3) Codex's default per-tool approval_mode is "prompt", which
+  #       auto-cancels in --ephemeral mode (no TTY for the user to approve).
+  #       The user's hylla pattern uses approval_mode = "approve" per tool
+  #       (codex's "approve" = pre-approved, runs without prompting). Match
+  #       that pattern for every ta tool the agents need.
+  local ta_tools_toml="" tool
+  for tool in get update list_sections search schema create delete move init; do
+    [[ -n "${ta_tools_toml}" ]] && ta_tools_toml+=","
+    ta_tools_toml+="${tool}={approval_mode=\"approve\"}"
+  done
+  cmd+=( -c "mcp_servers.ta={command=\"ta\",args=[\"--project\",\"${CWD}\"],tools={${ta_tools_toml}}}" )
 
   if [[ -n "${opts}" ]]; then
     # shellcheck disable=SC2206  # intentional word-split on opts
