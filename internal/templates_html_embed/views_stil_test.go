@@ -29,6 +29,26 @@ var stilViewNames = []string{
 	"schema_browser",
 }
 
+// stilDistReady reports whether the embedded dist tree contains the
+// pre-rendered stil pages. The check probes a single sentinel file
+// (the first stilViewNames entry) — if it is absent the rest of the
+// tree will be absent too, since `mage TemplatesBuildEmbed` writes the
+// whole stil/ subtree atomically.
+//
+// When false, the Track B Astro build has not run (fresh clone, CI
+// without pnpm, or a contributor who has not seeded `pnpm install -C
+// web/templates_embed`). In that environment the stil dist tests are
+// not applicable and must Skip — mirroring magefile.go Check()'s
+// warn-skip philosophy for the TemplatesBuildEmbed step itself. They
+// remain authoritative on dev machines that have run the build and on
+// any CI pipeline that builds Track B before running tests.
+func stilDistReady(embedded fs.FS) bool {
+	_, err := fs.Stat(embedded, "stil/"+stilViewNames[0]+"/index.html")
+	return err == nil
+}
+
+const stilDistSkipMsg = "Track B stil dist tree not built; run `mage TemplatesBuildEmbed` to populate internal/templates_html_embed/dist/stil/ before running these integration tests"
+
 // TestTemplatesHtmlEmbed_Stil drives all seven L3-E3 stil view dist
 // HTML files through a byte-for-byte golden compare. Each sub-test
 // reads dist/stil/<view>/index.html from the embedded FS (the same FS
@@ -51,6 +71,9 @@ func TestTemplatesHtmlEmbed_Stil(t *testing.T) {
 	t.Parallel()
 
 	embedded := EmbeddedEmbedHTML()
+	if !stilDistReady(embedded) {
+		t.Skip(stilDistSkipMsg)
+	}
 
 	for _, view := range stilViewNames {
 		view := view
@@ -88,6 +111,9 @@ func TestTemplatesHtmlEmbed_Stil_TokensPresent(t *testing.T) {
 	t.Parallel()
 
 	embedded := EmbeddedEmbedHTML()
+	if !stilDistReady(embedded) {
+		t.Skip(stilDistSkipMsg)
+	}
 	tokenRE := regexp.MustCompile(`--(stil|space|text|bg)-`)
 
 	for _, view := range stilViewNames {
@@ -129,6 +155,9 @@ func TestTemplatesHtmlEmbed_Stil_ZeroJS(t *testing.T) {
 	t.Parallel()
 
 	embedded := EmbeddedEmbedHTML()
+	if !stilDistReady(embedded) {
+		t.Skip(stilDistSkipMsg)
+	}
 	needle := []byte("<script")
 
 	for _, view := range stilViewNames {
