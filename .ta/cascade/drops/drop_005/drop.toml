@@ -1,0 +1,113 @@
+[path_a_thariq_visual_fixes]
+acceptance_criteria = """
+- L1 plan-QA twins both pass with outcome=success before L2 descent begins.
+- Each L2 sub-planner is single-domain, ≤4 children, ≤1 package crossing per cascade decomposition rule.
+- Each L2 plan-QA twin passes before L3 builder droplet dispatch.
+- Builder droplets touch ≤2 small code blocks INCLUDING tests (atomicity rule).
+- Build-QA twins at every L2 close + L1 close, fed by mage TemplatesA11y output (NOT structural inspection).
+- No semver phrasing in any record content. "pre-mvp-feature-complete" / "next slice" instead.
+- Persona files NEVER edited via Edit/Write — use mcp__ta__update + `ta template save`.
+- Cascade record CRUD via mcp__ta__* MCP tools; ta CLI for inspection only.
+"""
+blocked_reason = ""
+blocked_retry_count = 0.0
+blockers = []
+created_at = "2026-05-20T20:48:22Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+decision_log = ["2026-05-20T20:48:22Z — orchestrator scope: new drop_005 (vs reopen drop_004) chosen to preserve drop_004's complete+success audit trail.", "2026-05-20T20:48:22Z — Topbar search input fate: strip entirely (vs functional GET form + placeholder /search).", "2026-05-20T20:48:22Z — mage TemplatesA11y ship-window: Path A D0 (vs §5.2 carryover).", "2026-05-20T21:48:09Z — Path A PAUSED pending drop_006 (ta-core fix for agents_md.section get/update).", "2026-05-21T00:40:00Z — drop_006 COMPLETE; drop_005 UNBLOCKED. blockers cleared. Resuming Path A after orchestrator closeout (commit + mage install + Claude Code restart for MCP server bounce). After restart, mcp__ta__update on CLAUDE.section.* should work live, unblocking the CLAUDE.md amendments that motivated this entire detour."]
+definition_of_complete = """
+1. `mage TemplatesA11y` target lives in magefile.go, runs Playwright + axe-core across all dist/* HTML + Track A goldens, fails on serious+critical violations. Wired into `mage check`.
+2. All 5 thariq .astro pages (index, drop-dashboard, planner-detail, droplet-kanban, qa-twins) drop the Playground wrapper for full-bleed layout (Sidebar+Topbar mounted at root, content min-height:100vh + width:100%).
+3. Visible strings rebranded Thariq → ta cascade (page titles, sidebar header, all <h1>). URL prefix `/thariq/` stays; separate rename slice deferred.
+4. Sidebar items pass {label, href} shape with hrefs wired (verified via Playwright browser_click on each).
+5. Topbar decorative search input stripped entirely (zero-JS, no placeholder results page; deferred to Path B real /search route).
+6. Descendant MailRow rows wrapped in <a href="/thariq/droplet/<id>"> with placeholder detail pages generated via Astro getStaticPaths over MOCK_DROPLETS (zero-JS nav).
+7. Track A `internal/templates_html_basic/templates/schema_browser.html` `.pill[data-value="false"]` optional pill contrast fix lands AA (4.5:1 verified via axe).
+8. Stil-side consumer-side contrast overrides in `web/templates_embed/src/layouts/StilLayout.astro` for `.component-card-id` (--text-tertiary) + `.mail-row-tag` (mail-row-tag-fg). Down from 14 violating pages to 0.
+9. `mage check` green (including new TemplatesA11y gate).
+10. `mage TemplatesBuildEmbed` + `mage TemplatesBuildVerifyStable` green.
+11. Playwright + axe scan at 1280x800 + 375x800 viewports across all updated pages: 0 serious+critical violations.
+12. All cascade records under drop_005 report state=complete + outcome=success.
+"""
+drop_number = 5.0
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md"]
+implementation_notes_user = "Source of truth for the L1 plan is docs/HANDOFF-pre-mvp-feature-complete.md §3 (Path A). Three orchestrator decisions answered via AskUserQuestion at session start (see objective above). The mage TemplatesA11y target IS load-bearing — without it, build-QA personas cannot run the a11y gate themselves per CLAUDE.md mage-only Bash allowlist rule."
+labels = ["path-a", "thariq", "a11y", "axe-core", "playwright", "pre-mvp-feature-complete", "remediation", "post-drop_004"]
+objective = """
+Stop the thariq demos visually lying about being interactive, close the axe-core color-contrast violations found post-drop_004-close, and ship `mage TemplatesA11y` so future build-QA can run the a11y gate themselves (currently impossible — personas have mage-only Bash allowlists). Surgical edits per handoff §3. All zero-JS. Follows drop_004's premature mvp-feature-complete close.
+
+Decisions resolved before kickoff via orchestrator/dev AskUserQuestion:
+- Cascade scope = new drop_005 (preserves drop_004 audit; lane for the remediation slice).
+- Topbar search input fate = strip entirely (cascade-record demos are not search demos).
+- `mage TemplatesA11y` = ship as Path A D0 (without it, build-QA personas cannot run the a11y gate themselves; their Bash allowlist is mage-only per CLAUDE.md §Persona Bash Scoping).
+"""
+packages = ["magefile", "web/templates_embed", "internal/templates_html_basic"]
+paths = ["magefile.go", "web/templates_embed/src/pages/thariq/*.astro", "web/templates_embed/src/layouts/StilLayout.astro", "internal/templates_html_basic/templates/schema_browser.html"]
+role = "planner"
+started_at = "2026-05-20T20:48:22Z"
+state = "in_progress"
+structural_type = "drop"
+title = "Path A — thariq visual + a11y remediation"
+updated_at = "2026-05-21T00:40:00Z"
+[path_a_thariq_visual_fixes-plan-qa-proof]
+created_at = "2026-05-20T20:49:45Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_005.drop.path_a_thariq_visual_fixes"
+title = "Plan-QA proof of Path A — thariq visual + a11y remediation"
+updated_at = "2026-05-20T20:49:45Z"
+
+[path_a_thariq_visual_fixes-plan-qa-falsification]
+created_at = "2026-05-20T20:49:45Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_005.drop.path_a_thariq_visual_fixes"
+title = "Plan-QA falsif of Path A — thariq visual + a11y remediation"
+updated_at = "2026-05-20T20:49:45Z"
+
+[planner_decompose]
+acceptance_criteria = """
+1. Decomposition emits 3-4 L2 sub-planners (no more — drop_005 is itself a planner emitting children, and the L1 fanout rule caps at 4).
+2. Every handoff §3 item (3.1-3.7 plus the §3.10 visual-verification close-gate plus §5.2 mage TemplatesA11y carryover repositioned as D0) is covered by exactly one L2.
+3. No two L2 sub-planners write to overlapping path globs (verify via paths field comparison).
+4. L2 ordering / dependency graph specified — TemplatesA11y D0 ordered first so build-QA at later L2 closes can run it.
+5. Each L2's droplet estimate respects the atomicity rule (≤2 small code blocks INCLUDING tests per droplet); if any L2 would exceed 3-6 droplets, planner MUST further-decompose at L2-planner-dispatch time.
+6. No semver phrasing anywhere in the plan content.
+7. Plan flags any path uncertainty (e.g. exact stil token names needing inspection) as Unknowns to be resolved at L2 planning time, NOT silently assumed.
+"""
+created_at = "2026-05-20T20:48:22Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = """
+This planner record's `description` field contains the full L2 decomposition: for each L2, a heading with proposed id (e.g. drop_005.drop.planner_l2_a_templates_a11y), title, objective, definition_of_complete, acceptance_criteria, paths globs, packages, expected droplet count (estimate), and any blockers/depends_on edges between L2s. Plus an explicit rationale section explaining why the chosen decomposition obeys the ≤4-children + 1-domain + 1-package rules.
+
+The planner record's `expected_outputs` field lists the ta record ids that the orchestrator will create from this plan.
+"""
+expected_outputs = ["drop_005.drop.planner_l2_*_<slug> records (3-4 of them)", "drop_005.drop.plan_qa_proof_l2_* + plan_qa_falsif_l2_* twins for each L2"]
+files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "docs/cascade-methodology.md", "CLAUDE.md", "magefile.go", "web/templates_embed/src/pages/thariq/index.astro", "web/templates_embed/src/pages/thariq/drop-dashboard.astro", "web/templates_embed/src/pages/thariq/planner-detail.astro", "web/templates_embed/src/pages/thariq/droplet-kanban.astro", "web/templates_embed/src/pages/thariq/qa-twins.astro", "web/templates_embed/src/layouts/StilLayout.astro", "internal/templates_html_basic/templates/schema_browser.html"]
+labels = ["l1-planner", "decomposition", "path-a"]
+objective = "Decompose Path A (the L1 drop scope authored from handoff §3) into 3-4 L2 sub-planners with disjoint paths and single-domain scopes per the cascade methodology decomposition rule. Each L2 must be ≤4 children, ≤1 domain concern, ≤1 package crossing. Identify any architectural conflicts (file overlaps, dependency order), and specify L2 ordering — `mage TemplatesA11y` (D0) must land BEFORE the thariq visual fixes so build-QA can use it as a gate."
+parent_id = "drop_005.drop.path_a_thariq_visual_fixes"
+paths = ["[planner-only; emits L2 specs into description field, no source-code writes]"]
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L1 decomposition planner — Path A → L2 sub-planners"
+updated_at = "2026-05-20T20:48:22Z"
+
+[planner_decompose-plan-qa-proof]
+created_at = "2026-05-20T20:50:11Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_005.drop.planner_decompose"
+title = "Plan-QA proof of L1 decomposition planner — Path A → L2 sub-planners"
+updated_at = "2026-05-20T20:50:11Z"
+
+[planner_decompose-plan-qa-falsification]
+created_at = "2026-05-20T20:50:11Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_005.drop.planner_decompose"
+title = "Plan-QA falsif of L1 decomposition planner — Path A → L2 sub-planners"
+updated_at = "2026-05-20T20:50:11Z"
