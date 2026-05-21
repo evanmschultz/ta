@@ -1825,6 +1825,82 @@ required = true
 	}
 }
 
+// TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb proves that
+// ops.Update on an agents_md.section id preserves the authored on-disk
+// heading bytes when only the body is updated. The sibling
+// TestOps_GetUpdate_AgentsMDSectionRoundTrip above uses a heading
+// ("## Project Specific Docs") that accidentally matches the
+// slug-derived fallback emitted by the old Splice replace-existing
+// branch, so it could not catch this bug. This test uses a heading
+// ("## Project-specific docs") whose bytes deliberately differ from
+// the slug round-trip and asserts they survive.
+func TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb(t *testing.T) {
+	root := t.TempDir()
+	writeSchema(t, root, `
+[agents_md]
+paths = ["AGENTS.md", "CLAUDE.md"]
+
+[agents_md.section]
+description = "An agents markdown section."
+heading = 2
+
+[agents_md.section.fields.body]
+type = "string"
+required = true
+`)
+
+	claudePath := filepath.Join(root, "CLAUDE.md")
+	// Heading bytes deliberately differ from slug-derived fallback:
+	// id slug "project-specific-docs" → unslugifyForHeading emits
+	// "Project Specific Docs" (Title Case + dashes-as-spaces). The
+	// authored heading below uses lowercase 's' + hyphen — neither
+	// survives slug round-trip.
+	original := strings.Join([]string{
+		"# CLAUDE",
+		"",
+		"Intro text.",
+		"",
+		"## Project-specific docs",
+		"",
+		"Original target body.",
+		"",
+		"## Ta CLI usage",
+		"",
+		"Sibling body stays the same.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(claudePath, []byte(original), 0o644); err != nil {
+		t.Fatalf("write CLAUDE.md: %v", err)
+	}
+
+	const id = "CLAUDE.section.project-specific-docs"
+
+	newBody := "Updated target body via body-only update."
+	if _, _, err := ops.Update(root, id, "", map[string]any{
+		"body": newBody,
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	updated, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("ReadFile CLAUDE.md: %v", err)
+	}
+	updatedText := string(updated)
+	if !strings.Contains(updatedText, "## Project-specific docs\n") {
+		t.Fatalf("authored heading bytes lost; want '## Project-specific docs', got:\n%s", updatedText)
+	}
+	if strings.Contains(updatedText, "## Project Specific Docs") {
+		t.Fatalf("heading regenerated from slug; got:\n%s", updatedText)
+	}
+	if !strings.Contains(updatedText, newBody) {
+		t.Fatalf("new body missing; got:\n%s", updatedText)
+	}
+	if !strings.Contains(updatedText, "## Ta CLI usage\n\nSibling body stays the same.") {
+		t.Fatalf("sibling section bytes changed; got:\n%s", updatedText)
+	}
+}
+
 // hitIDs is a small helper that returns the id of every search hit
 // for friendlier error messages in the F38d-2.16 cluster.
 func hitIDs(hits []search.Result) []string {

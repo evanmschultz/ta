@@ -257,12 +257,25 @@ func (b *Backend) Splice(buf []byte, section string, emitted []byte) ([]byte, er
 		rep = append(append([]byte{}, rep...), '\n')
 	}
 
-	// Replace-existing.
+	// Replace-existing: preserve the authored heading line bytes from
+	// buf and substitute only the body. Without this, an authored
+	// heading like "## Project-specific docs" would be silently
+	// rewritten to the slug-derived "## Project Specific Docs" that
+	// Emit synthesizes via unslugifyForHeading. Create / append / insert
+	// branches below still use the synthesized heading.
 	for _, h := range hs {
 		if h.Address == rel {
+			origHeadingEnd := h.ByteRange[1]
+			if nl := bytes.IndexByte(buf[h.ByteRange[0]:h.ByteRange[1]], '\n'); nl >= 0 {
+				origHeadingEnd = h.ByteRange[0] + nl + 1
+			}
+			repBodyStart := len(rep)
+			if nl := bytes.IndexByte(rep, '\n'); nl >= 0 {
+				repBodyStart = nl + 1
+			}
 			out := make([]byte, 0, len(buf)+len(rep))
-			out = append(out, buf[:h.ByteRange[0]]...)
-			out = append(out, rep...)
+			out = append(out, buf[:origHeadingEnd]...)
+			out = append(out, rep[repBodyStart:]...)
 			out = append(out, buf[h.ByteRange[1]:]...)
 			return out, nil
 		}

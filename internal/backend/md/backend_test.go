@@ -315,6 +315,52 @@ func TestEmitBodyOnly(t *testing.T) {
 	}
 }
 
+// TestSpliceReplaceExistingPreservesAuthoredHeadingBytes proves that
+// Splice's replace-existing branch preserves the authored heading
+// line bytes from buf when the emitted replacement carries a
+// different (slug-derived) heading. Append / insert / parent-missing
+// branches stay slug-derived; this test pins only the replace-existing
+// invariant. Without this guard, a body-only update via ops.Update
+// would silently rewrite the authored heading to the
+// unslugifyForHeading output (the drop_007 bug).
+func TestSpliceReplaceExistingPreservesAuthoredHeadingBytes(t *testing.T) {
+	b := newReadme(t)
+	// Authored heading uses lowercase + space ("installation notes");
+	// unslugifyForHeading would emit "Installation Notes" (Title Case).
+	// Under the readme schema (title @ H1, section @ H2), the section
+	// address chains through the H1 title slug, so the H2 "installation
+	// notes" under "# Readme" resolves to
+	// "section.readme.installation-notes".
+	buf := []byte("# Readme\n\n## installation notes\n\nOld body.\n\n## other\n\nSibling.\n")
+	const addr = "section.readme.installation-notes"
+	emitted, err := b.Emit(addr, record.Record{
+		"body": "New body bytes.\n",
+	})
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	if !bytes.HasPrefix(emitted, []byte("## Installation Notes\n")) {
+		t.Fatalf("test setup invariant broken: Emit did not produce slug-derived heading; got:\n%s", emitted)
+	}
+	out, err := b.Splice(buf, addr, emitted)
+	if err != nil {
+		t.Fatalf("Splice: %v", err)
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "## installation notes\n") {
+		t.Errorf("authored heading bytes lost; want '## installation notes', got:\n%s", outStr)
+	}
+	if strings.Contains(outStr, "## Installation Notes\n") {
+		t.Errorf("heading regenerated from slug-derived emitted bytes; got:\n%s", outStr)
+	}
+	if !strings.Contains(outStr, "New body bytes.") {
+		t.Errorf("new body missing; got:\n%s", outStr)
+	}
+	if !strings.Contains(outStr, "## other\n\nSibling.\n") {
+		t.Errorf("sibling section bytes changed; got:\n%s", outStr)
+	}
+}
+
 func TestEmitNoBodyStillRendersHeading(t *testing.T) {
 	b := newReadme(t)
 	got, err := b.Emit("section.todo", record.Record{})
