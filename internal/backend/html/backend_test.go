@@ -75,8 +75,7 @@ func TestHtmlBackend_FormatInterfaceSatisfied(t *testing.T) {
 }
 
 // TestHtmlBackend_RegistersUnderHtmlKey verifies the package init() side
-// effect: format.Dispatch("html") and format.Get("html") both resolve to a
-// non-nil HtmlBackend instance.
+// effect: format.Get("html") resolves to a non-nil HtmlBackend instance.
 func TestHtmlBackend_RegistersUnderHtmlKey(t *testing.T) {
 	got, err := format.Get("html")
 	if err != nil {
@@ -87,14 +86,6 @@ func TestHtmlBackend_RegistersUnderHtmlKey(t *testing.T) {
 	}
 	if _, ok := got.(*HtmlBackend); !ok {
 		t.Errorf("format.Get(\"html\") returned %T, want *HtmlBackend", got)
-	}
-
-	dispatched, err := format.Dispatch("html")
-	if err != nil {
-		t.Fatalf("format.Dispatch(\"html\"): %v", err)
-	}
-	if dispatched != got {
-		t.Errorf("Dispatch/Get returned different impls: %v vs %v", dispatched, got)
 	}
 }
 

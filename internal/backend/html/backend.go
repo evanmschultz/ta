@@ -1,6 +1,6 @@
 // L3-D2-D3 wires the parse + splice layers of this package into the
 // format.Format contract from internal/format. HtmlBackend is registered
-// under the schema-enum key "html" at package init so format.Dispatch("html")
+// under the schema-enum key "html" at package init so format.Get("html")
 // resolves it without any further wiring.
 
 package html

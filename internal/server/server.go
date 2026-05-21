@@ -32,9 +32,10 @@ type Config struct {
 // exported methods that attach handlers to the mux without reshaping the
 // constructor.
 type Server struct {
-	config       Config
-	mux          *http.ServeMux
-	viewRenderer ViewRenderer
+	config                 Config
+	mux                    *http.ServeMux
+	viewRenderer           ViewRenderer
+	cascadeDetailRenderer  CascadeDetailRenderer
 }
 
 // New constructs a new Server with the given config and a base mux.
@@ -49,6 +50,7 @@ func New(cfg Config) *Server {
 	// Register routes early. Route handlers may be added by droplets
 	// using methods like registerRootRoute.
 	_ = s.registerRootRoute()
+	_ = s.registerCascadeRoute()
 	return s
 }
 

@@ -486,6 +486,8 @@ acceptance_criteria = """
 4. The two new bootstrap tests are present and targeted via `mage testFunc`.
 5. This droplet stays within 1-2 small code blocks including tests.
 """
+completed_at = "2026-05-21T22:55:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/server/{server.go,server_test.go} on commit 4882365. Config + Server + New + Run stub. Two bootstrap tests TestServe_NewConfigDefaults + TestServe_NewRegistersBaseMux pass via mage testPkg ./internal/server."}
 created_at = "2026-05-20T19:00:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -511,16 +513,16 @@ Tests:
 files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "cmd/ta/main.go"]
 labels = ["droplet", "ta-serve", "internal-server", "bootstrap"]
 objective = "Create the new, not yet in tree, `internal/server` package bootstrap surface: config type, server constructor, and mux-entrypoint plumbing that later route droplets hang from, without reaching into `internal/ops` directly."
+outcome = "success"
 packages = ["github.com/evanmschultz/ta/internal/server"]
 parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
 paths = ["internal/server/server.go", "internal/server/server_test.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "B1 — internal/server config bootstrap and mux entrypoint"
-updated_at = "2026-05-20T19:00:00Z"
+updated_at = "2026-05-21T22:55:00Z"
 validation_plan = "Run `TA_TEST_PKG=./internal/server mage testFunc 'TestServe_NewConfigDefaults|TestServe_NewRegistersBaseMux'` after implementing the bootstrap seam."
-
 [builder_l2_b1_ta_serve_server_config_bootstrap-qa-proof]
 created_at = "2026-05-21T06:57:42Z"
 role = "qa-proof"
@@ -545,6 +547,8 @@ acceptance_criteria = """
 4. The droplet remains 1 implementation block plus 1 focused test block.
 """
 blockers = ["drop_008.drop.builder_l2_b1_ta_serve_server_config_bootstrap"]
+completed_at = "2026-05-21T22:55:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/server/{routes_root.go,routes_root_test.go} on commit 4882365. ViewRenderer interface + WithViewRenderer setter + GET / route delegating to view. TestServe_AsHTTP_CascadeTreeOnGet passes with mock view (3 subtests: success + nil renderer + view error)."}
 created_at = "2026-05-20T19:00:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -569,16 +573,16 @@ Tests:
 files = ["docs/HANDOFF-pre-mvp-feature-complete.md"]
 labels = ["droplet", "ta-serve", "internal-server", "root-route"]
 objective = "Add the `/` route in `internal/server` so GET requests delegate to the injected view layer for the cascade tree page while preserving the bootstrap seam from B1."
+outcome = "success"
 packages = ["github.com/evanmschultz/ta/internal/server"]
 parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
 paths = ["internal/server/routes_root.go", "internal/server/routes_root_test.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "B2 — root route serves the cascade tree on GET"
-updated_at = "2026-05-20T19:00:00Z"
+updated_at = "2026-05-21T22:55:00Z"
 validation_plan = "Run `TA_TEST_PKG=./internal/server mage testFunc TestServe_AsHTTP_CascadeTreeOnGet` after wiring the root route."
-
 [builder_l2_b2_ta_serve_root_route-qa-proof]
 created_at = "2026-05-21T06:57:42Z"
 role = "qa-proof"
@@ -712,16 +716,18 @@ updated_at = "2026-05-21T06:57:42Z"
 
 [builder_l2_c_serveview_cascade_tree_loader]
 blockers = []
+completed_at = "2026-05-21T22:55:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/serverview/{cascade_tree.go,cascade_tree_test.go} on commit 4882365. Loader reads live .ta/ via internal/ops.ListSections, shapes minimal view model for HTTP layer. mage testPkg ./internal/serverview green."}
 created_at = "2026-05-20T00:00:00Z"
 objective = "Build the cascade tree loader in `new, not yet in tree: internal/serverview/cascade_tree.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed `internal/ops.ListSections` as the live tree-enumeration surface and committed `internal/templates_html_basic.Render` as the runtime render substrate to reuse rather than replacing. Scope: load the top-level cascade browser tree from live `.ta/` records, shape the minimal view model the HTTP layer can consume later, and keep template/render decisions out of this droplet. Acceptance: path scope stays inside `internal/serverview/**`; no client-side search/template substrate is introduced; builder leaves the new symbol `TestServeView_LoadCascadeTree` for the narrow-test droplet unless a tiny helper-local test is unavoidable. Atomicity verification: this is 1 small production block plus at most 1 tiny helper block."
+outcome = "success"
 parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
 paths = ["internal/serverview/cascade_tree.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-C D1 builder — serveview cascade tree loader"
-updated_at = "2026-05-20T00:00:00Z"
-
+updated_at = "2026-05-21T22:55:00Z"
 [builder_l2_c_serveview_cascade_tree_loader-qa-proof]
 created_at = "2026-05-21T06:57:57Z"
 role = "qa-proof"
@@ -858,7 +864,8 @@ acceptance_criteria = """
 - If no isolated test is added, the builder states that explicitly in completion notes and keeps the slice to one small code block.
 """
 blockers = ["drop_008.drop.planner_l2_a_ta_serve_cmd"]
-completion_contract = {completion_notes = "Record whether the droplet stayed testless or added `TestMageServe_TargetExists`, and state how the final wrapper delegates to the L2-A command without duplicating runtime logic."}
+completed_at = "2026-05-21T22:55:00Z"
+completion_contract = {completion_notes = "Done orch-direct (commit 4882365). magefile.go::Serve() = thin wrapper: Build() then run(binDir+\"/ta\", \"serve\"). Verified via mage -l → Serve target visible. No isolated test added (one-line delegation); integrated test will land via drop_008 L2-D D2 route-flow tests."}
 created_at = "2026-05-21T06:57:15Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -888,21 +895,21 @@ expected_outputs = ["magefile.go"]
 files = ["magefile.go", "docs/HANDOFF-pre-mvp-feature-complete.md"]
 labels = ["l2-e", "ta-serve", "mage"]
 objective = "Add a thin `Serve() error` mage target in `magefile.go` that launches the L2-A `ta serve` command with the same default bind/port contract, without introducing a new package or broadening this slice beyond mage wiring."
+outcome = "success"
 packages = ["non-Go support surface; no new Go package"]
 parent_id = "drop_008.drop.planner_l2_e_ta_serve_supporting_docs"
 paths = ["magefile.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-E-D1 builder — add `mage Serve` wrapper target in `magefile.go`"
-updated_at = "2026-05-21T06:57:15Z"
+updated_at = "2026-05-21T22:55:00Z"
 updated_by_actor = "agent:ta-go-planning"
 updated_by_type = "agent"
 validation_plan = """
 - Optional narrow check: `mage testFunc TestMageServe_TargetExists` if the builder adds the reserved test.
 - Otherwise integrated validation happens after L2-A lands: confirm `mage -l` exposes `Serve` and that the wrapper delegates to the new `ta serve` command rather than duplicating server logic.
 """
-
 [builder_l2_e_d1_mage_serve_target-qa-proof]
 created_at = "2026-05-21T06:58:27Z"
 role = "qa-proof"
@@ -928,7 +935,8 @@ acceptance_criteria = """
 - The builder explicitly notes that no isolated automated test was added because this droplet is docs-only.
 """
 blockers = ["drop_008.drop.planner_l2_a_ta_serve_cmd"]
-completion_contract = {completion_notes = "State which route list and default listener contract were documented, and explicitly note that this docs-only droplet added no isolated automated test."}
+completed_at = "2026-05-21T22:55:00Z"
+completion_contract = {completion_notes = "Done orch-direct (commit 4882365). New docs/ta-serve.md covers: quickstart (CLI + mage Serve), default 127.0.0.1:4321 bind/port (per cmd/ta/serve_cmd.go + TestServeCmd_DefaultBindAndPort), full route map (/, /cascade/<id>, tree-style alias, /roadmap, /schema, /search?q=...), zero-JS contract, live .ta/ data source, operator notes, substrate map. No isolated test; docs-only droplet."}
 created_at = "2026-05-21T06:57:15Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -956,14 +964,15 @@ expected_outputs = ["docs/ta-serve.md"]
 files = ["docs/ta-serve.md"]
 labels = ["l2-e", "ta-serve", "docs"]
 objective = "Create the operator-facing `docs/ta-serve.md` page that explains the `ta serve` routes, default bind/port behavior, and zero-JS backend search contract for the real cascade browser."
+outcome = "success"
 packages = ["non-Go support surface; no new Go package"]
 parent_id = "drop_008.drop.planner_l2_e_ta_serve_supporting_docs"
 paths = ["docs/ta-serve.md"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-E-D2 builder — add `docs/ta-serve.md` operator documentation"
-updated_at = "2026-05-21T06:57:15Z"
+updated_at = "2026-05-21T22:55:00Z"
 updated_by_actor = "agent:ta-go-planning"
 updated_by_type = "agent"
 validation_plan = """
