@@ -20,9 +20,9 @@ definition_of_complete = """
 1. `mage TemplatesA11y` target lives in magefile.go, runs Playwright + axe-core across all dist/* HTML + Track A goldens, fails on serious+critical violations. Wired into `mage check`.
 2. All 5 thariq .astro pages (index, drop-dashboard, planner-detail, droplet-kanban, qa-twins) drop the Playground wrapper for full-bleed layout (Sidebar+Topbar mounted at root, content min-height:100vh + width:100%).
 3. Visible strings rebranded Thariq → ta cascade (page titles, sidebar header, all <h1>). URL prefix `/thariq/` stays; separate rename slice deferred.
-4. Sidebar items pass {label, href} shape with hrefs wired (verified via Playwright browser_click on each).
-5. Topbar decorative search input stripped entirely (zero-JS, no placeholder results page; deferred to Path B real /search route).
-6. Descendant MailRow rows wrapped in <a href="/thariq/droplet/<id>"> with placeholder detail pages generated via Astro getStaticPaths over MOCK_DROPLETS (zero-JS nav).
+4. Sidebar items pass {label, href} shape with hrefs wired via stil's Sidebar `href` prop (verified via Playwright browser_click on each).
+5. Topbar decorative search input stripped via stil's `showSearch={false}` prop (zero-JS, no placeholder results page; deferred to Path B real /search route).
+6. Descendant MailRow rows render as native links by passing `href="/thariq/droplet/<id>"` prop to stil's MailRow component (which renders as `<a>` when href is provided per stil commit b3cc21d; do NOT wrap in `<a>` — MDN anchor content model forbids interactive descendants); placeholder detail pages generated via Astro getStaticPaths over MOCK_DROPLETS (zero-JS nav).
 7. Track A `internal/templates_html_basic/templates/schema_browser.html` `.pill[data-value="false"]` optional pill contrast fix lands AA (4.5:1 verified via axe).
 8. Stil-side consumer-side contrast overrides in `web/templates_embed/src/layouts/StilLayout.astro` for `.component-card-id` (--text-tertiary) + `.mail-row-tag` (mail-row-tag-fg). Down from 14 violating pages to 0.
 9. `mage check` green (including new TemplatesA11y gate).
@@ -49,7 +49,7 @@ started_at = "2026-05-20T20:48:22Z"
 state = "in_progress"
 structural_type = "drop"
 title = "Path A — thariq visual + a11y remediation"
-updated_at = "2026-05-21T00:40:00Z"
+updated_at = "2026-05-21T03:05:00Z"
 [path_a_thariq_visual_fixes-plan-qa-proof]
 created_at = "2026-05-20T20:49:45Z"
 role = "qa-proof"
@@ -76,6 +76,8 @@ acceptance_criteria = """
 6. No semver phrasing anywhere in the plan content.
 7. Plan flags any path uncertainty (e.g. exact stil token names needing inspection) as Unknowns to be resolved at L2 planning time, NOT silently assumed.
 """
+blocked_reason = "Round-3 plan-QA FAILed: 3 NEW decisive counterexamples post-stil-fix. (1.1) parent drop's DoC still has stale 'wrap MailRow in <a>' language; needs update to 'pass href prop to MailRow'. (1.2) L3-C1 + L3-C2 both claim tests/** glob; needs pinned per-L3 filenames. (1.3) L3-C2 droplet-1 still bundles 5 concerns in drop-dashboard.astro; needs further split. Repairs are mechanical; round-4 dispatch can fix all 3 OR orchestrator-direct edits are viable for the parent-DoC + path-pinning while round 4 handles only the droplet split. Dev decision pending."
+completion_contract = {completion_notes = "Round 3 complete — all 4 revision directives applied + round-2 structural fixes preserved. D1 (L3-C2 drops local-MailRow-reimpl assumption, uses stil href prop), D2 (L3-C1 sidebar uses stil's new {label, href} prop), D3 (showSearch={false} folded into existing per-page droplets, no new droplets), D4 (L3-C1 AC now explicitly names mage TemplatesA11y Playwright+axe close-gate). Preserved: recursive L3 split, §3.8 unowned at L1 close, L2-A FE substrate scope, exact HANDOFF §3.x numbering, L3-C1/L3-C2 path-disjoint. Capability gap surfaced (same as drop_007): codex-exec dispatch of ta-fe-planning did NOT expose Read/Grep/Glob even though persona declares them — agent could not independently verify stil API files (trusted spawn-prompt facts about commit b3cc21d). Worth a follow-up persona-tool-exposure fix. Ready for round-3 plan-QA twin dispatch. Served by codex-exec gpt-5.4 medium."}
 created_at = "2026-05-20T20:48:22Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
@@ -84,30 +86,300 @@ This planner record's `description` field contains the full L2 decomposition: fo
 
 The planner record's `expected_outputs` field lists the ta record ids that the orchestrator will create from this plan.
 """
-expected_outputs = ["drop_005.drop.planner_l2_*_<slug> records (3-4 of them)", "drop_005.drop.plan_qa_proof_l2_* + plan_qa_falsif_l2_* twins for each L2"]
+description = """
+drop_005 Path A L1 -> revised L2 decomposition after plan-QA falsification. Fanout remains 4 at L1. D0 stays first. `§3.8` is explicitly NOT owned by any L2; it remains an L1 close-gate bundle on `drop_005.drop.path_a_thariq_visual_fixes.definition_of_complete`.
+
+Round-3 revision basis: the dispatch states stil commit `b3cc21d` added the previously-missing consumer APIs: `MailRow.astro` accepts `href?: string`, `Sidebar.astro` `Item` accepts `href?: string`, and `Topbar.astro` accepts `showSearch?: boolean = true`. This revision removes all local-reimplementation assumptions and rewrites the thariq planning slices as pure consumer wiring. Direct repo-file verification was requested but this dispatch did not expose `Read` / `Grep` / `Glob`; see Unknowns.
+
+## Coverage map (exact HANDOFF numbering)
+
+- `§3.1` Drop Playground wrapper / full-bleed root shell -> `L2-C`, implemented through recursive child planners `L3-C1` + `L3-C2`.
+- `§3.2` Visible `Thariq` -> `ta cascade` copy rename -> `L2-C`, implemented through recursive child planners `L3-C1` + `L3-C2`.
+- `§3.3` Sidebar `href` wiring via stil `Sidebar` consumer props -> `L2-C`, implemented through recursive child planners `L3-C1` + `L3-C2`.
+- `§3.4` Topbar decorative search removal via `showSearch={false}` -> `L2-C`, implemented through recursive child planners `L3-C1` + `L3-C2`.
+- `§3.5` MailRow anchors via stil `href` prop + `getStaticPaths()` droplet detail route -> `L2-C`, owned specifically by `L3-C2`.
+- `§3.6` Track A `schema_browser.html` optional-pill contrast -> `L2-B` only.
+- `§3.7` Stil consumer-side contrast overrides in `StilLayout.astro` -> `L2-D` only.
+- `§3.8` Acceptance-gate bundle (`TemplatesBuildEmbed` green + axe-scan + sidebar nav + row drilldown) -> NOT assigned to any L2. This stays on the L1 close criteria in `drop_005.drop.path_a_thariq_visual_fixes.definition_of_complete`.
+- `§3.10` Visual verification via `mage TemplatesA11y` -> `L2-A` only.
+- `§5.2` Build and wire the `mage TemplatesA11y` target -> `L2-A` only.
+
+## L2-A
+
+Proposed id: `drop_005.drop.planner_l2_a_templates_a11y_d0`
+Title: `L2-A planner — TemplatesA11y D0 gate`
+Objective: land the missing Playwright-driven a11y verifier first. Per `web/templates_embed/package.json`, this slice is not `magefile.go`-only: it must add FE test dependencies, Playwright config, a small fixture/spec, then wire `mage TemplatesA11y` into the authoritative gate path.
+Definition of complete:
+- `web/templates_embed/package.json` adds the FE test dependencies required by the new gate before mage wiring assumes they exist.
+- `web/templates_embed/playwright.config.*` exists and carries the required viewport matrix: `375px`, `768px`, `1280px`.
+- A small Playwright a11y fixture/spec exists under `web/templates_embed` and exercises both Track B embed pages and Track A goldens with an axe serious+critical failure gate.
+- `magefile.go` defines `TemplatesA11y` and wires it into the L1 verification flow named by the parent drop.
+- The L2 plan names any missing FE mage helper target as an explicit gap instead of widening agent Bash scope.
+Acceptance criteria:
+- Owns `§3.10` and `§5.2` exactly once.
+- D0 is dispatched first and blocks downstream L2 close-gates until complete.
+- Package ownership is intentionally cross-package because the verifier spans orchestration and FE test substrate: `magefile` plus `web/templates_embed`.
+- Verification planning includes mage-scope coverage for the touched Go wiring plus downstream `mage TemplatesBuildEmbed`, `mage TemplatesBuildVerifyStable`, and `mage check` close-gates.
+- No semver phrasing.
+Paths globs:
+- `magefile.go`
+- `web/templates_embed/package.json`
+- `web/templates_embed/playwright.config.*`
+- `web/templates_embed/tests/**/*`
+Packages:
+- `magefile`
+- `web/templates_embed`
+Expected droplet count:
+- `5`
+Atomicity verification:
+- One droplet for dependency additions, one for Playwright config, one for the small a11y fixture/spec, one for mage target wiring, and one for narrow regression/test coverage. Each remains 1-2 small code blocks including tests.
+Depends_on:
+- none
+Blockers:
+- Blocks closeout of `L2-B`, `L2-C`, and `L2-D`.
+Notes:
+- This slice is the only justified cross-package planner at L1 because `§5.2` is inherently split between FE test substrate and mage orchestration.
+
+## L2-B
+
+Proposed id: `drop_005.drop.planner_l2_b_track_a_schema_browser_contrast`
+Title: `L2-B planner — Track A schema-browser optional-pill contrast`
+Objective: remediate the Track A `.pill[data-value="false"]` contrast failure in `internal/templates_html_basic/templates/schema_browser.html` without leaking into Track B or shared layout ownership.
+Definition of complete:
+- The optional-pill false-state contrast in `internal/templates_html_basic/templates/schema_browser.html` reaches AA and passes the verifier introduced by `L2-A`.
+- Any test naming added under this L2 uses the honest `Test<Slice>_As<Engine>_<Outcome>On<Db>` pattern.
+- The change remains CSS/markup-local; no client island or JS is introduced.
+Acceptance criteria:
+- Owns `§3.6` and no other handoff item.
+- Package scope remains `internal/templates_html_basic` only.
+- Verification names the schema-browser-specific mage test target(s) for the touched package plus downstream `mage TemplatesA11y`.
+- Viewport checks cover `375px`, `768px`, and `1280px` for the affected template rendering.
+Paths globs:
+- `internal/templates_html_basic/templates/schema_browser.html`
+Packages:
+- `internal/templates_html_basic`
+Expected droplet count:
+- `2`
+Atomicity verification:
+- One droplet can own the contrast token/markup adjustment and one can own the regression assertion. Both fit the 1-2 small code-block rule including tests.
+Depends_on:
+- `drop_005.drop.planner_l2_a_templates_a11y_d0`
+Blockers:
+- none after D0 lands.
+
+## L2-C
+
+Proposed id: `drop_005.drop.planner_l2_c_thariq_recursive_pages`
+Title: `L2-C planner — thariq page honesty recursion`
+Objective: re-split the thariq page work by file, not by concern. The concern-based L2 split was falsified because each concern droplet touched all five `.astro` pages and broke the 1-2 block atomicity rule. `L2-C` therefore emits recursive L3 planners instead of direct builders.
+Definition of complete:
+- `L2-C` creates exactly two child planners: `L3-C1` and `L3-C2`.
+- `L3-C1` owns the per-page shell/copy/sidebar/topbar consumer wiring where file ownership is clean.
+- `L3-C2` owns the `MailRow` anchor conversion via stil `href`, placeholder droplet detail route, and the one page file (`drop-dashboard.astro`) that must stay with `§3.5` to preserve sibling file isolation.
+- No direct builder droplet is emitted from `L2-C` itself.
+Acceptance criteria:
+- Owns `§3.1`, `§3.2`, `§3.3`, `§3.4`, and `§3.5` exactly once through recursive children.
+- Keeps zero-JS discipline: no client islands, no fake controls, no JS-only layout fixes.
+- Carries accessibility planning for semantic landmarks, keyboard-reachable anchors, and native link semantics first.
+- Child planners must preserve viewport coverage at `375px`, `768px`, and `1280px`.
+Paths globs:
+- `web/templates_embed/src/pages/thariq/index.astro`
+- `web/templates_embed/src/pages/thariq/drop-dashboard.astro`
+- `web/templates_embed/src/pages/thariq/planner-detail.astro`
+- `web/templates_embed/src/pages/thariq/droplet-kanban.astro`
+- `web/templates_embed/src/pages/thariq/qa-twins.astro`
+- `web/templates_embed/src/pages/thariq/droplet/**`
+Packages:
+- `web/templates_embed`
+Expected droplet count:
+- `0 direct at L2; 7-8 total via L3 recursion`
+Atomicity verification:
+- A direct six-droplet L2 plan is invalid because each concern edit spans multiple `.astro` files. The only atomic output is recursive planning: file-based child planners whose terminal droplets stay at one page/file per droplet plus narrow regression coverage.
+Depends_on:
+- `drop_005.drop.planner_l2_a_templates_a11y_d0`
+Blockers:
+- none after D0 lands.
+Expected_outputs:
+- `drop_005.drop.planner_l3_c1_thariq_shell_copy_sidebar_topbar`
+- `drop_005.drop.plan_qa_proof_l3_c1_thariq_shell_copy_sidebar_topbar`
+- `drop_005.drop.plan_qa_falsif_l3_c1_thariq_shell_copy_sidebar_topbar`
+- `drop_005.drop.planner_l3_c2_thariq_mailrow_detail_route`
+- `drop_005.drop.plan_qa_proof_l3_c2_thariq_mailrow_detail_route`
+- `drop_005.drop.plan_qa_falsif_l3_c2_thariq_mailrow_detail_route`
+
+### L3-C1
+
+Proposed id: `drop_005.drop.planner_l3_c1_thariq_shell_copy_sidebar_topbar`
+Title: `L3-C1 planner — per-page shell, copy, sidebar, and topbar fixes`
+Objective: emit file-scoped builder droplets for the pages that only need `§3.1`-`§3.4` shell/copy/nav/search honesty work, now as pure stil-consumer wiring: page-level `Sidebar` items pass `{ label, href }` and page-level `Topbar` passes `showSearch={false}`.
+Definition of complete:
+- Builder droplets are file-based and path-disjoint.
+- `index.astro`, `planner-detail.astro`, `droplet-kanban.astro`, and `qa-twins.astro` each get their own builder droplet.
+- A fifth narrow regression droplet covers shared verification for those four pages without reopening `drop-dashboard.astro`.
+- No local sidebar or topbar reimplementation is planned; this slice is consumer-prop wiring only.
+Acceptance criteria:
+- Owns `§3.1`-`§3.4` for the four non-MailRow pages.
+- Uses semantic HTML and native links; no ARIA patching unless a native element cannot satisfy the requirement.
+- Carries explicit acceptance for 375/768/1280 viewport behavior on sidebar visibility, topbar copy, and full-bleed content width.
+- Verification names `mage TemplatesA11y` (Playwright + axe-core) as the FE close requirement, matching sibling `L2-B` and `L3-C2` wiring.
+Paths globs:
+- `web/templates_embed/src/pages/thariq/index.astro`
+- `web/templates_embed/src/pages/thariq/planner-detail.astro`
+- `web/templates_embed/src/pages/thariq/droplet-kanban.astro`
+- `web/templates_embed/src/pages/thariq/qa-twins.astro`
+- regression/fixture file under `web/templates_embed/tests/**/*`
+Packages:
+- `web/templates_embed`
+Expected droplet count:
+- `5`
+Atomicity verification:
+- Four droplets own one `.astro` page each; one droplet owns narrow regression coverage. Each terminal droplet stays within 1-2 small code blocks including tests.
+Depends_on:
+- `drop_005.drop.planner_l2_c_thariq_recursive_pages`
+Blockers:
+- none
+Notes:
+- `drop-dashboard.astro` is intentionally excluded from `L3-C1` so `L3-C2` can own all `§3.5` work without sibling file overlap.
+- `showSearch={false}` folds into the existing per-page droplets; it does not justify a separate droplet.
+
+### L3-C2
+
+Proposed id: `drop_005.drop.planner_l3_c2_thariq_mailrow_detail_route`
+Title: `L3-C2 planner — MailRow anchors, drop-dashboard, and droplet detail route`
+Objective: own the descendant-row honesty slice end-to-end: `drop-dashboard.astro` consumer wiring, `MailRow` anchor conversion via stil `href`, placeholder droplet detail pages from `MOCK_DROPLETS`, and the narrow regression coverage that proves row drilldown works.
+Definition of complete:
+- One builder droplet owns all `drop-dashboard.astro` changes, including any shell/copy/sidebar/topbar consumer edits that must land in the same file.
+- One builder droplet owns the placeholder detail route generated via `getStaticPaths()` over `MOCK_DROPLETS`.
+- One builder droplet owns regression coverage for row anchor navigation and placeholder-page rendering.
+Acceptance criteria:
+- Owns `§3.5` exactly once.
+- Keeps zero-JS navigation: descendant rows become native links by passing `href` into stil `MailRow`, and the destination pages are real static placeholder pages.
+- Verification planning names row-drilldown coverage plus the downstream `mage TemplatesA11y` gate.
+- The planner assumes no local `MailRow` reimplementation; consumer wiring uses the upstream stil API.
+Paths globs:
+- `web/templates_embed/src/pages/thariq/drop-dashboard.astro`
+- `web/templates_embed/src/pages/thariq/droplet/**`
+- regression/fixture file under `web/templates_embed/tests/**/*`
+Packages:
+- `web/templates_embed`
+Expected droplet count:
+- `3`
+Atomicity verification:
+- One droplet for `drop-dashboard.astro`, one for the detail-route file, and one for narrow regression coverage. The droplet count stays the same after the stil API change, but each droplet shrinks because it wires consumer props instead of reimplementing `MailRow`. Each terminal droplet remains 1-2 small code blocks including tests.
+Depends_on:
+- `drop_005.drop.planner_l2_c_thariq_recursive_pages`
+Blockers:
+- none
+Notes:
+- This planner deliberately absorbs `drop-dashboard.astro` shell/copy/sidebar/topbar touchpoints so `L3-C1` and `L3-C2` stay path-disjoint.
+- `showSearch={false}` folds into the `drop-dashboard.astro` droplet; it does not add a new droplet.
+
+## L2-D
+
+Proposed id: `drop_005.drop.planner_l2_d_stil_consumer_contrast`
+Title: `L2-D planner — Stil consumer-side contrast overrides`
+Objective: apply the consumer-side contrast overrides in `StilLayout.astro` needed to clear the remaining `.component-card-id` and `.mail-row-tag` violations without reopening thariq page-file ownership.
+Definition of complete:
+- `StilLayout.astro` carries the minimal consumer-side overrides for `.component-card-id` and `.mail-row-tag` needed to clear the post-drop contrast failures.
+- Ownership stays in layout/theme scope only; no thariq page-file edits and no Track A leakage.
+- The resulting pages pass the D0 axe gate at the planned viewport set.
+Acceptance criteria:
+- Owns `§3.7` exactly once.
+- Package scope remains `web/templates_embed` but file scope is layout-only.
+- Verification names the specific mage/Playwright coverage needed for the layout-owned slice plus downstream `mage TemplatesA11y`.
+Paths globs:
+- `web/templates_embed/src/layouts/StilLayout.astro`
+Packages:
+- `web/templates_embed`
+Expected droplet count:
+- `3`
+Atomicity verification:
+- One droplet for `.component-card-id`, one for `.mail-row-tag`, and one for regression coverage is sufficient; each stays within 1-2 small code blocks including tests.
+Depends_on:
+- `drop_005.drop.planner_l2_a_templates_a11y_d0`
+Blockers:
+- none after D0 lands.
+
+## Dependency graph
+
+- `L2-A` first.
+- `L2-B`, `L2-C`, and `L2-D` all depend on `L2-A`.
+- `L2-C` is recursive and must emit `L3-C1` + `L3-C2` before any builder dispatch.
+- `L2-B` and `L2-D` are parallel-safe after `L2-A` because their path scopes are disjoint.
+- `L3-C1` and `L3-C2` are parallel-safe because `drop-dashboard.astro` is reserved to `L3-C2`.
+
+## Path overlap check
+
+- `L2-A` owns only verifier infrastructure files: `magefile.go`, `web/templates_embed/package.json`, `web/templates_embed/playwright.config.*`, and the small FE test fixture/spec.
+- `L2-B` owns only `internal/templates_html_basic/templates/schema_browser.html`.
+- `L2-C` owns only thariq page files and the droplet detail route subtree.
+- `L2-D` owns only `web/templates_embed/src/layouts/StilLayout.astro`.
+- Recursive split inside `L2-C` is path-disjoint because `drop-dashboard.astro` belongs only to `L3-C2`; `L3-C1` owns the other four page files plus narrow regression coverage.
+
+## Rationale
+
+- Four L1 children still obey the parent fanout cap.
+- `§3.8` is not an implementation slice; it is the L1 close bundle and stays there.
+- `L2-A` had to expand beyond `magefile.go` because the committed `web/templates_embed/package.json` does not yet carry Playwright or axe dependencies, so the gate is impossible without FE substrate work.
+- `L2-C` had to recurse because concern-based droplets violated atomicity by touching all five `.astro` pages at once.
+- The round-3 stil API additions collapse the risky local-component assumptions into simple consumer-prop wiring while preserving the same file-disjoint recursion shape.
+- `L2-D` remains isolated so shared layout overrides do not overlap with thariq page builders.
+
+## Unknowns routed forward
+
+- Direct verification of `/Users/evanschultz/Documents/Code/hylla/stil/main/src/components/MailRow.astro`, `Sidebar.astro`, and `Topbar.astro` was requested, but this dispatch did not expose `Read` / `Grep` / `Glob` or any equivalent repo-file reader for local worktrees. The plan therefore treats the dispatch's commit `b3cc21d` summary as provided evidence rather than independently re-read file evidence.
+- This dispatch also did not expose the requested repo-local FE search tools, so exact existing FE test-file names and whether `web/templates_embed/playwright.config.*` already exists could not be confirmed locally. Child planners must pin the exact committed path if it differs from these globs.
+- The exact placeholder route filename under `web/templates_embed/src/pages/thariq/droplet/**` must be fixed by `L3-C2` if the committed tree already uses a concrete dynamic-segment file.
+
+## expected_outputs rationale
+
+The orchestrator should create one L2 planner record and two plan-QA twin records per L2, plus the recursive `L3-C1` and `L3-C2` planner records and their plan-QA twins.
+"""
+expected_outputs = ["drop_005.drop.planner_l2_a_templates_a11y_d0", "drop_005.drop.plan_qa_proof_l2_a_templates_a11y_d0", "drop_005.drop.plan_qa_falsif_l2_a_templates_a11y_d0", "drop_005.drop.planner_l2_b_track_a_schema_browser_contrast", "drop_005.drop.plan_qa_proof_l2_b_track_a_schema_browser_contrast", "drop_005.drop.plan_qa_falsif_l2_b_track_a_schema_browser_contrast", "drop_005.drop.planner_l2_c_thariq_recursive_pages", "drop_005.drop.plan_qa_proof_l2_c_thariq_recursive_pages", "drop_005.drop.plan_qa_falsif_l2_c_thariq_recursive_pages", "drop_005.drop.planner_l3_c1_thariq_shell_copy_sidebar_topbar", "drop_005.drop.plan_qa_proof_l3_c1_thariq_shell_copy_sidebar_topbar", "drop_005.drop.plan_qa_falsif_l3_c1_thariq_shell_copy_sidebar_topbar", "drop_005.drop.planner_l3_c2_thariq_mailrow_detail_route", "drop_005.drop.plan_qa_proof_l3_c2_thariq_mailrow_detail_route", "drop_005.drop.plan_qa_falsif_l3_c2_thariq_mailrow_detail_route", "drop_005.drop.planner_l2_d_stil_consumer_contrast", "drop_005.drop.plan_qa_proof_l2_d_stil_consumer_contrast", "drop_005.drop.plan_qa_falsif_l2_d_stil_consumer_contrast"]
 files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "docs/cascade-methodology.md", "CLAUDE.md", "magefile.go", "web/templates_embed/src/pages/thariq/index.astro", "web/templates_embed/src/pages/thariq/drop-dashboard.astro", "web/templates_embed/src/pages/thariq/planner-detail.astro", "web/templates_embed/src/pages/thariq/droplet-kanban.astro", "web/templates_embed/src/pages/thariq/qa-twins.astro", "web/templates_embed/src/layouts/StilLayout.astro", "internal/templates_html_basic/templates/schema_browser.html"]
 labels = ["l1-planner", "decomposition", "path-a"]
 objective = "Decompose Path A (the L1 drop scope authored from handoff §3) into 3-4 L2 sub-planners with disjoint paths and single-domain scopes per the cascade methodology decomposition rule. Each L2 must be ≤4 children, ≤1 domain concern, ≤1 package crossing. Identify any architectural conflicts (file overlaps, dependency order), and specify L2 ordering — `mage TemplatesA11y` (D0) must land BEFORE the thariq visual fixes so build-QA can use it as a gate."
 parent_id = "drop_005.drop.path_a_thariq_visual_fixes"
 paths = ["[planner-only; emits L2 specs into description field, no source-code writes]"]
 role = "planner"
-state = "todo"
+started_at = "2026-05-21T00:55:00Z"
+state = "in_progress"
 structural_type = "segment"
 title = "L1 decomposition planner — Path A → L2 sub-planners"
-updated_at = "2026-05-20T20:48:22Z"
-
+updated_at = "2026-05-21T03:00:00Z"
 [planner_decompose-plan-qa-proof]
+completed_at = "2026-05-21T03:00:00Z"
+completion_contract = {completion_notes = "ROUND 3 PASS. All 4 directives (D1-D4) landed and grounded in direct file reads of stil components. All 7 round-2 structural fixes preserved. L3-C2 droplet-1 atomicity claim: agent's view was 2 natural blocks (Playground swap + prop wiring). Disagrees with round-3 falsif which counts 5 concerns. Both valid readings of the same file; falsif is more pedantic about block-count discipline. 2 non-blocking soft findings: (a) tests/** glob soft-overlap, (b) dynamic-route filename pinning — routed to child planners. Served by claude-native opus."}
 created_at = "2026-05-20T20:50:11Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+started_at = "2026-05-21T02:35:00Z"
+state = "complete"
 target_id = "drop_005.drop.planner_decompose"
 title = "Plan-QA proof of L1 decomposition planner — Path A → L2 sub-planners"
-updated_at = "2026-05-20T20:50:11Z"
-
+updated_at = "2026-05-21T03:00:00Z"
 [planner_decompose-plan-qa-falsification]
+completed_at = "2026-05-21T03:00:00Z"
+completion_contract = {completion_notes = """
+ROUND 3 FAIL with 3 NEW decisive counterexamples — descent BLOCKED.
+
+1.1 STALE PARENT CONTRACT: parent drop_005.drop.path_a_thariq_visual_fixes.definition_of_complete (lines 19-24) STILL requires Sidebar items in {label, href} shape (correct) BUT also still says 'MailRow rows wrapped in <a>' — WRONG now that stil's MailRow itself takes href and switches its OWN root tag (MailRow.astro:2-15). Consumer change should be <MailRow href=...> NOT wrapping. Also L3-C1 description (drop.toml:212) repeats {label, href} — correct but planning ledger / contract language inconsistent. MDN: anchor content model forbids interactive descendants or nested anchors — wrapping a button-rooted MailRow in <a> was invalid HTML even before the fix.
+
+1.2 PATH OVERLAP FALSE: L3-C1 (drop.toml:223-228) and L3-C2 (drop.toml:257-260) BOTH claim web/templates_embed/tests/**/* glob. Round-3 description still claims disjoint at lines 307-315. Breaks AC #3 (no overlap).
+
+1.3 L3-C2 DROPLET-1 STILL UNDER-DECOMPOSED: agent re-read drop-dashboard.astro and counts edits spread across 5 concern clusters: imports/layout shell (16-21, 64-76), sidebar/nav data (34-39), topbar/title/copy (71-83), descendant row rendering (120-130), wrapper styles (145-262). 5 concerns in 1 file = 5 small blocks, exceeds atomicity rule. Round-3 proof's 2-block count was generous; falsif's 5 is more rule-honest.
+
+Closed counterexamples (confirmed FIXED by stil commit b3cc21d): MailRow + Sidebar + Topbar APIs now expose needed props; ComponentCard + MailRow tag classes still exposed for L2-D contrast fix; round-2 architectural blockers genuinely resolved.
+
+Residual risk (non-decisive): Playground replacement still under-modeled — StilLayout.astro types sidebarItems without href (line 41-47), needs updating.
+
+Minimum repair set: (a) update parent DoC to real stil contracts (MailRow has own href, NOT wrap-in-<a>), (b) pin specific test file paths for L3-C1 vs L3-C2 (no overlap), (c) re-split L3-C2 droplet-1 into 2-3 droplets so each stays ≤2 small blocks. Served by codex-exec gpt-5.4 xhigh.
+"""}
 created_at = "2026-05-20T20:50:11Z"
+outcome = "failure"
 role = "qa-falsification"
-state = "todo"
+started_at = "2026-05-21T02:35:00Z"
+state = "complete"
 target_id = "drop_005.drop.planner_decompose"
 title = "Plan-QA falsif of L1 decomposition planner — Path A → L2 sub-planners"
-updated_at = "2026-05-20T20:50:11Z"
+updated_at = "2026-05-21T03:00:00Z"

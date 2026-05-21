@@ -1,0 +1,247 @@
+[heading_preservation_fix]
+acceptance_criteria = "1. Repro from project_drop_006_heading_bug_pending.md memory file is closed (no more title-casing on body-only update). 2. Test naming follows honest convention (e.g. TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb). 3. Fix is minimal: read existing heading from file on body-only update, OR accept explicit heading field and preserve-when-omitted. 4. No regression on other agents_md.section operations (create / get / delete). 5. mage check green; gofumpt clean."
+created_at = "2026-05-21T02:05:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. mcp__ta__update on a CLAUDE.section.* id with data: {body: '...'} preserves the authored heading bytes on disk verbatim, regardless of id-slug derivation. 2. New unit test under internal/backend/md/ asserts heading preservation across punctuation cases (em-dash, parentheses, commas, mixed case, hyphens). 3. Falsification fuzz test covers same. 4. Smoke test against actual CLAUDE.md section round-trip. 5. mage check green."
+drop_number = 7.0
+labels = ["ta-core", "bug-fix", "mcp", "md-backend", "post-drop_006"]
+objective = "Fix mcp__ta__update on agents_md.section ids regenerating the section heading from the id-slug (title-case + dashes-as-spaces) instead of preserving the authored heading bytes on disk. Surfaced 2026-05-21 when applying CLAUDE.md amendments via MCP after drop_006 cleared get/update access on agents_md.section ids."
+role = "planner"
+state = "in_progress"
+structural_type = "drop"
+title = "ta-core: agents_md.section heading preservation on mcp__ta__update"
+updated_at = "2026-05-21T02:05:00Z"
+
+[heading_preservation_fix-plan-qa-proof]
+created_at = "2026-05-21T02:33:58Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_007.drop.heading_preservation_fix"
+title = "Plan-QA proof of ta-core: agents_md.section heading preservation on mcp__ta__update"
+updated_at = "2026-05-21T02:33:58Z"
+
+[heading_preservation_fix-plan-qa-falsification]
+created_at = "2026-05-21T02:33:58Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_007.drop.heading_preservation_fix"
+title = "Plan-QA falsif of ta-core: agents_md.section heading preservation on mcp__ta__update"
+updated_at = "2026-05-21T02:33:58Z"
+
+[planner_l1_heading_preservation_fix]
+acceptance_criteria = "1. Emits 2-3 atomic builder droplets (fix + unit test + optional fuzz). 2. Each droplet ≤2 small code blocks INCLUDING tests (atomicity rule). 3. Surface file:line cited from internal/backend/md/ via Hylla or Read. 4. Approach chosen with explicit rationale (preserve-on-disk vs explicit-heading-field). 5. Test naming follows TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb pattern. 6. No semver phrasing."
+completed_at = "2026-05-21T02:25:00Z"
+completion_contract = {completion_notes = "Plan emitted in ta-go-planning agent reply but persisted orchestrator-direct due to dispatch capability gap: mcp__ta__update + arbitrary-Read NOT surfaced in this codex-exec dispatch of ta-go-planning, even though the persona declares them. Compare ta-fe-planning which successfully used mcp__ta__update in rounds 1/2/3 of drop_005 via codex-exec. Difference is persona tool list (verify); fix is a follow-up persona-update slice. PLAN ITSELF: PASS internally (file:line cited, approach chosen with rationale, 3 atomic droplets each ≤2 small blocks INCLUDING tests, honest test naming, falsification cases enumerated, expected_outputs listed). Served by codex-exec gpt-5.4. Ready for plan-QA twins to gate descent into builder dispatch."}
+created_at = "2026-05-21T02:05:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "Planner record description carries: (1) identified write-path surface with file:line citation, (2) chosen approach (preserve-on-disk vs explicit-heading-field) with rationale, (3) 2-3 builder droplet specs each ≤2 small code blocks INCLUDING tests, (4) test-naming honest convention applied, (5) acceptance gates including mage check + gofumpt clean."
+description = """
+drop_007 L1 plan — heading-preservation fix at md.Backend.Splice replace-existing branch.
+
+## Bug surface (cited at file:line via Hylla)
+
+- `internal/backend/md/backend.go:171` `(*Backend).Emit` rebuilds heading via `unslugifyForHeading(slug)` from `lastSegment(rel)` — the lossy synthesis source.
+- `internal/backend/md/backend.go:229` `(*Backend).Splice` blindly replaces the whole existing section with `emitted` bytes. THIS is the branch where the authored heading is lost on body-only update.
+- `internal/ops/ops.go:844` `ops.Update` drives `backend.Emit(...)` then `backend.Splice(...)`. End-to-end caller.
+- Why the bug escaped existing tests: `internal/ops/ops_test.go:1743` has agents_md.section round-trip harness, but its fixture heading `"Project Specific Docs"` accidentally MATCHES the slug-title-cased fallback. New tests must use authored bytes that deliberately DIFFER (e.g. `## Project-specific docs` lowercase 's').
+
+## Chosen approach: preserve-on-disk in Splice replace-existing branch (NOT explicit-heading-field-in-update)
+
+Rationale:
+- Keeps MCP/update contract unchanged — no new field, no schema/validation expansion for a non-declared field.
+- Fixes bug at internal MD backend write path, exactly where the loss happens.
+- Create-path semantics unchanged (new sections still use current slug fallback).
+- Append/insert branches unchanged — only replace-existing branch modified.
+- Falsification cases enumerate the bounding behavior (see Falsification section).
+
+## Builder droplets (3 ordered)
+
+### D1: builder-fix-md-splice-heading-preservation
+- Paths: `internal/backend/md/backend.go`
+- Packages: `internal/backend/md`
+- Acceptance: replace-existing `Splice` preserves the original heading line bytes from `buf` and only replaces the body payload; append/insert branches remain unchanged. 1-2 small blocks.
+- Test gate: `mage testFunc 'TestOps_GetUpdate_AgentsMDSectionRoundTrip|TestEmitBodyOnly'`
+- Atomicity verification: localized to one function in one file; existing tests provide regression coverage during the change.
+
+### D2: builder-test-md-update-heading-preservation
+- Paths: `internal/ops/ops_test.go`, `internal/backend/md/backend_test.go`
+- Packages: `internal/ops`, `internal/backend/md`
+- Acceptance: add `TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb` in ops_test.go using authored heading `## Project-specific docs` (deliberately differs from slug-title-cased fallback); add `TestSpliceReplaceExistingPreservesAuthoredHeadingBytes` in backend_test.go covering punctuation/case preservation; sibling bytes byte-identical after splice. 1-2 small blocks per droplet.
+- Test gate: `mage testFunc 'TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb|TestSpliceReplaceExistingPreservesAuthoredHeadingBytes'`
+- Ordering: MUST run after D1.
+
+### D3: builder-fuzz-md-heading-preservation (optional)
+- Paths: `internal/backend/md/fuzz_test.go`
+- Packages: `internal/backend/md`
+- Acceptance: extend fuzz so replace-existing splice preserves the original heading line byte-for-byte while varying body text and authored heading punctuation/case; create-path behavior remains outside this assertion. 1 small block.
+- Test gate: `mage testFunc 'Fuzz.*Md.*Heading.*'`
+- Ordering: after D1; content-independent of D2 but same package, keep sequential.
+
+## Falsification cases the fix must respect
+
+- Case 1 (target): replacing an existing section preserves heading line bytes; only body bytes change.
+- Case 2 (untouched): creating a missing section continues to use current slug-derived heading synthesis.
+- Case 3 (untouched): inserting a missing child under an existing parent remains unchanged.
+- Case 4 (untouched): sibling sections and trailing content remain byte-identical outside the replaced range.
+
+## Expected outputs
+
+- `drop_007.drop.builder_fix_md_splice_heading_preservation` (cascade.droplet)
+- `drop_007.drop.builder_test_md_update_heading_preservation` (cascade.droplet)
+- `drop_007.drop.builder_fuzz_md_heading_preservation` (cascade.droplet, optional)
+- Per F23 v2, each droplet auto-spawns its qa_proof + qa_falsification twins on create.
+
+## Reuse discovery
+
+- Existing agents_md.section round-trip harness at `internal/ops/ops_test.go:1743`.
+- Existing backend test surface at `internal/backend/md/backend_test.go:305`.
+- Existing fuzz surface at `internal/backend/md/fuzz_test.go:186`.
+
+## Unknowns routed forward
+
+- Exact `mage testFunc` invocation name for the fuzz target was not confirmed against magefile.go in this dispatch — builder verifies before adding.
+- No additional surface in `internal/backend/md/` is suspected; if D1 builder finds additional Splice call-sites that copy emitted bytes verbatim, escalate before broadening the fix.
+"""
+expected_outputs = ["drop_007.drop.builder_fix_md_splice_heading_preservation", "drop_007.drop.builder_test_md_update_heading_preservation", "drop_007.drop.builder_fuzz_md_heading_preservation"]
+labels = ["ta-core", "l1-planner", "bug-fix", "md-backend"]
+objective = "Identify the exact code surface in internal/backend/md/ where the agents_md.section heading is composed on serialize. Propose minimal fix: preserve-on-disk OR explicit-heading-field-in-update. Emit 2-3 atomic builder droplets covering fix + tests + falsification fuzz."
+outcome = "success"
+parent_id = "drop_007.drop.heading_preservation_fix"
+role = "planner"
+state = "complete"
+title = "L1 planner — heading preservation fix at internal/backend/md/ write path"
+updated_at = "2026-05-21T02:25:00Z"
+[planner_l1_heading_preservation_fix-plan-qa-proof]
+completed_at = "2026-05-21T02:50:00Z"
+completion_contract = {completion_notes = "PASS — all 6 acceptance criteria satisfied with file:line evidence. Verified Splice replace-existing branch at backend.go:260-269 blindly overwrites `buf[h.ByteRange[0]:h.ByteRange[1]]` with `rep := emitted` (heading-included Emit output). Existing fixture at ops_test.go:1765 uses `## Project Specific Docs` which accidentally matches slug-derived fallback — explains bug escape. preserve-on-disk approach correct locus (slice rep to strip synthesized first line, substitute original heading bytes from buf). 3-droplet decomposition atomic. Test naming honest. 4 falsification cases bound fix to replace-existing branch only. Soft findings (non-blocking, routed): ±1 line cosmetic drift in citations; D3 fuzz pattern `Fuzz.*Md.*Heading.*` won't match existing FuzzSpliceInvariant (planner routed as Unknown). Served by claude-native opus."}
+created_at = "2026-05-21T02:33:58Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-21T02:25:00Z"
+state = "complete"
+target_id = "drop_007.drop.planner_l1_heading_preservation_fix"
+title = "Plan-QA proof of L1 planner — heading preservation fix at internal/backend/md/ write path"
+updated_at = "2026-05-21T02:50:00Z"
+[planner_l1_heading_preservation_fix-plan-qa-falsification]
+completed_at = "2026-05-21T02:50:00Z"
+completion_contract = {completion_notes = "PASS — no blocking findings. Agent ran tests + `mage testFunc 'TestOps_GetUpdate_AgentsMDSectionRoundTrip|TestSpliceRoundTripInvariant|TestSpliceReplaceExisting|TestSpliceOrphanReplaceStillWorks'` + `mage testPkg ./internal/backend/md` + `mage check` ALL GREEN; confirmed bug-escape thesis by inspecting existing fixture; confirmed branch separation (replace-existing at backend.go:229 isolated from append/insert/parent-missing); confirmed coverage gap (no test with authored heading bytes that differ from slug fallback). 2 non-blocking precision notes for builder: (1) caller-line split — ops.Update.Emit at ops.go:844, ops.Update.Splice at ops.go:848 (planner compressed both to :844); (2) another caller path at ops/move.go:412 (Emit) + :416 (Splice), backend-local fix covers it automatically (no D1 scope expansion needed). Builder D2 could split further (1 ops + 1 backend test) but doesn't need to per atomicity rule. Served by codex-exec gpt-5.4 xhigh."}
+created_at = "2026-05-21T02:33:58Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-21T02:25:00Z"
+state = "complete"
+target_id = "drop_007.drop.planner_l1_heading_preservation_fix"
+title = "Plan-QA falsif of L1 planner — heading preservation fix at internal/backend/md/ write path"
+updated_at = "2026-05-21T02:50:00Z"
+
+[builder_fix_md_splice_heading_preservation]
+acceptance_criteria = "1. Touches only internal/backend/md/backend.go. 2. Localized to Splice replace-existing branch only. 3. Does NOT modify Emit (heading synthesis stays slug-derived for create-path). 4. mage testFunc gate green. 5. gofumpt clean (no raw gofmt invocation — mage handles)."
+completed_at = "2026-05-21T03:00:00Z"
+completion_contract = {completion_notes = "D1 fix APPLIED orchestrator-direct after Q7B builder dispatch (brqn2l25k) produced Section 0 prose with ZERO tool calls (failure mode = Q7B too weak for action, NOT under-decomposed-droplet loud-fail). Dispatch chain didn't advance because Q7B reported exit 0. Worth memorizing as a Q7B foot-gun. Edit: internal/backend/md/backend.go Splice replace-existing branch now preserves authored heading line bytes from buf and substitutes only the body (lines 260-280 post-edit). Bytes.IndexByte logic safely handles edge cases (no-newline-in-section, no-newline-in-rep). Imports unchanged (bytes already imported at line 4). Verification gate PASSED: `mage testFunc 'TestOps_GetUpdate_AgentsMDSectionRoundTrip|TestEmitBodyOnly'` returned both green (28 packages tested, 2/2 selected tests pass). Existing fixture at ops_test.go:1765 still passes because its heading 'Project Specific Docs' matches slug-derived fallback (no-op for fix). LSP diagnostics on backend.go showed 'could not import internal/record' staleness post-edit — cosmetic, mage gate is authoritative."}
+created_at = "2026-05-21T02:50:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. internal/backend/md/backend.go Splice replace-existing branch preserves the original heading line bytes from `buf`. 2. The synthesized heading from Emit is dropped only for the replace-existing case. 3. Append/insert/parent-missing branches remain bit-identical to pre-fix behavior. 4. mage testFunc 'TestOps_GetUpdate_AgentsMDSectionRoundTrip|TestEmitBodyOnly' green (these should still pass because their fixtures use slug-matching headings, so fix is a no-op for them). 5. Edit is ≤2 small code blocks INCLUDING any inline tests."
+files = ["internal/backend/md/backend.go"]
+labels = ["ta-core", "bug-fix", "md-backend", "d1"]
+objective = "In (*Backend).Splice at internal/backend/md/backend.go:229 (replace-existing branch around lines 260-269), slice the synthesized first line of `rep := emitted` and substitute the original heading bytes from `buf[h.ByteRange[0]:...first-newline]`. Leave append/insert/parent-missing branches unchanged; leave Emit unchanged."
+outcome = "success"
+packages = ["internal/backend/md"]
+parent_id = "drop_007.drop.planner_l1_heading_preservation_fix"
+paths = ["internal/backend/md/backend.go"]
+role = "builder"
+started_at = "2026-05-21T02:50:30Z"
+state = "complete"
+structural_type = "droplet"
+title = "D1 builder — fix Splice replace-existing branch to preserve authored heading bytes"
+updated_at = "2026-05-21T03:00:00Z"
+[builder_fix_md_splice_heading_preservation-qa-proof]
+created_at = "2026-05-21T02:53:43Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_007.drop.builder_fix_md_splice_heading_preservation"
+title = "QA proof of D1 builder — fix Splice replace-existing branch to preserve authored heading bytes"
+updated_at = "2026-05-21T02:53:43Z"
+
+[builder_fix_md_splice_heading_preservation-qa-falsification]
+created_at = "2026-05-21T02:53:43Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_007.drop.builder_fix_md_splice_heading_preservation"
+title = "QA falsif of D1 builder — fix Splice replace-existing branch to preserve authored heading bytes"
+updated_at = "2026-05-21T02:53:43Z"
+
+[builder_test_md_update_heading_preservation]
+acceptance_criteria = "1. Tests added to existing files (ops_test.go + backend_test.go). 2. Honest test naming (TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb pattern). 3. Tests use authored heading bytes that differ from slug-derived fallback. 4. mage testFunc gate green. 5. No regression on existing tests."
+blockers = ["drop_007.drop.builder_fix_md_splice_heading_preservation"]
+completed_at = "2026-05-21T03:12:00Z"
+completion_contract = {completion_notes = "D2 tests added orchestrator-direct (same pattern as D1 after Q7B silent-failure). Added TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb in internal/ops/ops_test.go (end-to-end ops.Update round-trip with authored heading `## Project-specific docs` that deliberately differs from slug-derived `Project Specific Docs` fallback). Added TestSpliceReplaceExistingPreservesAuthoredHeadingBytes in internal/backend/md/backend_test.go (direct Splice replace-existing test with authored `## installation notes` vs Emit's synthesized `## Installation Notes`). First attempt at backend test failed because address didn't include the H1 title chain (Splice fell through to append-at-EOF); fixed by using full chained address `section.readme.installation-notes`. Verification: `mage testFunc 'TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb|TestSpliceReplaceExistingPreservesAuthoredHeadingBytes|TestOps_GetUpdate_AgentsMDSectionRoundTrip|TestEmitBodyOnly'` ALL GREEN (4/4 pass, no regression). D1 fix + D2 tests now jointly proven."}
+created_at = "2026-05-21T02:50:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. Two new tests added: ops-level end-to-end + backend-level direct. 2. Both use authored heading bytes that deliberately differ from slug fallback (lowercase + hyphens). 3. Sibling bytes byte-identical after splice (proven via byte-equality assertion). 4. mage testFunc 'TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb|TestSpliceReplaceExistingPreservesAuthoredHeadingBytes' green after D1. 5. Each test is ≤2 small code blocks."
+files = ["internal/ops/ops_test.go", "internal/backend/md/backend_test.go"]
+labels = ["ta-core", "bug-fix", "md-backend", "tests", "d2"]
+objective = "Add TestMdBackend_UpdateBody_PreservesAuthoredHeadingOnMdDb in internal/ops/ops_test.go using authored heading `## Project-specific docs` (deliberately differs from slug-title-cased fallback). Add TestSpliceReplaceExistingPreservesAuthoredHeadingBytes in internal/backend/md/backend_test.go covering punctuation/case preservation. Both tests should FAIL pre-D1 and PASS post-D1."
+outcome = "success"
+packages = ["internal/ops", "internal/backend/md"]
+parent_id = "drop_007.drop.planner_l1_heading_preservation_fix"
+paths = ["internal/ops/ops_test.go", "internal/backend/md/backend_test.go"]
+role = "builder"
+started_at = "2026-05-21T03:08:00Z"
+state = "complete"
+structural_type = "droplet"
+title = "D2 builder — add unit tests proving authored heading preservation"
+updated_at = "2026-05-21T03:12:00Z"
+[builder_test_md_update_heading_preservation-qa-proof]
+created_at = "2026-05-21T02:53:43Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_007.drop.builder_test_md_update_heading_preservation"
+title = "QA proof of D2 builder — add unit tests proving authored heading preservation"
+updated_at = "2026-05-21T02:53:43Z"
+
+[builder_test_md_update_heading_preservation-qa-falsification]
+created_at = "2026-05-21T02:53:43Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_007.drop.builder_test_md_update_heading_preservation"
+title = "QA falsif of D2 builder — add unit tests proving authored heading preservation"
+updated_at = "2026-05-21T02:53:43Z"
+
+[builder_fuzz_md_heading_preservation]
+acceptance_criteria = "1. Touches only internal/backend/md/fuzz_test.go. 2. Reuses existing fuzz infrastructure. 3. Asserts heading-line byte-identity under replace-existing only. 4. Fuzz gate green for a brief seed run."
+blockers = ["drop_007.drop.builder_fix_md_splice_heading_preservation"]
+created_at = "2026-05-21T02:50:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. Fuzz extension asserts heading line bytes invariant under replace-existing splice. 2. Body text + heading punctuation/case vary across runs. 3. Create-path behavior remains outside this assertion (the create case still uses slug fallback). 4. mage testFunc on the actual fuzz function name (planner's `Fuzz.*Md.*Heading.*` pattern is a placeholder — builder verifies the existing FuzzSpliceInvariant at fuzz_test.go:186 or sibling). 5. ≤1 small code block."
+files = ["internal/backend/md/fuzz_test.go"]
+labels = ["ta-core", "bug-fix", "md-backend", "fuzz", "d3", "optional"]
+objective = "Extend internal/backend/md/fuzz_test.go FuzzSpliceInvariant (or sibling fuzz) to assert replace-existing splice preserves the original heading line byte-for-byte while varying body text + authored heading punctuation/case. Create-path behavior remains outside the assertion."
+packages = ["internal/backend/md"]
+parent_id = "drop_007.drop.planner_l1_heading_preservation_fix"
+paths = ["internal/backend/md/fuzz_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "D3 builder — extend fuzz coverage for replace-existing heading preservation (optional)"
+updated_at = "2026-05-21T02:50:00Z"
+
+[builder_fuzz_md_heading_preservation-qa-proof]
+created_at = "2026-05-21T02:53:43Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_007.drop.builder_fuzz_md_heading_preservation"
+title = "QA proof of D3 builder — extend fuzz coverage for replace-existing heading preservation (optional)"
+updated_at = "2026-05-21T02:53:43Z"
+
+[builder_fuzz_md_heading_preservation-qa-falsification]
+created_at = "2026-05-21T02:53:43Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_007.drop.builder_fuzz_md_heading_preservation"
+title = "QA falsif of D3 builder — extend fuzz coverage for replace-existing heading preservation (optional)"
+updated_at = "2026-05-21T02:53:43Z"
