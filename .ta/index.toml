@@ -3591,6 +3591,78 @@ db_name = 'cascade'
 type = 'qa_proof'
 updated = 2026-05-21T17:27:56.23325Z
 
+[drop_010.drop.planner_l2_a_thariq_standalone_examples]
+created = 2026-05-21T19:03:46.149107Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T19:11:37.781409Z
+
+[drop_010.drop.planner_l2_a_thariq_standalone_examples-plan-qa-falsification]
+created = 2026-05-21T19:03:46.176828Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T19:03:46.176828Z
+
+[drop_010.drop.planner_l2_a_thariq_standalone_examples-plan-qa-proof]
+created = 2026-05-21T19:03:46.163864Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T19:03:46.163864Z
+
+[drop_010.drop.planner_l2_b_stil_standalone_examples_and_tests]
+created = 2026-05-21T19:03:46.190203Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T19:11:53.036519Z
+
+[drop_010.drop.planner_l2_b_stil_standalone_examples_and_tests-plan-qa-falsification]
+created = 2026-05-21T19:03:46.214983Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T19:03:46.214983Z
+
+[drop_010.drop.planner_l2_b_stil_standalone_examples_and_tests-plan-qa-proof]
+created = 2026-05-21T19:03:46.203273Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T19:03:46.203273Z
+
+[drop_010.drop.planner_l2_c_embed_pipeline_retire_cleanup]
+created = 2026-05-21T19:03:46.22833Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T19:12:47.554176Z
+
+[drop_010.drop.planner_l2_c_embed_pipeline_retire_cleanup-plan-qa-falsification]
+created = 2026-05-21T19:03:46.254395Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T19:03:46.254395Z
+
+[drop_010.drop.planner_l2_c_embed_pipeline_retire_cleanup-plan-qa-proof]
+created = 2026-05-21T19:03:46.241177Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T19:03:46.241177Z
+
+[drop_010.drop.planner_l2_d_install_opt_in_and_verification]
+created = 2026-05-21T19:03:46.267421Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T19:12:06.117403Z
+
+[drop_010.drop.planner_l2_d_install_opt_in_and_verification-plan-qa-falsification]
+created = 2026-05-21T19:03:46.293279Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T19:03:46.293279Z
+
+[drop_010.drop.planner_l2_d_install_opt_in_and_verification-plan-qa-proof]
+created = 2026-05-21T19:03:46.280384Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T19:03:46.280384Z
+
 [drop_011]
 [drop_011.drop]
 [drop_011.drop.builder_template_save_canonical_d1_flag_wiring]

@@ -225,3 +225,480 @@ state = "complete"
 target_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
 title = "Plan-QA falsif of L1 planner — pivot cleanup decomposition"
 updated_at = "2026-05-21T18:42:00Z"
+
+[planner_l2_a_thariq_standalone_examples]
+acceptance_criteria = "1. pnpm run build for examples/thariq/ is part of the intended lane contract. 2. No edits to root embed.go. 3. This lane does not claim stil-owned legacy assets; any asset extraction it performs must stay within proven thariq dependencies and land under examples/thariq/**. 4. Expected droplet count: 4 (A1 Astro project shell; A2 move 2-3 route files plus imports; A3 move remaining route files plus fixtures; A4 local build/test wiring). Each droplet 1-2 small blocks INCLUDING tests/artifacts. 5. blockers_depends_on: none (lane is independent of L2-B/C/D)."
+completed_at = "2026-05-21T19:10:48Z"
+completion_contract = {completion_notes = "Decomposed L2-A into four atomic ta-fe-builder droplets: Astro shell, first route/import migration, remaining route plus fixture migration, and local build/test wiring. Constraints honored: no root embed.go edits, no stil-owned legacy assets, all new Thariq paths under examples/thariq/**, and every droplet constrained to 1-2 small code/artifact blocks including verification."}
+created_at = "2026-05-21T19:02:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. examples/thariq/ has its own package.json, astro.config.mjs, tsconfig.json as needed, src/, and build output contract targeting examples/thariq/dist/. 2. All 5 thariq routes are moved or recreated under examples/thariq/src/pages/ with only the thariq-supporting assets they actually consume. 3. Existing thariq visual-regression fixtures/instructions move to a thariq-local location under examples/thariq/ without adding new JS beyond the current Astro app. 4. web/templates_embed/src/pages/thariq/** and web/templates_embed/testdata/thariq/** are left ready for L2-C root retirement once the new project owns the behavior."
+description = """
+L2-A decomposition: thariq standalone Astro project under examples/thariq/**.
+
+Evidence anchors from parent L1:
+- web/templates_embed/src/pages/thariq/ contains exactly 5 routes: drop-dashboard.astro, droplet-kanban.astro, index.astro, planner-detail.astro, qa-twins.astro.
+- web/templates_embed/testdata/thariq/ carries page-aligned artifacts and README instructions for those routes.
+- web/templates_embed/src/mock/thariq_records.ts is the thariq mock-data dependency named in the L2-A path scope.
+- Root embed.go already embeds all:examples and is explicitly out of scope for this lane.
+- Stil-owned assets belong to L2-B and must not be claimed here.
+
+Droplet A1
+id: drop_010.drop.builder_l3_a1_thariq_astro_project_shell
+title: A1 builder - thariq Astro project shell
+builder_role: ta-fe-builder
+objective: Create the standalone Astro project boundary at examples/thariq/ without migrating behavior-bearing route files yet.
+paths:
+- examples/thariq/package.json
+- examples/thariq/astro.config.mjs
+- examples/thariq/tsconfig.json
+- examples/thariq/src/.keep or minimal src scaffold if needed
+acceptance_criteria:
+- examples/thariq/package.json defines a local build script suitable for pnpm run build from examples/thariq/.
+- astro.config.mjs targets a static build output under examples/thariq/dist/ using the local project root.
+- tsconfig.json matches the existing Astro project conventions unless a narrower standalone config is justified.
+- No web/templates_embed/** files, root embed.go, or stil-owned files are edited in this droplet.
+atomicity_verification:
+- Block 1: add the 3 standalone project config files plus at most one empty/minimal src scaffold artifact.
+- Block 2: optional tiny README or script note only if needed to make the build contract clear; otherwise no second block.
+- This droplet intentionally excludes route movement, fixtures, mage wiring, and shared asset extraction.
+responsive_viewports:
+- Not applicable to shell-only behavior; later route droplets must preserve 375px, 768px, and 1280px visual intent.
+accessibility_plan:
+- No user-facing markup introduced except a possible placeholder scaffold; if a placeholder is required, use semantic HTML and no interactive island.
+zero_js_and_island_justification:
+- No new client-side JavaScript or hydrated island is planned.
+verification_gate:
+- Builder should run the narrowest available local project build check for examples/thariq/ if dependencies are available. If no FE mage target exists yet, record that A4 owns wiring the lane-level gate.
+
+Droplet A2
+id: drop_010.drop.builder_l3_a2_thariq_primary_routes
+title: A2 builder - move first thariq routes and imports
+builder_role: ta-fe-builder
+objective: Move or recreate the first 2-3 thariq routes under examples/thariq/src/pages/ and localize only their proven thariq imports.
+paths:
+- examples/thariq/src/pages/index.astro
+- examples/thariq/src/pages/drop-dashboard.astro
+- examples/thariq/src/pages/droplet-kanban.astro
+- examples/thariq/src/mock/thariq_records.ts if these routes require it
+- web/templates_embed/src/pages/thariq/index.astro
+- web/templates_embed/src/pages/thariq/drop-dashboard.astro
+- web/templates_embed/src/pages/thariq/droplet-kanban.astro
+- web/templates_embed/src/mock/thariq_records.ts read/move source only as needed
+acceptance_criteria:
+- The 2-3 selected routes render from examples/thariq/src/pages/ with imports rewritten to local examples/thariq/src/** paths.
+- Any copied mock data is limited to thariq_records.ts or a route-local subset proven by imports.
+- The old thariq route source is either removed or left as a clearly temporary migration remnant only if needed by the orchestrator's sequencing; record the choice in completion notes.
+- No stil layout, stil mock, internal/templates_html_embed, magefile.go, or root embed.go changes.
+atomicity_verification:
+- Block 1: route files index/drop-dashboard/droplet-kanban moved or recreated with import rewrites.
+- Block 2: thariq mock-data file or route-local fixture import support, only if those routes consume it.
+- If imports require broader shared CSS/layout extraction, stop and route an Unknown instead of expanding the droplet.
+responsive_viewports:
+- Preserve existing route structure for 375px, 768px, and 1280px; avoid JS layout and prefer CSS Grid/container-query patterns already present in the route markup/styles.
+accessibility_plan:
+- Preserve semantic landmarks/headings and keyboard-reachable controls; any interactive controls must remain native elements or existing Astro/static markup unless an island already exists.
+zero_js_and_island_justification:
+- No new hydrated island is justified by route movement alone. Existing client state, if any, must be carried only when proven part of the current route behavior.
+verification_gate:
+- Run the narrowest available examples/thariq build or Astro route compile check. If not available until A4, capture route-level evidence and leave the full build gate to A4.
+
+Droplet A3
+id: drop_010.drop.builder_l3_a3_thariq_remaining_routes_and_fixtures
+title: A3 builder - move remaining thariq routes and fixtures
+builder_role: ta-fe-builder
+objective: Move planner-detail and qa-twins plus the existing thariq visual-regression fixture surface into examples/thariq/.
+paths:
+- examples/thariq/src/pages/planner-detail.astro
+- examples/thariq/src/pages/qa-twins.astro
+- examples/thariq/testdata/thariq/** or examples/thariq/testdata/** using the existing fixture layout
+- web/templates_embed/src/pages/thariq/planner-detail.astro
+- web/templates_embed/src/pages/thariq/qa-twins.astro
+- web/templates_embed/testdata/thariq/**
+acceptance_criteria:
+- The final 2 thariq routes render from examples/thariq/src/pages/ with local imports only.
+- The existing thariq visual-regression fixtures and README/instructions move to a thariq-local location under examples/thariq/.
+- Fixture naming remains page-aligned with the 5 known routes.
+- web/templates_embed/src/pages/thariq/** and web/templates_embed/testdata/thariq/** are left ready for L2-C legacy root retirement.
+- No root embed.go edits and no stil-owned asset movement.
+atomicity_verification:
+- Block 1: route files planner-detail/qa-twins moved or recreated with import rewrites.
+- Block 2: move thariq-local testdata/fixtures and their README/instructions.
+- If the fixture surface requires more than a direct move plus path updates, split or route an Unknown instead of broadening this droplet.
+responsive_viewports:
+- Preserve existing route behavior at 375px, 768px, and 1280px; fixtures should continue to cover the same route stems after relocation.
+accessibility_plan:
+- Preserve heading order, semantic page regions, keyboard flow, and ARIA attributes already present in the routes.
+zero_js_and_island_justification:
+- No new island is planned. If a route currently relies on client state, keep it unchanged and document why it remains necessary.
+verification_gate:
+- Run available route/build verification for examples/thariq/ and compare fixture route list against all 5 route stems. If no FE mage target exists yet, A4 owns making the local build/test contract explicit.
+
+Droplet A4
+id: drop_010.drop.builder_l3_a4_thariq_local_build_wiring
+title: A4 builder - thariq local build and test wiring
+builder_role: ta-fe-builder
+objective: Make the standalone examples/thariq build/test contract explicit and prove the moved project builds locally without touching root embed.go.
+paths:
+- examples/thariq/package.json
+- examples/thariq/README.md or examples/thariq/testdata README if needed
+- examples/thariq/pnpm-lock.yaml only if the project policy requires a local lockfile
+- examples/thariq/** build/test config files that are strictly local to the example
+acceptance_criteria:
+- pnpm run build from examples/thariq/ is documented and wired as the lane contract.
+- The output target is examples/thariq/dist/.
+- Local fixture instructions point at the new examples/thariq paths and route stems.
+- No magefile.go edits unless the orchestrator explicitly expands this lane; FE mage target gaps are flagged for L2-C/D rather than patched here.
+- Root embed.go remains untouched.
+atomicity_verification:
+- Block 1: package script/config documentation updates needed for local build/test truth.
+- Block 2: optional local artifact/test instruction update only; no route moves or root build-system edits.
+- If wiring requires root mage or install pipeline changes, stop and route that dependency to L2-C or L2-D.
+responsive_viewports:
+- Verification plan must name 375px, 768px, and 1280px fixture/build coverage for the 5 routes, even if browser capture execution is owned by later QA.
+accessibility_plan:
+- Document that route QA should include keyboard navigation and semantic/ARIA regression checks for the moved static routes.
+zero_js_and_island_justification:
+- Build wiring must not add client-side state. Any JS remains limited to Astro's existing build/runtime requirements.
+verification_gate:
+- Run pnpm run build in examples/thariq/ if available to the builder.
+- If a repo-level FE mage target is missing, completion notes must flag the gap; builders must not invent broad mage changes inside this lane.
+
+Sibling file blocking:
+- A1 owns only initial examples/thariq project shell files.
+- A2 owns the first route group plus thariq mock import support.
+- A3 owns the remaining route group plus thariq fixtures.
+- A4 owns local build/test contract files only.
+- No droplet owns root embed.go, stil assets, internal/templates_html_embed/**, or magefile.go.
+
+Unknowns routed:
+- Exact route import graph must be confirmed by builders with repo-local read/search before moving files.
+- Whether examples/thariq needs a local lockfile depends on existing repo package-manager policy; A4 must record evidence.
+- If no FE mage target exists for standalone Astro projects, A4 records the gap and leaves root build-system integration to L2-C/L2-D.
+"""
+expected_outputs = ["drop_010.drop.builder_l3_a1_thariq_astro_project_shell", "drop_010.drop.builder_l3_a2_thariq_primary_routes", "drop_010.drop.builder_l3_a3_thariq_remaining_routes_and_fixtures", "drop_010.drop.builder_l3_a4_thariq_local_build_wiring"]
+labels = ["l2-planner", "thariq", "astro", "pivot-cleanup"]
+objective = "Move the thariq demo from web/templates_embed into examples/thariq/ as its own standalone Astro project, preserving its current 5 routed pages (drop-dashboard, droplet-kanban, index, planner-detail, qa-twins) and the existing Thariq visual-regression fixture surface."
+outcome = "success"
+parent_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
+paths = ["examples/thariq/**", "web/templates_embed/src/pages/thariq/**", "web/templates_embed/src/mock/thariq_records.ts", "web/templates_embed/testdata/thariq/**"]
+role = "planner"
+started_at = "2026-05-21T19:10:48Z"
+state = "complete"
+title = "L2-A planner — thariq standalone Astro project"
+updated_at = "2026-05-21T19:02:00Z"
+[planner_l2_a_thariq_standalone_examples-plan-qa-proof]
+created_at = "2026-05-21T19:03:46Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_010.drop.planner_l2_a_thariq_standalone_examples"
+title = "Plan-QA proof of L2-A planner — thariq standalone Astro project"
+updated_at = "2026-05-21T19:03:46Z"
+
+[planner_l2_a_thariq_standalone_examples-plan-qa-falsification]
+created_at = "2026-05-21T19:03:46Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_010.drop.planner_l2_a_thariq_standalone_examples"
+title = "Plan-QA falsif of L2-A planner — thariq standalone Astro project"
+updated_at = "2026-05-21T19:03:46Z"
+
+[planner_l2_b_stil_standalone_examples_and_tests]
+acceptance_criteria = "1. Stil ownership includes the route/test decision and the verified stil-only legacy assets, not just page movement. 2. No edits to root embed.go. 3. No hidden dependency on internal/templates_html_embed remains once L2-C retires the package. 4. Expected droplet count: 5 (B1 stil project shell; B2 move cascade trio routes; B3 move QA twin routes; B4 move roadmap/schema routes plus verified stil-only shared assets; B5 retire embed-tied stil Go test/goldens by deleting internal/templates_html_embed/views_stil_test.go and internal/templates_html_embed/testdata/stil/**). Each droplet 1-2 small blocks INCLUDING tests. 5. blockers_depends_on: none (lane independent of L2-A/C/D)."
+completed_at = "2026-05-21T19:12:00Z"
+completion_contract = {completion_notes = "Decomposed L2-B into five atomic terminal builder droplets matching the L1 B1-B5 shape. Honored retire-only B5, disjoint sibling write scopes, no root embed.go edits, stil-only asset ownership, zero-JS/CSS-first planning, 375/768/1280 viewport coverage for FE droplets, and mage-based verification gates with FE-target gap routing."}
+created_at = "2026-05-21T19:02:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. examples/stil/ has its own package.json, astro.config.mjs, tsconfig.json as needed, src/, and build output contract targeting examples/stil/dist/. 2. The 7 substantive stil routes move under examples/stil/src/pages/; index.astro is either preserved intentionally or dropped with explicit acceptance. 3. Stil-owned shared assets move with the lane: the current web/templates_embed/src/layouts/StilLayout.astro and web/templates_embed/src/mock/stil_records.ts dependencies are either relocated into examples/stil/ or retired with an explicit replacement plan inside the stil project. 4. The current embed-tied views_stil_test.go contract is retired explicitly: internal/templates_html_embed/views_stil_test.go and internal/templates_html_embed/testdata/stil/** are deleted with the Track B retirement. Successor stil verification lives in drop_009 L2-A (Playwright + axe + a11y root, 7 stil routes added to D3 per R5 fix) plus drop_010 L2-D D4b standalone examples/stil/ build proof. 5. Legacy embed-tied stil goldens are removed with the test file; no orphaned internal/templates_html_embed stil fixtures remain."
+description = """
+L2-B decomposed plan for stil standalone examples and embed-tied stil test retirement.
+
+B1: `drop_010.drop.builder_l2_b_b1_stil_project_shell`
+Title: B1 stil standalone Astro project shell.
+Objective: Create the standalone `examples/stil/` Astro project shell with the minimum manifests and source layout needed for later route movement, without moving behavior-bearing routes yet.
+Paths: `examples/stil/package.json`, `examples/stil/astro.config.mjs`, `examples/stil/tsconfig.json`, `examples/stil/src/**`, optional `examples/stil/README.md` if the shell needs local build notes.
+Atomicity verification: 1-2 small code blocks including tests/artifacts: (1) project manifests/config and empty/minimal `src` shell; (2) a minimal local build smoke artifact or script hook proving the shell compiles once later routes arrive. No root `embed.go` edit.
+Evidence: L1 says `examples/stil/` must have its own `package.json`, `astro.config.mjs`, `tsconfig.json`, `src/`, and `dist/` build output contract. Current stil content lives under `web/templates_embed/src/pages/stil/**`, so this droplet is only the destination shell.
+Acceptance criteria: `examples/stil/` is self-contained enough for later droplets; no JS layout work is introduced; CSS-first Astro defaults are preserved; hydration is zero unless a later route proves an island is necessary.
+Viewport coverage: plan builders to keep shell/root styles responsive at 375px, 768px, and 1280px once pages land; no page-specific visual claim is made in B1.
+Verification gate: if a FE mage target exists, use the narrowest relevant target; otherwise record the FE-target gap and defer standalone build proof to L2-D D4b.
+
+B2: `drop_010.drop.builder_l2_b_b2_move_cascade_trio_routes`
+Title: B2 move cascade trio stil routes.
+Objective: Move the three cascade core routes into `examples/stil/src/pages/`: `cascade_drop.astro`, `cascade_droplet.astro`, and `cascade_planner.astro`.
+Paths: `web/templates_embed/src/pages/stil/cascade_drop.astro`, `web/templates_embed/src/pages/stil/cascade_droplet.astro`, `web/templates_embed/src/pages/stil/cascade_planner.astro`, `examples/stil/src/pages/cascade_drop.astro`, `examples/stil/src/pages/cascade_droplet.astro`, `examples/stil/src/pages/cascade_planner.astro`.
+Atomicity verification: 1-2 small code blocks including tests/artifacts: (1) move/rewrite the three route files and imports into the standalone project; (2) route-level smoke/build check if available. Do not touch QA, roadmap/schema, shared assets beyond import placeholders needed for these routes.
+Evidence: L1 identifies the 7 substantive stil routes and says `cascade_drop.astro` imports both `StilLayout.astro` and `stil_records.ts`; this droplet owns only the cascade trio route move, while B4 owns final shared asset relocation.
+Acceptance criteria: routes compile against the standalone project structure or explicitly identify B4 dependency if shared assets are not yet present; semantic HTML landmarks remain intact; any interactivity must justify a client island, with default expectation of static Astro.
+Viewport coverage: route review must cover 375px, 768px, and 1280px for layout regressions once standalone preview is available.
+Verification gate: use `mage testFunc`/`mage testPkg` only if a matching FE or route smoke harness exists; otherwise log the missing FE gate and rely on L2-D D4b for final standalone build proof.
+
+B3: `drop_010.drop.builder_l2_b_b3_move_qa_twin_routes`
+Title: B3 move QA twin stil routes.
+Objective: Move `cascade_qa_proof.astro` and `cascade_qa_falsification.astro` into `examples/stil/src/pages/` without sharing write files with B2/B4.
+Paths: `web/templates_embed/src/pages/stil/cascade_qa_proof.astro`, `web/templates_embed/src/pages/stil/cascade_qa_falsification.astro`, `examples/stil/src/pages/cascade_qa_proof.astro`, `examples/stil/src/pages/cascade_qa_falsification.astro`.
+Atomicity verification: 1-2 small code blocks including tests/artifacts: (1) move/rewrite the two QA twin route files and imports; (2) route-level smoke/build check if available. Do not touch cascade trio, roadmap/schema, index, layout, or records assets.
+Evidence: L1 names these two routes as part of the 7-route stil surface and routes successor QA verification to drop_009 L2-A plus L2-D D4b, not to the retired Go golden test.
+Acceptance criteria: the two pages are available under standalone stil pages; route semantics and keyboard-readable structure remain preserved; client-side state is not added unless an existing interactive element requires it and the builder documents why.
+Viewport coverage: verify intended responsive behavior at 375px, 768px, and 1280px during route smoke/preview if available.
+Verification gate: same FE-gate rule as B2; do not recreate `views_stil_test.go` coverage.
+
+B4: `drop_010.drop.builder_l2_b_b4_move_roadmap_schema_and_stil_assets`
+Title: B4 move roadmap/schema routes plus verified stil-only shared assets.
+Objective: Move `roadmap_version.astro` and `schema_browser.astro`, make an explicit `index.astro` decision, and relocate verified stil-only shared assets into `examples/stil/`.
+Paths: `web/templates_embed/src/pages/stil/roadmap_version.astro`, `web/templates_embed/src/pages/stil/schema_browser.astro`, `web/templates_embed/src/pages/stil/index.astro`, `web/templates_embed/src/layouts/StilLayout.astro`, `web/templates_embed/src/mock/stil_records.ts`, corresponding `examples/stil/src/pages/**`, `examples/stil/src/layouts/StilLayout.astro`, `examples/stil/src/mock/stil_records.ts`.
+Atomicity verification: 1-2 small code blocks including tests/artifacts: (1) move/rewrite the two routes plus intentional index decision; (2) move shared `StilLayout.astro` and `stil_records.ts` only after verifying they are stil-only dependencies. If shared asset verification expands beyond one small block, builder must stop and split rather than over-stuff.
+Evidence: L1 says `index.astro` imports `StilLayout.astro`, `cascade_drop.astro` imports `StilLayout.astro` plus `stil_records.ts`, and the lane owns these two legacy stil-only assets. It also requires the index route be preserved intentionally or dropped with explicit acceptance.
+Acceptance criteria: all 7 substantive routes now live under `examples/stil/src/pages/`; index disposition is recorded; layout/data imports are standalone-local; no hidden dependency on `web/templates_embed/src/layouts` or `web/templates_embed/src/mock` remains for stil.
+Viewport coverage: verify full standalone surface at 375px, 768px, and 1280px if preview/build tooling is available; CSS-first layout with Grid/container queries preferred, no JS layout.
+Verification gate: route build/smoke if available; final standalone examples/stil build proof remains L2-D D4b.
+
+B5: `drop_010.drop.builder_l2_b_b5_retire_embed_tied_stil_go_test_and_goldens`
+Title: B5 retire embed-tied stil Go test and goldens.
+Objective: Delete the legacy embed-tied stil Go golden test and its fixtures. This is retire-only; do not preserve, move, rename, or replace `views_stil_test.go` in this lane.
+Paths: `internal/templates_html_embed/views_stil_test.go`, `internal/templates_html_embed/testdata/stil/**`.
+Atomicity verification: 1-2 small code blocks including tests/artifacts: (1) delete `views_stil_test.go`; (2) delete `internal/templates_html_embed/testdata/stil/**` and run the narrow Go package/mage gate available for the package. If deletion exposes broader package retirement failures, route them to L2-C instead of expanding B5.
+Evidence: L1 states `views_stil_test.go` regression-pins the same 7 route stems and that successor stil verification lives in drop_009 L2-A Playwright + axe/a11y root plus drop_010 L2-D D4b standalone `examples/stil/` build proof. User constraint forbids any preserve branch.
+Acceptance criteria: `internal/templates_html_embed/views_stil_test.go` is gone; no orphaned `internal/templates_html_embed/testdata/stil/**` fixtures remain; root `embed.go` is untouched; no new Go replacement test is added for stil here.
+Viewport coverage: not applicable to B5; viewport successor coverage is external to this lane in drop_009 L2-A and final build proof in L2-D D4b.
+Verification gate: ta-go-builder uses `mage testPkg ./internal/templates_html_embed` if the package still exists, or the narrowest valid mage gate available after L2-C interactions; no direct `go test`.
+
+Cross-droplet blocking and reuse rules:
+- Sibling droplets have disjoint write scopes. B1 owns only the shell; B2 owns cascade trio routes; B3 owns QA twin routes; B4 owns roadmap/schema/index and stil-only shared assets; B5 owns only legacy Go test/fixtures deletion.
+- No droplet edits root `embed.go`.
+- No droplet recreates or preserves `views_stil_test.go`.
+- Builders must use CSS-first layout and justify any client island. Expected default is static Astro with zero hydration.
+- Accessibility planning requires semantic regions, keyboard-readable navigation, and ARIA only where native semantics are insufficient.
+- Browser/viewport verification expectation is 375px, 768px, 1280px for FE droplets when preview tooling is available.
+- If a builder discovers its task exceeds 1-2 small blocks including tests, it must fail/split rather than continue under-decomposed.
+"""
+expected_outputs = ["drop_010.drop.builder_l2_b_b1_stil_project_shell", "drop_010.drop.builder_l2_b_b2_move_cascade_trio_routes", "drop_010.drop.builder_l2_b_b3_move_qa_twin_routes", "drop_010.drop.builder_l2_b_b4_move_roadmap_schema_and_stil_assets", "drop_010.drop.builder_l2_b_b5_retire_embed_tied_stil_go_test_and_goldens"]
+labels = ["l2-planner", "stil", "astro", "pivot-cleanup", "retire-embed-test"]
+objective = "Move the stil cascade-view surface (7 substantive routes: cascade_drop, cascade_droplet, cascade_planner, cascade_qa_falsification, cascade_qa_proof, roadmap_version, schema_browser) into examples/stil/ as its own standalone Astro project, AND retire the embed-tied views_stil_test.go golden surface explicitly as first-class scope (NOT preserved — successor verification lives in drop_009 L2-A Playwright + drop_010 L2-D build proof, per R5-resolved L1 falsif)."
+outcome = "success"
+parent_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
+paths = ["examples/stil/**", "web/templates_embed/src/pages/stil/**", "web/templates_embed/src/layouts/StilLayout.astro", "web/templates_embed/src/mock/stil_records.ts", "internal/templates_html_embed/views_stil_test.go", "internal/templates_html_embed/testdata/stil/**"]
+role = "planner"
+started_at = "2026-05-21T19:09:30Z"
+state = "complete"
+title = "L2-B planner — stil standalone Astro project and stil test disposition"
+updated_at = "2026-05-21T19:02:00Z"
+[planner_l2_b_stil_standalone_examples_and_tests-plan-qa-proof]
+created_at = "2026-05-21T19:03:46Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_010.drop.planner_l2_b_stil_standalone_examples_and_tests"
+title = "Plan-QA proof of L2-B planner — stil standalone Astro project and stil test disposition"
+updated_at = "2026-05-21T19:03:46Z"
+
+[planner_l2_b_stil_standalone_examples_and_tests-plan-qa-falsification]
+created_at = "2026-05-21T19:03:46Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_010.drop.planner_l2_b_stil_standalone_examples_and_tests"
+title = "Plan-QA falsif of L2-B planner — stil standalone Astro project and stil test disposition"
+updated_at = "2026-05-21T19:03:46Z"
+
+[planner_l2_c_embed_pipeline_retire_cleanup]
+acceptance_criteria = "1. Root embed.go stays unchanged unless this lane can prove a necessary change and owns it explicitly; default assumption is no change. 2. No silent retention of dead web/templates_embed manifests, pnpm lock, or dist placeholders. 3. Cleanup scope explicitly excludes internal/templates_html_embed/views_stil_test.go and internal/templates_html_embed/testdata/stil/**, which belong to L2-B. 4. Cleanup scope excludes install opt-in behavior, which belongs to L2-D. 5. Expected droplet count: 4 (C1 retire legacy web root manifests; C2 retire non-stil embed package files; C3 mage symbol cleanup; C4 remove remaining legacy dist-specific test/build assumptions inside the narrowed scope). Each droplet 1-2 small blocks INCLUDING tests. 6. blockers_depends_on: depends on L2-A and L2-B landing the replacement example projects first."
+completed_at = "2026-05-21T19:11:22Z"
+completion_contract = {completion_notes = "Decomposed L2-C into four terminal ta-go-builder droplets matching the L1 atomicity shape: C1 root web manifest retirement, C2 narrowed non-stil embed package retirement, C3 magefile symbol cleanup across all five named symbols, and C4 final narrowed-scope legacy dist assumption sweep. Plan preserves the A+B dependency, excludes L2-B-owned stil tests/fixtures, excludes L2-D install opt-in work, and keeps root embed.go unchanged by default."}
+created_at = "2026-05-21T19:02:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. web/templates_embed/ root manifests/tooling are removed after L2-A and L2-B have absorbed the behavior-bearing thariq/stil content they own. 2. L2-C retirement scope inside internal/templates_html_embed/ is limited to the precise non-stil carve-out: doc.go, embed.go, embed_test.go, and dist/**. 3. Mage cleanup explicitly addresses all 5 symbols: TemplatesBuildEmbed, TemplatesBuildVerifyStable, Check, errPnpmAbsent, ensurePnpm. 4. The chosen mage behavior builds and/or verifies all embedded examples/<sub>/dist/ trees truthfully; no false-green skip path remains for the retired legacy workspace."
+description = """
+L2-C decomposed builder plan: retire the legacy templates embed pipeline after L2-A and L2-B land. Lane-level dependency: all C builders are blocked until L2-A and L2-B replacement example projects have landed and their owned legacy thariq/stil files have been removed or transferred. Root embed.go default: unchanged; builders may not edit root embed.go unless they first prove it is unavoidable and route that unknown back to orchestration.
+
+Evidence base: parent L1 record states web/templates_embed/package.json and astro.config.mjs define the retiring single Astro workspace that emits into internal/templates_html_embed/dist/; internal/templates_html_embed/embed.go exists for //go:embed all:dist; parent L1 records that Hylla search found templates_html_embed / EmbeddedEmbedHTML only in the embed package plus magefile references; magefile.go owns the five named cleanup symbols TemplatesBuildEmbed, TemplatesBuildVerifyStable, Check, errPnpmAbsent, ensurePnpm. Live gopls in this dispatch was attached to the Hylla checkout rather than the ta checkout, so no wrong-workspace LSP result is used as evidence. Hylla refs calls were unavailable/cancelled in this dispatch; use github.com/evanmschultz/ta@main plus the parent L1 evidence summary as the committed-evidence anchor.
+
+C1 id: drop_010.drop.build_l2_c1_retire_legacy_web_root_manifests
+Title: C1 retire legacy web/templates_embed root manifests
+Objective: Remove the retiring single-workspace root manifests and tooling files under web/templates_embed after A+B have moved behavior-bearing content out of that workspace.
+Paths: web/templates_embed/.gitignore; web/templates_embed/package.json; web/templates_embed/astro.config.mjs; web/templates_embed/pnpm-lock.yaml; web/templates_embed/tsconfig.json.
+Packages: none (Astro/tooling file removal only).
+Builder role: ta-go-builder.
+Acceptance criteria: delete only the listed root manifest/tooling files; do not delete web/templates_embed/src/** or testdata/** here because L2-A/L2-B own those migrations; do not edit magefile.go in this droplet; do not edit root embed.go. Verify there is no remaining package-manager/build manifest for the retired root workspace in the listed file set.
+Test strategy: no Go package test is required for this file-only manifest deletion; builder should report that mage/test verification is deferred to C3/C4 and L2-D. If the repo requires a command, use the orchestrator-authorized lane gate only, not raw go/pnpm commands.
+Atomicity verification: this is 1 small block: delete the five root manifest/tooling files. No tests are edited in this droplet.
+Evidence: L1 L2-C says these root manifests/tooling describe the old single Astro workspace emitting into internal/templates_html_embed/dist/ and must be removed after A+B absorb thariq/stil behavior.
+
+C2 id: drop_010.drop.build_l2_c2_retire_non_stil_embed_package_files
+Title: C2 retire non-stil internal/templates_html_embed files
+Objective: Remove the non-stil Go embed package remnants that directly support the retired internal/templates_html_embed/dist tree.
+Paths: internal/templates_html_embed/doc.go; internal/templates_html_embed/embed.go; internal/templates_html_embed/embed_test.go; internal/templates_html_embed/dist/**.
+Packages: internal/templates_html_embed.
+Builder role: ta-go-builder.
+Acceptance criteria: delete doc.go, embed.go, embed_test.go, and dist/** only; explicitly do not touch internal/templates_html_embed/views_stil_test.go or internal/templates_html_embed/testdata/stil/** because L2-B owns them; do not edit root embed.go. If package deletion leaves an empty directory after L2-B has already removed stil files, that is acceptable; otherwise preserve L2-B-owned files.
+Test strategy: run mage testFunc for any surviving package-level tests only if internal/templates_html_embed still contains Go tests after A+B/B5 state; otherwise report that the package no longer exists and verification is compile-gate deferred to C4/L2-D.
+Atomicity verification: this is 1 small block: delete the narrowed non-stil package files and dist tree. Test impact is limited to deleting the obsolete embed_test.go with its obsolete production file.
+Evidence: L1 L2-C scope narrows internal/templates_html_embed retirement to doc.go, embed.go, embed_test.go, and dist/**, while L2-B owns views_stil_test.go and testdata/stil/**. Parent evidence says internal/templates_html_embed/embed.go exists only to //go:embed all:dist.
+
+C3 id: drop_010.drop.build_l2_c3_mage_embed_symbol_cleanup
+Title: C3 clean mage symbols for retired embed pipeline
+Objective: Remove or rewrite the magefile.go surface that names the retired legacy workspace, explicitly addressing all five symbols: TemplatesBuildEmbed, TemplatesBuildVerifyStable, Check, errPnpmAbsent, ensurePnpm.
+Paths: magefile.go.
+Packages: magefile.
+Builder role: ta-go-builder.
+Acceptance criteria: TemplatesBuildEmbed and TemplatesBuildVerifyStable no longer point at web/templates_embed or internal/templates_html_embed/dist; Check no longer depends on the retired legacy embed build/verify target; errPnpmAbsent and ensurePnpm are removed if no longer used, or retained only if the new per-example build surface still truthfully needs pnpm. Any retained pnpm helper must be justified against actual callers in magefile.go. Do not edit examples/** or internal/templates_html_embed/** in this droplet.
+Test strategy: builder should use mage testFunc only if magefile tests exist for these symbols; otherwise run the narrowest authorized mage target that validates magefile compilation/target discovery, then leave full mage check to C4/L2-D. Do not invoke raw go test.
+Atomicity verification: this is 1-2 small blocks in a single file: adjust/remove the target functions and update Check dependencies; optionally remove the now-unused pnpm helper/error declarations if the caller graph is empty.
+Evidence: L1 L2-C names magefile.go symbols Check, errPnpmAbsent, ensurePnpm, TemplatesBuildEmbed, and TemplatesBuildVerifyStable as direct cleanup scope, and identifies TemplatesBuildEmbed as the retiring legacy workspace build target.
+
+C4 id: drop_010.drop.build_l2_c4_remove_remaining_legacy_dist_assumptions
+Title: C4 remove remaining legacy dist-specific assumptions in narrowed scope
+Objective: Sweep only the L2-C write scope for any remaining references to web/templates_embed, internal/templates_html_embed/dist, TemplatesBuildEmbed, TemplatesBuildVerifyStable, errPnpmAbsent, or ensurePnpm that would keep the retired pipeline alive or create a false-green build path.
+Paths: magefile.go; web/templates_embed/.gitignore; web/templates_embed/package.json; web/templates_embed/astro.config.mjs; web/templates_embed/pnpm-lock.yaml; web/templates_embed/tsconfig.json; internal/templates_html_embed/doc.go; internal/templates_html_embed/embed.go; internal/templates_html_embed/embed_test.go; internal/templates_html_embed/dist/**.
+Packages: magefile; internal/templates_html_embed.
+Builder role: ta-go-builder.
+Acceptance criteria: no remaining legacy dist-specific test/build assumption exists inside the narrowed C scope; the retired root manifests remain absent; the non-stil embed package files and dist tree remain absent; magefile.go has no stale references to the retired target names unless a retained compatibility wrapper is explicitly justified and no longer builds web/templates_embed. This droplet must not expand into install opt-in behavior (L2-D) and must not touch L2-B-owned stil test files.
+Test strategy: run the narrowest authorized verification that proves the cleaned scope is not referenced by compile/test gates. Preferred: mage testFunc for any tests changed or affected by magefile cleanup if available, then record that full mage check belongs to orchestrator/L2-D final verification. Do not run raw go test/gofmt/pnpm.
+Atomicity verification: this is 1-2 small blocks: a search-and-remove cleanup in magefile.go plus deletion-verification/no-op cleanup for the already-deleted C1/C2 paths. If new unrelated assumptions are found outside the listed paths, stop and route an Unknown rather than expanding scope.
+Evidence: L1 L2-C definition of complete requires no false-green skip path for the retired legacy workspace and explicitly excludes install opt-in behavior (L2-D), views_stil_test.go, and testdata/stil/** (L2-B).
+
+Ordering and blocking: C1 and C2 may run after L2-A and L2-B land, but C3 must account for their results before changing Check. C4 must run last as the narrowed cleanup sweep. File/package blocking: C1 owns only web/templates_embed root manifests; C2 owns only internal/templates_html_embed non-stil files/dist; C3 owns magefile.go; C4 reuses prior paths intentionally and is ordered after C1-C3, so there is no unordered sibling write conflict.
+"""
+expected_outputs = ["drop_010.drop.build_l2_c1_retire_legacy_web_root_manifests", "drop_010.drop.build_l2_c2_retire_non_stil_embed_package_files", "drop_010.drop.build_l2_c3_mage_embed_symbol_cleanup", "drop_010.drop.build_l2_c4_remove_remaining_legacy_dist_assumptions"]
+labels = ["l2-planner", "embed-retire", "magefile", "pivot-cleanup"]
+objective = "Remove the old single-workspace embed pipeline once L2-A and L2-B have established per-example Astro projects, and clean the mage/build surface so there is one truthful path to producing embedded example dist trees. Retire web/templates_embed/ root manifests + internal/templates_html_embed/{doc.go, embed.go, embed_test.go, dist/**}. Mage cleanup names TemplatesBuildEmbed, TemplatesBuildVerifyStable, Check, errPnpmAbsent, ensurePnpm."
+outcome = "success"
+packages = ["internal/templates_html_embed", "magefile"]
+parent_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
+paths = ["web/templates_embed/.gitignore", "web/templates_embed/package.json", "web/templates_embed/astro.config.mjs", "web/templates_embed/pnpm-lock.yaml", "web/templates_embed/tsconfig.json", "internal/templates_html_embed/doc.go", "internal/templates_html_embed/embed.go", "internal/templates_html_embed/embed_test.go", "internal/templates_html_embed/dist/**", "magefile.go"]
+role = "planner"
+started_at = "2026-05-21T19:11:22Z"
+state = "complete"
+title = "L2-C planner — retire internal/templates_html_embed and legacy templates_embed root"
+updated_at = "2026-05-21T19:02:00Z"
+[planner_l2_c_embed_pipeline_retire_cleanup-plan-qa-proof]
+created_at = "2026-05-21T19:03:46Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_010.drop.planner_l2_c_embed_pipeline_retire_cleanup"
+title = "Plan-QA proof of L2-C planner — retire internal/templates_html_embed and legacy templates_embed root"
+updated_at = "2026-05-21T19:03:46Z"
+
+[planner_l2_c_embed_pipeline_retire_cleanup-plan-qa-falsification]
+created_at = "2026-05-21T19:03:46Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_010.drop.planner_l2_c_embed_pipeline_retire_cleanup"
+title = "Plan-QA falsif of L2-C planner — retire internal/templates_html_embed and legacy templates_embed root"
+updated_at = "2026-05-21T19:03:46Z"
+
+[planner_l2_d_install_opt_in_and_verification]
+acceptance_criteria = "1. No new JS beyond the Astro projects already use. 2. Root embed.go is verification evidence, not a modification target, unless a justified change becomes unavoidable. 3. Verification failures discovered here route back to the owning prior lane rather than being patched ad hoc across scopes. 4. Expected droplet count: 6 (D1 defaults TOML + defaults tests; D2 install/dotta plumbing if needed; D3 initapply preview/apply tests; D4a compile-clean + mage check gate; D4b standalone examples/thariq + examples/stil build proof; D4c EmbeddedExamples() binary embed verification + ta install dry-run/apply proof). Each droplet 1-2 small blocks INCLUDING tests. 5. blockers_depends_on: depends on L2-A/L2-B example projects existing and L2-C retiring the legacy pipeline surface."
+completed_at = "2026-05-21T19:12:00Z"
+completion_contract = {completion_notes = "Decomposed L2-D into six ordered terminal builder droplets: D1 defaults TOML/tests, D2 install/dotta plumbing if needed, D3 initapply preview/dry-run/apply tests, D4a mage check gate, D4b standalone thariq/stil build proof, and D4c EmbeddedExamples plus ta install dry-run/apply proof. Preserved constraints: no new JS, root embed.go verification-only by default, failures route to owner lanes, D4 sub-droplets remain separate, and every builder task is capped at 1-2 small blocks including tests."}
+created_at = "2026-05-21T19:02:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. internal/installconfig/defaults.toml grows opt-in entries for thariq and stil with matching loader/validator/defaults tests. 2. Any install-engine or dotta mapping changes needed to copy standalone example projects into ~/.ta/ or project-local install targets are owned here. 3. Init/apply coverage proves the new opt-in entries can preview, dry-run, and apply without breaking current substrate semantics. 4. Final verification is split atomically across three end droplets: compile-clean plus mage check (D4a); standalone examples/thariq and examples/stil builds (D4b); binary embed via EmbeddedExamples() plus ta install dry-run/apply proof (D4c)."
+description = """
+L2-D decomposed plan — install opt-in surfaces and end-to-end verification
+
+Scope: Extend `ta install` so users can opt into `examples/thariq/` and `examples/stil/` from the binary-embedded examples tree, then prove the revised model end to end. Builders are blocked until L2-A and L2-B have created the standalone example projects and L2-C has retired the legacy pipeline surface.
+
+Evidence base: Parent `drop_010.drop.planner_l1_pivot_cleanup_decompose` records Hylla-backed anchors: root `embed.go` already embeds `//go:embed all:examples`; `internal/installconfig/defaults.toml` currently defines 12 substrates; `internal/installconfig/defaults_test.go` pins that exact set and count; `internal/initapply/initapply_test.go` proves binary/home/project flows through `templates.SetBinarySource(...)`; `magefile.go` owns `Check` and the retiring `TemplatesBuildEmbed` legacy substrate. Direct Hylla vector calls in this planning dispatch were cancelled by the environment, and gopls was attached to the Hylla workspace rather than the ta checkout; builders/QA must refresh ta gopls before Go-symbol QA.
+
+Dependencies and ordering: D1 -> D2 -> D3 -> D4a -> D4b -> D4c. Entire lane depends on L2-A + L2-B + L2-C completion. Verification failures in D4a/D4b/D4c route back to the owning prior lane instead of being patched across scope.
+
+D1 — `drop_010.drop.d1_installconfig_defaults_examples_opt_in`
+Title: Installconfig defaults for opt-in thariq/stil examples
+Objective: Add opt-in default entries for `examples/thariq` and `examples/stil` to the install configuration and update the defaults tests that pin substrate names/counts.
+Paths: `internal/installconfig/defaults.toml`, `internal/installconfig/defaults_test.go`.
+Packages: `internal/installconfig`.
+Builder: `ta-go-builder`.
+Evidence: Parent L1 states `internal/installconfig/defaults.toml` currently defines 12 substrates and `internal/installconfig/defaults_test.go` pins that exact set/count. New entries are new, not yet in tree: the concrete substrate IDs for thariq/stil must be chosen by reading the existing defaults naming pattern before editing.
+Acceptance criteria: Existing 12 defaults remain semantically unchanged; thariq/stil entries are opt-in rather than default-installed; tests assert the new total and exact substrate inventory; no install/apply plumbing is modified here.
+Test strategy: `mage testFunc Test.*Defaults.*` scoped with `TA_TEST_PKG=./internal/installconfig`, adjusted by builder after reading actual test names.
+Atomicity verification: This is 1 small TOML block plus 1 small test block; if test updates require broader loader/validator rewrites, stop and split instead of expanding.
+
+D2 — `drop_010.drop.d2_install_dotta_examples_plumbing`
+Title: Install/dotta plumbing for standalone example substrates
+Objective: Make the install engine and/or dotta mapping copy the new standalone example substrates from embedded examples into home/project install targets, only if D1 exposes a gap in existing plumbing.
+Paths: `internal/install/**`, `internal/dotta/**`.
+Packages: `internal/install`, `internal/dotta`.
+Builder: `ta-go-builder`.
+Evidence: Parent L1 assigns any install-engine or dotta mapping changes needed to copy standalone example projects into `~/.ta/` or project-local targets to L2-D. The exact functions are not verified in this dispatch because gopls was attached to the wrong workspace; builder must use ta gopls/Read before naming or editing concrete functions.
+Acceptance criteria: Reuse current substrate copy/mapping path if it already handles embedded directories; if code changes are needed, keep them consumer-side and minimal; no changes to root `embed.go`; no edits under `examples/thariq/**` or `examples/stil/**`.
+Test strategy: Add/extend the nearest install/dotta unit test proving thariq/stil source-to-target mapping, then run `mage testFunc <verified test regex>` scoped to the touched package.
+Atomicity verification: This is at most 1 small plumbing block plus 1 small test block. If both `internal/install` and `internal/dotta` need nontrivial changes, implement only the first verified gap and return a split request.
+
+D3 — `drop_010.drop.d3_initapply_examples_preview_apply_tests`
+Title: Initapply preview/dry-run/apply coverage for opt-in examples
+Objective: Extend initapply coverage so thariq/stil opt-in entries preview, dry-run, and apply without regressing existing binary/home/project substrate semantics.
+Paths: `internal/initapply/initapply_test.go` and, only if required by existing test helpers, adjacent `internal/initapply/**` test helper files.
+Packages: `internal/initapply`.
+Builder: `ta-go-builder`.
+Evidence: Parent L1 says `internal/initapply/initapply_test.go` proves binary/home/project flows through `templates.SetBinarySource(...)`; L2-D definition requires preview, dry-run, and apply coverage for the new opt-in entries.
+Acceptance criteria: Tests exercise opt-in thariq/stil entries through existing init/apply helper patterns; existing substrate semantics remain asserted; no production code changes unless a test reveals a D2 plumbing gap, in which case route back to D2 rather than patching here.
+Test strategy: Run `mage testFunc <verified initapply test regex>` with `TA_TEST_PKG=./internal/initapply`; builder must verify existing test/helper names before referencing them in code.
+Atomicity verification: This is 1 small test block, optionally plus 1 small fixture/helper adjustment. If production initapply changes are needed, stop and split/reroute.
+
+D4a — `drop_010.drop.d4a_compile_clean_and_mage_check_gate`
+Title: Compile-clean and mage check gate
+Objective: Prove the Go tree is compile-clean after D1-D3 and the legacy pipeline retirement by running the orchestrator-level gate.
+Paths: no intended source edits; verification record only. If failure is found, route to the owning prior droplet/lane.
+Packages: `cmd/...`, `internal/...`, plus repository gate coverage through `mage check`.
+Builder: `ta-go-builder`.
+Evidence: Parent L1 maps L2-D to parent DoC items 8 and 9: `cmd/` + `internal/` compile clean verification and `mage check` green. Parent also identifies `magefile.go` `Check` as the composite gate.
+Acceptance criteria: `mage check` passes from the active ta checkout after D1-D3 and L2-C; compile failures are not patched ad hoc in this droplet; failures are reported with owner routing.
+Test strategy: `mage check`.
+Atomicity verification: This is a verification-only droplet with no code blocks. If a fix is required, it is not atomic here and must route back.
+
+D4b — `drop_010.drop.d4b_standalone_examples_build_proof`
+Title: Standalone thariq/stil example build proof
+Objective: Prove both standalone Astro example projects build from their own directories after L2-A/L2-B and L2-C.
+Paths: no intended source edits; verification targets `examples/thariq/**` and `examples/stil/**` only for build execution/artifact observation.
+Packages: none (Astro-only verification lane).
+Builder: `ta-go-builder`.
+Evidence: Parent L1 maps L2-D to parent DoC item 10: standalone `examples/thariq` + `examples/stil` builds. L2-A and L2-B own creation of those projects; D4b only verifies them.
+Acceptance criteria: `examples/thariq` build succeeds and produces its expected dist tree; `examples/stil` build succeeds and produces its expected dist tree; no new JS is introduced; failures route back to L2-A or L2-B based on project ownership.
+Test strategy: Run each example project's existing package-manager build command as established by its `package.json`; do not invent new JS/tooling.
+Atomicity verification: This is a verification-only droplet split from D4a/D4c. If build-script or source fixes are needed, route back to L2-A/L2-B.
+
+D4c — `drop_010.drop.d4c_embedded_examples_and_install_e2e_proof`
+Title: EmbeddedExamples and ta install dry-run/apply proof
+Objective: Prove the root binary embed surface includes the generated thariq/stil example dist trees and that `ta install` can dry-run/apply the opt-in substrates end to end.
+Paths: no default source edits. Verification evidence target: root `embed.go` / `EmbeddedExamples()` surface, install dry-run/apply flow, temporary home/project install targets.
+Packages: root package containing `EmbeddedExamples()` plus install/initapply packages as exercised by command-level verification.
+Builder: `ta-go-builder`.
+Evidence: Parent L1 says root `embed.go` already embeds all of `examples/`, root `EmbeddedExamples()` is the existing binary embed surface, and root `embed.go` is verification evidence rather than a modification target. Parent maps L2-D to parent DoC items 11 and 12: binary embed verified through `EmbeddedExamples()` and `ta install` dry-run/apply proof.
+Acceptance criteria: A binary-level or test-level proof confirms thariq/stil dist files are reachable through `EmbeddedExamples()` after standalone builds; `ta install` dry-run reports the opt-in example substrates without applying writes; apply installs them into an isolated target; root `embed.go` remains unchanged unless a separately approved owner task proves it unavoidable.
+Test strategy: Use the existing command/test harness for `ta install` dry-run/apply if present; otherwise record the exact missing harness as an unknown for the orchestrator rather than broadening this droplet.
+Atomicity verification: This is 1 small verification/test block at most, plus command-level proof. If it requires new command harness infrastructure, split before building.
+
+Cross-droplet blocking: D1 and D2 both touch install-facing packages and must be ordered, not parallelized. D3 depends on D1 and any D2 plumbing. D4a/D4b/D4c are separate terminal verification droplets and must not be collapsed.
+
+Unknowns routed: Direct Hylla vector evidence retrieval was cancelled; ta gopls was not available through the discovered endpoint; exact existing test names/functions must be verified by builders using ta-attached gopls/Read before implementation; D2 may be a no-op if existing substrate plumbing already handles embedded directories.
+"""
+expected_outputs = ["drop_010.drop.d1_installconfig_defaults_examples_opt_in", "drop_010.drop.d2_install_dotta_examples_plumbing", "drop_010.drop.d3_initapply_examples_preview_apply_tests", "drop_010.drop.d4a_compile_clean_and_mage_check_gate", "drop_010.drop.d4b_standalone_examples_build_proof", "drop_010.drop.d4c_embedded_examples_and_install_e2e_proof"]
+labels = ["l2-planner", "installconfig", "initapply", "verification", "pivot-cleanup"]
+objective = "Extend ta install so users can opt into examples/thariq/ and examples/stil/ from the binary-embedded examples tree (root embed.go //go:embed all:examples), then prove the revised model end to end. internal/installconfig/defaults.toml grows opt-in entries; internal/initapply/initapply_test.go coverage extends; mage check + standalone examples builds + EmbeddedExamples() proof + ta install dry-run/apply proof are split into three atomic D4 sub-droplets."
+outcome = "success"
+packages = ["internal/installconfig", "internal/install", "internal/initapply", "internal/dotta"]
+parent_id = "drop_010.drop.planner_l1_pivot_cleanup_decompose"
+paths = ["internal/installconfig/**", "internal/install/**", "internal/initapply/**", "internal/dotta/**", "examples/README.md"]
+role = "planner"
+started_at = "2026-05-21T19:09:30Z"
+state = "complete"
+title = "L2-D planner — install opt-in surfaces and end-to-end verification"
+updated_at = "2026-05-21T19:02:00Z"
+[planner_l2_d_install_opt_in_and_verification-plan-qa-proof]
+created_at = "2026-05-21T19:03:46Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_010.drop.planner_l2_d_install_opt_in_and_verification"
+title = "Plan-QA proof of L2-D planner — install opt-in surfaces and end-to-end verification"
+updated_at = "2026-05-21T19:03:46Z"
+
+[planner_l2_d_install_opt_in_and_verification-plan-qa-falsification]
+created_at = "2026-05-21T19:03:46Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_010.drop.planner_l2_d_install_opt_in_and_verification"
+title = "Plan-QA falsif of L2-D planner — install opt-in surfaces and end-to-end verification"
+updated_at = "2026-05-21T19:03:46Z"
