@@ -304,6 +304,17 @@ func Check() error {
 	return nil
 }
 
+// Serve builds ta and runs `ta serve` with its documented defaults
+// (--bind=127.0.0.1 --port=4321 per cmd/ta/serve_cmd.go). Thin wrapper
+// for local-dev iteration on the HTTP cascade browser; production
+// invocation goes through the installed `ta serve` binary instead.
+func Serve() error {
+	if err := Build(); err != nil {
+		return err
+	}
+	return run(binDir+"/ta", "serve")
+}
+
 // Clean removes build artifacts.
 func Clean() error {
 	return os.RemoveAll(binDir)
