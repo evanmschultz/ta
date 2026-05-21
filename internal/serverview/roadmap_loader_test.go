@@ -19,4 +19,3 @@ func TestServeView_LoadRoadmapVersion(t *testing.T) {
 		t.Errorf("TemplateName: expected empty, got %q", result.TemplateName)
 	}
 }
-

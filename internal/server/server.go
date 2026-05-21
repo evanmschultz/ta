@@ -13,6 +13,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -32,12 +33,12 @@ type Config struct {
 // exported methods that attach handlers to the mux without reshaping the
 // constructor.
 type Server struct {
-	config                 Config
-	mux                    *http.ServeMux
-	viewRenderer           ViewRenderer
-	cascadeDetailRenderer  CascadeDetailRenderer
-	docsRenderer           DocsRenderer
-	searchRenderer         SearchRenderer
+	config                Config
+	mux                   *http.ServeMux
+	viewRenderer          ViewRenderer
+	cascadeDetailRenderer CascadeDetailRenderer
+	docsRenderer          DocsRenderer
+	searchRenderer        SearchRenderer
 }
 
 // New constructs a new Server with the given config and a base mux.
@@ -58,14 +59,28 @@ func New(cfg Config) *Server {
 	return s
 }
 
-// Run starts the HTTP listener on the configured bind address and port,
-// blocking until ctx is canceled or the listener encounters a fatal error.
-//
-// This is a placeholder that will be extended by route droplets to register
-// handlers before Listen actually fires. For now, it returns immediately
-// after a diagnostic message.
+// Run starts the HTTP listener on the configured bind address and port
+// and blocks until ctx is canceled or the listener returns a fatal error.
+// On ctx cancellation the listener performs a graceful shutdown via
+// http.Server.Shutdown using a background context so in-flight requests
+// have a chance to drain.
 func (s *Server) Run(ctx context.Context) error {
 	addr := net.JoinHostPort(s.config.Bind, strconv.Itoa(s.config.Port))
-	// TODO: extend with route registration from L2-B droplets.
-	return fmt.Errorf("server.Run(%q): placeholder (awaiting L2-B route registration)", addr)
+	srv := &http.Server{Addr: addr, Handler: s.mux}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe()
+	}()
+	select {
+	case <-ctx.Done():
+		if err := srv.Shutdown(context.Background()); err != nil {
+			return fmt.Errorf("server.Run(%q): shutdown: %w", addr, err)
+		}
+		return nil
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("server.Run(%q): %w", addr, err)
+	}
 }

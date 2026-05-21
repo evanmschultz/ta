@@ -8,11 +8,11 @@ import (
 // config passed to it. Regression guard for the config storage seam.
 func TestServe_NewConfigDefaults(t *testing.T) {
 	tests := []struct {
-		name        string
-		bind        string
-		port        int
-		wantBind    string
-		wantPort    int
+		name     string
+		bind     string
+		port     int
+		wantBind string
+		wantPort int
 	}{
 		{
 			name:     "explicit config values",

@@ -812,16 +812,18 @@ updated_at = "2026-05-21T06:57:57Z"
 
 [builder_l2_c_serveview_schema_loader]
 blockers = ["drop_008.drop.builder_l2_c_serveview_roadmap_loader"]
+completed_at = "2026-05-21T23:09:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/serverview/{schema_loader.go,schema_loader_test.go} on commit 30791db. LoadSchema(projectPath) reads .ta/schema.toml via go-toml/v2, extracts scope→type→field hierarchy (extends, required, enum, default, description metadata) into ScopeView/TypeView/FieldView structures. TemplateName=\"schema_browser.html\". 6 serverview tests pass."}
 created_at = "2026-05-20T00:00:00Z"
 objective = "Build the schema browser loader in `new, not yet in tree: internal/serverview/schema.go`, limited to `github.com/evanmschultz/ta/internal/serverview`. Evidence: the parent L1 plan cites committed Track A schema-browser render coverage (`TestRenderBasic_SchemaBrowser` already in tree) and committed `internal/ops` live-read surfaces, so this droplet should adapt live schema data to the existing runtime template contract. Scope: load the live schema/browser data needed by `/schema`, shape a narrow render value, and keep the result pure-server with no new client behavior. Acceptance: no edits outside `internal/serverview/**`; no new template substrate; the honest new test name reserved for D6 is `new, not yet in tree: TestServeView_RenderSchemaBrowser`. Atomicity verification: this is 1 small production block plus at most 1 tiny helper block."
+outcome = "success"
 parent_id = "drop_008.drop.planner_l2_c_ta_serve_views"
 paths = ["internal/serverview/schema.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-C D4 builder — serveview schema loader"
-updated_at = "2026-05-20T00:00:00Z"
-
+updated_at = "2026-05-21T23:09:00Z"
 [builder_l2_c_serveview_schema_loader-qa-proof]
 created_at = "2026-05-21T06:57:57Z"
 role = "qa-proof"
@@ -1452,6 +1454,8 @@ updated_at = "2026-05-21T17:23:09Z"
 [builder_l2_b5b_ta_serve_status_method_tests]
 acceptance_criteria = "1. Path scope exactly internal/server/routes_status_test.go (or sibling test file). 2. Table-driven across all 5 routes. 3. No production code edits. 4. Atomicity ≤2 small blocks (test function + table literal). 5. mage testFunc TestServe_MethodNotAllowed passes."
 blockers = ["drop_008.drop.builder_l2_b5a_ta_serve_search_route", "drop_008.drop.builder_l2_b4_ta_serve_roadmap_schema_routes", "drop_008.drop.builder_l2_b3_ta_serve_cascade_detail_route"]
+completed_at = "2026-05-21T23:09:00Z"
+completion_contract = {completion_notes = "Built via ta-go-builder Agent dispatch (claude-native haiku). internal/server/routes_status_test.go on commit 30791db with TestServe_MethodNotAllowed (24 cases) + TestServe_UnknownPathReturns404 (6 cases). Tests INITIALLY flagged real bugs: (a) GET / was catch-all prefix matching every path (Go mux semantics), (b) HEAD expected to be 405 but is GET-compatible per HTTP spec. Orchestrator-direct fixes (same commit): routes_root.go `GET /` → `GET /{$}` (literal-end pattern, Go 1.22+) so root only matches exact /; HEAD entry removed from MethodNotAllowed table with comment explaining HEAD→GET routing. 61 tests in internal/server pass."}
 created_at = "2026-05-21T10:30:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
@@ -1462,14 +1466,15 @@ expected_outputs = ["internal/server/routes_status_test.go"]
 files = ["internal/server/routes_status_test.go"]
 labels = ["l2-b", "ta-serve", "internal-server", "tests"]
 objective = "Add cross-cutting status/method tests in internal/server: TestServe_MethodNotAllowed probes /, /cascade/<id>, /roadmap, /schema, /search asserting non-GET methods return 405. May add tests for unknown-record 404 (delegated from view layer)."
+outcome = "success"
 packages = ["github.com/evanmschultz/ta/internal/server"]
 parent_id = "drop_008.drop.planner_l2_b_ta_serve_http_routes"
 paths = ["internal/server/routes_status_test.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-B-B5b builder — cross-cutting status/method tests"
-updated_at = "2026-05-21T10:30:00Z"
+updated_at = "2026-05-21T23:09:00Z"
 validation_plan = "mage testFunc TestServe_MethodNotAllowed passes; mage testPkg ./internal/server green."
 [builder_l2_b5b_ta_serve_status_method_tests-qa-proof]
 created_at = "2026-05-21T17:23:09Z"

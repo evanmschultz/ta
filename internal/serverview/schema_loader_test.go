@@ -90,7 +90,7 @@ func TestServeView_LoadSchemaWithData(t *testing.T) {
 func setup(root string) error {
 	// Create .ta/ directory.
 	taDir := root + "/.ta"
-	if err := os.MkdirAll(taDir, 0755); err != nil {
+	if err := os.MkdirAll(taDir, 0o755); err != nil {
 		return err
 	}
 
@@ -115,7 +115,7 @@ type = "string"
 `
 
 	schemaPath := taDir + "/schema.toml"
-	return os.WriteFile(schemaPath, []byte(schemaContent), 0644)
+	return os.WriteFile(schemaPath, []byte(schemaContent), 0o644)
 }
 
 func findScope(scopes []serverview.ScopeView, name string) *serverview.ScopeView {
@@ -144,4 +144,3 @@ func findField(fields []serverview.FieldView, name string) *serverview.FieldView
 	}
 	return nil
 }
-

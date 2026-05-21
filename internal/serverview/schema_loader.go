@@ -23,17 +23,17 @@ type SchemaLoaderResult struct {
 
 // ScopeView represents a top-level scope in the schema (e.g. "cascade").
 type ScopeView struct {
-	Name        string      // scope name (e.g. "cascade")
-	Description string      // scope description
-	Types       []TypeView  // types within this scope
+	Name        string     // scope name (e.g. "cascade")
+	Description string     // scope description
+	Types       []TypeView // types within this scope
 }
 
 // TypeView represents a type within a scope (e.g. "cascade.drop").
 type TypeView struct {
-	Name        string       // type name (e.g. "drop")
-	Extends     string       // parent type name if extended (e.g. "ActionItem")
-	Description string       // type description
-	Fields      []FieldView  // fields within this type
+	Name        string      // type name (e.g. "drop")
+	Extends     string      // parent type name if extended (e.g. "ActionItem")
+	Description string      // type description
+	Fields      []FieldView // fields within this type
 }
 
 // FieldView represents a field within a type.
@@ -88,15 +88,16 @@ func LoadSchema(projectPath string) (SchemaLoaderResult, error) {
 // It handles the nested [scope.type.fields] hierarchy.
 //
 // The TOML structure when parsed by go-toml/v2 becomes nested maps:
-// {
-//   "cascade": {
-//     "description": "...",
-//     "drop": { "description": "...", "extends": "...", "fields": { ... } },
-//     "planner": { ... },
-//     ...
-//   },
-//   ...
-// }
+//
+//	{
+//	  "cascade": {
+//	    "description": "...",
+//	    "drop": { "description": "...", "extends": "...", "fields": { ... } },
+//	    "planner": { ... },
+//	    ...
+//	  },
+//	  ...
+//	}
 func extractScopes(raw map[string]any) ([]ScopeView, error) {
 	scopeMap := make(map[string]map[string]any) // scope -> (type -> data)
 	scopeDesc := make(map[string]string)        // scope -> description

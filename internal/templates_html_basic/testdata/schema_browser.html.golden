@@ -17,7 +17,7 @@
     --required-bg: #fee2e2;
     --required-fg: #b91c1c;
     --optional-bg: #e5e7eb;
-    --optional-fg: #6b7280;
+    --optional-fg: #4b5563;
     --chip-bg: #ede9fe;
     --chip-fg: #5b21b6;
     --code-bg: #f3f4f6;

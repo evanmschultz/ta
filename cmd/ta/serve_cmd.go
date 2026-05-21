@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/evanmschultz/ta/internal/server"
+	"github.com/evanmschultz/ta/internal/serverview"
 )
 
 // newServeCmd registers `ta serve` — the HTTP cascade browser
@@ -20,20 +24,22 @@ import (
 // pinning the default contract so L2-E docs alignment is verifiable).
 func newServeCmd() *cobra.Command {
 	var (
-		bind string
-		port int
+		bind        string
+		port        int
+		projectFlag string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the HTTP cascade browser server",
 		Long: "Serve live .ta/ cascade records as HTML via Track A templates. " +
 			"Distinct from bare-`ta` MCP serve (stdio). --bind / --port control " +
-			"the HTTP listener.",
+			"the HTTP listener; --project overrides cwd for project resolution.",
 		Example: `  ta serve
-  ta serve --bind 0.0.0.0 --port 8080`,
+  ta serve --bind 0.0.0.0 --port 8080
+  ta serve --project /abs/path/to/project`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg := serveConfig{Bind: bind, Port: port}
+			cfg := serveConfig{Bind: bind, Port: port, ProjectFlag: projectFlag}
 			return runServeHTTPFunc(c.Context(), c.ErrOrStderr(), cfg)
 		},
 		SilenceUsage:  true,
@@ -41,6 +47,7 @@ func newServeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&bind, "bind", "127.0.0.1", "HTTP listener bind address")
 	cmd.Flags().IntVar(&port, "port", 4321, "HTTP listener port")
+	cmd.Flags().StringVar(&projectFlag, "project", "", "absolute project path (default: cwd)")
 	return cmd
 }
 
@@ -49,8 +56,9 @@ func newServeCmd() *cobra.Command {
 // constructor; cmd/ta does not import internal/server here so this
 // droplet stays atomic to cmd/ta only.
 type serveConfig struct {
-	Bind string
-	Port int
+	Bind        string
+	Port        int
+	ProjectFlag string
 }
 
 // runServeHTTPFunc is the L2-A → L2-B handoff seam. Tests can swap
@@ -60,11 +68,23 @@ type serveConfig struct {
 // package exists.
 var runServeHTTPFunc = runServeHTTP
 
-// runServeHTTP is the placeholder L2-A → L2-B handoff body. While
-// L2-B's internal/server package is in flight, this returns nil after
-// a stderr notice so the cobra command tree is testable without the
-// server package existing yet.
-func runServeHTTP(_ context.Context, stderr io.Writer, cfg serveConfig) error {
-	fmt.Fprintf(stderr, "ta serve: pending L2-B server implementation (bind=%s port=%d)\n", cfg.Bind, cfg.Port)
-	return nil
+// runServeHTTP boots the HTTP cascade browser: resolves the project
+// path (--project flag overrides cwd), constructs a serverview.Renderer
+// bound to that project, attaches it to a new server.Server via the
+// four With*Renderer setters, and blocks in server.Run until the
+// caller's context is canceled.
+func runServeHTTP(ctx context.Context, stderr io.Writer, cfg serveConfig) error {
+	projectPath, err := resolveProjectPath(cfg.ProjectFlag, os.Getwd)
+	if err != nil {
+		return err
+	}
+	renderer := serverview.NewRenderer(projectPath)
+	srv := server.New(server.Config{Bind: cfg.Bind, Port: cfg.Port}).
+		WithViewRenderer(renderer).
+		WithCascadeDetailRenderer(renderer).
+		WithDocsRenderer(renderer).
+		WithSearchRenderer(renderer)
+	fmt.Fprintf(stderr, "ta serve: listening on http://%s:%d (project=%s)\n",
+		cfg.Bind, cfg.Port, projectPath)
+	return srv.Run(ctx)
 }
