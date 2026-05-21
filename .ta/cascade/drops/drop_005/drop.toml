@@ -76,8 +76,9 @@ acceptance_criteria = """
 6. No semver phrasing anywhere in the plan content.
 7. Plan flags any path uncertainty (e.g. exact stil token names needing inspection) as Unknowns to be resolved at L2 planning time, NOT silently assumed.
 """
-blocked_reason = "Round-3 plan-QA FAILed: 3 NEW decisive counterexamples post-stil-fix. (1.1) parent drop's DoC still has stale 'wrap MailRow in <a>' language; needs update to 'pass href prop to MailRow'. (1.2) L3-C1 + L3-C2 both claim tests/** glob; needs pinned per-L3 filenames. (1.3) L3-C2 droplet-1 still bundles 5 concerns in drop-dashboard.astro; needs further split. Repairs are mechanical; round-4 dispatch can fix all 3 OR orchestrator-direct edits are viable for the parent-DoC + path-pinning while round 4 handles only the droplet split. Dev decision pending."
-completion_contract = {completion_notes = "Round 3 complete — all 4 revision directives applied + round-2 structural fixes preserved. D1 (L3-C2 drops local-MailRow-reimpl assumption, uses stil href prop), D2 (L3-C1 sidebar uses stil's new {label, href} prop), D3 (showSearch={false} folded into existing per-page droplets, no new droplets), D4 (L3-C1 AC now explicitly names mage TemplatesA11y Playwright+axe close-gate). Preserved: recursive L3 split, §3.8 unowned at L1 close, L2-A FE substrate scope, exact HANDOFF §3.x numbering, L3-C1/L3-C2 path-disjoint. Capability gap surfaced (same as drop_007): codex-exec dispatch of ta-fe-planning did NOT expose Read/Grep/Glob even though persona declares them — agent could not independently verify stil API files (trusted spawn-prompt facts about commit b3cc21d). Worth a follow-up persona-tool-exposure fix. Ready for round-3 plan-QA twin dispatch. Served by codex-exec gpt-5.4 medium."}
+blocked_reason = ""
+completed_at = "2026-05-21T03:25:00Z"
+completion_contract = {completion_notes = "Round 4 complete — narrow scope correction for round-3 counterexample 1.3 (L3-C2 droplet-1 atomicity). L3-C2 split from 3 to 4 droplets: D1 drop-dashboard.astro shell swap (Playground→StilLayout), D2 consumer-prop wiring (sidebar href + Topbar showSearch={false} + visible copy + MailRow href), D3 placeholder droplet detail route via getStaticPaths, D4 narrow regression coverage. L2-C recursive total now 9 (5 in L3-C1 + 4 in L3-C2). Round-2 + round-3 directives all preserved (coverage map, L2-A FE substrate scope, L2-B Track A, L2-C recursion, L2-D StilLayout, L3-C1, dependency graph). expected_outputs unchanged (planner-level ids only). Counterexample 1.1 (parent DoC) + 1.2 (path overlap) handled orchestrator-direct: parent DoC item 6 updated this turn earlier; path overlap will be pinned at L3 record creation time. Tool foot-gun: codex-exec dispatch of ta-fe-planning still missing Read tool (4th observation this session); agent used GitHub fetch fallback. Served by codex-exec gpt-5.4."}
 created_at = "2026-05-20T20:48:22Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
@@ -192,7 +193,7 @@ Paths globs:
 Packages:
 - `web/templates_embed`
 Expected droplet count:
-- `0 direct at L2; 7-8 total via L3 recursion`
+- `0 direct at L2; 9 total via L3 recursion`
 Atomicity verification:
 - A direct six-droplet L2 plan is invalid because each concern edit spans multiple `.astro` files. The only atomic output is recursive planning: file-based child planners whose terminal droplets stay at one page/file per droplet plus narrow regression coverage.
 Depends_on:
@@ -248,14 +249,16 @@ Proposed id: `drop_005.drop.planner_l3_c2_thariq_mailrow_detail_route`
 Title: `L3-C2 planner — MailRow anchors, drop-dashboard, and droplet detail route`
 Objective: own the descendant-row honesty slice end-to-end: `drop-dashboard.astro` consumer wiring, `MailRow` anchor conversion via stil `href`, placeholder droplet detail pages from `MOCK_DROPLETS`, and the narrow regression coverage that proves row drilldown works.
 Definition of complete:
-- One builder droplet owns all `drop-dashboard.astro` changes, including any shell/copy/sidebar/topbar consumer edits that must land in the same file.
+- One builder droplet owns the `drop-dashboard.astro` shell swap: replace the `Playground` shell with the site layout shell, remove the file-local wrapper scaffold that only exists to support `Playground`, and keep the change limited to the import/layout block plus wrapper-removal follow-through in the same file.
+- One builder droplet owns the remaining `drop-dashboard.astro` consumer-prop wiring: `Sidebar` items become `{ label, href }`, `Topbar` disables decorative search with `showSearch={false}`, visible copy rebrands to `ta cascade`, and each descendant `MailRow` receives its native-link `href`.
 - One builder droplet owns the placeholder detail route generated via `getStaticPaths()` over `MOCK_DROPLETS`.
 - One builder droplet owns regression coverage for row anchor navigation and placeholder-page rendering.
 Acceptance criteria:
-- Owns `§3.5` exactly once.
+- Owns `§3.5` exactly once and owns the `drop-dashboard.astro` portion of `§3.1`-`§3.4` so sibling planners stay path-disjoint.
 - Keeps zero-JS navigation: descendant rows become native links by passing `href` into stil `MailRow`, and the destination pages are real static placeholder pages.
+- The shell-swap droplet is CSS-first and layout-first: no JS layout patch, no client island, no duplicate shell wrapper abstraction.
 - Verification planning names row-drilldown coverage plus the downstream `mage TemplatesA11y` gate.
-- The planner assumes no local `MailRow` reimplementation; consumer wiring uses the upstream stil API.
+- The planner assumes no local `MailRow`, `Sidebar`, or `Topbar` reimplementation; consumer wiring uses the upstream stil APIs.
 Paths globs:
 - `web/templates_embed/src/pages/thariq/drop-dashboard.astro`
 - `web/templates_embed/src/pages/thariq/droplet/**`
@@ -263,16 +266,17 @@ Paths globs:
 Packages:
 - `web/templates_embed`
 Expected droplet count:
-- `3`
+- `4`
 Atomicity verification:
-- One droplet for `drop-dashboard.astro`, one for the detail-route file, and one for narrow regression coverage. The droplet count stays the same after the stil API change, but each droplet shrinks because it wires consumer props instead of reimplementing `MailRow`. Each terminal droplet remains 1-2 small code blocks including tests.
+- The old single-file droplet was falsified because `drop-dashboard.astro` currently bundles at least five small concerns: imports/layout shell, sidebar/nav data, topbar/title copy, descendant `MailRow` rendering, and wrapper styles. The atomic split is therefore four droplets: one shell-swap droplet, one consumer-prop wiring droplet, one detail-route droplet, and one narrow regression droplet. Each terminal droplet stays within 1-2 small code blocks including tests.
 Depends_on:
 - `drop_005.drop.planner_l2_c_thariq_recursive_pages`
 Blockers:
 - none
 Notes:
-- This planner deliberately absorbs `drop-dashboard.astro` shell/copy/sidebar/topbar touchpoints so `L3-C1` and `L3-C2` stay path-disjoint.
-- `showSearch={false}` folds into the `drop-dashboard.astro` droplet; it does not add a new droplet.
+- This planner deliberately absorbs all `drop-dashboard.astro` shell/copy/sidebar/topbar touchpoints so `L3-C1` and `L3-C2` stay path-disjoint.
+- `showSearch={false}` no longer hides inside a monolithic `drop-dashboard.astro` droplet; it belongs to the consumer-prop wiring droplet alongside sidebar `href` data and `MailRow` `href` pass-through.
+- Feasibility of the split was cross-checked against the current GitHub copy of `web/templates_embed/src/pages/thariq/drop-dashboard.astro` because the dispatch still did not expose the promised local `Read` tool.
 
 ## L2-D
 
@@ -323,6 +327,7 @@ Blockers:
 - `L2-A` had to expand beyond `magefile.go` because the committed `web/templates_embed/package.json` does not yet carry Playwright or axe dependencies, so the gate is impossible without FE substrate work.
 - `L2-C` had to recurse because concern-based droplets violated atomicity by touching all five `.astro` pages at once.
 - The round-3 stil API additions collapse the risky local-component assumptions into simple consumer-prop wiring while preserving the same file-disjoint recursion shape.
+- `L3-C2` now further splits `drop-dashboard.astro` so the planner no longer relies on a generous reading of that file as only two code blocks.
 - `L2-D` remains isolated so shared layout overrides do not overlap with thariq page builders.
 
 ## Unknowns routed forward
@@ -339,47 +344,34 @@ expected_outputs = ["drop_005.drop.planner_l2_a_templates_a11y_d0", "drop_005.dr
 files = ["docs/HANDOFF-pre-mvp-feature-complete.md", "docs/cascade-methodology.md", "CLAUDE.md", "magefile.go", "web/templates_embed/src/pages/thariq/index.astro", "web/templates_embed/src/pages/thariq/drop-dashboard.astro", "web/templates_embed/src/pages/thariq/planner-detail.astro", "web/templates_embed/src/pages/thariq/droplet-kanban.astro", "web/templates_embed/src/pages/thariq/qa-twins.astro", "web/templates_embed/src/layouts/StilLayout.astro", "internal/templates_html_basic/templates/schema_browser.html"]
 labels = ["l1-planner", "decomposition", "path-a"]
 objective = "Decompose Path A (the L1 drop scope authored from handoff §3) into 3-4 L2 sub-planners with disjoint paths and single-domain scopes per the cascade methodology decomposition rule. Each L2 must be ≤4 children, ≤1 domain concern, ≤1 package crossing. Identify any architectural conflicts (file overlaps, dependency order), and specify L2 ordering — `mage TemplatesA11y` (D0) must land BEFORE the thariq visual fixes so build-QA can use it as a gate."
+outcome = "success"
 parent_id = "drop_005.drop.path_a_thariq_visual_fixes"
 paths = ["[planner-only; emits L2 specs into description field, no source-code writes]"]
 role = "planner"
 started_at = "2026-05-21T00:55:00Z"
-state = "in_progress"
+state = "complete"
 structural_type = "segment"
 title = "L1 decomposition planner — Path A → L2 sub-planners"
-updated_at = "2026-05-21T03:00:00Z"
+updated_at = "2026-05-21T03:25:00Z"
 [planner_decompose-plan-qa-proof]
-completed_at = "2026-05-21T03:00:00Z"
-completion_contract = {completion_notes = "ROUND 3 PASS. All 4 directives (D1-D4) landed and grounded in direct file reads of stil components. All 7 round-2 structural fixes preserved. L3-C2 droplet-1 atomicity claim: agent's view was 2 natural blocks (Playground swap + prop wiring). Disagrees with round-3 falsif which counts 5 concerns. Both valid readings of the same file; falsif is more pedantic about block-count discipline. 2 non-blocking soft findings: (a) tests/** glob soft-overlap, (b) dynamic-route filename pinning — routed to child planners. Served by claude-native opus."}
+completed_at = "2026-05-21T03:30:00Z"
+completion_contract = {completion_notes = "ROUND 4 PASS. Agent read actual drop-dashboard.astro (262 lines) and verified all 7 round-4 criteria: L3-C2 D1 shell swap (lines 16/66/149 = 2 small blocks), D2 consumer-prop wiring (lines 34-39/77/66/129-136 = 4 single-line prop touches defensible as 1-2 blocks per cohesive pass framing), D3 separate detail-route file (path-disjoint), D4 separate regression file (path-disjoint), L3-C1/L3-C2 path-disjoint with drop-dashboard.astro reserved to L3-C2, counterexample 1.1 closed (parent DoC item 6 cites stil href API + MDN content-model), all round-2 + round-3 directives preserved. One soft note: D2's 4-touchpoint bundling is defensible but builder should re-verify at dispatch time if individual prop edits prove larger. Counterexample 1.2 explicitly deferred to L3 record creation. PASS. Served by claude-native opus."}
 created_at = "2026-05-20T20:50:11Z"
 outcome = "success"
 role = "qa-proof"
-started_at = "2026-05-21T02:35:00Z"
+started_at = "2026-05-21T03:25:00Z"
 state = "complete"
 target_id = "drop_005.drop.planner_decompose"
 title = "Plan-QA proof of L1 decomposition planner — Path A → L2 sub-planners"
-updated_at = "2026-05-21T03:00:00Z"
+updated_at = "2026-05-21T03:30:00Z"
 [planner_decompose-plan-qa-falsification]
-completed_at = "2026-05-21T03:00:00Z"
-completion_contract = {completion_notes = """
-ROUND 3 FAIL with 3 NEW decisive counterexamples — descent BLOCKED.
-
-1.1 STALE PARENT CONTRACT: parent drop_005.drop.path_a_thariq_visual_fixes.definition_of_complete (lines 19-24) STILL requires Sidebar items in {label, href} shape (correct) BUT also still says 'MailRow rows wrapped in <a>' — WRONG now that stil's MailRow itself takes href and switches its OWN root tag (MailRow.astro:2-15). Consumer change should be <MailRow href=...> NOT wrapping. Also L3-C1 description (drop.toml:212) repeats {label, href} — correct but planning ledger / contract language inconsistent. MDN: anchor content model forbids interactive descendants or nested anchors — wrapping a button-rooted MailRow in <a> was invalid HTML even before the fix.
-
-1.2 PATH OVERLAP FALSE: L3-C1 (drop.toml:223-228) and L3-C2 (drop.toml:257-260) BOTH claim web/templates_embed/tests/**/* glob. Round-3 description still claims disjoint at lines 307-315. Breaks AC #3 (no overlap).
-
-1.3 L3-C2 DROPLET-1 STILL UNDER-DECOMPOSED: agent re-read drop-dashboard.astro and counts edits spread across 5 concern clusters: imports/layout shell (16-21, 64-76), sidebar/nav data (34-39), topbar/title/copy (71-83), descendant row rendering (120-130), wrapper styles (145-262). 5 concerns in 1 file = 5 small blocks, exceeds atomicity rule. Round-3 proof's 2-block count was generous; falsif's 5 is more rule-honest.
-
-Closed counterexamples (confirmed FIXED by stil commit b3cc21d): MailRow + Sidebar + Topbar APIs now expose needed props; ComponentCard + MailRow tag classes still exposed for L2-D contrast fix; round-2 architectural blockers genuinely resolved.
-
-Residual risk (non-decisive): Playground replacement still under-modeled — StilLayout.astro types sidebarItems without href (line 41-47), needs updating.
-
-Minimum repair set: (a) update parent DoC to real stil contracts (MailRow has own href, NOT wrap-in-<a>), (b) pin specific test file paths for L3-C1 vs L3-C2 (no overlap), (c) re-split L3-C2 droplet-1 into 2-3 droplets so each stays ≤2 small blocks. Served by codex-exec gpt-5.4 xhigh.
-"""}
+completed_at = "2026-05-21T03:30:00Z"
+completion_contract = {completion_notes = "DISPATCH FAILED — NOT A CONTENT VERDICT. Dispatch b2e5ljah0 (codex-exec gpt-5.4 xhigh) exited 144 (likely SIGPIPE / killed mid-investigation). Agent output shows deep exploration of git diff streams for thariq pages + .ta/index.toml when terminated. No falsification verdict produced. Resume after session restart: re-dispatch round-4 falsif (probably with tighter scope hint to avoid output bloat). Proof PASSed cleanly in parallel — so the joint round-4 verdict is INCOMPLETE pending falsif re-run. Do NOT proceed to L2/L3 record creation until falsif partner lands a real verdict (cascade rule: both twins must PASS for descent)."}
 created_at = "2026-05-20T20:50:11Z"
-outcome = "failure"
+outcome = "blocked"
 role = "qa-falsification"
-started_at = "2026-05-21T02:35:00Z"
-state = "complete"
+started_at = "2026-05-21T03:25:00Z"
+state = "failed"
 target_id = "drop_005.drop.planner_decompose"
 title = "Plan-QA falsif of L1 decomposition planner — Path A → L2 sub-planners"
-updated_at = "2026-05-21T03:00:00Z"
+updated_at = "2026-05-21T03:30:00Z"
