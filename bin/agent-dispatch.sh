@@ -324,17 +324,21 @@ ${TASK_PROMPT}"
     -m "${model}"
   )
 
-  # Codex MCP injection. Two reasons codex sessions previously had zero ta
-  # access:
-  #   (1) --ignore-user-config was set (removed above) — that stripped
-  #       ~/.codex/config.toml MCPs leaving codex with zero tools.
-  #   (2) ta is NOT in user codex config (Claude-Code-only MCP today), so
-  #       removing the flag alone doesn't help — inject ta explicitly.
-  #   (3) Codex's default per-tool approval_mode is "prompt", which
-  #       auto-cancels in --ephemeral mode (no TTY for the user to approve).
-  #       The user's hylla pattern uses approval_mode = "approve" per tool
-  #       (codex's "approve" = pre-approved, runs without prompting). Match
-  #       that pattern for every ta tool the agents need.
+  # Codex MCP injection. Background:
+  #   (1) --ignore-user-config NOT set — codex loads ~/.codex/config.toml
+  #       + overlays our -c overrides.
+  #   (2) ta is NOT in user codex config (Claude-Code-only MCP today). Inject
+  #       ta server definition + per-tool approval explicitly.
+  #   (3) Approval syntax: per-tool `approval_mode = "approve"` is the
+  #       form that ACTUALLY pre-approves under --ephemeral (approval:
+  #       never). Server-level `default_tools_approval_mode = "auto"` is
+  #       documented but NOT implemented for raw mcp_servers per upstream
+  #       issue #16501 — verified empirically: hylla calls still cancel
+  #       with that setting. Per-tool form mirrors user's working gopls
+  #       config in ~/.codex/config.toml and is the pattern codex docs
+  #       show. "approve" in codex's per-tool config = pre-approved,
+  #       NOT requires-TTY (the docs are inconsistent; empirical
+  #       behavior confirms pre-approval).
   local ta_tools_toml="" tool
   for tool in get update list_sections search schema create delete move init; do
     [[ -n "${ta_tools_toml}" ]] && ta_tools_toml+=","
@@ -342,18 +346,18 @@ ${TASK_PROMPT}"
   done
   cmd+=( -c "mcp_servers.ta={command=\"ta\",args=[\"--project\",\"${CWD}\"],tools={${ta_tools_toml}}}" )
 
-  # Hylla MCP injection (HTTP transport). Codex's mcp_servers config
-  # supports HTTP-mode via {url=...}. Without this, codex-routed
-  # planners + QA cannot reach mcp__hylla__* even though the persona
-  # allowlist names them — they fall back to Read/Grep/GitHub fetch,
-  # which is slower and less authoritative than the Hylla committed-
-  # Go-evidence index. Mirrors .mcp.json's "hylla" HTTP entry.
+  # Hylla MCP injection (stdio transport — hylla CLI added stdio support
+  # 2026-05-21). Tool names are the canonical names hylla MCP server
+  # registers (queried directly via tools/list JSON-RPC — see hylla
+  # source). All read-only; excludes write tools (hylla.config.refresh,
+  # hylla.ingest). Per-tool quoted keys required because dots inside an
+  # inline-table key otherwise create nested structure.
   local hylla_tools_toml="" hylla_tool
-  for hylla_tool in hylla_search hylla_search_keyword hylla_node_full hylla_refs_find hylla_graph_nav hylla_artifact_list hylla_artifact_metadata hylla_artifact_overview hylla_run_list hylla_run_get hylla_dql_query hylla_graph_list hylla_search_vector hylla_task_get; do
+  for hylla_tool in hylla.artifact.list hylla.artifact.metadata hylla.artifact.overview hylla.dql.query hylla.graph.list hylla.graph.nav hylla.node.full hylla.refs.find hylla.run.get hylla.run.list hylla.search hylla.search.keyword hylla.search.vector hylla.task.get; do
     [[ -n "${hylla_tools_toml}" ]] && hylla_tools_toml+=","
-    hylla_tools_toml+="${hylla_tool}={approval_mode=\"approve\"}"
+    hylla_tools_toml+="\"${hylla_tool}\"={approval_mode=\"approve\"}"
   done
-  cmd+=( -c "mcp_servers.hylla={url=\"http://127.0.0.1:7389/mcp\",tools={${hylla_tools_toml}}}" )
+  cmd+=( -c "mcp_servers.hylla={command=\"/Users/evanschultz/go/bin/hylla\",args=[\"mcp\"],tools={${hylla_tools_toml}}}" )
 
   if [[ -n "${opts}" ]]; then
     # shellcheck disable=SC2206  # intentional word-split on opts
