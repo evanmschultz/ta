@@ -208,3 +208,127 @@ func TestCreate_AsUnknownFormatError(t *testing.T) {
 		t.Errorf("error must name the offending --as value: %v", err)
 	}
 }
+
+// TestCollectCreateData_InlineAndFileSuccess tests collectCreateData with
+// valid inline JSON and valid file JSON, both paths unmarshal cleanly and
+// return a populated map[string]any. This covers the happy path for --data
+// and --data-file flags.
+func TestCollectCreateData_InlineAndFileSuccess(t *testing.T) {
+	// Test inline JSON — valid data unmarshals cleanly.
+	t.Run("inline JSON with required fields", func(t *testing.T) {
+		root := withTomlCreateFixture(t)
+		stdout, _, err := runCreateCmd(
+			t,
+			"--path", root,
+			"--type", "plans.task",
+			"--data", `{"id":"t1","status":"todo"}`,
+			"plans.task-1",
+		)
+		if err != nil {
+			t.Fatalf("create with inline JSON failed: %v; stdout=%s", err, stdout)
+		}
+		dataPath := filepath.Join(root, "plans.toml")
+		if _, statErr := os.Stat(dataPath); statErr != nil {
+			t.Fatalf("expected plans.toml after create: %v", statErr)
+		}
+	})
+
+	// Test file JSON — valid data from file unmarshals cleanly.
+	t.Run("file JSON with valid data", func(t *testing.T) {
+		root := withTomlCreateFixture(t)
+
+		// Create a temporary JSON file with valid data.
+		tmpFile, err := os.CreateTemp(root, "data-*.json")
+		if err != nil {
+			t.Fatalf("create temp file: %v", err)
+		}
+		defer tmpFile.Close()
+
+		if _, err := tmpFile.WriteString(`{"id":"t2","status":"done"}`); err != nil {
+			t.Fatalf("write temp file: %v", err)
+		}
+		tmpFile.Close()
+
+		stdout, _, err := runCreateCmd(
+			t,
+			"--path", root,
+			"--type", "plans.task",
+			"--data-file", tmpFile.Name(),
+			"plans.task-2",
+		)
+		if err != nil {
+			t.Fatalf("create with file JSON failed: %v; stdout=%s", err, stdout)
+		}
+		dataPath := filepath.Join(root, "plans.toml")
+		if _, statErr := os.Stat(dataPath); statErr != nil {
+			t.Fatalf("expected plans.toml after create: %v", statErr)
+		}
+	})
+}
+
+// TestCollectCreateData_InvalidJSON tests collectCreateData with malformed
+// JSON input (both inline and file paths). json.Unmarshal should error and
+// collectCreateData should wrap and return that error.
+func TestCollectCreateData_InvalidJSON(t *testing.T) {
+	tests := []struct {
+		name       string
+		dataInline string
+		wantErrSub string
+	}{
+		{
+			name:       "unclosed brace",
+			dataInline: `{"status":"todo"`,
+			wantErrSub: "parse data JSON",
+		},
+		{
+			name:       "invalid array instead of object",
+			dataInline: `["not","an","object"]`,
+			wantErrSub: "parse data JSON",
+		},
+		{
+			name:       "trailing comma in object",
+			dataInline: `{"status":"todo",}`,
+			wantErrSub: "parse data JSON",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := withTomlCreateFixture(t)
+			stdout, _, err := runCreateCmd(
+				t,
+				"--path", root,
+				"--type", "plans.task",
+				"--data", tt.dataInline,
+				"plans.task-1",
+			)
+			if err == nil {
+				t.Fatalf("expected JSON parse error for %q; stdout=%s", tt.dataInline, stdout)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrSub) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErrSub)
+			}
+		})
+	}
+}
+
+// TestCollectCreateData_OffTTYRequiresInput tests collectCreateData when
+// off-TTY (stdin is not a terminal) with no --data or --data-file flags.
+// Should return the explicit "input required" diagnostic.
+func TestCollectCreateData_OffTTYRequiresInput(t *testing.T) {
+	root := withTomlCreateFixture(t)
+	stdout, _, err := runCreateCmd(
+		t,
+		"--path", root,
+		"--type", "plans.task",
+		"plans.task-1",
+		// No --data or --data-file flags; off-TTY context (test runs without a terminal).
+	)
+	if err == nil {
+		t.Fatalf("expected error for off-TTY with no input; stdout=%s", stdout)
+	}
+	wantSub := "input required"
+	if !strings.Contains(err.Error(), wantSub) {
+		t.Errorf("error = %q, want substring %q", err.Error(), wantSub)
+	}
+}
