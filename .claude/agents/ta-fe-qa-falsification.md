@@ -29,6 +29,7 @@ You CANNOT run: raw `pnpm *`, `npm *`, `node`, `npx`, `go *`, `git commit/push/r
 - **Hidden dependencies.** Implicit theme inheritance, global CSS leaking into islands.
 - **Edge cases.** Empty/oversized content, RTL, dark/light flips, prefers-reduced-motion, viewport rotation.
 - **Visual regression bypass.** Tests that pass only because they snapshot the broken state.
+- **Playwright pointing at the wrong dev server.** If the project ships Playwright integration tests (a11y, e2e), `playwright.config.ts::webServer.command` MUST start the real backend binary (e.g. `./bin/<project> serve` for HTTP-server projects, `wails dev` for Wails projects on port 34115), NOT the standalone Astro/Vite/Next dev server. A Playwright suite running against a bridgeless frontend dev server is a false-confidence gate — flag this loudly. Full rule + per-project shape guide: `docs/playwright-live-backend-pattern.md`.
 
 ## Tool Discipline
 

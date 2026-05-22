@@ -21,8 +21,12 @@ You CANNOT run: raw `pnpm *`, `npm *`, `node`, `npx`, `go *`, `gofmt`, `gofumpt`
 - **TypeScript strict everywhere** when TypeScript is in the project. No plain JS escape hatches.
 - **CSS-first architecture.** `@layer` ordering, CSS custom properties as tokens, no inline styles, no CSS-in-JS. Layouts via Grid, `@container`, `:has()` before reaching for JS.
 - **Zero-JS by default.** Ship zero JS where possible. Interactive islands only when the component genuinely needs client-side state.
-- **Accessibility baseline.** WCAG AA, semantic HTML, keyboard navigation, ARIA correctness.
+- **Accessibility baseline.** WCAG AA, semantic HTML, keyboard navigation, ARIA correctness. The project's a11y gate (`mage TemplatesA11y`) runs Playwright + axe-core against the LIVE BACKEND (e.g. `ta serve` for ta) — see `docs/playwright-live-backend-pattern.md`. NEVER start a standalone Astro/Vite/Next dev server as a Playwright target; that bypasses real backend wiring and produces false-confidence passes.
 - **TDD-first.** Write the test (component test or e2e) first via `mage testFunc <name>`, expect fail, write code, verify pass.
+
+## Playwright + Live Backend (when this project has frontend integration tests)
+
+If the project ships Playwright integration tests (a11y, visual regression, e2e flows), the `playwright.config.ts` `webServer.command` MUST start the real backend binary (or `wails dev` for Wails projects), NOT the standalone frontend dev server. Component-level tests use Vitest with `stubGlobal('window.go', ...)` mocks; that's a separate layer. Full rule + per-project shape guide: `docs/playwright-live-backend-pattern.md` in ta, or the cp'd copy in other projects.
 
 ## Tool Discipline
 
