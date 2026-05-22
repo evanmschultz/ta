@@ -291,12 +291,14 @@ func Tidy() error {
 	return nil
 }
 
-// Check is the composite gate: fmtcheck, vet, test, tidy. Each terminal
-// example under examples/<sub>/ is built independently via its local
-// pnpm scripts; root //go:embed all:examples picks up the produced dist
-// trees at compile time.
+// Check is the composite gate: fmtcheck, vet, test, tidy, a11y. Each
+// terminal example under examples/<sub>/ is built independently via its
+// local pnpm scripts; root //go:embed all:examples picks up the produced
+// dist trees at compile time. TemplatesA11y warn-skips locally when pnpm
+// is missing so a Go-only dev does not get blocked; CI hard-fails the
+// same condition because CI MUST have the a11y toolchain installed.
 func Check() error {
-	for _, step := range []func() error{FmtCheck, Vet, Test, Tidy} {
+	for _, step := range []func() error{FmtCheck, Vet, Test, Tidy, TemplatesA11y} {
 		if err := step(); err != nil {
 			return err
 		}
@@ -313,6 +315,50 @@ func Serve() error {
 		return err
 	}
 	return run(binDir+"/ta", "serve")
+}
+
+// TemplatesA11y runs the Playwright + axe-core a11y suite under a11y/
+// against the live `ta serve` HTTP cascade browser. Environment-split
+// gate semantics:
+//
+//   - CI (CI=true): always runs. Missing pnpm, missing deps, or any axe
+//     violation fails Check. CI workflow installs the toolchain before
+//     this gate fires.
+//   - Local: warn-skip when a11y/node_modules is absent so a Go-only
+//     dev doesn't get blocked by every mage check. Install with
+//     `cd a11y && pnpm install && pnpm exec playwright install chromium`
+//     to opt in locally.
+//
+// Per drop_009 L2-A D4: the a11y gate is a HARD requirement in CI
+// (.github/workflows/ci.yml job `a11y`). Local skipping is intentional
+// dev-friction relief — CI is the enforcement point.
+func TemplatesA11y() error {
+	inCI := os.Getenv("CI") == "true"
+	if !inCI {
+		if _, err := os.Stat("a11y/node_modules"); err != nil {
+			fmt.Fprintln(os.Stderr,
+				"WARN: a11y/node_modules absent; skipping TemplatesA11y locally. "+
+					"CI enforces a11y on every PR. Install with "+
+					"`cd a11y && pnpm install && pnpm exec playwright install chromium` "+
+					"to enable locally.")
+			return nil
+		}
+	}
+	pnpm, err := exec.LookPath("pnpm")
+	if err != nil {
+		return fmt.Errorf("templatesA11y: pnpm not on PATH: %w", err)
+	}
+	if err := Build(); err != nil {
+		return fmt.Errorf("templatesA11y: build ta binary: %w", err)
+	}
+	cmd := exec.Command(pnpm, "test")
+	cmd.Dir = "a11y"
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("templatesA11y: pnpm test in a11y/: %w", err)
+	}
+	return nil
 }
 
 // Clean removes build artifacts.

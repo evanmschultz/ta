@@ -1,0 +1,16 @@
+{
+  "name": "@ta/a11y",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright + axe-core accessibility suite for the ta serve HTTP cascade browser. Run via `mage TemplatesA11y` (CI hard-fail on toolchain absence + violations; local warn-skip when pnpm is missing).",
+  "scripts": {
+    "test": "playwright test",
+    "test:report": "playwright test --reporter=html"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.1",
+    "@playwright/test": "1.49.0",
+    "axe-core": "4.10.2"
+  }
+}
