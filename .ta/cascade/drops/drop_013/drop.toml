@@ -1,0 +1,322 @@
+[cmd_ta_coverage_70]
+acceptance_criteria = "1. Builder droplets ≤2 small blocks INCLUDING tests, each scoped to ONE test file. 2. L1 plan-QA twins pass before descent. 3. Each new test is honest (no faked coverage via test-only branches — tests exercise real logic). 4. Tests use existing CLI test patterns (cmd/ta uses cobra runE wrappers + tabletest patterns visible in delete_cmd_test.go / update_cmd_test.go). 5. After all builders land, re-measure cmd/ta block coverage; if still <70%, dispatch additional builder droplets until target met."
+blockers = []
+created_at = "2026-05-22T22:30:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. cmd/ta block coverage ≥70% measured via `go tool cover -func=coverage.out | rg cmd/ta` block count. 2. Tests added cover the highest-impact non-TUI functions (candidates: resolveTypeForID 0%, readJSONData 33%, collectCreateData 47%, runDeleteSingle 53%, runGetGroup 54%, plus any others surfaced during planning). 3. No interactive TUI / picker functions force-tested via mocks — those need separate teatest infrastructure. 4. mage check green. 5. CI green. 6. docs/pre-mvp-tracker.md cmd/ta≥70 entry flipped from Open to Closed with the new measurement."
+drop_number = 13.0
+files = ["cmd/ta/commands_test.go", "cmd/ta/create_cmd_test.go", "cmd/ta/delete_cmd_test.go", "cmd/ta/get_cmd_test.go", "docs/pre-mvp-tracker.md"]
+labels = ["coverage-gate", "cmd-ta", "v01-readiness"]
+objective = "Raise the cmd/ta package's statement/block coverage from 68.1% (1443/2117 hit) to ≥70% by adding targeted tests for non-TUI command-orchestration functions currently at 0-65% coverage. Closes the last Open tracker item before v0.1.0 readiness."
+packages = ["cmd/ta"]
+paths = ["cmd/ta/**", "docs/pre-mvp-tracker.md"]
+role = "planner"
+state = "in_progress"
+structural_type = "drop"
+title = "raise cmd/ta block coverage to ≥70%"
+updated_at = "2026-05-22T22:30:00Z"
+[cmd_ta_coverage_70-plan-qa-proof]
+created_at = "2026-05-22T22:27:34Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.cmd_ta_coverage_70"
+title = "Plan-QA proof of raise cmd/ta block coverage to ≥70%"
+updated_at = "2026-05-22T22:27:34Z"
+
+[cmd_ta_coverage_70-plan-qa-falsification]
+created_at = "2026-05-22T22:27:34Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.cmd_ta_coverage_70"
+title = "Plan-QA falsif of raise cmd/ta block coverage to ≥70%"
+updated_at = "2026-05-22T22:27:34Z"
+
+[planner_l1_cmd_ta_coverage_70]
+acceptance_criteria = "1. Four builder droplets, each scoped to one existing cmd/ta target function and one existing test file. 2. Every droplet remains ≤2 small code blocks INCLUDING tests; any needed helper inside the same test file counts toward that budget. 3. Because all droplets share package cmd/ta, they dispatch in explicit serial order despite disjoint file paths. 4. The projected combined gain is low-40s blocks, which is sufficient to close the current ~39-block gap to 70%."
+completed_at = "2026-05-22T23:59:00Z"
+created_at = "2026-05-22T23:59:00Z"
+definition_of_complete = "This L1 record contains 4 concrete builder droplet specs with verified existing target functions, verified existing file paths, explicit package/path ownership, acceptance criteria, mage testFunc targets, and per-droplet atomicity attestations. Section 0 reasoning is not copied into the record."
+description = """
+Committed-source evidence used for this decomposition:
+- `cmd/ta/commands.go::readJSONData` has four concrete non-TUI branches: inline JSON, missing-source error, `--data-file -` stdin read, and file read. Existing `cmd/ta/commands_test.go` already carries reusable fixture idioms (`newSchemaFixture`, direct helpers).
+- `cmd/ta/create_cmd.go::collectCreateData` is the create-side non-TUI entrypoint. Its reachable non-TUI surface is the `--data/--data-file` branch, JSON parse failure, and off-TTY polite error; the interactive form branch is intentionally out of scope per parent drop guidance.
+- `cmd/ta/delete_cmd.go::runDeleteSingle` has three non-TUI branches still worth targeting: formatted pre-echo failure aborts delete, immediate success path when delete does not require confirm, and non-TTY propagation of `ops.ErrFileDeleteRequiresForce`.
+- `cmd/ta/get_cmd.go::runGetSingleWithFormat` is the largest remaining non-TUI helper in the package slice. Existing `cmd/ta/get_cmd_test.go` already covers mismatch/template happy paths, but committed code still exposes uncovered early-return and output-shape branches (`--fields` incompatibility, relative `--template` path handling, `--json` envelope) that are reachable without teatest.
+
+Coverage projection against the parent drop's current gap (~39 blocks to reach 70%):
+- D1 `readJSONData`: likely +5 to +7 blocks because two switch arms and the no-source error are currently under-covered from a 33.3% baseline.
+- D2 `collectCreateData`: likely +7 to +9 blocks because the non-interactive success/error branches are reachable while the TUI branch remains deliberately untested.
+- D3 `runDeleteSingle`: likely +8 to +10 blocks because the non-TTY success/error split and strict `--as` abort path exercise most remaining branch surface from a 52.6% baseline.
+- D4 `runGetSingleWithFormat`: likely +14 to +18 blocks because the function is materially larger and still has uncovered non-TUI control-flow arms despite existing mismatch tests.
+- Aggregate estimate: roughly +34 to +44 blocks, with D4 load-bearing. This is sufficient enough to justify a 4-droplet pass; if the final measure still lands below 70%, the next fallback target should be `cmd/ta/get_cmd.go::runGetScope` or `::runGetGroup`, but that contingency is intentionally not emitted in this pass.
+
+Ordering constraint:
+- All droplets touch distinct test files, but they all share package `cmd/ta`. Per planner package-lock discipline, dispatch SERIALIZED: D1 -> D2 -> D3 -> D4.
+
+L1 decomposition:
+
+D1. `drop_013.drop.builder_d1_read_json_data`
+- Path: `cmd/ta/commands_test.go`
+- Package: `cmd/ta`
+- Target function: `cmd/ta/commands.go::readJSONData` (verified existing)
+- Objective: add direct branch tests for inline payload, `-` stdin payload, file payload, and the missing-source error so `readJSONData` no longer depends on incidental coverage through higher-level commands.
+- Evidence anchor: committed `readJSONData` is a four-arm helper with no TUI dependency; it is currently listed by the parent drop at 33.3% coverage.
+- Suggested tests: `TestReadJSONData_Branches` (new, not yet in tree) and, only if needed for readability, `TestReadJSONData_MissingSource` (new, not yet in tree).
+- Builder verification target: `mage testFunc 'TestReadJSONData_'` with `TA_TEST_PKG=./cmd/ta`.
+- Definition of complete: the new tests hit the inline, stdin, file, and error branches; no production code changes; `cmd/ta/commands_test.go` remains the only touched file.
+- Atomicity verification: one small test block is enough; an optional tiny helper inside the same file keeps the droplet at ≤2 small blocks INCLUDING tests.
+- Blocker: none.
+
+D2. `drop_013.drop.builder_d2_collect_create_data`
+- Path: `cmd/ta/create_cmd_test.go`
+- Package: `cmd/ta`
+- Target function: `cmd/ta/create_cmd.go::collectCreateData` (verified existing)
+- Objective: cover the non-TUI create data flow directly: valid inline/file JSON success, invalid JSON parse failure, and off-TTY no-input error. Do not attempt the interactive form branch.
+- Evidence anchor: committed `collectCreateData` first delegates to `readJSONData`, then `json.Unmarshal`, then emits the explicit off-TTY diagnostic when no input flags are supplied. This is the reachable non-TUI surface behind the parent drop's 47.1% coverage figure.
+- Suggested tests: `TestCollectCreateData_InlineAndFileSuccess`, `TestCollectCreateData_InvalidJSON`, and `TestCollectCreateData_OffTTYRequiresInput` (all new, not yet in tree).
+- Builder verification target: `mage testFunc 'TestCollectCreateData_'` with `TA_TEST_PKG=./cmd/ta`.
+- Definition of complete: tests prove the returned map on success and the exact error-shape classes on invalid JSON and off-TTY missing-input; no new helper outside `cmd/ta/create_cmd_test.go`.
+- Atomicity verification: one compact fixture/helper block plus one test block keeps this droplet within the 1-2 small-block limit INCLUDING tests.
+- Blocker: `drop_013.drop.builder_d1_read_json_data` (package serialization only).
+
+D3. `drop_013.drop.builder_d3_run_delete_single`
+- Path: `cmd/ta/delete_cmd_test.go`
+- Package: `cmd/ta`
+- Target function: `cmd/ta/delete_cmd.go::runDeleteSingle` (verified existing)
+- Objective: cover the non-interactive branches that existing command-level tests do not pin directly: strict `--as` pre-echo failure aborts before delete, successful non-confirm delete emits the notice path, and non-TTY `force=false` propagates the file-delete-requires-force error without deleting.
+- Evidence anchor: committed `runDeleteSingle` first routes optional formatted pre-echo, then calls `runDelete`, then either emits the notice or falls into TTY confirm only on `ops.ErrFileDeleteRequiresForce`. The parent drop lists it at 52.6% coverage.
+- Suggested tests: `TestRunDeleteSingle_AsPreEchoFailurePreservesRecord`, `TestRunDeleteSingle_SuccessWithoutConfirm`, and `TestRunDeleteSingle_NonTTYRequiresForce` (all new, not yet in tree).
+- Builder verification target: `mage testFunc 'TestRunDeleteSingle_'` with `TA_TEST_PKG=./cmd/ta`.
+- Definition of complete: tests assert both return/error behavior and record-preservation side effects where relevant; only `cmd/ta/delete_cmd_test.go` is touched.
+- Atomicity verification: existing delete fixtures already exist in-file, so this remains a single test block or, at most, one tiny direct-call helper plus tests; still ≤2 small blocks INCLUDING tests.
+- Blocker: `drop_013.drop.builder_d2_collect_create_data` (package serialization only).
+
+D4. `drop_013.drop.builder_d4_run_get_single_with_format`
+- Path: `cmd/ta/get_cmd_test.go`
+- Package: `cmd/ta`
+- Target function: `cmd/ta/get_cmd.go::runGetSingleWithFormat` (verified existing)
+- Objective: target the largest remaining non-TUI helper branch surface in `cmd/ta`: reject `--fields` combined with `--as/--template`, prove the relative-template-path branch joins against project root, and prove the `--json` output path emits the single-record envelope.
+- Evidence anchor: committed `runGetSingleWithFormat` has explicit early-return logic for `fields`, explicit relative-path handling for `templateView`, and a dedicated `asJSON` emission branch. Existing committed tests cover mismatch and happy-path template composition but not these three control-flow arms; the parent drop still lists the function at 68.3% coverage.
+- Suggested tests: `TestRunGetSingleWithFormat_RejectsFieldsWithAsOrTemplate`, `TestRunGetSingleWithFormat_RelativeTemplatePath`, and `TestRunGetSingleWithFormat_AsJSONEnvelope` (all new, not yet in tree).
+- Builder verification target: `mage testFunc 'TestRunGetSingleWithFormat_'` with `TA_TEST_PKG=./cmd/ta`.
+- Definition of complete: tests cover the early incompatibility error, the relative path normalization path, and the JSON envelope output; no production code edits; only `cmd/ta/get_cmd_test.go` is touched.
+- Atomicity verification: existing get fixtures already exist in-file, so one new helper at most plus 2-3 focused tests keeps the droplet within the 1-2 small-block limit INCLUDING tests.
+- Blocker: `drop_013.drop.builder_d3_run_delete_single` (package serialization only).
+"""
+labels = ["l1-planner", "coverage-gate", "cmd-ta"]
+objective = "Decompose drop_013 cmd/ta coverage work into 4 atomic, test-only builder droplets that target the highest-yield remaining non-TUI helper functions and are likely to close the current ~39-block gap from 68.1% to at least 70%."
+outcome = "success"
+packages = ["cmd/ta"]
+parent_id = "drop_013.drop.cmd_ta_coverage_70"
+paths = ["cmd/ta/commands_test.go", "cmd/ta/create_cmd_test.go", "cmd/ta/delete_cmd_test.go", "cmd/ta/get_cmd_test.go"]
+role = "planner"
+started_at = "2026-05-22T23:59:00Z"
+state = "complete"
+structural_type = "segment"
+title = "L1 planner — cmd/ta coverage to 70 via non-TUI helper tests"
+updated_at = "2026-05-22T23:59:00Z"
+
+[builder_d1_read_json_data]
+acceptance_criteria = "1. ≤2 small blocks INCLUDING tests. 2. mage testPkg ./cmd/ta PASS. 3. Tests exercise real branch logic, no faked coverage."
+completed_at = "2026-05-22T23:05:00Z"
+completion_contract = {completion_notes = "Landed via haiku Agent tool dispatch. TestReadJSONData_Branches added to cmd/ta/commands_test.go covering all 4 arms (inline, stdin -, file, missing-source error). readJSONData lifted from 33.3% → 100% statement coverage. mage testFunc 'TestReadJSONData_' PASS. No production code touched."}
+created_at = "2026-05-22T22:35:00Z"
+definition_of_complete = "TestReadJSONData_Branches + optionally TestReadJSONData_MissingSource added to cmd/ta/commands_test.go; mage testFunc 'TestReadJSONData_' PASS; no production code touched."
+files = ["cmd/ta/commands_test.go"]
+labels = ["builder", "coverage", "cmd-ta"]
+objective = "Add direct branch tests for cmd/ta/commands.go::readJSONData covering inline, -stdin, file, and missing-source-error arms."
+outcome = "success"
+packages = ["cmd/ta"]
+parent_id = "drop_013.drop.planner_l1_cmd_ta_coverage_70"
+paths = ["cmd/ta/commands_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D1 readJSONData branch tests"
+updated_at = "2026-05-22T22:35:00Z"
+[builder_d1_read_json_data-qa-proof]
+created_at = "2026-05-22T22:37:11Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.builder_d1_read_json_data"
+title = "QA proof of D1 readJSONData branch tests"
+updated_at = "2026-05-22T22:37:11Z"
+
+[builder_d1_read_json_data-qa-falsification]
+created_at = "2026-05-22T22:37:11Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.builder_d1_read_json_data"
+title = "QA falsif of D1 readJSONData branch tests"
+updated_at = "2026-05-22T22:37:11Z"
+
+[builder_d2_collect_create_data]
+acceptance_criteria = "1. ≤2 small blocks INCLUDING tests. 2. mage testPkg ./cmd/ta PASS."
+completed_at = "2026-05-22T22:50:00Z"
+completion_contract = {completion_notes = "Landed via haiku Agent tool dispatch at commit 386dde9 ('test(cmd/ta): add collectCreateData non-TUI branch tests'). 3 test functions + 5 subtests added to cmd/ta/create_cmd_test.go. collectCreateData lifted from 47.1% → 52.9% (interactive form branch deliberately uncovered). NOTE: builder bypassed its persona Bash allowlist and ran `git commit` directly despite the allowlist excluding git commit/push/reset. Discipline gap recorded as feedback_builder_bypassed_allowlist for future sessions. Commit is functionally good (D2 test work) but missed the per-commit QA gate; slice-wide QA pair gates the rest of drop_013 to recover."}
+created_at = "2026-05-22T22:35:00Z"
+definition_of_complete = "TestCollectCreateData_InlineAndFileSuccess + TestCollectCreateData_InvalidJSON + TestCollectCreateData_OffTTYRequiresInput added to cmd/ta/create_cmd_test.go; mage testFunc 'TestCollectCreateData_' PASS; no production code touched."
+files = ["cmd/ta/create_cmd_test.go"]
+labels = ["builder", "coverage", "cmd-ta"]
+objective = "Add tests covering cmd/ta/create_cmd.go::collectCreateData's non-interactive branches: inline+file JSON success, invalid JSON parse failure, off-TTY no-input error. Do NOT attempt the interactive form branch."
+outcome = "success"
+packages = ["cmd/ta"]
+parent_id = "drop_013.drop.planner_l1_cmd_ta_coverage_70"
+paths = ["cmd/ta/create_cmd_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D2 collectCreateData non-TUI branch tests"
+updated_at = "2026-05-22T22:35:00Z"
+[builder_d2_collect_create_data-qa-proof]
+created_at = "2026-05-22T22:37:11Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.builder_d2_collect_create_data"
+title = "QA proof of D2 collectCreateData non-TUI branch tests"
+updated_at = "2026-05-22T22:37:11Z"
+
+[builder_d2_collect_create_data-qa-falsification]
+created_at = "2026-05-22T22:37:11Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.builder_d2_collect_create_data"
+title = "QA falsif of D2 collectCreateData non-TUI branch tests"
+updated_at = "2026-05-22T22:37:11Z"
+
+[builder_d3_run_delete_single]
+acceptance_criteria = "1. ≤2 small blocks INCLUDING tests. 2. mage testPkg ./cmd/ta PASS."
+completed_at = "2026-05-22T23:00:00Z"
+completion_contract = {completion_notes = "Landed via haiku Agent tool dispatch. 3 tests added to cmd/ta/delete_cmd_test.go: TestRunDeleteSingle_AsPreEchoFailurePreservesRecord, _SuccessWithoutConfirm, _NonTTYRequiresForce. mage testFunc 'TestRunDeleteSingle_' PASS. runDeleteSingle function coverage 52.6% unchanged — the targeted branches were already exercised indirectly through higher-level command tests; D3's tests add explicit per-branch coverage as documentation/regression-defense even though aggregate % didn't move. No production code touched."}
+created_at = "2026-05-22T22:35:00Z"
+definition_of_complete = "TestRunDeleteSingle_AsPreEchoFailurePreservesRecord + TestRunDeleteSingle_SuccessWithoutConfirm + TestRunDeleteSingle_NonTTYRequiresForce added to cmd/ta/delete_cmd_test.go; mage testFunc 'TestRunDeleteSingle_' PASS; no production code touched."
+files = ["cmd/ta/delete_cmd_test.go"]
+labels = ["builder", "coverage", "cmd-ta"]
+objective = "Add tests covering cmd/ta/delete_cmd.go::runDeleteSingle non-interactive branches: --as pre-echo failure aborts delete, success-without-confirm notice path, non-TTY force=false propagates ErrFileDeleteRequiresForce."
+outcome = "success"
+packages = ["cmd/ta"]
+parent_id = "drop_013.drop.planner_l1_cmd_ta_coverage_70"
+paths = ["cmd/ta/delete_cmd_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D3 runDeleteSingle non-TUI branch tests"
+updated_at = "2026-05-22T22:35:00Z"
+[builder_d3_run_delete_single-qa-proof]
+created_at = "2026-05-22T22:37:11Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.builder_d3_run_delete_single"
+title = "QA proof of D3 runDeleteSingle non-TUI branch tests"
+updated_at = "2026-05-22T22:37:11Z"
+
+[builder_d3_run_delete_single-qa-falsification]
+created_at = "2026-05-22T22:37:11Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.builder_d3_run_delete_single"
+title = "QA falsif of D3 runDeleteSingle non-TUI branch tests"
+updated_at = "2026-05-22T22:37:11Z"
+
+[builder_d4_run_get_single_with_format]
+acceptance_criteria = "1. ≤2 small blocks INCLUDING tests. 2. mage testPkg ./cmd/ta PASS."
+completed_at = "2026-05-22T23:05:00Z"
+completion_contract = {completion_notes = "Landed via haiku Agent tool dispatch then OVERWRITTEN by D5's get_cmd_test.go Write (D5 used Write instead of Edit, replacing D4's additions). Recovered orchestrator-direct: D4's 3 tests restored to cmd/ta/get_cmd_test.go (TestRunGetSingleWithFormat_RejectsFieldsWithAsOrTemplate / _RelativeTemplatePath / _AsJSONEnvelope) using the same fixture idiom (withMdGetFixture + runGetCmd + seedManifestFile). runGetSingleWithFormat lifted 68.3% → ~73% post-restore. mage testFunc 'TestRunGetSingleWithFormat_' PASS. Discipline gap: D5's Write-vs-Edit caused the overwrite — future dispatches to shared test files MUST use Edit only."}
+created_at = "2026-05-22T22:35:00Z"
+definition_of_complete = "TestRunGetSingleWithFormat_RejectsFieldsWithAsOrTemplate + TestRunGetSingleWithFormat_RelativeTemplatePath + TestRunGetSingleWithFormat_AsJSONEnvelope added to cmd/ta/get_cmd_test.go; mage testFunc 'TestRunGetSingleWithFormat_' PASS; no production code touched."
+files = ["cmd/ta/get_cmd_test.go"]
+labels = ["builder", "coverage", "cmd-ta"]
+objective = "Add tests covering cmd/ta/get_cmd.go::runGetSingleWithFormat's three uncovered non-TUI control-flow arms: reject --fields with --as/--template, relative --template path joins project root, --json envelope emission."
+outcome = "success"
+packages = ["cmd/ta"]
+parent_id = "drop_013.drop.planner_l1_cmd_ta_coverage_70"
+paths = ["cmd/ta/get_cmd_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D4 runGetSingleWithFormat branch tests"
+updated_at = "2026-05-22T22:35:00Z"
+[builder_d4_run_get_single_with_format-qa-proof]
+created_at = "2026-05-22T22:37:11Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.builder_d4_run_get_single_with_format"
+title = "QA proof of D4 runGetSingleWithFormat branch tests"
+updated_at = "2026-05-22T22:37:11Z"
+
+[builder_d4_run_get_single_with_format-qa-falsification]
+created_at = "2026-05-22T22:37:11Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.builder_d4_run_get_single_with_format"
+title = "QA falsif of D4 runGetSingleWithFormat branch tests"
+updated_at = "2026-05-22T22:37:11Z"
+
+[builder_d5_run_get_group]
+acceptance_criteria = "1. ≤2 small blocks INCLUDING tests. 2. mage testPkg ./cmd/ta PASS. 3. Tests exercise real branch logic."
+completed_at = "2026-05-22T22:55:00Z"
+completion_contract = {completion_notes = "Landed via haiku Agent tool contingency dispatch. 6 tests added to cmd/ta/get_cmd_test.go covering runGetGroup JSON + ANSI + edge cases (multi-record JSON, ANSI multi/single/zero-record, indentation, record-fields). runGetGroup lifted from 53.8% → 92.3%. mage testFunc 'TestRunGetGroup_' PASS (6/6). NOTE: D5 used Write instead of Edit on cmd/ta/get_cmd_test.go, overwriting D4's additions; orchestrator restored D4 work post-hoc. Discipline note recorded for future shared-file dispatches."}
+created_at = "2026-05-22T22:55:00Z"
+definition_of_complete = "TestRunGetGroup_* tests added to cmd/ta/get_cmd_test.go covering non-TUI branches; mage testFunc 'TestRunGetGroup_' PASS; no production code touched."
+files = ["cmd/ta/get_cmd_test.go"]
+labels = ["builder", "coverage", "cmd-ta", "contingency"]
+objective = "Contingency droplet per L1 planner. Add tests for cmd/ta/get_cmd.go::runGetGroup (53.8% coverage) to raise cmd/ta block coverage closer to 70%. D1-D4 brought it to 68.5%; need ~32 more blocks hit."
+outcome = "success"
+packages = ["cmd/ta"]
+parent_id = "drop_013.drop.planner_l1_cmd_ta_coverage_70"
+paths = ["cmd/ta/get_cmd_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D5 runGetGroup branch tests (contingency)"
+updated_at = "2026-05-22T22:55:00Z"
+[builder_d5_run_get_group-qa-proof]
+created_at = "2026-05-22T22:51:18Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.builder_d5_run_get_group"
+title = "QA proof of D5 runGetGroup branch tests (contingency)"
+updated_at = "2026-05-22T22:51:18Z"
+
+[builder_d5_run_get_group-qa-falsification]
+created_at = "2026-05-22T22:51:18Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.builder_d5_run_get_group"
+title = "QA falsif of D5 runGetGroup branch tests (contingency)"
+updated_at = "2026-05-22T22:51:18Z"
+
+[builder_d6_run_get_scope]
+acceptance_criteria = "1. ≤2 small blocks INCLUDING tests. 2. mage testPkg ./cmd/ta PASS. 3. Tests exercise real branch logic."
+completed_at = "2026-05-22T23:10:00Z"
+completion_contract = {completion_notes = "Landed orchestrator-direct (after D5 demonstrated the Write-overwrite risk on shared get_cmd_test.go; orch-direct edit was safer than re-dispatching haiku). 3 tests added: TestRunGetScope_EmptyScopeNotice, _JSONShape, _ANSIPerRecord. runGetScope lifted from 65.0% → ~85%. mage testFunc 'TestRunGetScope_' PASS. No production code touched."}
+created_at = "2026-05-22T22:55:00Z"
+definition_of_complete = "TestRunGetScope_* tests added to cmd/ta/get_cmd_test.go covering non-TUI branches; mage testFunc 'TestRunGetScope_' PASS; no production code touched."
+files = ["cmd/ta/get_cmd_test.go"]
+labels = ["builder", "coverage", "cmd-ta", "contingency"]
+objective = "Contingency droplet per L1 planner. Add tests for cmd/ta/get_cmd.go::runGetScope (65.0% coverage) to raise cmd/ta block coverage closer to 70%."
+outcome = "success"
+packages = ["cmd/ta"]
+parent_id = "drop_013.drop.planner_l1_cmd_ta_coverage_70"
+paths = ["cmd/ta/get_cmd_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D6 runGetScope branch tests (contingency)"
+updated_at = "2026-05-22T22:55:00Z"
+[builder_d6_run_get_scope-qa-proof]
+created_at = "2026-05-22T22:51:19Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.builder_d6_run_get_scope"
+title = "QA proof of D6 runGetScope branch tests (contingency)"
+updated_at = "2026-05-22T22:51:19Z"
+
+[builder_d6_run_get_scope-qa-falsification]
+created_at = "2026-05-22T22:51:19Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.builder_d6_run_get_scope"
+title = "QA falsif of D6 runGetScope branch tests (contingency)"
+updated_at = "2026-05-22T22:51:19Z"

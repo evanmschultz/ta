@@ -2407,3 +2407,101 @@ func TestCLI_SearchJSONErrorEnvelope(t *testing.T) {
 	}
 	_ = decodeJSONErrEnvelope(t, out.Bytes())
 }
+
+// ---- readJSONData branch coverage (drop_013.D1) ----------------------
+
+// TestReadJSONData_Branches covers the four arms of readJSONData:
+// (1) inline JSON payload via --data,
+// (2) stdin read via --data-file -,
+// (3) file read via --data-file <path>,
+// (4) missing-source error when both flags are absent.
+//
+// Each case is a self-contained subtest that exercises one branch
+// path and asserts the exact output shape (bytes or error type).
+func TestReadJSONData_Branches(t *testing.T) {
+	cases := []struct {
+		name      string
+		inline    string
+		file      string
+		stdinData string // data to write to stdin reader
+		wantBytes string // expected output on success (exact match)
+		wantErr   string // substring expected in error message
+	}{
+		{
+			name:      "inline_json",
+			inline:    `{"id":"T1","status":"todo"}`,
+			file:      "",
+			stdinData: "",
+			wantBytes: `{"id":"T1","status":"todo"}`,
+			wantErr:   "",
+		},
+		{
+			name:      "stdin_dash",
+			inline:    "",
+			file:      "-",
+			stdinData: `{"id":"stdin","status":"done"}`,
+			wantBytes: `{"id":"stdin","status":"done"}`,
+			wantErr:   "",
+		},
+		{
+			name:      "file_payload",
+			inline:    "",
+			file:      "",
+			stdinData: "",
+			wantBytes: `{"id":"fromfile","status":"doing"}`,
+			wantErr:   "",
+			// Special setup: create a temp file with JSON content below.
+		},
+		{
+			name:      "missing_source",
+			inline:    "",
+			file:      "",
+			stdinData: "",
+			wantBytes: "",
+			wantErr:   "must provide --data <json> or --data-file <path>",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// For the file_payload case, create a temp file and update the
+			// file parameter to point to it.
+			if tc.name == "file_payload" {
+				f, err := os.CreateTemp(t.TempDir(), "data-*.json")
+				if err != nil {
+					t.Fatalf("create temp file: %v", err)
+				}
+				defer f.Close()
+				if _, err := f.WriteString(tc.wantBytes); err != nil {
+					t.Fatalf("write temp file: %v", err)
+				}
+				tc.file = f.Name()
+			}
+
+			// Set up stdin with the provided data.
+			stdin := bytes.NewReader([]byte(tc.stdinData))
+
+			// Call readJSONData with the test parameters.
+			got, err := readJSONData(tc.inline, tc.file, stdin)
+
+			// Verify the result.
+			if tc.wantErr != "" {
+				// Expect an error.
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("error = %q, want substring %q", err.Error(), tc.wantErr)
+				}
+			} else {
+				// Expect success.
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if string(got) != tc.wantBytes {
+					t.Errorf("bytes = %q, want %q", string(got), tc.wantBytes)
+				}
+			}
+		})
+	}
+}

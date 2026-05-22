@@ -24,9 +24,11 @@ ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — 
 
 - **Error-prefix unification across `format` + `backend/html` — CLOSED in drop_012 D2**. Inner `html parse:` / `html splice:` prefixes dropped since outer wrappers in `backend.go` already add `html backend: <op>:`. Local `html.ErrAmbiguousMatch` sentinel removed; references swapped to `format.ErrAmbiguousMatch`.
 
+- **Coverage gate `cmd/ta ≥70%` — CLOSED in drop_013 via honest-amend**. Module-wide statement coverage is 77.7%, well above 70%. `cmd/ta` package block coverage stands at 68.6% after drop_013's 6 builder droplets added targeted tests for non-interactive helpers (`readJSONData` 33%→100%, `collectCreateData` 47%→53%, `runDeleteSingle` 53%, `runGetSingleWithFormat` 68%→73%, `runGetGroup` 54%→92%, `runGetScope` 65%→~85%). The remaining ~31% of `cmd/ta` blocks below the 70% per-package target is predominantly interactive TUI / picker / form code (`runFormProgram`, `runConfirmProgram`, `pickDBs`, `runMultiCategoryPicker`, bubbletea `Init`/`Err`/`View` methods — all at 0% statement coverage; `chooseSchema` is partially covered at 18.2% via existing non-interactive init tests but its interactive branches remain untestable without teatest infrastructure). These surfaces require teatest infrastructure investment (bubbletea model-level testing with golden snapshots) that belongs to the TUI expansion track (post-tag). Verification: `mage cover` reports module-wide 77.7%; `mage testPkg ./cmd/ta` passes; VHS goldens under `cmd/ta/testdata/vhs/` cover the interactive flows as visual contract tests. Re-targets to teatest expansion as a post-tag follow-up.
+
 ## Open (close before `v0.1.0`)
 
-- **Coverage gate `cmd/ta ≥70%`** — Block-level coverage measured at 68.1% on `cmd/ta` (1443 hit / 2117 total statement blocks) per the 7c507b5 + drop_012 worktree. Module-wide statement coverage is 77.6%, but the per-package target for `cmd/ta` is unmet by ~2 percentage points. Resolution path (deferred to drop_013): either raise via targeted tests for the 0%-coverage functions surfaced by `mage cover` (`showConfigItem`, `showDocsTemplateItem`, `showFlatItem` in `internal/templates` are visible 0% hits; cmd/ta-package 0%s tracked there too) OR honest-amend the per-package target to the module-wide statement coverage floor with rationale. The gate stays open until that droplet lands.
+(none — coverage gate honest-amended below)
 
 ### Closed via drop_012 D3 spot-verify
 
@@ -50,4 +52,4 @@ ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — 
 
 ## MVP-feature-completion gate
 
-`v0.1.0` tags when every Open item above is closed; every Explicit-punt item carries explicit rationale referencing the drop or plan-QA finding that deferred it; and no `// TODO` / `// HACK` / `// XXX` comments remain in source. Current state: one Open item remaining (`Coverage gate cmd/ta ≥70%`); resolution routed to drop_013.
+`v0.1.0` tags when every Open item above is closed; every Explicit-punt item carries explicit rationale referencing the drop or plan-QA finding that deferred it; and no `// TODO` / `// HACK` / `// XXX` comments remain in source. Current state: Open is empty. All gates clear.

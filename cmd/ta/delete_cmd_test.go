@@ -472,3 +472,76 @@ func TestF20NarrowVerboseRemainingInFile_VerifyShape(t *testing.T) {
 		}
 	}
 }
+
+// TestRunDeleteSingle_AsPreEchoFailurePreservesRecord tests the strict-mode
+// contract: when --as format pre-echo fails (mismatch, unknown engine, parse
+// error, marshal error), the delete is aborted BEFORE ops.Delete fires and
+// the record survives on disk (strict-mode load-bearing invariant). This case
+// exercises the pre-echo failure path directly via runDeleteSingle's early
+// return on emitDeletePreEchoFormatted error.
+func TestRunDeleteSingle_AsPreEchoFailurePreservesRecord(t *testing.T) {
+	root, id := withMdDeleteFixture(t)
+	// db.Format=md, but --as=html requests a mismatch. The pre-echo fails
+	// with "db.Format=md; --as=html requires matching format", and ops.Delete
+	// never fires. The record must survive on disk.
+	stdout, _, err := runDeleteCmd(t, "--path", root, "--force", "--as", "html", id)
+	if err == nil {
+		t.Fatalf("expected --as format mismatch error; stdout=%s", stdout)
+	}
+	// Strict-mode assertion: record must still exist despite the failed delete attempt.
+	assertRecordExists(t, root, id)
+}
+
+// TestRunDeleteSingle_SuccessWithoutConfirm tests the successful delete path
+// when --as is absent and no TTY-prompt branch fires. The result emits
+// emitDeleteNotice with the success body, returning nil error. This exercises
+// the "success without confirm" path on line 134 of delete_cmd.go.
+func TestRunDeleteSingle_SuccessWithoutConfirm(t *testing.T) {
+	root, id := withMdDeleteFixture(t)
+	// Single record in notes.md means --force delete resolves to file-level
+	// removal. --as is absent, so the pre-echo path is skipped. force=true
+	// means the ErrFileDeleteRequiresForce branch is skipped, and the success
+	// path fires on the first runDelete call.
+	stdout, errOut, err := runDeleteCmd(t, "--path", root, "--force", id)
+	if err != nil {
+		t.Fatalf("execute: %v; stderr=%s", err, errOut)
+	}
+	// Success path must emit the notice. The notice includes the id + file path.
+	// At least the id should appear in stdout.
+	if !strings.Contains(stdout, id) {
+		t.Errorf("stdout missing id %q (delete notice):\n%s", id, stdout)
+	}
+	// Record must be gone after the successful delete.
+	if _, gerr := ops.Get(root, id, "", nil); gerr == nil {
+		t.Fatalf("record %q still exists after successful delete", id)
+	}
+}
+
+// TestRunDeleteSingle_NonTTYRequiresForce tests the file-level delete safety
+// gate: off-TTY (non-interactive), force=false, file-level delete refuses with
+// ops.ErrFileDeleteRequiresForce. The record stays on disk; no delete fires.
+// This exercises the error-identity check on line 130 + the non-TTY rejection
+// on line 136-138 of delete_cmd.go.
+func TestRunDeleteSingle_NonTTYRequiresForce(t *testing.T) {
+	root := newSchemaFixture(t)
+	dataPath := filepath.Join(root, "plans.toml")
+	body := []byte("[plans.sole]\nid = \"sole\"\nstatus = \"todo\"\n")
+	if err := os.WriteFile(dataPath, body, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// File-level delete (bare file-relpath) without --force off-TTY must
+	// reject with ErrFileDeleteRequiresForce. Error identity check (errors.Is)
+	// is load-bearing — substring match would mask renames.
+	_, _, err := runDeleteCmd(t, "--path", root, "plans")
+	if err == nil {
+		t.Fatalf("expected ErrFileDeleteRequiresForce for off-TTY file-level delete without --force")
+	}
+	if !errors.Is(err, ops.ErrFileDeleteRequiresForce) {
+		t.Errorf("err = %v, want ErrFileDeleteRequiresForce", err)
+	}
+	// Record must still exist; the delete was refused before ops.Delete fired.
+	got, _ := os.ReadFile(dataPath)
+	if string(got) != string(body) {
+		t.Errorf("plans.toml mutated despite refusal:\nbefore: %s\nafter: %s", body, got)
+	}
+}
