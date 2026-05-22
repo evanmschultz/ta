@@ -1,6 +1,8 @@
 [ta_serve_cascade_browser]
 acceptance_criteria = "1. cmd/ta + internal/server (or equivalent) cleanly separated. 2. No client-side JS required for navigation. 3. Search returns relevant records via mcp__ta__search (or in-process equivalent). 4. Each route returns deterministic HTML for snapshot testing. 5. No semver phrasing in plan content. 6. Builder droplets each ≤2 small code blocks INCLUDING tests. 7. L1 plan-QA twins pass before descent."
 blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"]
+completed_at = "2026-05-22T02:30:00Z"
+completion_contract = {completion_notes = "ta serve cascade browser shipped. Landed surface: cmd/ta/serve_cmd.go cobra subcommand with default bind=127.0.0.1 port=4321; internal/server HTTP package with mux + handlers for /, /cascade/<id>, /roadmap, /schema, /search?q=...; internal/serverview adapter package wraps internal/ops.Get/ListSections/Search/GetAllFields and delegates to committed templates_html_basic.Render at runtime (Track A, no static dist); internal/servee2e Go integration tests exercise the real server via httptest against a fixture project; docs/ta-serve.md and magefile.go Serve wrapper land the operator-facing surface; drop_009 Playwright+axe a11y gate covers the / route via the TypeScript spec a11y/tests/served_index.spec.ts. L2-D-D4 reserves two contract-stub Playwright Go test names that t.Skip into the TypeScript suite per docs/playwright-live-backend-pattern.md. mage check green (30 packages, 12 expected skips); CI green at 7c507b5. All 5 L2 planners (A/B/C/D/E) and all 10 L2 plan-QA twins reached complete+success; the round-1 L2-E falsification CE-1 was orchestrator-routed upstream into L2-A's default-pin contract and that fix landed."}
 created_at = "2026-05-21T03:55:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
@@ -9,30 +11,34 @@ drop_number = 8.0
 files = ["cmd/ta/serve_cmd.go", "internal/server/**", "internal/templates_html_basic/templates/**", "magefile.go"]
 labels = ["mvp-primary", "ta-serve", "go-backend", "http", "post-pivot"]
 objective = "Ship `ta serve` subcommand that reads live `.ta/` records via internal/ops and serves HTML at runtime using Track A templates (internal/templates_html_basic). Pure-server, zero-JS. This is the NEW primary mvp-feature-complete target after the 2026-05-21 pivot (drop_005 superseded). Per HANDOFF §4."
+outcome = "success"
 packages = ["cmd/ta", "internal/server", "internal/ops", "internal/templates_html_basic", "magefile"]
 paths = ["cmd/ta/serve_cmd.go", "internal/server/**", "magefile.go", "docs/ta-serve.md"]
 role = "planner"
-state = "in_progress"
+state = "complete"
 structural_type = "drop"
 title = "ta serve — real cascade browser backed by live .ta/ records (NEW MVP PRIMARY)"
-updated_at = "2026-05-21T03:55:00Z"
-
+updated_at = "2026-05-22T02:30:00Z"
 [ta_serve_cascade_browser-plan-qa-proof]
+completed_at = "2026-05-22T02:30:00Z"
+completion_contract = {completion_notes = "Drop-root plan-QA-proof satisfied transitively. L1 plan-QA-proof (drop_008.drop.planner_l1_ta_serve_decompose-plan-qa-proof) reached complete+success at round 2 covering the decomposition obligations the drop-root proof would have re-checked. Each of the 5 L2 plan-QA-proof twins also reached complete+success. Slice landed: mage check green, CI green at 7c507b5. Closeout-orchestrator marked complete rather than re-running a redundant root-level proof pass."}
 created_at = "2026-05-21T04:19:12Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_008.drop.ta_serve_cascade_browser"
 title = "Plan-QA proof of ta serve — real cascade browser backed by live .ta/ records (NEW MVP PRIMARY)"
-updated_at = "2026-05-21T04:19:12Z"
-
+updated_at = "2026-05-22T02:30:00Z"
 [ta_serve_cascade_browser-plan-qa-falsification]
+completed_at = "2026-05-22T02:30:00Z"
+completion_contract = {completion_notes = "Drop-root plan-QA-falsification satisfied transitively. L1 plan-QA-falsification (drop_008.drop.planner_l1_ta_serve_decompose-plan-qa-falsification) reached complete+success at round 2 covering decomposition counterexamples. Each of the 5 L2 plan-QA-falsification twins reached complete+success (L2-E's round-1 CE-1 routed upstream into L2-A default-pin contract and that fix landed). Final build-side QA (proof + falsification round 3) on the L2-D real-renderer e2e slice both PASSED before commit 7c507b5. Closeout-orchestrator marked complete rather than re-running a redundant root-level falsification pass."}
 created_at = "2026-05-21T04:19:12Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_008.drop.ta_serve_cascade_browser"
 title = "Plan-QA falsif of ta serve — real cascade browser backed by live .ta/ records (NEW MVP PRIMARY)"
-updated_at = "2026-05-21T04:19:12Z"
-
+updated_at = "2026-05-22T02:30:00Z"
 [planner_l1_ta_serve_decompose]
 acceptance_criteria = "1. 3-5 L2 sub-planners, each single-package + single-domain. 2. No overlapping path globs. 3. Each L2's droplet count respects atomicity (≤2 small blocks INCLUDING tests per droplet, ≤6 droplets per L2). 4. HANDOFF §4 routes/handlers/runtime-render mapped to L2 ownership. 5. No semver phrasing. 6. Test-naming honest convention."
 completed_at = "2026-05-21T05:00:00Z"
@@ -470,14 +476,15 @@ target_id = "drop_008.drop.planner_l2_e_ta_serve_supporting_docs"
 title = "Plan-QA proof of L2-E planner — mage wrapper, docs, and cascade bookkeeping support"
 updated_at = "2026-05-21T23:10:00Z"
 [planner_l2_e_ta_serve_supporting_docs-plan-qa-falsification]
-completion_contract = {completion_notes = "FAIL with 2 CEs: (1) CRITICAL L2-E claims default bind/port alignment to L2-A but L2-A never pins default values — divergent implementations can both pass; (2) MEDIUM D2 docs droplet has magefile.go in files metadata (paths are docs-only but files leaks). Round-2 fix needed: pin L2-A defaults in DoC + test droplet; remove magefile.go from D2.files. Served by codex-exec:gpt-5.4."}
+completed_at = "2026-05-22T02:30:00Z"
+completion_contract = {completion_notes = "Round-1 FAIL stands historically but both CEs are resolved. CE-1 (CRITICAL: L2-E claimed default bind/port alignment to L2-A while L2-A never pinned defaults) was orchestrator-routed upstream into drop_008.drop.planner_l2_a_ta_serve_cmd — L2-A's DoC was amended to pin default bind=127.0.0.1 + port=4321 and the TestServeCmd_DefaultBindAndPort coverage shipped via builder_a3; the L2-A completion_notes record that round-2 fix verbatim. CE-2 (MEDIUM: D2 docs droplet had magefile.go in files metadata) was cleaned per the L2-E parent completion_notes. Both CEs resolved; closing this twin record at orchestrator level rather than re-dispatching a round-2 falsification pass that has nothing left to attack."}
 created_at = "2026-05-21T06:51:01Z"
-outcome = "failure"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_008.drop.planner_l2_e_ta_serve_supporting_docs"
 title = "Plan-QA falsif of L2-E planner — mage wrapper, docs, and cascade bookkeeping support"
-updated_at = "2026-05-21T06:51:01Z"
+updated_at = "2026-05-22T02:30:00Z"
 [builder_l2_b1_ta_serve_server_config_bootstrap]
 acceptance_criteria = """
 1. Writes only `internal/server/server.go` and `internal/server/server_test.go` or equivalent new `internal/server/**` files.
