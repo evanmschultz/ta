@@ -3785,13 +3785,13 @@ updated = 2026-05-22T21:43:20.865492Z
 created = 2026-05-22T20:14:48.476284Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-22T20:14:48.476284Z
+updated = 2026-05-22T22:21:31.630437Z
 
 [drop_012.drop.builder_d1_tracker_reconcile-qa-proof]
 created = 2026-05-22T20:14:48.459926Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-22T20:14:48.459926Z
+updated = 2026-05-22T22:21:31.612351Z
 
 [drop_012.drop.builder_d2_error_prefix_unification]
 created = 2026-05-22T20:14:48.491848Z
@@ -3803,13 +3803,13 @@ updated = 2026-05-22T20:18:27.261459Z
 created = 2026-05-22T20:14:48.521927Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-22T20:14:48.521927Z
+updated = 2026-05-22T22:21:31.665675Z
 
 [drop_012.drop.builder_d2_error_prefix_unification-qa-proof]
 created = 2026-05-22T20:14:48.507125Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-22T20:14:48.507125Z
+updated = 2026-05-22T22:21:31.648022Z
 
 [drop_012.drop.builder_d3_mcp_path_security_review]
 created = 2026-05-22T20:14:48.537193Z
@@ -3821,13 +3821,13 @@ updated = 2026-05-22T20:18:27.280398Z
 created = 2026-05-22T20:14:48.568053Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-22T20:14:48.568053Z
+updated = 2026-05-22T22:21:31.700423Z
 
 [drop_012.drop.builder_d3_mcp_path_security_review-qa-proof]
 created = 2026-05-22T20:14:48.553446Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-22T20:14:48.553446Z
+updated = 2026-05-22T22:21:31.68302Z
 
 [drop_012.drop.planner_l1_residual_decompose]
 created = 2026-05-22T20:14:03.823796Z
@@ -3839,31 +3839,31 @@ updated = 2026-05-22T20:14:03.823796Z
 created = 2026-05-22T20:14:03.852734Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-22T20:14:03.852734Z
+updated = 2026-05-22T22:21:31.592764Z
 
 [drop_012.drop.planner_l1_residual_decompose-plan-qa-proof]
 created = 2026-05-22T20:14:03.837635Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-22T20:14:03.837635Z
+updated = 2026-05-22T22:21:31.573539Z
 
 [drop_012.drop.tracker_reconcile_and_residual_fixes]
 created = 2026-05-22T20:11:59.888437Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-22T20:18:27.299385Z
+updated = 2026-05-22T22:21:31.51476Z
 
 [drop_012.drop.tracker_reconcile_and_residual_fixes-plan-qa-falsification]
 created = 2026-05-22T20:11:59.924711Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-22T20:11:59.924711Z
+updated = 2026-05-22T22:21:31.554359Z
 
 [drop_012.drop.tracker_reconcile_and_residual_fixes-plan-qa-proof]
 created = 2026-05-22T20:11:59.907614Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-22T20:11:59.907614Z
+updated = 2026-05-22T22:21:31.535435Z
 
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]

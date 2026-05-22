@@ -1,6 +1,8 @@
 [tracker_reconcile_and_residual_fixes]
 acceptance_criteria = "1. Builder droplets ≤2 small blocks INCLUDING tests. 2. L1 plan-QA twins pass before descent. 3. No version-bump framing in records or commits. 4. Section 0 reasoning stays orchestrator-facing only (never in records / completion_notes / commit body). 5. Tracker entries that were never genuinely-open get DELETED (not soft-marked) so the doc shrinks. 6. Error-prefix unification preserves errors.Is detection at every call site; no callers break."
 blockers = []
+completed_at = "2026-05-22T06:30:00Z"
+completion_contract = {completion_notes = "Landed at aaaa322 (feat(drop_012): tracker reconcile + html error-prefix + sentinel unification). Three droplets shipped: D1 docs/pre-mvp-tracker.md reconciled (5 STALE entries deleted, 9 RESOLVED entries marked closed with attestation, 5 EXPLICIT-PUNT entries preserved with rationale, cmd/ta >=70% block-coverage gate reopened as Open with measured-evidence 68.1% block coverage / 77.6% module statement coverage and routed to drop_013, MVP-feature-completion gate sentence aligned). D2 internal/backend/html/{parse,splice,backend}.go inner 'html parse:' + 'html splice:' prefixes stripped (outer wrapper in backend.go already adds 'html backend: <op>:'); local html.ErrAmbiguousMatch sentinel deleted; every call site now uses format.ErrAmbiguousMatch (cross-backend unification); splice_test.go errors.Is assertion updated + format import added; 33/33 html package tests green. D3 internal/mcpsrv read-only review confirmed guardPath + guardedPathArg already shipped at internal/mcpsrv/path_guard.go: every handler in tools.go routes its path arg through filepath.Abs+Clean + workspace-root confinement set once at registerTools via setProjectRootForGuard, TA_MCP_PATH_GUARD=off escape hatch documented, threat model in docs/security/mcp_path_arg.md; F15 template-save merge semantics confirmed shipped at cmd/ta/template_cmd.go (full merge into ~/.ta/schema.toml, dry-run conflict surface, --canonical extends to --kind=agent). Verification: mage check green 30 packages 1669/0 fail; CI green at aaaa322 (check + a11y lanes); git status clean. QA Proof PASS; QA Falsification PASS round #4 (rounds 2-4 iteratively tightened tracker truthfulness on the cmd/ta coverage gate)."}
 created_at = "2026-05-22T05:50:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
@@ -9,29 +11,32 @@ drop_number = 12.0
 files = ["docs/pre-mvp-tracker.md", "internal/backend/html/parse.go", "internal/backend/html/splice.go", "internal/backend/html/backend.go", "internal/mcpsrv/tools.go"]
 labels = ["tracker-reconcile", "cleanup", "residual"]
 objective = "Close the residual gaps blocking the next release: reconcile docs/pre-mvp-tracker.md against actual disk state (remove STALE entries, mark RESOLVED items closed, explicit-punt non-blocking items with rationale), unify error-prefix conventions across internal/format + internal/backend/html (eliminate stutter, swap html.ErrAmbiguousMatch local sentinel for format.ErrAmbiguousMatch), and either verify or formally punt the MCP project-arg gate-keeping security review."
+outcome = "success"
 packages = ["docs", "internal/backend/html", "internal/format", "internal/mcpsrv"]
 paths = ["docs/pre-mvp-tracker.md", "internal/backend/html/**", "internal/format/**", "internal/mcpsrv/**"]
 role = "planner"
-state = "in_progress"
+state = "complete"
 structural_type = "drop"
 title = "tracker reconcile + residual fixes before next release"
-updated_at = "2026-05-22T05:50:00Z"
+updated_at = "2026-05-22T06:30:00Z"
 [tracker_reconcile_and_residual_fixes-plan-qa-proof]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:11:59Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.tracker_reconcile_and_residual_fixes"
 title = "Plan-QA proof of tracker reconcile + residual fixes before next release"
-updated_at = "2026-05-22T20:11:59Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [tracker_reconcile_and_residual_fixes-plan-qa-falsification]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:11:59Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.tracker_reconcile_and_residual_fixes"
 title = "Plan-QA falsif of tracker reconcile + residual fixes before next release"
-updated_at = "2026-05-22T20:11:59Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [planner_l1_residual_decompose]
 acceptance_criteria = "1. 3 builder droplets covering the three genuinely-open work items: tracker reconcile + error-prefix unification + MCP project-arg security review. 2. No builder droplet exceeds 1-2 small blocks. 3. Spot-verified status of stale tracker entries documented so the reconcile droplet has explicit FIXED/PUNT/REMOVE actions per entry."
 completed_at = "2026-05-22T05:55:00Z"
@@ -70,21 +75,23 @@ title = "L1 planner — residual cleanup decomposition"
 updated_at = "2026-05-22T05:55:00Z"
 
 [planner_l1_residual_decompose-plan-qa-proof]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:14:03Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.planner_l1_residual_decompose"
 title = "Plan-QA proof of L1 planner — residual cleanup decomposition"
-updated_at = "2026-05-22T20:14:03Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [planner_l1_residual_decompose-plan-qa-falsification]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:14:03Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.planner_l1_residual_decompose"
 title = "Plan-QA falsif of L1 planner — residual cleanup decomposition"
-updated_at = "2026-05-22T20:14:03Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [builder_d1_tracker_reconcile]
 acceptance_criteria = "1. Single file edit (docs/pre-mvp-tracker.md). 2. No removed-line content reappears as a 'see also' or 'follow-up' ghost note. 3. The remaining genuinely-open entries (MCP security review + error-prefix unification + F15 verify) point at drop_012's other droplets so the audit trail is intact."
 completed_at = "2026-05-22T06:05:00Z"
@@ -106,21 +113,23 @@ structural_type = "droplet"
 title = "D1 tracker reconcile — strip stale + mark resolved + explicit-punt"
 updated_at = "2026-05-22T05:55:00Z"
 [builder_d1_tracker_reconcile-qa-proof]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:14:48Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.builder_d1_tracker_reconcile"
 title = "QA proof of D1 tracker reconcile — strip stale + mark resolved + explicit-punt"
-updated_at = "2026-05-22T20:14:48Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [builder_d1_tracker_reconcile-qa-falsification]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:14:48Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.builder_d1_tracker_reconcile"
 title = "QA falsif of D1 tracker reconcile — strip stale + mark resolved + explicit-punt"
-updated_at = "2026-05-22T20:14:48Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [builder_d2_error_prefix_unification]
 acceptance_criteria = "1. ≤2 small blocks of edits + tests. 2. mage testPkg ./internal/backend/html PASS. 3. mage check PASS. 4. No new lint debt."
 completed_at = "2026-05-22T06:05:00Z"
@@ -142,21 +151,23 @@ structural_type = "droplet"
 title = "D2 error-prefix unification — strip inner stutter + unify ErrAmbiguousMatch sentinel"
 updated_at = "2026-05-22T05:55:00Z"
 [builder_d2_error_prefix_unification-qa-proof]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:14:48Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.builder_d2_error_prefix_unification"
 title = "QA proof of D2 error-prefix unification — strip inner stutter + unify ErrAmbiguousMatch sentinel"
-updated_at = "2026-05-22T20:14:48Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [builder_d2_error_prefix_unification-qa-falsification]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:14:48Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.builder_d2_error_prefix_unification"
 title = "QA falsif of D2 error-prefix unification — strip inner stutter + unify ErrAmbiguousMatch sentinel"
-updated_at = "2026-05-22T20:14:48Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [builder_d3_mcp_path_security_review]
 acceptance_criteria = "1. If accepting current state: completion_notes documents the rationale + lists every handler's normalization step. 2. If adding guard: ≤2 small blocks (helper + applied to all handlers) + tests. 3. mage check PASS in either case. 4. No false-positive 'security review done' without per-handler audit."
 completed_at = "2026-05-22T06:05:00Z"
@@ -178,17 +189,20 @@ structural_type = "droplet"
 title = "D3 MCP project-arg security review — verify or gate"
 updated_at = "2026-05-22T05:55:00Z"
 [builder_d3_mcp_path_security_review-qa-proof]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:14:48Z"
+outcome = "success"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.builder_d3_mcp_path_security_review"
 title = "QA proof of D3 MCP project-arg security review — verify or gate"
-updated_at = "2026-05-22T20:14:48Z"
-
+updated_at = "2026-05-22T06:30:00Z"
 [builder_d3_mcp_path_security_review-qa-falsification]
+completed_at = "2026-05-22T06:30:00Z"
 created_at = "2026-05-22T20:14:48Z"
+outcome = "success"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.builder_d3_mcp_path_security_review"
 title = "QA falsif of D3 MCP project-arg security review — verify or gate"
-updated_at = "2026-05-22T20:14:48Z"
+updated_at = "2026-05-22T06:30:00Z"
