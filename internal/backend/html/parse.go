@@ -113,7 +113,7 @@ func Parse(buf []byte) (*Tree, error) {
 	} else {
 		root, err = ghtml.Parse(bytes.NewReader(buf))
 		if err != nil {
-			return nil, fmt.Errorf("html parse: %w", err)
+			return nil, fmt.Errorf("html: %w", err)
 		}
 	}
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/evanmschultz/ta/internal/format"
 )
 
 // TestHtmlSplice_Idempotent asserts that splicing the same selector with the
@@ -197,7 +199,7 @@ func TestHtmlSplice_MultiMatchFirstWinsAmbiguousError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected ambiguous error, got nil")
 	}
-	if !errors.Is(err, ErrAmbiguousMatch) {
+	if !errors.Is(err, format.ErrAmbiguousMatch) {
 		t.Errorf("error %v is not ErrAmbiguousMatch", err)
 	}
 	// Output must still be returned (first-match-wins).

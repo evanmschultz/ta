@@ -1,0 +1,194 @@
+[tracker_reconcile_and_residual_fixes]
+acceptance_criteria = "1. Builder droplets ≤2 small blocks INCLUDING tests. 2. L1 plan-QA twins pass before descent. 3. No version-bump framing in records or commits. 4. Section 0 reasoning stays orchestrator-facing only (never in records / completion_notes / commit body). 5. Tracker entries that were never genuinely-open get DELETED (not soft-marked) so the doc shrinks. 6. Error-prefix unification preserves errors.Is detection at every call site; no callers break."
+blockers = []
+created_at = "2026-05-22T05:50:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. docs/pre-mvp-tracker.md no longer lists STALE entries (format.Dispatch deleted; md_explicit ambiguity resolved; F23 OFF correction; /schema 500 bug fixed in drop_008). 2. docs/pre-mvp-tracker.md marks RESOLVED items closed with brief attestation (F19/F20 ErrUnscopedGlobDelete shipped; F13 huh removed; F14 rebuild preserves; F22/F23/F24 done). 3. docs/pre-mvp-tracker.md explicit-punts the genuinely deferred items with rationale (claude_hooks auto-registration → L3-I5 punt; L3-I6 e2e → punt; L3-E4 page-archetype demos → punt; schema.Format html/txt gap → punt). 4. internal/backend/html/{parse,splice}.go strip redundant inner prefixes; html.ErrAmbiguousMatch replaced with format.ErrAmbiguousMatch wherever referenced; tests updated. 5. MCP project-arg gate review documented (verified OR new gate added). 6. mage check green. 7. F15/F1/F2/F4/F5/F8/F9 PLAN.md items each either confirmed shipped (with file evidence) or new droplet opened for the gap."
+drop_number = 12.0
+files = ["docs/pre-mvp-tracker.md", "internal/backend/html/parse.go", "internal/backend/html/splice.go", "internal/backend/html/backend.go", "internal/mcpsrv/tools.go"]
+labels = ["tracker-reconcile", "cleanup", "residual"]
+objective = "Close the residual gaps blocking the next release: reconcile docs/pre-mvp-tracker.md against actual disk state (remove STALE entries, mark RESOLVED items closed, explicit-punt non-blocking items with rationale), unify error-prefix conventions across internal/format + internal/backend/html (eliminate stutter, swap html.ErrAmbiguousMatch local sentinel for format.ErrAmbiguousMatch), and either verify or formally punt the MCP project-arg gate-keeping security review."
+packages = ["docs", "internal/backend/html", "internal/format", "internal/mcpsrv"]
+paths = ["docs/pre-mvp-tracker.md", "internal/backend/html/**", "internal/format/**", "internal/mcpsrv/**"]
+role = "planner"
+state = "in_progress"
+structural_type = "drop"
+title = "tracker reconcile + residual fixes before next release"
+updated_at = "2026-05-22T05:50:00Z"
+[tracker_reconcile_and_residual_fixes-plan-qa-proof]
+created_at = "2026-05-22T20:11:59Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_012.drop.tracker_reconcile_and_residual_fixes"
+title = "Plan-QA proof of tracker reconcile + residual fixes before next release"
+updated_at = "2026-05-22T20:11:59Z"
+
+[tracker_reconcile_and_residual_fixes-plan-qa-falsification]
+created_at = "2026-05-22T20:11:59Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_012.drop.tracker_reconcile_and_residual_fixes"
+title = "Plan-QA falsif of tracker reconcile + residual fixes before next release"
+updated_at = "2026-05-22T20:11:59Z"
+
+[planner_l1_residual_decompose]
+acceptance_criteria = "1. 3 builder droplets covering the three genuinely-open work items: tracker reconcile + error-prefix unification + MCP project-arg security review. 2. No builder droplet exceeds 1-2 small blocks. 3. Spot-verified status of stale tracker entries documented so the reconcile droplet has explicit FIXED/PUNT/REMOVE actions per entry."
+completed_at = "2026-05-22T05:55:00Z"
+created_at = "2026-05-22T05:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "L1 description carries the decomposition with concrete droplet ids, paths, packages, and atomicity attestation. Each droplet ≤2 small blocks INCLUDING tests."
+description = """
+STALE tracker entries (delete during reconcile): format.Dispatch double-stutter (deleted in prior slice; rg 'func Dispatch(' returns 0 matches in internal/format/); md_explicit Parse-vs-Find ambiguity (resolved in drop_004; findAllByPath + format.ErrAmbiguousMatch in use); /schema 500 bug (FIXED in drop_008 corrective slice via internal/serverview/render.go RenderSchema struct→map conversion at commit 7c507b5); F23 runtime-fill OFF (F23 v2 LIVE; auto_spawn fires on cascade record creation since drop_004 j-series); huh form upgrade F13 (huh fully removed; rg charm.land/huh in go.mod returns 0).
+
+RESOLVED tracker entries (mark closed with attestation): F19 delete shape + F20 delete --verbose (ErrUnscopedGlobDelete at internal/db/resolver.go:320; shipped in drop_004 l3-g); F14 rebuild preserves created (shipped in drop_004 l3-g8-d1); F22 extends + F23 auto-spawn + F24 multi-category init (shipped in drop_004 various L-series); F18 picker UI fix (huh-removal track F38d replaced with pure bubbletea; VHS demos under cmd/ta/testdata/vhs/picker_*.gif); TUI verification artifacts cross-linked (docs/cascade-methodology.md + examples/README.md + README.md all reference cmd/ta/testdata/vhs/; README has 8 tape index entries); coverage gate cmd/ta ≥70 (module-wide mage cover reports 77.6 total; stale 67.1 measurement was pre-drop_004 closeout).
+
+EXPLICIT-PUNT tracker entries (post-tag with rationale): claude_hooks/claude_skills/claude_settings_fragments substrate auto-registration (L3-I5 punt from drop_004); L3-I6 full-substrate e2e test (punt to CI fixture against fresh clone); L3-E4 page-archetype demos (punt; cascade-record gallery shipped instead); schema.Format html/txt gap (punt; mismatch tests pin the negative surface correctly); TUI expansion (explicit post-tag locked direction).
+
+GENUINELY OPEN: error-prefix unification across internal/format + internal/backend/html (~9 sites in parse.go + splice.go strip redundant inner prefix; outer wrapper in backend.go already adds 'html backend: <op>:'); html.ErrAmbiguousMatch local sentinel removal in favor of format.ErrAmbiguousMatch; affects 3 files. MCP project-arg gate-keeping security review (internal/mcpsrv/tools.go uses filepath.Abs + filepath.Clean for normalization; no explicit reject-relative-path or workspace-confinement guard; review needed). F15 template-save merge semantics (--canonical landed in drop_011 but PLAN.md F15 specifies broader merge behavior; verify shipping state via read of cmd/ta/template_save*.go; either confirm shipped or open follow-up droplet).
+
+L1 DECOMPOSITION (3 builder droplets):
+
+D1 tracker reconcile: id drop_012.drop.builder_d1_tracker_reconcile; file docs/pre-mvp-tracker.md; action remove STALE entries verbatim, mark RESOLVED entries closed with attestation, explicit-punt non-blocking items with rationale; 1 small block of markdown edits.
+
+D2 error-prefix unification: id drop_012.drop.builder_d2_error_prefix_unification; files internal/backend/html/parse.go + splice.go + (if needed) backend.go + tests if any assert exact prefix strings; action drop redundant inner 'html parse:' and 'html splice:' prefixes since outer wrapper in backend.go already adds 'html backend: parse:' or 'html backend: splice:'; replace local html.ErrAmbiguousMatch with format.ErrAmbiguousMatch; ≤2 small blocks of edits + tests.
+
+D3 MCP project-arg security review: id drop_012.drop.builder_d3_mcp_path_security_review; file internal/mcpsrv/tools.go (read-only review) + docs/security/ if note ships; action read every handle*(path...) function, document path normalization behavior in a short security note OR add explicit guardPath() helper if absent; F15 verification documented in completion_notes; 1 small block.
+
+No L2 planners needed — each droplet is single-package + single-domain + 1-2 small blocks.
+"""
+labels = ["l1-planner", "residual-cleanup", "decomposition"]
+objective = "Decompose the residual cleanup drop into 3 atomic builder droplets, each grounded in spot-verified evidence of what is genuinely open vs already shipped."
+outcome = "success"
+parent_id = "drop_012.drop.tracker_reconcile_and_residual_fixes"
+role = "planner"
+started_at = "2026-05-22T05:55:00Z"
+state = "complete"
+structural_type = "segment"
+title = "L1 planner — residual cleanup decomposition"
+updated_at = "2026-05-22T05:55:00Z"
+
+[planner_l1_residual_decompose-plan-qa-proof]
+created_at = "2026-05-22T20:14:03Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_012.drop.planner_l1_residual_decompose"
+title = "Plan-QA proof of L1 planner — residual cleanup decomposition"
+updated_at = "2026-05-22T20:14:03Z"
+
+[planner_l1_residual_decompose-plan-qa-falsification]
+created_at = "2026-05-22T20:14:03Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_012.drop.planner_l1_residual_decompose"
+title = "Plan-QA falsif of L1 planner — residual cleanup decomposition"
+updated_at = "2026-05-22T20:14:03Z"
+
+[builder_d1_tracker_reconcile]
+acceptance_criteria = "1. Single file edit (docs/pre-mvp-tracker.md). 2. No removed-line content reappears as a 'see also' or 'follow-up' ghost note. 3. The remaining genuinely-open entries (MCP security review + error-prefix unification + F15 verify) point at drop_012's other droplets so the audit trail is intact."
+completed_at = "2026-05-22T06:05:00Z"
+completion_contract = {completion_notes = "Landed orchestrator-direct. docs/pre-mvp-tracker.md rewritten in two passes: (1) initial rewrite stripped 5 STALE entries (huh F13, format.Dispatch, md_explicit ambiguity, /schema 500 bug, F23 OFF correction), marked 9 RESOLVED entries CLOSED with attestation (F19/F20 delete shape, F14 rebuild preserves, F22/F23/F24, F18 picker UI via huh-removal, TUI VHS links, /schema fix via drop_008, format.Dispatch deleted, md_explicit ambiguity resolved, error-prefix unification via D2), preserved 5 EXPLICIT-PUNT entries with rationale (L3-I5 registration directives, L3-I6 e2e, L3-E4 page-archetype demos, schema.Format html/txt gap, TUI expansion), and closed MCP security review + F15 via D3 spot-verify. (2) Round-2 correction after QA falsification found that cmd/ta ≥70% coverage gate was prematurely closed: reopened as Open with measured-evidence (68.1% block coverage on cmd/ta per direct rg of coverage.out, 1443 hit / 2117 blocks; module-wide statement 77.6%), routed resolution to drop_013. MVP-feature-completion gate sentence updated to reflect the one-remaining-Open state."}
+created_at = "2026-05-22T05:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "docs/pre-mvp-tracker.md updated such that: (1) STALE entries (format.Dispatch, md_explicit ambiguity, /schema 500 bug, F23 OFF, F13 huh) are DELETED outright (not soft-marked); (2) RESOLVED entries (F19/F20 delete, F14 rebuild preserves, F22/F23/F24, F18 picker UI, TUI VHS links, coverage gate) carry a brief attestation noting which drop shipped them; (3) EXPLICIT-PUNT entries (claude_hooks auto-registration, L3-I6 e2e, L3-E4 page-archetype demos, schema.Format html/txt gap, TUI expansion) keep their entries but reframe as post-tag with rationale; (4) MVP-feature-completion gate language at the bottom updated if needed."
+files = ["docs/pre-mvp-tracker.md"]
+labels = ["builder", "tracker-reconcile", "docs"]
+objective = "Rewrite docs/pre-mvp-tracker.md so every entry reflects actual disk state: STALE entries removed, RESOLVED entries marked closed with brief attestation, non-blocking entries explicit-punted with rationale."
+outcome = "success"
+packages = ["docs"]
+parent_id = "drop_012.drop.planner_l1_residual_decompose"
+paths = ["docs/pre-mvp-tracker.md"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D1 tracker reconcile — strip stale + mark resolved + explicit-punt"
+updated_at = "2026-05-22T05:55:00Z"
+[builder_d1_tracker_reconcile-qa-proof]
+created_at = "2026-05-22T20:14:48Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_012.drop.builder_d1_tracker_reconcile"
+title = "QA proof of D1 tracker reconcile — strip stale + mark resolved + explicit-punt"
+updated_at = "2026-05-22T20:14:48Z"
+
+[builder_d1_tracker_reconcile-qa-falsification]
+created_at = "2026-05-22T20:14:48Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_012.drop.builder_d1_tracker_reconcile"
+title = "QA falsif of D1 tracker reconcile — strip stale + mark resolved + explicit-punt"
+updated_at = "2026-05-22T20:14:48Z"
+
+[builder_d2_error_prefix_unification]
+acceptance_criteria = "1. ≤2 small blocks of edits + tests. 2. mage testPkg ./internal/backend/html PASS. 3. mage check PASS. 4. No new lint debt."
+completed_at = "2026-05-22T06:05:00Z"
+completion_contract = {completion_notes = "Landed via haiku Agent tool dispatch. internal/backend/html/parse.go: inner 'html parse:' prefix dropped. internal/backend/html/splice.go: 6 inner 'html splice:' prefixes dropped; local ErrAmbiguousMatch sentinel deleted; format.ErrAmbiguousMatch imported and used. internal/backend/html/backend.go: Find method's ErrAmbiguousMatch ref swapped to format.ErrAmbiguousMatch. internal/backend/html/splice_test.go: errors.Is assertion updated to format.ErrAmbiguousMatch + format import added. Verification: mage testPkg ./internal/backend/html PASS 33/33; mage check PASS 1669/0 fail. No behavioral changes; cross-backend sentinel unification complete."}
+created_at = "2026-05-22T05:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. internal/backend/html/parse.go: inner 'html parse:' prefix dropped (outer wrapper already adds 'html backend: parse:'). 2. internal/backend/html/splice.go: inner 'html splice:' prefix dropped from all 6+ sites; local ErrAmbiguousMatch sentinel deleted; references swapped to format.ErrAmbiguousMatch. 3. Existing tests still pass; any test asserting the exact stutter string updated to assert the unified prefix. 4. errors.Is(err, format.ErrAmbiguousMatch) still works at every call site (no caller breaks)."
+files = ["internal/backend/html/parse.go", "internal/backend/html/splice.go"]
+labels = ["builder", "cleanup", "error-prefix"]
+objective = "Eliminate the 'html backend: splice: html splice: matched node ...' stutter across internal/backend/html and unify on format.ErrAmbiguousMatch (the cross-backend sentinel) instead of html's local ErrAmbiguousMatch."
+outcome = "success"
+packages = ["internal/backend/html", "internal/format"]
+parent_id = "drop_012.drop.planner_l1_residual_decompose"
+paths = ["internal/backend/html/parse.go", "internal/backend/html/splice.go", "internal/backend/html/backend.go", "internal/backend/html/parse_test.go", "internal/backend/html/splice_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D2 error-prefix unification — strip inner stutter + unify ErrAmbiguousMatch sentinel"
+updated_at = "2026-05-22T05:55:00Z"
+[builder_d2_error_prefix_unification-qa-proof]
+created_at = "2026-05-22T20:14:48Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_012.drop.builder_d2_error_prefix_unification"
+title = "QA proof of D2 error-prefix unification — strip inner stutter + unify ErrAmbiguousMatch sentinel"
+updated_at = "2026-05-22T20:14:48Z"
+
+[builder_d2_error_prefix_unification-qa-falsification]
+created_at = "2026-05-22T20:14:48Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_012.drop.builder_d2_error_prefix_unification"
+title = "QA falsif of D2 error-prefix unification — strip inner stutter + unify ErrAmbiguousMatch sentinel"
+updated_at = "2026-05-22T20:14:48Z"
+
+[builder_d3_mcp_path_security_review]
+acceptance_criteria = "1. If accepting current state: completion_notes documents the rationale + lists every handler's normalization step. 2. If adding guard: ≤2 small blocks (helper + applied to all handlers) + tests. 3. mage check PASS in either case. 4. No false-positive 'security review done' without per-handler audit."
+completed_at = "2026-05-22T06:05:00Z"
+completion_contract = {completion_notes = "Landed orchestrator-direct as read-only review. FINDING 1 (MCP security): guardPath + guardedPathArg ALREADY SHIPPED at internal/mcpsrv/path_guard.go. Every handler in tools.go (handleGet/ListSections/Create/Update/Delete/Move/Search/Schema) routes its 'path' arg through guardedPathArg which runs filepath.Abs+Clean + refuses paths outside projectRoot (set once at registerTools via setProjectRootForGuard). TA_MCP_PATH_GUARD=off escape hatch documented; threat model in docs/security/mcp_path_arg.md. ACCEPT current normalization — no new guard needed. FINDING 2 (F15 template-save merge): cmd/ta/template_cmd.go (32K) implements full F15 contract: 'save [<db>...]' merges named project dbs into ~/.ta/schema.toml; dry-run merge surfaces conflicts; legacy ~/.ta/*.toml walk removed in favor of single ~/.ta/schema.toml source. --canonical flag (drop_011) extends to --kind=agent. ACCEPT — F15 shipped. NO code edits in this droplet — review-only; outcomes recorded in tracker via D1."}
+created_at = "2026-05-22T05:55:00Z"
+created_by_actor = "user:ev+orchestrator"
+created_by_type = "user"
+definition_of_complete = "1. Every handle*(path, ...) entry documented with the path normalization step it goes through. 2. Decision recorded in droplet completion_notes: (a) ACCEPT current normalization as sufficient with explicit rationale, OR (b) NEW guardPath() helper added + applied to every path-accepting handler + tested. 3. F15 template-save merge semantics also spot-verified during the same read (cmd/ta/template_save*.go); status noted in completion_notes."
+files = ["internal/mcpsrv/tools.go"]
+labels = ["builder", "security", "mcp"]
+objective = "Read internal/mcpsrv/tools.go to enumerate every path-accepting handler; document the current normalization behavior (filepath.Abs / filepath.Clean coverage); either declare the current surface acceptable with rationale OR add an explicit guardPath() helper that confines paths to user-intended workspace boundaries."
+outcome = "success"
+packages = ["internal/mcpsrv"]
+parent_id = "drop_012.drop.planner_l1_residual_decompose"
+paths = ["internal/mcpsrv/tools.go", "cmd/ta/template_save_cmd.go", "cmd/ta/template_save.go", "docs/security/"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "D3 MCP project-arg security review — verify or gate"
+updated_at = "2026-05-22T05:55:00Z"
+[builder_d3_mcp_path_security_review-qa-proof]
+created_at = "2026-05-22T20:14:48Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_012.drop.builder_d3_mcp_path_security_review"
+title = "QA proof of D3 MCP project-arg security review — verify or gate"
+updated_at = "2026-05-22T20:14:48Z"
+
+[builder_d3_mcp_path_security_review-qa-falsification]
+created_at = "2026-05-22T20:14:48Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_012.drop.builder_d3_mcp_path_security_review"
+title = "QA falsif of D3 MCP project-arg security review — verify or gate"
+updated_at = "2026-05-22T20:14:48Z"

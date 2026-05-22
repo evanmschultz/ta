@@ -3773,6 +3773,98 @@ db_name = 'cascade'
 type = 'qa_proof'
 updated = 2026-05-21T06:49:21.691142Z
 
+[drop_012]
+[drop_012.drop]
+[drop_012.drop.builder_d1_tracker_reconcile]
+created = 2026-05-22T20:14:48.442724Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-22T21:43:20.865492Z
+
+[drop_012.drop.builder_d1_tracker_reconcile-qa-falsification]
+created = 2026-05-22T20:14:48.476284Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-22T20:14:48.476284Z
+
+[drop_012.drop.builder_d1_tracker_reconcile-qa-proof]
+created = 2026-05-22T20:14:48.459926Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-22T20:14:48.459926Z
+
+[drop_012.drop.builder_d2_error_prefix_unification]
+created = 2026-05-22T20:14:48.491848Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-22T20:18:27.261459Z
+
+[drop_012.drop.builder_d2_error_prefix_unification-qa-falsification]
+created = 2026-05-22T20:14:48.521927Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-22T20:14:48.521927Z
+
+[drop_012.drop.builder_d2_error_prefix_unification-qa-proof]
+created = 2026-05-22T20:14:48.507125Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-22T20:14:48.507125Z
+
+[drop_012.drop.builder_d3_mcp_path_security_review]
+created = 2026-05-22T20:14:48.537193Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-22T20:18:27.280398Z
+
+[drop_012.drop.builder_d3_mcp_path_security_review-qa-falsification]
+created = 2026-05-22T20:14:48.568053Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-22T20:14:48.568053Z
+
+[drop_012.drop.builder_d3_mcp_path_security_review-qa-proof]
+created = 2026-05-22T20:14:48.553446Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-22T20:14:48.553446Z
+
+[drop_012.drop.planner_l1_residual_decompose]
+created = 2026-05-22T20:14:03.823796Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-22T20:14:03.823796Z
+
+[drop_012.drop.planner_l1_residual_decompose-plan-qa-falsification]
+created = 2026-05-22T20:14:03.852734Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-22T20:14:03.852734Z
+
+[drop_012.drop.planner_l1_residual_decompose-plan-qa-proof]
+created = 2026-05-22T20:14:03.837635Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-22T20:14:03.837635Z
+
+[drop_012.drop.tracker_reconcile_and_residual_fixes]
+created = 2026-05-22T20:11:59.888437Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-22T20:18:27.299385Z
+
+[drop_012.drop.tracker_reconcile_and_residual_fixes-plan-qa-falsification]
+created = 2026-05-22T20:11:59.924711Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-22T20:11:59.924711Z
+
+[drop_012.drop.tracker_reconcile_and_residual_fixes-plan-qa-proof]
+created = 2026-05-22T20:11:59.907614Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-22T20:11:59.907614Z
+
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]
 created = 2026-05-16T00:32:08.792073Z

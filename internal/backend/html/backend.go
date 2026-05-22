@@ -187,7 +187,7 @@ func (b *HtmlBackend) Find(buf []byte, m format.Manifest, name string) ([]byte, 
 	result := append([]byte(nil), buf[r.Start:r.End]...)
 
 	if len(matches) > 1 {
-		return result, fmt.Errorf("html backend: find: %d nodes matched selector %q for name %q: %w", len(matches), selector, name, ErrAmbiguousMatch)
+		return result, fmt.Errorf("html backend: find: %d nodes matched selector %q for name %q: %w", len(matches), selector, name, format.ErrAmbiguousMatch)
 	}
 	return result, nil
 }

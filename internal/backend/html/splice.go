@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/andybalholm/cascadia"
+	"github.com/evanmschultz/ta/internal/format"
 	ghtml "golang.org/x/net/html"
 )
 
@@ -17,19 +18,6 @@ import (
 // a wrapped compile error) and from an ambiguous-match condition (which
 // yields ErrAmbiguousMatch alongside a best-effort spliced buffer).
 var ErrSelectorNotFound = errors.New("html: selector did not match")
-
-// ErrAmbiguousMatch is returned by Splice when the supplied CSS selector
-// matches more than one node in the parsed tree. The current contract is
-// "first-match-wins" (traversal-order): Splice still returns a spliced
-// buffer using the byte range of the first match, but the error sentinel
-// is wrapped via %w so callers can detect-and-distinguish with errors.Is
-// while still consuming the result bytes.
-//
-// Callers that require strict-single-match semantics MUST check the
-// returned error with errors.Is(err, ErrAmbiguousMatch) and discard the
-// buffer accordingly. Callers that explicitly want first-match-wins can
-// ignore the wrapped sentinel.
-var ErrAmbiguousMatch = errors.New("html: selector matched multiple nodes")
 
 // Splice returns a new buffer with the byte range of the first node matched
 // by selector replaced by content.
@@ -52,15 +40,15 @@ var ErrAmbiguousMatch = errors.New("html: selector matched multiple nodes")
 // Splice never mutates buf. The returned slice is a freshly-allocated copy.
 func Splice(tree *Tree, buf []byte, selector string, content []byte) ([]byte, error) {
 	if tree == nil {
-		return nil, fmt.Errorf("html splice: nil tree")
+		return nil, fmt.Errorf("nil tree")
 	}
 	if tree.Root == nil {
-		return nil, fmt.Errorf("html splice: tree has nil root")
+		return nil, fmt.Errorf("tree has nil root")
 	}
 
 	sel, err := cascadia.Compile(selector)
 	if err != nil {
-		return nil, fmt.Errorf("html splice: compile selector %q: %w", selector, err)
+		return nil, fmt.Errorf("compile selector %q: %w", selector, err)
 	}
 
 	matches := cascadia.QueryAll(tree.Root, sel)
@@ -71,13 +59,13 @@ func Splice(tree *Tree, buf []byte, selector string, content []byte) ([]byte, er
 	node := matches[0]
 	r, ok := outerRange(tree, buf, node)
 	if !ok {
-		return nil, fmt.Errorf("html splice: matched node has no offset entry (synthetic or post-parse node?)")
+		return nil, fmt.Errorf("matched node has no offset entry (synthetic or post-parse node?)")
 	}
 	if tree.Desynced[node] || r.Start < 0 || r.End < r.Start {
-		return nil, fmt.Errorf("html splice: matched node is desynced; signature-based recovery not yet supported, re-parse fragment-mode")
+		return nil, fmt.Errorf("matched node is desynced; signature-based recovery not yet supported, re-parse fragment-mode")
 	}
 	if r.End > len(buf) {
-		return nil, fmt.Errorf("html splice: node offset end %d exceeds buf length %d", r.End, len(buf))
+		return nil, fmt.Errorf("node offset end %d exceeds buf length %d", r.End, len(buf))
 	}
 
 	out := make([]byte, 0, len(buf)-(r.End-r.Start)+len(content))
@@ -86,7 +74,7 @@ func Splice(tree *Tree, buf []byte, selector string, content []byte) ([]byte, er
 	out = append(out, buf[r.End:]...)
 
 	if len(matches) > 1 {
-		return out, fmt.Errorf("html splice: %d nodes matched selector %q: %w", len(matches), selector, ErrAmbiguousMatch)
+		return out, fmt.Errorf("%d nodes matched selector %q: %w", len(matches), selector, format.ErrAmbiguousMatch)
 	}
 	return out, nil
 }
