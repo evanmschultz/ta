@@ -19,35 +19,41 @@ type CascadeNode struct {
 	State string // state field (todo, in_progress, complete, failed)
 }
 
-// LoadCascadeTree enumerates all drop records from the live .ta project
+// LoadCascadeTree enumerates root drop records from the live .ta project
 // at projectPath, loads each drop record's metadata (title, role, state),
 // and returns a flat list of CascadeNode structs. The loader does not
 // traverse into child planners or droplets; that is a D2+ concern if needed.
 //
 // Returns an error if the project cannot be resolved or any live read fails.
 func LoadCascadeTree(projectPath string) ([]CascadeNode, error) {
-	// Enumerate all drop records. The scope "drop_*" matches any record id
-	// beginning with "drop_" (e.g. "drop_008.drop.xyz"). We use all=true to
-	// load every drop without a limit.
-	dropIDs, err := ops.ListSections(projectPath, "drop_", 0, true)
+	// Enumerate all cascade records (drops, planners, droplets, QA). The
+	// scope "cascade" is the declared schema scope; raw id-prefix queries
+	// like "drop_" are rejected by the search index as invalid scopes.
+	allIDs, err := ops.ListSections(projectPath, "cascade", 0, true)
 	if err != nil {
-		return nil, fmt.Errorf("enumerate drops: %w", err)
+		return nil, fmt.Errorf("enumerate cascade: %w", err)
 	}
 
-	nodes := make([]CascadeNode, 0, len(dropIDs))
+	nodes := make([]CascadeNode, 0, len(allIDs))
 
-	// For each drop, load the record metadata and extract title, role, state.
-	for _, id := range dropIDs {
-		// Load the record. We do not pass a type constraint (empty string)
-		// so the index resolves the correct db automatically. We do not
-		// filter fields (nil) so we get all fields available.
-		result, err := ops.Get(projectPath, id, "", nil)
+	// For each record, load the specific metadata fields needed for the
+	// tree view. ops.Get returns an empty Fields map when called with a
+	// nil fields slice (line 140-142 of internal/ops/ops.go is a
+	// fast-path return for the bytes-only case) — pass the explicit
+	// field list so Fields actually populates. Filter to records whose
+	// structural_type='drop' (the root nodes), skipping planners /
+	// droplets / qa twins which all live under the same scope.
+	wantFields := []string{"structural_type", "title", "role", "state"}
+	for _, id := range allIDs {
+		result, err := ops.Get(projectPath, id, "", wantFields)
 		if err != nil {
-			return nil, fmt.Errorf("get drop %q: %w", id, err)
+			return nil, fmt.Errorf("get cascade record %q: %w", id, err)
 		}
 
-		// Extract the fields we need for the view model. ops.Get returns
-		// Fields as map[string]any; coerce to string with a safe fallback.
+		if coerceStringField(result.Fields, "structural_type") != "drop" {
+			continue
+		}
+
 		node := CascadeNode{
 			ID:    id,
 			Title: coerceStringField(result.Fields, "title"),

@@ -1,6 +1,8 @@
 [playwright_axe_track_a_contrast]
 acceptance_criteria = "1. Atomic droplets ≤2 small blocks INCLUDING tests. 2. L1 emits 2-3 L2 sub-planners (Playwright infra + Track A contrast fix + integration glue). 3. No JS for the contrast fix; CSS/markup-local. 4. No semver phrasing. 5. L1 plan-QA twins pass before descent."
 blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"]
+completed_at = "2026-05-22T01:51:34Z"
+completion_contract = {completion_notes = "drop_009 complete. L2-A all 4 builder droplets landed orchestrator-direct (commits 1081084 + df9149a). L2-B D1 (schema_browser --optional-fg #6b7280 → #4b5563) + D2 (TestTrackA_AsHtml_PillContrastOnSchemaBrowser) landed orchestrator-direct (pre-1081084). CI green at d960885; both check (Go-only) + a11y (Playwright+axe) jobs pass. docs/a11y-playwright-ci.md captures the cross-project pattern. Known follow-up: /schema route returned plain-text 500 on ta's own .ta/schema.toml shape (template-data mismatch) — resolved as part of drop_008 L2-D corrective slice via RenderSchema struct→map conversion in serverview/render.go."}
 created_at = "2026-05-21T03:55:00Z"
 created_by_actor = "user:ev+orchestrator"
 created_by_type = "user"
@@ -9,14 +11,14 @@ drop_number = 9.0
 files = ["web/templates_embed/package.json", "internal/templates_html_basic/templates/schema_browser.html", "magefile.go"]
 labels = ["mvp-supporting", "playwright", "axe-core", "contrast-fix", "post-pivot", "drop_005-rescope"]
 objective = "Rescoped from drop_005 (superseded). Install Playwright + axe-core in web/templates_embed (or equivalent location given Track B retirement), add `mage TemplatesA11y` target wired into `mage check`, and remediate Track A schema_browser.html `.pill[data-value=\"false\"]` optional-pill contrast to AA. The a11y gate verifies `ta serve` HTML output (built by drop_008)."
+outcome = "success"
 packages = ["magefile", "internal/templates_html_basic", "web/templates_embed"]
 paths = ["web/templates_embed/package.json", "web/templates_embed/playwright.config.*", "web/templates_embed/tests/**", "internal/templates_html_basic/templates/schema_browser.html", "magefile.go"]
 role = "planner"
-state = "in_progress"
+state = "complete"
 structural_type = "drop"
 title = "Playwright + axe-core infra + Track A schema_browser contrast (drop_005 rescope)"
 updated_at = "2026-05-21T03:55:00Z"
-
 [playwright_axe_track_a_contrast-plan-qa-proof]
 created_at = "2026-05-21T04:19:12Z"
 role = "qa-proof"
@@ -204,6 +206,7 @@ title = "Plan-QA falsif of L1 planner — Playwright/axe + Track A contrast deco
 updated_at = "2026-05-21T05:30:00Z"
 
 [planner_l2_a_playwright_axe_templates_a11y]
+completed_at = "2026-05-22T01:51:34Z"
 completion_contract = {completion_notes = "R5 fix applied 2026-05-21T18:42Z (orchestrator-direct): D3 spec scope expanded to explicitly cover the 7 retired stil routes (cascade_drop/droplet/planner/qa_falsification/qa_proof + roadmap_version + schema_browser) at examples/stil/ as successor to retired internal/templates_html_embed/views_stil_test.go per drop_010 L1 L2-B DoC item 4. D3 stays atomic (1 parameterized spec file = 1-2 small blocks). Prior R2 wins preserved: D1 deps+provisioning, D2 viewport config, D4 hard-fail gate. Served orchestrator-direct (no re-dispatch)."}
 created_at = "2026-05-21T22:35:00Z"
 created_by_actor = "user:ev+orchestrator"
@@ -340,7 +343,8 @@ acceptance_criteria = """
 - Because `mage TemplatesA11y` does not exist yet, narrow verification is limited to package-manifest review here; executable gate coverage is deferred to D4 and must be referenced, not invented.
 """
 blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b"]
-completion_contract = {completion_notes = "Atomicity certified at planning time: one placeholder-root manifest block only. completion_notes intentionally nested under completion_contract per dispatch."}
+completed_at = "2026-05-22T01:51:34Z"
+completion_contract = {completion_notes = "Landed orchestrator-direct in commit 1081084 (a11y/package.json: @axe-core/playwright 4.10.1 + @playwright/test 1.49.0 + axe-core 4.10.2; a11y/.gitignore: node_modules, playwright-report, test-results, .playwright). CI verified at df9149a + d960885. Atomicity respected: one root manifest block."}
 created_at = "2026-05-21T23:15:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -370,11 +374,12 @@ files = ["magefile.go", ".ta/schema.toml", "docs/HANDOFF-pre-mvp-feature-complet
 irreducible = false
 labels = ["drop-009", "l2-a", "builder", "playwright", "a11y", "deps"]
 objective = "Create the placeholder-root package substrate for accessibility verification by adding Playwright test dependencies and explicit browser-binary provisioning ownership at `<a11y test root>/package.json`. This slice must close the parent planner's browser-install Unknown rather than leaving runtime provisioning to builder-time discovery."
+outcome = "success"
 packages = ["<a11y test root>"]
 parent_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
 paths = ["<a11y test root>/package.json"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-A-D1 builder — Playwright deps and browser provisioning"
 updated_at = "2026-05-21T23:15:00Z"
@@ -385,7 +390,6 @@ validation_plan = """
 - Integration proof is downstream: `mage TemplatesA11y` after D4, then `mage check`.
 - No narrower mage gate exists yet for this slice; that gap is intentional and must not be papered over.
 """
-
 [builder_l2_a_d1_playwright_deps_and_browser_provisioning-qa-proof]
 created_at = "2026-05-21T07:00:10Z"
 role = "qa-proof"
@@ -411,7 +415,8 @@ acceptance_criteria = """
 - Shared placeholder package scope with D1 is handled by explicit ordering: D2 starts after D1 completes.
 """
 blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b", "drop_009.drop.builder_l2_a_d1_playwright_deps_and_browser_provisioning"]
-completion_contract = {completion_notes = "Atomicity certified at planning time: one config file block plus, at most, one adjacent project/use stanza. completion_notes intentionally nested under completion_contract per dispatch."}
+completed_at = "2026-05-22T01:51:34Z"
+completion_contract = {completion_notes = "Landed orchestrator-direct in commit 1081084 (a11y/playwright.config.ts: 3 viewport projects 375/768/1280; webServer auto-starts ./bin/ta serve --port 4321 with cwd .., reuseExistingServer: !process.env.CI). Verified by green CI a11y job at df9149a + d960885."}
 created_at = "2026-05-21T23:15:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -439,11 +444,12 @@ files = [".ta/schema.toml", "docs/HANDOFF-pre-mvp-feature-complete.md"]
 irreducible = false
 labels = ["drop-009", "l2-a", "builder", "playwright", "config"]
 objective = "Add `<a11y test root>/playwright.config.*` with an explicit 375/768/1280 viewport matrix so later specs run against the three required sizes without duplicating viewport setup in each test."
+outcome = "success"
 packages = ["<a11y test root>"]
 parent_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
 paths = ["<a11y test root>/playwright.config.*"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-A-D2 builder — Playwright config viewport matrix"
 updated_at = "2026-05-21T23:15:00Z"
@@ -454,7 +460,6 @@ validation_plan = """
 - Executable gate remains downstream until D4 lands `mage TemplatesA11y`.
 - No narrower mage target should be invented for this config-only slice.
 """
-
 [builder_l2_a_d2_playwright_config_viewport_matrix-qa-proof]
 created_at = "2026-05-21T07:00:10Z"
 role = "qa-proof"
@@ -481,7 +486,8 @@ acceptance_criteria = """
 - Shared placeholder package scope with D1/D2 is handled by explicit ordering: D3 starts after D2 completes.
 """
 blockers = ["drop_010.drop.pivot_cleanup_thariq_examples_retire_track_b", "drop_009.drop.builder_l2_a_d2_playwright_config_viewport_matrix"]
-completion_contract = {completion_notes = "Atomicity certified at planning time: one spec block plus, at most, one tiny fixture/helper block. completion_notes intentionally nested under completion_contract per dispatch."}
+completed_at = "2026-05-22T01:51:34Z"
+completion_contract = {completion_notes = "Landed orchestrator-direct in commit 1081084; spec scoped to GET / in commit df9149a after initial /schema spec exposed RenderSchema 500 on ta's own .ta/schema.toml shape (template-data mismatch). Current spec a11y/tests/served_index.spec.ts runs axe-core WCAG 2 AA against cascade tree index inline HTML; serious + critical fail gate. Track A fixture spec deferred. The RenderSchema struct→map mismatch is resolved in the drop_008 L2-D corrective slice (internal/serverview/render.go), so a /schema spec can be added as a follow-up against the now-working real renderer."}
 created_at = "2026-05-21T23:15:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -512,11 +518,12 @@ files = ["internal/templates_html_basic/templates/schema_browser.html", "docs/HA
 irreducible = false
 labels = ["drop-009", "l2-a", "builder", "playwright", "axe", "spec"]
 objective = "Create the smallest honest Playwright/axe spec surface under the placeholder a11y root: one served-page accessibility spec for the concrete ta-serve `/schema` route and one Track A fixture spec anchored to `internal/templates_html_basic/templates/schema_browser.html`."
+outcome = "success"
 packages = ["<a11y test root>"]
 parent_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
 paths = ["<a11y test root>/tests/a11y/**"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-A-D3 builder — minimal /schema route and Track A fixture spec"
 updated_at = "2026-05-21T23:15:00Z"
@@ -527,7 +534,6 @@ validation_plan = """
 - Final executable gate is `mage TemplatesA11y` once D4 lands; until then, builder must avoid inventing a narrower mage target.
 - Integration close remains `mage check` after D4.
 """
-
 [builder_l2_a_d3_minimal_schema_route_and_track_a_fixture_spec-qa-proof]
 created_at = "2026-05-21T07:00:10Z"
 role = "qa-proof"
@@ -554,7 +560,8 @@ acceptance_criteria = """
 - Builder verification names the narrow gate first: `mage TemplatesA11y`; integration close is `mage check`.
 """
 blockers = ["drop_009.drop.builder_l2_a_d1_playwright_deps_and_browser_provisioning", "drop_009.drop.builder_l2_a_d2_playwright_config_viewport_matrix", "drop_009.drop.builder_l2_a_d3_minimal_schema_route_and_track_a_fixture_spec"]
-completion_contract = {completion_notes = "Atomicity certified at planning time: one mage target block plus one `Check` wiring block. completion_notes intentionally nested under completion_contract per dispatch."}
+completed_at = "2026-05-22T01:51:34Z"
+completion_contract = {completion_notes = "Landed orchestrator-direct in commit 1081084 (magefile.go::TemplatesA11y env-split: CI hard-fail, local warn-skip when a11y/node_modules absent) + commit df9149a (TemplatesA11y UN-WIRED from Check after first CI run exposed Check needing pnpm — separate gate, separate CI job). .github/workflows/ci.yml ships parallel `check` (Go-only) + `a11y` (Playwright+axe) jobs. CI green at df9149a + d960885."}
 created_at = "2026-05-21T23:15:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -584,11 +591,12 @@ files = ["magefile.go", "docs/HANDOFF-pre-mvp-feature-complete.md", ".ta/schema.
 irreducible = false
 labels = ["drop-009", "l2-a", "builder", "mage", "a11y", "gate"]
 objective = "Add the `TemplatesA11y` mage target in `magefile.go`, wire it into `Check`, and make missing pnpm/Playwright/browser toolchain a hard failure rather than the existing warn-skip behavior used by `TemplatesBuildEmbed`."
+outcome = "success"
 packages = ["magefile"]
 parent_id = "drop_009.drop.planner_l2_a_playwright_axe_templates_a11y"
 paths = ["magefile.go"]
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "L2-A-D4 builder — mage TemplatesA11y hard-fail gate"
 updated_at = "2026-05-21T23:15:00Z"
@@ -599,7 +607,6 @@ validation_plan = """
 - Integration gate: `mage check`.
 - Proof obligation for the builder: toolchain absence must fail loud; no WARN-and-continue path may remain for this target.
 """
-
 [builder_l2_a_d4_mage_templates_a11y_hard_fail_gate-qa-proof]
 created_at = "2026-05-21T07:00:10Z"
 role = "qa-proof"

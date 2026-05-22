@@ -108,18 +108,66 @@ func (r *Renderer) RenderRoadmap(_ context.Context, w http.ResponseWriter, _ *ht
 // RenderSchema implements server.DocsRenderer. Loads the schema view
 // from .ta/schema.toml via LoadSchema and renders it through
 // schema_browser.html.
+//
+// The schema_browser.html template accesses template fields via lowercase
+// keys ({{ .scopes }}, {{ .types }}, {{ .fields }}) because Go html/template
+// uses exact field-name match for structs. SchemaLoaderResult's typed
+// Scopes/Types/Fields fields therefore do not resolve. RenderSchema
+// converts the typed result to a map[string]any with lowercase keys
+// matching the template's expectations.
 func (r *Renderer) RenderSchema(_ context.Context, w http.ResponseWriter, _ *http.Request) error {
 	res, err := LoadSchema(r.projectPath)
 	if err != nil {
 		return fmt.Errorf("render schema: %w", err)
 	}
-	out, err := templates_html_basic.Render(res.TemplateName, res)
+	data := map[string]any{"scopes": scopeViewsToMaps(res.Scopes)}
+	out, err := templates_html_basic.Render(res.TemplateName, data)
 	if err != nil {
 		return fmt.Errorf("render schema: %w", err)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, err = w.Write(out)
 	return err
+}
+
+func scopeViewsToMaps(scopes []ScopeView) []map[string]any {
+	out := make([]map[string]any, len(scopes))
+	for i, s := range scopes {
+		out[i] = map[string]any{
+			"name":        s.Name,
+			"description": s.Description,
+			"types":       typeViewsToMaps(s.Types),
+		}
+	}
+	return out
+}
+
+func typeViewsToMaps(types []TypeView) []map[string]any {
+	out := make([]map[string]any, len(types))
+	for i, t := range types {
+		out[i] = map[string]any{
+			"name":        t.Name,
+			"extends":     t.Extends,
+			"description": t.Description,
+			"fields":      fieldViewsToMaps(t.Fields),
+		}
+	}
+	return out
+}
+
+func fieldViewsToMaps(fields []FieldView) []map[string]any {
+	out := make([]map[string]any, len(fields))
+	for i, f := range fields {
+		out[i] = map[string]any{
+			"name":        f.Name,
+			"type":        f.Type,
+			"required":    f.Required,
+			"default":     f.Default,
+			"enum":        f.Enum,
+			"description": f.Description,
+		}
+	}
+	return out
 }
 
 // RenderSearch implements server.SearchRenderer. Empty query surfaces a

@@ -27,12 +27,20 @@ type record struct {
 // schema and the provided records. It returns the absolute project path.
 //
 // The helper:
-//  1. Creates t.TempDir
-//  2. Writes a minimal .ta/schema.toml with cascade.drop type
-//  3. For each rec, calls ops.CreateWithOptions to persist the record
-//  4. Returns the project path
+//  1. Resets the ops package-level schema cache (the cache is
+//     single-project-per-process; without a reset the second test in
+//     the package fails with "cache is bound to project ... cannot
+//     resolve ..." when its tmpdir differs from the first test's).
+//  2. Creates t.TempDir
+//  3. Writes a minimal .ta/schema.toml with cascade.drop and
+//     roadmap.version types so the /, /cascade/<id>, /roadmap, and
+//     /schema renderers can all run against the fixture.
+//  4. For each rec, calls ops.CreateWithOptions to persist the record.
+//  5. Returns the project path.
 func newFixtureProject(t *testing.T, recs ...record) string {
 	t.Helper()
+
+	ops.ResetDefaultCacheForTest()
 
 	projectPath := t.TempDir()
 
@@ -102,6 +110,20 @@ type = 'integer'
 
 [cascade.drop.fields.structural_type]
 enum = ['drop']
+required = true
+type = 'string'
+
+[roadmap]
+description = 'Roadmap version records — surfaced on /roadmap.'
+paths = ['.ta/roadmap/versions/version_*.toml']
+
+[roadmap.version]
+description = 'A single roadmap entry (slice or version line).'
+extends = 'NodeBase'
+
+[roadmap.version.fields]
+[roadmap.version.fields.version_id]
+description = 'Sequential roadmap version identifier.'
 required = true
 type = 'string'
 `

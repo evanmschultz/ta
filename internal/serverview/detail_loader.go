@@ -32,9 +32,12 @@ type DetailLoaderResult struct {
 // Returns an error if the project cannot be resolved, the record is not found,
 // or the structural_type is not in the committed set.
 func LoadDetail(projectPath string, id string) (DetailLoaderResult, error) {
-	// Load all fields for the record. We pass empty string for typeName so
-	// the index resolves the correct type automatically.
-	result, err := ops.Get(projectPath, id, "", nil)
+	// Load ALL declared fields for the record. ops.Get with a nil fields
+	// slice fast-paths to bytes-only and leaves Fields=nil (see
+	// internal/ops/ops.go line 140-142); GetAllFields parses + populates
+	// every declared field on the record's type, which is what the
+	// detail template needs.
+	result, _, err := ops.GetAllFields(projectPath, id, "")
 	if err != nil {
 		return DetailLoaderResult{}, fmt.Errorf("load record %q: %w", id, err)
 	}
