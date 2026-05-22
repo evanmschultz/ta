@@ -291,14 +291,15 @@ func Tidy() error {
 	return nil
 }
 
-// Check is the composite gate: fmtcheck, vet, test, tidy, a11y. Each
-// terminal example under examples/<sub>/ is built independently via its
-// local pnpm scripts; root //go:embed all:examples picks up the produced
-// dist trees at compile time. TemplatesA11y warn-skips locally when pnpm
-// is missing so a Go-only dev does not get blocked; CI hard-fails the
-// same condition because CI MUST have the a11y toolchain installed.
+// Check is the composite Go gate: fmtcheck, vet, test, tidy. The a11y
+// suite is a separate gate (TemplatesA11y) run by the dedicated CI job
+// .github/workflows/ci.yml::a11y. Keeping them separate means the `check`
+// CI job stays Go-only (no Node/pnpm setup) and the `a11y` job is the
+// single enforcement point for accessibility. Local devs run both
+// targets independently: `mage check` for Go, `mage TemplatesA11y` for
+// a11y (warn-skipped without a11y/node_modules).
 func Check() error {
-	for _, step := range []func() error{FmtCheck, Vet, Test, Tidy, TemplatesA11y} {
+	for _, step := range []func() error{FmtCheck, Vet, Test, Tidy} {
 		if err := step(); err != nil {
 			return err
 		}
