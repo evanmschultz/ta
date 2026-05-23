@@ -28,7 +28,7 @@ ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — 
 
 ## Open (close before `v0.1.0`)
 
-(none — coverage gate honest-amended below)
+- **`ta serve` UX rework — sidebar + graph view + stil styling** — Surfaced during pre-tag walkthrough at HEAD `8eb4181`. Current `ta serve` cascade tree index (`internal/serverview/render.go::RenderCascadeTree` → `writeCascadeIndex`) writes inline unstyled HTML: `<!DOCTYPE><html><body><h1>Cascade browser</h1><ul><li><a>...</a></li></ul></body></html>`. Zero CSS, zero sidebar, flat list (not a tree/graph), no inter-record nav. Per-record detail templates (`internal/templates_html_basic/templates/cascade_{drop,planner,droplet,qa}.html` + `roadmap_version.html` + `schema_browser.html`) ARE styled with inline CSS but the tree-index has no template. Required for tag: (a) replace flat list with a graph/tree visualization (pure-server SVG ideally preserves zero-JS; SolidJS island acceptable if interactivity required); (b) persistent sidebar nav between records, scopes, and roadmap/schema docs; (c) apply stil component styling to the served HTML — either embed `examples/stil/dist/` into the binary + serve + inject cascade JSON via an API, OR use Go html/template with stil's CSS tokens replicated. Decision deferred to next session. The previously-shipped "Open empty" state at drop_013 closeout was wrong because the closeout's verification was test-only — nobody clicked through `ta serve` in a browser to evaluate the UX. Also discovered: `examples/{stil,thariq}/src/pages/index.astro` link prefixes left at the pre-drop_010 `/stil/<page>` / `/thariq/<page>` form (404'd after move to `examples/<lane>/src/pages/`). Fixed in the same session as this entry was added.
 
 ### Closed via drop_012 D3 spot-verify
 
@@ -52,4 +52,4 @@ ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — 
 
 ## MVP-feature-completion gate
 
-`v0.1.0` tags when every Open item above is closed; every Explicit-punt item carries explicit rationale referencing the drop or plan-QA finding that deferred it; and no `// TODO` / `// HACK` / `// XXX` comments remain in source. Current state: Open is empty. All gates clear.
+`v0.1.0` tags when every Open item above is closed; every Explicit-punt item carries explicit rationale referencing the drop or plan-QA finding that deferred it; and no `// TODO` / `// HACK` / `// XXX` comments remain in source. Current state: one Open item — `ta serve` UX rework — blocks tag. Resolution routed to the next drop.
