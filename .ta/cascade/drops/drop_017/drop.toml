@@ -1,0 +1,30 @@
+[install_toml_overlays]
+acceptance_criteria = "1. Empty override file = empty Config (not error). 2. Invalid TOML = clear parse error with file path. 3. Validation runs on merged result. 4. New substrates added by overrides work end-to-end (saved + installed). 5. Overrides can ADD substrates (most common), CHANGE existing substrate fields (less common), or do both. 6. README updated with the layering model + example user override."
+created_at = "2026-05-24T06:00:00Z"
+definition_of_complete = "1. New installconfig.LoadUserOverride() reads ~/.ta/install.toml if exists, returns empty Config + nil error if not. 2. New installconfig.LoadProjectOverride(projectPath) reads <projectPath>/.ta/install.toml if exists, same nil-on-missing semantics. 3. New installconfig.LoadMerged(projectPath) chains Defaults() <- LoadUserOverride() <- LoadProjectOverride(projectPath) via MergeDefaults. 4. cmd/ta/template_cmd.go and cmd/ta/install_cmd.go use LoadMerged. 5. Custom substrates declared in user override are visible to template save (drop_016 dependency) and install. 6. Tests: layering precedence (project beats user beats defaults); missing-file gracefulness; substrate override semantics."
+drop_number = 17.0
+labels = ["install-config", "user-override", "v01-followup"]
+objective = "Extend installconfig with LoadUserOverride(~/.ta/install.toml) + LoadProjectOverride(<project>/.ta/install.toml). Layered via the existing Config.MergeDefaults: project > user > defaults. Lets users declare custom substrates (e.g., [substrate.my_prompts]) without modifying ta source."
+packages = ["internal/installconfig", "cmd/ta"]
+paths = ["internal/installconfig/load.go", "internal/installconfig/load_test.go", "cmd/ta/template_cmd.go", "cmd/ta/install_cmd.go", "README.md"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "user + project install.toml override loaders"
+updated_at = "2026-05-24T06:00:00Z"
+
+[install_toml_overlays-plan-qa-proof]
+created_at = "2026-05-24T06:45:18Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_017.drop.install_toml_overlays"
+title = "Plan-QA proof of user + project install.toml override loaders"
+updated_at = "2026-05-24T06:45:18Z"
+
+[install_toml_overlays-plan-qa-falsification]
+created_at = "2026-05-24T06:45:18Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_017.drop.install_toml_overlays"
+title = "Plan-QA falsif of user + project install.toml override loaders"
+updated_at = "2026-05-24T06:45:18Z"

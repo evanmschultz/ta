@@ -1,0 +1,206 @@
+[real_apply_registrations]
+acceptance_criteria = "1. settings.json is read + parsed + merged + written atomically (no partial writes on error). 2. Missing settings_file is created with minimum required shape. 3. Composite-key dedupe: registering {matcher='Bash', command='guard.sh'} twice produces ONE entry. 4. Different commands at same matcher produce DISTINCT entries. 5. The registration writer is testable in isolation (unit tests without full install pipeline). 6. Report.Registrations records the actual outcomes (added, deduped, error) not just intent."
+created_at = "2026-05-24T06:00:00Z"
+definition_of_complete = "1. applyRegistrations writes real JSON edits to settings_file declared in each substrate's [[register]] entries. 2. configmerge.arrayContains uses composite (matcher + command) key dedupe instead of matcher-alone (the original L3-I5 punt blocker). 3. installed_plugins.json is read for plugin enable state checks; <projectRoot>/.claude/plugins/<plugin>/ presence check retired. 4. Tests: hook registration adds entry; re-install does not duplicate; settings.json schema preserved; existing entries with different matchers preserved. 5. End-to-end: substrate copy + registration writes complete in one install pass. 6. mage check green; CI green."
+drop_number = 18.0
+labels = ["registration-writer", "l3-i5-punt-resolution", "v01-followup"]
+objective = "Replace the applyRegistrations stub in internal/install/install.go:281 with a real writer that materializes each substrate's [[register]] directives into the declared settings_file. Reads existing settings.json (or creates empty), finds or creates the JSON path (e.g., hooks.PreToolUse[?(@.matcher=='Bash')]), uses configmerge with composite-key dedupe (matcher+command) to avoid duplicates. Reads installed_plugins.json as the source of truth for plugin enable state per drop_004 L2-I plan-QA falsification finding. Idempotent: re-running install adds no duplicates."
+packages = ["internal/install", "internal/configmerge"]
+paths = ["internal/install/install.go", "internal/install/registrations.go", "internal/install/registrations_test.go", "internal/configmerge/**"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "real applyRegistrations writer (L3-I5)"
+updated_at = "2026-05-24T06:00:00Z"
+
+[real_apply_registrations-plan-qa-proof]
+created_at = "2026-05-24T06:45:18Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_018.drop.real_apply_registrations"
+title = "Plan-QA proof of real applyRegistrations writer (L3-I5)"
+updated_at = "2026-05-24T06:45:18Z"
+
+[real_apply_registrations-plan-qa-falsification]
+created_at = "2026-05-24T06:45:18Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_018.drop.real_apply_registrations"
+title = "Plan-QA falsif of real applyRegistrations writer (L3-I5)"
+updated_at = "2026-05-24T06:45:18Z"
+
+[planner_l1_real_apply_registrations]
+acceptance_criteria = "1. Exactly 4 builder droplets. 2. Every droplet states paths, packages, existing evidence anchors, verification command, and explicit atomicity verification ('1-2 small blocks including tests'). 3. Command derivation is planner-bound via Option A: `installconfig.Registration.SourceFile` names exactly one substrate-source-relative hook script, and the writer resolves `command` to the project-relative destination path formed from `sub.Destination + SourceFile` (for example `.claude/hooks/git_commit_guard.sh`). 4. No droplet assumes non-hook register shapes or an installed_plugins.json seam. 5. Claude user settings shape remains top-level event keys for this drop; plugin `hooks/hooks.json` wrapper format is explicitly out of scope. 6. Report outcome tracking is additive and explicitly scoped, not a silent mutation of Report.Registrations. 7. D1 and D2 are parallel-safe; D3 and D4 are serialized on internal/install file/package overlap."
+created_at = "2026-05-24T06:01:00Z"
+definition_of_complete = "The round-4 re-plan closes the remaining round-3 falsification finding by binding command derivation to Option A (`Registration.SourceFile`) instead of leaving `RegistrationOutcome.Command` implementation-defined. The resulting 4-droplet decomposition keeps each builder task atomic, hook-only, and evidence-grounded, while preserving the prior round fixes around top-level Claude user-settings shape, explicit additive reporting, and the punted installed_plugins follow-up. All concrete symbols named in the droplets are either re-verified from the committed `main` tree this turn or marked `new, not yet in tree`."
+description = """
+L1 round-4 re-decomposition for `real_apply_registrations` after plan-QA round 3: PROOF PASS, FALSIFICATION FAIL with one remaining planner-level counterexample (`Command` derivation unbound).
+
+Round-4 planner choice:
+- Option A selected. `installconfig.Registration` is extended with `SourceFile string`.
+- Each `[[register]]` entry names exactly one copied hook script.
+- The registration writer resolves the final `command` string by joining the substrate destination with `SourceFile`, preserving project-relative slash paths. Example: `source_file = "git_commit_guard.sh"` under destination `.claude/hooks` writes `command = ".claude/hooks/git_commit_guard.sh"`.
+- Fan-out semantics (Option B) and matcher/glob convention (Option C) are rejected for this drop: both would widen behavior beyond the committed contract and re-open the ambiguity that falsification found.
+
+Evidence basis used before decomposition:
+- Parent + QA records: `drop_018.drop.real_apply_registrations`, `drop_018.drop.planner_l1_real_apply_registrations`, and `drop_018.drop.planner_l1_real_apply_registrations-plan-qa-falsification` establish the exact remaining hole: `RegistrationOutcome.Command` lacked a bound derivation rule.
+- Committed type evidence from `github.com/evanmschultz/ta@main/internal/installconfig/config.go`: `Registration` currently has only `Event`, `Matcher`, and `SettingsFile`; there is no command-bearing field today.
+- Committed config evidence from `github.com/evanmschultz/ta@main/internal/installconfig/defaults.toml` and `.../testdata/install.toml`: only `substrate.claude_hooks` declares `[[register]]`, and each register entry is currently event/matcher/settings_file only. Hook registration remains the only grounded register shape in-tree.
+- Committed install evidence from `github.com/evanmschultz/ta@main/internal/install/install.go`: `Report.Registrations` is still `[]installconfig.Registration`, `arrayDedupeRegistry` still keys Claude settings under wrapped `hooks.*`, and `applyRegistrations` is still the stub recorder.
+- Committed test evidence from `github.com/evanmschultz/ta@main/internal/install/install_test.go`, `internal/install/merge_test.go`, `internal/configmerge/configmerge_test.go`, `internal/installconfig/defaults_test.go`, and `internal/installconfig/load_test.go`: existing anchors verified this turn include `TestApply_RegistrationDirectivesRecordedInReport`, `TestApply_MergePathDeepDedupesHooks`, `TestMergeFile_MergePathDeepDedupesNamedArray`, `TestJSONMerger_ArrayDedupeByCommand`, `TestJSONMerger_IdempotentReapply`, `TestEmbeddedDefaults_HooksRegisterTriple`, `TestLoad_ParsesMultiRegisterEntries`, and `TestLoadFile_AcceptsCanonicalFixture`.
+- Committed persistence evidence from `github.com/evanmschultz/ta@main/internal/fsatomic/fsatomic.go`: `fsatomic.Write` remains the atomic same-directory temp+rename seam for real settings writes.
+- Live LSP evidence: not available this turn because the checkout-local gopls transport closed mid-dispatch. Existing symbol claims in this plan are therefore grounded from committed-tree fetches above; every new symbol is marked `new, not yet in tree`.
+
+## D1
+Proposed id: `drop_018.drop.builder_d1_registration_sourcefile_contract`
+Title: `D1 builder — extend installconfig registration contract with source_file`
+Persona target: `ta-go-builder`
+Objective: implement Option A at the schema/fixture layer by extending `installconfig.Registration` with `SourceFile string`, updating the committed hook register literals to require one script per entry, and tightening installconfig tests so a register without `source_file` is no longer a valid contract.
+Definition of complete:
+- `internal/installconfig/config.go` adds `Registration.SourceFile string \u007Ftoml:"source_file"\u007F`.
+- `internal/installconfig/defaults.toml` and `internal/installconfig/testdata/install.toml` update every `substrate.claude_hooks.register` entry to include `source_file`, producing a one-entry-to-one-script contract.
+- The installconfig load/embedded-default tests assert non-empty `SourceFile` on hook registrations, and validation rejects missing `source_file` for register entries.
+Acceptance criteria:
+- Existing evidence anchors: `Registration` in `internal/installconfig/config.go`; `substrate.claude_hooks.register` entries in `internal/installconfig/defaults.toml` and `internal/installconfig/testdata/install.toml`; `TestEmbeddedDefaults_HooksRegisterTriple` in `internal/installconfig/defaults_test.go`; `TestLoad_ParsesMultiRegisterEntries` and `TestLoadFile_AcceptsCanonicalFixture` in `internal/installconfig/load_test.go`.
+- New, not yet in tree: `Registration.SourceFile`, `TestValidate_RejectsRegisterMissingSourceFile`.
+- Paths: `internal/installconfig/config.go`, `internal/installconfig/defaults.toml`, `internal/installconfig/testdata/install.toml`, `internal/installconfig/defaults_test.go`, `internal/installconfig/load_test.go`.
+- Packages: `github.com/evanmschultz/ta/internal/installconfig`.
+- Verification: `TA_TEST_PKG=./internal/installconfig mage testFunc 'TestEmbeddedDefaults_HooksRegisterTriple|TestLoad_ParsesMultiRegisterEntries|TestLoadFile_AcceptsCanonicalFixture|TestValidate_RejectsRegisterMissingSourceFile'`.
+Atomicity verification:
+- This is 1-2 small blocks: one schema-plus-fixture contract block and one focused installconfig test block.
+Depends_on:
+- none
+
+## D2
+Proposed id: `drop_018.drop.builder_d2_configmerge_composite_registration_dedupe`
+Title: `D2 builder — composite-key array dedupe in configmerge`
+Persona target: `ta-go-builder`
+Objective: widen the `internal/configmerge` array-dedupe contract so hook registrations dedupe on the `(matcher, command)` tuple while preserving existing single-key callers.
+Definition of complete:
+- `internal/configmerge/configmerge.go` still accepts today's single-key dedupe values, and also supports the composite registration identity needed by hook writes.
+- Duplicate hook registrations are only those with the same matcher and same command; same matcher with different command survives.
+Acceptance criteria:
+- Existing evidence anchors: `TestJSONMerger_ArrayDedupeByCommand` and `TestJSONMerger_IdempotentReapply` in `internal/configmerge/configmerge_test.go`; the shared deep-merge array dedupe seam in `internal/configmerge/configmerge.go`.
+- New, not yet in tree: `TestJSONMerger_ArrayDedupeByMatcherAndCommandTuple`, `TestJSONMerger_ArrayDedupeSameMatcherDifferentCommandSurvives`.
+- Paths: `internal/configmerge/configmerge.go`, `internal/configmerge/configmerge_test.go`.
+- Packages: `github.com/evanmschultz/ta/internal/configmerge`.
+- Verification: `TA_TEST_PKG=./internal/configmerge mage testFunc 'TestJSONMerger_ArrayDedupeByCommand|TestJSONMerger_ArrayDedupeByMatcherAndCommandTuple|TestJSONMerger_ArrayDedupeSameMatcherDifferentCommandSurvives|TestJSONMerger_IdempotentReapply'`.
+Atomicity verification:
+- This is 1-2 small blocks: one merger-contract edit and one focused test block.
+Depends_on:
+- none
+
+## D3
+Proposed id: `drop_018.drop.builder_d3_claude_hook_shape_and_writer`
+Title: `D3 builder — correct Claude user-settings shape and add real hook writer`
+Persona target: `ta-go-builder`
+Objective: migrate the `internal/install` hook-writing surface from wrapped `hooks.*` assumptions to top-level event arrays, and add `new, not yet in tree: internal/install/registrations.go` that reads or creates the settings JSON, writes the hook entries, and resolves `Registration.SourceFile` to the project-relative destination `command` string.
+Definition of complete:
+- `arrayDedupeRegistry` no longer keys Claude user-settings dedupe under wrapped `hooks.PreToolUse` / `hooks.SessionStart`; it keys the top-level user-settings event arrays actually written by this drop.
+- The new writer handles only the grounded `claude_hooks` register shape and persists via `fsatomic.Write`.
+- For each registration, the writer resolves `command` as the project-relative destination hook path: `join(sub.Destination, reg.SourceFile)` with slash-normalized separators. Example: destination `.claude/hooks` plus `source_file = "git_commit_guard.sh"` writes `.claude/hooks/git_commit_guard.sh`.
+- Missing `.claude/settings.json` or `.claude/settings.local.json` is created as the minimal root object needed for top-level event arrays.
+- Re-running the same registration does not duplicate an identical matcher+command pair.
+Acceptance criteria:
+- Existing evidence anchors: `arrayDedupeRegistry` and `applyRegistrations` seam in `internal/install/install.go`; `TestApply_MergePathDeepDedupesHooks` in `internal/install/install_test.go`; `TestMergeFile_MergePathDeepDedupesNamedArray` in `internal/install/merge_test.go`; `fsatomic.Write` in `internal/fsatomic/fsatomic.go`; `Registration.SourceFile` from D1.
+- New, not yet in tree: `internal/install/registrations.go`, `internal/install/registrations_test.go`, `TestApplyRegistrations_SourceFileResolvesToDestinationCommand`, `TestApplyRegistrations_WritesTopLevelEventHooks`, `TestApplyRegistrations_ReapplyDedupesSameMatcherAndCommand`, `TestApplyRegistrations_CreatesMissingSettingsFileRootObject`.
+- Paths: `internal/install/install.go`, `internal/install/install_test.go`, `internal/install/merge_test.go`, `internal/install/registrations.go`, `internal/install/registrations_test.go`.
+- Packages: `github.com/evanmschultz/ta/internal/install`.
+- Verification: `TA_TEST_PKG=./internal/install mage testFunc 'TestApply_MergePathDeepDedupesHooks|TestMergeFile_MergePathDeepDedupesNamedArray|TestApplyRegistrations_SourceFileResolvesToDestinationCommand|TestApplyRegistrations_WritesTopLevelEventHooks|TestApplyRegistrations_ReapplyDedupesSameMatcherAndCommand|TestApplyRegistrations_CreatesMissingSettingsFileRootObject'`.
+Atomicity verification:
+- This is 1-2 small blocks: one internal/install contract block (shape correction plus writer helper) and one focused regression block.
+Depends_on:
+- `drop_018.drop.builder_d1_registration_sourcefile_contract`
+- `drop_018.drop.builder_d2_configmerge_composite_registration_dedupe`
+
+## D4
+Proposed id: `drop_018.drop.builder_d4_apply_integration_and_registration_outcomes`
+Title: `D4 builder — replace stub and add additive registration outcomes report`
+Persona target: `ta-go-builder`
+Objective: replace the `applyRegistrations` stub in `internal/install/install.go` with the real D3 writer, preserve `Report.Registrations []installconfig.Registration` as the directive echo, and add `new, not yet in tree: Report.RegistrationOutcomes []RegistrationOutcome` where `RegistrationOutcome` is exactly `{Substrate string, SettingsFile string, Event string, Matcher string, Command string, Status string, Error string}` for actual added/deduped/error results.
+Definition of complete:
+- `Apply` no longer stops at appending directives; it invokes the D3 writer after substrate file processing.
+- `Report.Registrations` remains the existing directive contract so current callers are not silently broken.
+- Outcome tracking is additive through `new, not yet in tree: RegistrationOutcome` rather than a breaking retype of `Report.Registrations`.
+- `RegistrationOutcome.Command` is not implementation-defined in this droplet: it MUST equal the resolved project-relative destination hook path from D3, derived from `sub.Destination + reg.SourceFile`.
+- `Status` is a closed string enum for this drop: `added`, `deduped`, or `error`. `Error` is populated only when `Status == "error"` and is empty otherwise.
+Acceptance criteria:
+- Existing evidence anchors: `Report`, `Report.Registrations`, and `applyRegistrations` in `internal/install/install.go`; `TestApply_RegistrationDirectivesRecordedInReport` in `internal/install/install_test.go`; `Registration` fields in `internal/installconfig/config.go` as extended by D1.
+- New, not yet in tree: `RegistrationOutcome`, `Report.RegistrationOutcomes`, `RegistrationOutcome.Substrate`, `RegistrationOutcome.SettingsFile`, `RegistrationOutcome.Event`, `RegistrationOutcome.Matcher`, `RegistrationOutcome.Command`, `RegistrationOutcome.Status`, `RegistrationOutcome.Error`, `TestApply_RegistrationDirectivesWriteSettingsFileAndKeepDirectiveReport`, `TestApply_RegistrationOutcomeContract_AddedAndDeduped`, `TestApply_RegistrationOutcomeContract_Error`.
+- Exact outcome contract required: every emitted `RegistrationOutcome` record MUST contain all seven fields. `Substrate` carries the substrate key (for example `claude_hooks`); `SettingsFile` carries the destination settings file path being mutated; `Event` carries the top-level Claude hook event key; `Matcher` carries the registration matcher; `Command` carries the resolved destination hook path from D3; `Status` is exactly one of `added`, `deduped`, or `error`; `Error` is empty unless `Status == "error"`.
+- Paths: `internal/install/install.go`, `internal/install/install_test.go`, `internal/install/registrations.go`, `internal/install/registrations_test.go`.
+- Packages: `github.com/evanmschultz/ta/internal/install`.
+- Verification: `TA_TEST_PKG=./internal/install mage testFunc 'TestApply_RegistrationDirectivesWriteSettingsFileAndKeepDirectiveReport|TestApply_RegistrationOutcomeContract_AddedAndDeduped|TestApply_RegistrationOutcomeContract_Error|TestApplyRegistrations_SourceFileResolvesToDestinationCommand'`.
+Atomicity verification:
+- This is 1-2 small blocks: one orchestration/report-contract block and one Apply-level regression-migration block.
+Depends_on:
+- `drop_018.drop.builder_d3_claude_hook_shape_and_writer`
+
+## Dependency and blocking check
+- `D1` and `D2` are parallel-safe: `D1` is package-isolated in `internal/installconfig`; `D2` is package-isolated in `internal/configmerge`.
+- `D3` depends on both `D1` and `D2` because it consumes `Registration.SourceFile` and the composite dedupe contract.
+- `D4` depends on `D3` and stays serialized on `internal/install` file/package overlap.
+- No unordered sibling pair shares a file path.
+
+## Unknowns routed, not hidden
+- The checkout-local gopls transport closed during this dispatch, so I could not re-run live symbol lookups after the initial record fetch. I treated committed `main` tree fetches as the authoritative evidence layer for existing symbols and marked all newly named symbols as `new, not yet in tree`.
+- Public Claude docs and prior skill evidence still disagree about wrapped-vs-top-level hook JSON examples. This drop continues to follow the top-level event-key contract for user settings files only; plugin `hooks/hooks.json` remains out of scope.
+- Plugin enable-state / `installed_plugins.json` work remains explicitly out of scope for this drop and must not be silently folded back in by a builder.
+"""
+labels = ["registration-writer", "L1", "load-bearing-l3-i5"]
+objective = "Re-decompose drop_018 into 4 atomic builder droplets covering: (a) Option A schema binding via `Registration.SourceFile`; (b) composite-key dedupe in `internal/configmerge`; (c) `internal/install` shape correction plus a real hook writer that resolves `command` from destination + `SourceFile`; and (d) Apply integration that replaces the stub while preserving `Report.Registrations` and adding exact additive outcomes. Explicit non-goals for this pass: installed_plugins.json/plugin enable-state and any non-hook register shapes."
+outcome = "success"
+packages = ["internal/install", "internal/configmerge"]
+paths = ["internal/install/**", "internal/configmerge/**"]
+role = "planner"
+state = "complete"
+title = "L1 plan — real applyRegistrations writer (L3-I5 punt resolution)"
+transition_notes = """
+Re-authored to close verdict `drop_018.drop.planner_l1_real_apply_registrations-plan-qa-falsification`. Fix mapping: (1) JSON shape bug -> D2 migrates current merge surface to top-level event keys and D3 writes the same shape; (2) non-hook register shapes -> prior D4 removed, decomposition is hook-only; (3) installed_plugins.json seam -> prior D2 removed and explicitly punted to a follow-up drop; (4) report contract change -> D4 scopes it explicitly as additive `Report.RegistrationOutcomes` while preserving `Report.Registrations`.
+Round 4 complete: Option A selected to close the remaining planner-level counterexample. `installconfig.Registration` now owns a planned `SourceFile` field, every hook `[[register]]` entry names exactly one script, and D3/D4 bind `command` to the resolved project-relative destination hook path (`sub.Destination + SourceFile`) instead of leaving it builder-defined. Rounds 1-3 audit preserved above.
+"""
+updated_at = "2026-05-24T06:01:00Z"
+[planner_l1_real_apply_registrations-plan-qa-proof]
+completed_at = "2026-05-24T17:15:00Z"
+completion_contract = {completion_notes = """
+ROUND 3 PASS. Round-2 falsification's single remaining counterexample (D4 RegistrationOutcome under-specified — builder could satisfy with status-only or count-only opaque surface) is now closed by the round-3 planner. Six checks performed against the planner record body:
+
+CHECK 1 (exact 7-field contract verbatim) — PASS. D4 Objective: "`RegistrationOutcome` is exactly `{Substrate string, SettingsFile string, Event string, Matcher string, Command string, Status string, Error string}`". D4 Definition of complete: "`RegistrationOutcome` is load-bearingly exact for this droplet: the required field set is `{Substrate, SettingsFile, Event, Matcher, Command, Status, Error}`. A status-only, count-only, or otherwise weaker outcome surface does not satisfy this plan item." D4 Acceptance criteria: "every emitted `RegistrationOutcome` record MUST contain all seven fields" with per-field semantics enumerated (Substrate carries the substrate key, SettingsFile carries the destination settings file path, Event carries the top-level Claude hook event key, Matcher carries the registration matcher, Command carries the resolved command path, Status is the enum, Error is conditional).
+
+CHECK 2 (Status enum-bound) — PASS. D4 Definition of complete: "`Status` is a closed string enum for this drop: `added`, `deduped`, or `error`." D4 Acceptance criteria: "`Status` is exactly one of `added`, `deduped`, or `error`". Builders cannot satisfy this with an open string.
+
+CHECK 3 (Error conditional on Status=="error") — PASS. D4 Definition of complete: "`Error` is populated only when `Status == \\"error\\"` and is empty otherwise." D4 Acceptance criteria: "`Error` is empty unless `Status == \\"error\\"`". The contract is symmetric: populated iff error.
+
+CHECK 4 (D4 verification targets cover added/deduped/error) — PASS. D4 `new, not yet in tree` list names: `TestApply_RegistrationOutcomeContract_AddedAndDeduped`, `TestApply_RegistrationOutcomeContract_Error`, plus the integration test `TestApply_RegistrationDirectivesWriteSettingsFileAndKeepDirectiveReport` that proves directive preservation alongside settings-file mutation. D4 verification command runs all three new tests plus the wrapped-shape regression `TestApply_MergePathDeepDedupesHooks`: `TA_TEST_PKG=./internal/install mage testFunc 'TestApply_RegistrationDirectivesWriteSettingsFileAndKeepDirectiveReport|TestApply_RegistrationOutcomeContract_AddedAndDeduped|TestApply_RegistrationOutcomeContract_Error|TestApply_MergePathDeepDedupesHooks'`. The two `_Contract_` tests are explicitly named to assert the 7-field shape; the `_AddedAndDeduped` + `_Error` split covers the three Status enum values.
+
+CHECK 5 (D1/D2/D3 unchanged) — PASS. The planner `transition_notes` explicitly state "Re-authored to close verdict ... Fix mapping: ... (4) report contract change -> D4". Only fix-mapping item (4) is touched; D1/D2/D3 carry the same id slugs, titles, objectives, definition-of-complete clauses, paths, packages, verification commands, atomicity verifications, and depends_on as round 2. D1 still touches only internal/configmerge (composite-key dedupe); D2 still does the wrapped-shape -> top-level event-key migration with the same five paths and three verification tests; D3 still creates internal/install/registrations.go with three named writer tests, depends_on D1+D2. Round-2 falsification verdict text already confirmed "D1 and D2 remain parallel-safe" and "D3 ... does not collide with existing names or files", and the round-3 re-author leaves those droplets verbatim, so no scope creep introduced.
+
+CHECK 6 (Report.Registrations preserved additively) — PASS. D4 Objective: "preserve `Report.Registrations []installconfig.Registration` as the directive echo, and add `new, not yet in tree: Report.RegistrationOutcomes []RegistrationOutcome`". D4 Definition of complete: "`Report.Registrations` remains the existing directive contract so current callers are not silently broken" and "Outcome tracking is additive through `new, not yet in tree: RegistrationOutcome` rather than a breaking retype of `Report.Registrations`." D4 Acceptance criteria explicitly anchors `Report.Registrations` and `TestApply_RegistrationDirectivesRecordedInReport` as existing evidence anchors and lists `Report.RegistrationOutcomes` separately under `new, not yet in tree`. No breaking retype.
+
+Falsification attack sweep (proof-side adversarial pass): looked for (a) optional/maybe wording on Status — none, every reference uses "is exactly one of" or "closed string enum"; (b) any text in D1/D2/D3 that could be read as widened scope vs round 2 — none, droplets are byte-identical in framing per the transition_notes mapping; (c) any silent mutation of `Report.Registrations` field type — none, planner explicitly retains `[]installconfig.Registration` and the additive field is a sibling. No unmitigated counterexample.
+
+ROUND 2 PASS notes (preserved verbatim for audit): Re-decomposition closes all four round-1 falsification counterexamples and every concrete symbol named in the four droplets verifies against the committed tree. Verification trail: (1) D1 surgical-surface check — internal/configmerge/configmerge.go has arrayContains as a package-private function at line 333 with exactly one caller (mergeArrays at line 321) per `git grep arrayContains -- internal/`. matchKey threading is already present; widening to composite (matcher+command) is a single-block prod edit plus one focused test block. Existing anchors TestJSONMerger_ArrayDedupeByCommand (configmerge_test.go:74) and TestJSONMerger_IdempotentReapply (configmerge_test.go:254) confirmed present. New tests TestJSONMerger_ArrayDedupeByMatcherAndCommandTuple + TestJSONMerger_ArrayDedupeSameMatcherDifferentCommandSurvives are honestly marked new. (2) D2 shape-correction check — arrayDedupeRegistry at internal/install/install.go:65-74 currently keys claude_settings_fragments under wrapped paths hooks.PreToolUse / hooks.SubagentStop / hooks.SessionStart, all with matcher-only dedupe; the proposed top-level event-key migration is a direct shape correction. The wrapped shape is also pinned by TestApply_MergePathDeepDedupesHooks (install_test.go:361-477) and TestMergeFile_MergePathDeepDedupesNamedArray (merge_test.go:177-242). Both must migrate to the top-level event-key shape — D2 calls this out explicitly. Defaults-side anchors: internal/installconfig/defaults.toml:77-82 and internal/installconfig/testdata/install.toml:74-79. Authoritative external evidence: Context7 fetch of /anthropics/claude-code (plugin-dev/skills/hook-development/SKILL.md) returns explicit `.claude/settings.json` schema as top-level event keys, no `hooks` wrapper. Round-1 falsif counterexample (1) addressed. (3) D3 hook-writer check — internal/install/registrations.go is ABSENT in the committed tree, so the `new, not yet in tree` framing is honest. Registration struct at internal/installconfig/config.go:49-53 has exactly Event/Matcher/SettingsFile. claude_hooks register triples present in both defaults.toml and testdata/install.toml. fsatomic.Write at internal/fsatomic/fsatomic.go:19 is the same-dir temp+rename atomic writer. (4) D4 additive-Report check — internal/install/install.go:44-49 currently defines `Registrations []installconfig.Registration` as the directive echo; D4 PRESERVES this signature and ADDS a separate field. New tests cover both halves of the additive contract. (5) Round-1 dropped scope verified — `git grep installed_plugins` returns ONLY docs and ZERO code refs. (6) Plugin enable-state punt verified — honest punt, not silent. (7) Dependency ordering verified — D1+D2 parallel-safe (different packages); D3 depends on D1+D2; D4 depends on D3. (8) Unknowns routed honestly.
+
+ROUND 1 PASS notes (preserved verbatim for audit): All 7 named test anchors verified via Hylla on github.com/evanmschultz/ta@main (snapshot 17): TestJSONMerger_ArrayDedupeByCommand + TestJSONMerger_IdempotentReapply (internal/configmerge/configmerge_test.go lines 74 + 254), TestApply_RegistrationDirectivesRecordedInReport + TestApply_MergePathDeepDedupesHooks (internal/install/install_test.go), TestMergeFile_MergePathDeepDedupesNamedArray (internal/install/merge_test.go), TestEmbeddedDefaults_HooksRegisterTriple + TestLoad_ParsesRegistrationArray + TestLoad_ParsesMultiRegisterEntries + TestLoadFile_AcceptsCanonicalFixture (internal/installconfig/). internal/install/install.go applyRegistrations STUB confirmed (lines 281-291). internal/configmerge/arrayContains is package-private at line 333 — surgical surface confirmed. internal/fsatomic/Write is the documented same-dir temp + rename writer. arrayDedupeRegistry verified via Hylla. Per-droplet atomicity check holds. All new test symbols honestly marked 'new, not yet in tree'.
+
+ROUND 3 VERDICT: PROOF PASS — D4 RegistrationOutcome contract is now exact (7 named fields, Status enum-bound, Error conditional), D4 verification covers added/deduped/error explicitly, D1/D2/D3 are unchanged (verified by planner transition_notes scope statement and droplet-body inspection), Report.Registrations preserved additively. Awaiting round-3 QA-falsification verdict for joint convergence.
+"""}
+created_at = "2026-05-24T06:45:54Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_018.drop.planner_l1_real_apply_registrations"
+title = "Plan-QA proof of L1 plan — real applyRegistrations writer (L3-I5 punt resolution)"
+transition_notes = "ROUND 4 VERDICT: PROOF PASS. Round-4 planner closes the round-3 falsification counterexample (`Command` derivation unbound) structurally via Option A: `installconfig.Registration` gains `SourceFile string`; every `[[register]]` entry names exactly one script (one-entry-to-one-script contract); Validate rejects missing source_file; D3 derivation formula `join(sub.Destination, reg.SourceFile)` is uniquely determined; D4 binds `RegistrationOutcome.Command` to that identical formula. Builders cannot satisfy the plan with an arbitrary `Command` value. All 10 enumerated checks PASS: (1) D1 adds SourceFile to Registration struct; (2) D1 updates defaults.toml hook entries; (3) D1 updates testdata/install.toml; (4) D1 names TestValidate_RejectsRegisterMissingSourceFile; (5) D2 unchanged from round 3 (composite-key dedupe); (6) D3 composes shape correction + SourceFile-derived command path; (7) D4 Command matches D3 derivation; (8) D1+D2 parallel (disjoint packages internal/installconfig vs internal/configmerge), D3 after both, D4 after D3; (9) per-droplet 1-2 small blocks including tests; (10) Command derivation counterexample closed structurally. Evidence verified against committed `main` tree: internal/installconfig/{config.go,defaults.toml,testdata/install.toml,defaults_test.go,load_test.go,validate.go}, internal/install/install.go (applyRegistrations stub at L289-291, arrayDedupeRegistry wrapped-shape at L65-74, Report.Registrations at L47), internal/configmerge/configmerge.go (arrayContains seam at L333), internal/fsatomic/fsatomic.go (Write at L19). registrations.go honestly absent. Rounds 1+2+3 verdict text preserved in completion_contract.completion_notes."
+updated_at = "2026-05-24T17:15:00Z"
+[planner_l1_real_apply_registrations-plan-qa-falsification]
+completed_at = "2026-05-24T16:43:23Z"
+completion_contract = {completion_notes = "ROUND 3 FAIL. Evidence gathered in required order: (1) ta.get on `drop_018.drop.real_apply_registrations`, `drop_018.drop.planner_l1_real_apply_registrations`, and this node; (2) `git status` showed `drop_018` is currently untracked in git, so no git diff/log history was available for a direct round-2 vs round-3 text diff; (3) committed-code reads from `github.com/evanmschultz/ta@main` for `internal/install/install.go`, `internal/install/install_test.go`, `internal/install/merge_test.go`, `internal/installconfig/defaults.toml`, `internal/installconfig/testdata/install.toml`, `internal/installconfig/config.go`, and `internal/fsatomic/fsatomic.go`; (4) live symbol checks via checkout-local gopls for `applyRegistrations`, `Report.Registrations`, `Registration.Event`, `Registration.Matcher`, `Registration.SettingsFile`, and absence of `RegistrationOutcome`; (5) executable regression pressure via `mage testFunc 'TestApply_MergePathDeepDedupesHooks|TestMergeFile_MergePathDeepDedupesNamedArray|TestApply_RegistrationDirectivesRecordedInReport|TestEmbeddedDefaults_HooksRegisterTriple|TestLoad_ParsesMultiRegisterEntries|TestLoadFile_AcceptsCanonicalFixture|TestJSONMerger_ArrayDedupeByCommand|TestJSONMerger_IdempotentReapply'` => PASS (8 tests, 0 failed). Round-3 attack results: (A) D4 exact-field tightening is real. The planner now requires an exact additive `RegistrationOutcome` shape with fields `{Substrate, SettingsFile, Event, Matcher, Command, Status, Error}` and status enum `added|deduped|error`; the round-2 status-only/count-only counterexample no longer stands. (B) Remaining confirmed counterexample: `Command` is still under-specified at planner level. Committed repo evidence continues to show `installconfig.Registration` carries only `event`, `matcher`, and `settings_file`; neither `defaults.toml` nor `install.go` define a command-bearing field or mapping rule from a `register` triple to a concrete hook script path. `internal/install/install.go` copies hook files under substrate destination and then records raw `sub.Register` entries. The committed stub test `TestApply_RegistrationDirectivesRecordedInReport` already provides a concrete ambiguity case: one copied source hook file (`hooks/pre.sh`) and two register directives (`PreToolUse/Bash` and `SessionStart/*`). The round-3 planner says builder work must prove how the final command string is resolved, but D3/D4 still do not state that rule or pin it with a named test. As a result, multiple incompatible implementations can satisfy the current plan while emitting different `Command` values and writing different settings payloads. This is a real planner-level under-specification, not merely a builder unknown. (C) D1-D3 appear textually intended to remain unchanged from round 2, but because `drop_018` is untracked in git I could not produce a direct git diff between round texts; this remains an evidence limitation, not the reason for FAIL. (D) The closed `Status` set itself is acceptable for the new examples raised in the round-3 brief: read-only settings-file failures, create/write failures, and rollback-visible write failures all fit `Status == \"error\"` with `Error` populated; no separate `skipped` or `rolled-back` status is required by committed code evidence today. Needed amendment for PASS: bind the command-resolution rule in D3/D4 to committed evidence and add a named acceptance test that proves how a `claude_hooks.register` entry selects the exact command string written into settings and surfaced in `RegistrationOutcome.Command`. ROUND-2 NOTES (preserved summary): FAIL because D4 named an additive `RegistrationOutcome` but left its fields under-specified, allowing status-only/count-only implementations. ROUND-1 NOTES (preserved summary): FAIL because the original decomposition assumed wrapped Claude settings shape, invented non-hook register scope, relied on an unproven installed_plugins seam, and treated report outcomes as a trivial mutation instead of a contract change."}
+created_at = "2026-05-24T06:45:54Z"
+outcome = "failure"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_018.drop.planner_l1_real_apply_registrations"
+title = "Plan-QA falsif of L1 plan — real applyRegistrations writer (L3-I5 punt resolution)"
+transition_notes = "ROUND 3 VERDICT: FAIL with 1 remaining planner-level counterexample. Round-2's D4 field-shape hole is closed: the planner now binds an exact additive `RegistrationOutcome` contract with seven fields (`Substrate`, `SettingsFile`, `Event`, `Matcher`, `Command`, `Status`, `Error`) and a closed status set (`added|deduped|error`). The remaining hole is upstream of that contract: the decomposition still does not bind how a `claude_hooks.register` directive maps to the concrete hook `command` string that D3 writes and D4 reports. Committed evidence still shows `installconfig.Registration` has only `Event`, `Matcher`, and `SettingsFile`; `internal/install/install.go` still copies hook files and appends raw `sub.Register` entries with no command-bearing field or mapping seam; and the committed stub test fixture already demonstrates one copied hook file with two register directives. Counterexample: multiple incompatible implementations can satisfy the current D3/D4 text and named D4 tests while emitting different `Command` values for the same planner input, because the planner never states whether command is derived from the copied hook destination path, a distinguished filename, a single shared script, or some other hook-file selection rule. That leaves both the actual settings mutation and `RegistrationOutcome.Command` underdetermined. ROUND-2 and ROUND-1 verdicts preserved in completion_contract.completion_notes."
+updated_at = "2026-05-24T16:43:23Z"

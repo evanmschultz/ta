@@ -1220,3 +1220,192 @@ func TestF15_TemplateSave_MergesIntoSchemaToml(t *testing.T) {
 		}
 	}
 }
+
+// ---- substrate scope guards + legacy tests --------------------------------
+//
+// TestTemplateSaveSubstrateScopeGuards pins the defensive checks for the
+// new --substrate lane introduced in drop_016: mutual exclusion with
+// --kind, --group-only-for-claude_agents, path-required, and bundle
+// substrate rejection.
+
+func TestTemplateSaveSubstrateScopeGuards(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "substrate + kind mutually exclusive",
+			args:    []string{"save", "--substrate=claude_agents", "--kind=schema", "--path", "dummy.md"},
+			wantErr: "mutually exclusive",
+		},
+		{
+			name:    "substrate requires path",
+			args:    []string{"save", "--substrate=claude_agents"},
+			wantErr: "--path is required",
+		},
+		{
+			name:    "substrate claude_agents with empty path",
+			args:    []string{"save", "--substrate=claude_agents", "--path", ""},
+			wantErr: "--path is required",
+		},
+		{
+			name:    "substrate group only valid for claude_agents",
+			args:    []string{"save", "--substrate=claude_hooks", "--path", "dummy.md", "--group", "mygroup"},
+			wantErr: "--group is only valid",
+		},
+		{
+			name:    "bundle substrate claude_skills unsupported",
+			args:    []string{"save", "--substrate=claude_skills", "--path", "nonexistent.txt"},
+			wantErr: "unsupported in this drop",
+		},
+		{
+			name:    "bundle substrate claude_plugins unsupported",
+			args:    []string{"save", "--substrate=claude_plugins", "--path", "nonexistent.txt"},
+			wantErr: "unsupported in this drop",
+		},
+		{
+			name:    "bundle substrate example_thariq unsupported",
+			args:    []string{"save", "--substrate=example_thariq", "--path", "nonexistent.txt"},
+			wantErr: "unsupported in this drop",
+		},
+		{
+			name:    "bundle substrate example_stil unsupported",
+			args:    []string{"save", "--substrate=example_stil", "--path", "nonexistent.txt"},
+			wantErr: "unsupported in this drop",
+		},
+		{
+			name:    "unknown substrate names supported defaults",
+			args:    []string{"save", "--substrate=unknown_name", "--path", "nonexistent.txt"},
+			wantErr: "supported file-shaped defaults",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := runTemplateCmd(t, tt.args...)
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+// ---- legacy branch preservation -----------------------------------------------
+//
+// The following tests verify that existing legacy --kind=schema and
+// --kind=agent branches still work correctly alongside the new --substrate lane.
+// These tests rerun the legacy paths to guarantee no regression.
+
+// TestTemplateSave_LegacyKindSchemaStillWorks confirms --kind=schema (the default)
+// still behaves as before: reads project schema and merges into home schema.
+func TestTemplateSave_LegacyKindSchemaStillWorks(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	seedCwdSchema(t, twoDBSchema)
+
+	// Bare save should still merge the project dbs into the home.
+	out, errOut, err := runTemplateCmd(t, "save", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v stderr=%s", err, errOut)
+	}
+	var report struct {
+		Written []string `json:"written"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("stdout not JSON: %v\n%s", err, out)
+	}
+	gotWritten := append([]string(nil), report.Written...)
+	sort.Strings(gotWritten)
+	want := []string{"notes", "plans"}
+	if len(gotWritten) != len(want) {
+		t.Fatalf("written = %v, want %v", report.Written, want)
+	}
+	for i, n := range want {
+		if gotWritten[i] != n {
+			t.Errorf("idx %d: got %q, want %q", i, gotWritten[i], n)
+		}
+	}
+}
+
+// TestTemplateSave_LegacyKindAgentStillWorks confirms --kind=agent still
+// routes to the agent save path without any interference from --substrate.
+func TestTemplateSave_LegacyKindAgentStillWorks(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	src := filepath.Join(t.TempDir(), "my-agent.md")
+	if err := os.WriteFile(src, []byte("# my-agent\nbody\n"), 0o644); err != nil {
+		t.Fatalf("seed src: %v", err)
+	}
+
+	out, _, err := runTemplateCmd(t, "save", "--kind=agent", "--path", src, "--group", "go", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var report struct {
+		Kind  string `json:"kind"`
+		Group string `json:"group"`
+		Name  string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("parse: %v\n%s", err, out)
+	}
+	if report.Kind != "agent" {
+		t.Errorf("kind = %q, want agent", report.Kind)
+	}
+	if report.Group != "go" || report.Name != "my-agent" {
+		t.Errorf("group/name = %q/%q, want go/my-agent", report.Group, report.Name)
+	}
+	if _, err := os.Stat(filepath.Join(root, "agents", "go", "my-agent.md")); err != nil {
+		t.Errorf("agent not at expected path: %v", err)
+	}
+}
+
+// TestTemplateSave_LegacyKindConfigStillWorks confirms --kind=config still
+// works without interference from the new --substrate lane.
+func TestTemplateSave_LegacyKindConfigStillWorks(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	src := filepath.Join(t.TempDir(), "test-config.json")
+	if err := os.WriteFile(src, []byte(`{"test":"value"}`), 0o644); err != nil {
+		t.Fatalf("seed src: %v", err)
+	}
+
+	_, _, err := runTemplateCmd(t, "save", "--kind=config", "--path", src, "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "configs", "test-config.json")); err != nil {
+		t.Errorf("config not promoted: %v", err)
+	}
+}
+
+// TestTemplateSave_LegacyKindDocsTemplateStillWorks confirms --kind=docs-template
+// still works correctly.
+func TestTemplateSave_LegacyKindDocsTemplateStillWorks(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+	src := filepath.Join(t.TempDir(), "CLAUDE.md")
+	if err := os.WriteFile(src, []byte("# CLAUDE\nContent here\n"), 0o644); err != nil {
+		t.Fatalf("seed src: %v", err)
+	}
+
+	_, _, err := runTemplateCmd(t, "save", "--kind=docs-template", "--path", src, "--canonical", "CLAUDE", "--json")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "docs-templates", "CLAUDE.md")); err != nil {
+		t.Errorf("docs-template not promoted: %v", err)
+	}
+}

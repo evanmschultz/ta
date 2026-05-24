@@ -386,3 +386,165 @@ func TestSaveAgent_RejectsBadName(t *testing.T) {
 		}
 	}
 }
+
+// TestSaveSubstrateFile_FileShapedSuccess verifies that SaveSubstrateFile
+// successfully saves a file for a supported file-shaped substrate (e.g.,
+// claude_agents with group, or claude_md_fragments without group).
+func TestSaveSubstrateFile_FileShapedSuccess(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+
+	// Create a temporary source file to copy.
+	srcFile := filepath.Join(t.TempDir(), "test.md")
+	srcData := []byte("# Test Agent\nbody\n")
+	if err := os.WriteFile(srcFile, srcData, 0o644); err != nil {
+		t.Fatalf("seed source file: %v", err)
+	}
+
+	// Test 1: grouped substrate (claude_agents).
+	if err := templates.SaveSubstrateFile("claude_agents", srcFile, "go", "test-agent.md", false); err != nil {
+		t.Fatalf("SaveSubstrateFile claude_agents: %v", err)
+	}
+	// Expect: ~/.ta/agents/go/test-agent.md
+	dstPath := filepath.Join(root, "agents", "go", "test-agent.md")
+	got, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("read destination: %v", err)
+	}
+	if string(got) != string(srcData) {
+		t.Errorf("file content mismatch: got %q, want %q", string(got), string(srcData))
+	}
+
+	// Test 2: non-grouped substrate (claude_md_fragments).
+	srcFile2 := filepath.Join(t.TempDir(), "fragment.md")
+	fragData := []byte("## Fragment\nmore text\n")
+	if err := os.WriteFile(srcFile2, fragData, 0o644); err != nil {
+		t.Fatalf("seed fragment file: %v", err)
+	}
+	if err := templates.SaveSubstrateFile("claude_md_fragments", srcFile2, "", "fragment.md", false); err != nil {
+		t.Fatalf("SaveSubstrateFile claude_md_fragments: %v", err)
+	}
+	// Expect: ~/.ta/claude-md/fragment.md
+	fragPath := filepath.Join(root, "claude-md", "fragment.md")
+	gotFrag, err := os.ReadFile(fragPath)
+	if err != nil {
+		t.Fatalf("read fragment: %v", err)
+	}
+	if string(gotFrag) != string(fragData) {
+		t.Errorf("fragment content mismatch: got %q, want %q", string(gotFrag), string(fragData))
+	}
+}
+
+// TestSaveSubstrateFile_RejectsBundleSubstrates verifies that the 4 bundle
+// substrates (claude_skills, claude_plugins, example_thariq, example_stil)
+// are explicitly rejected as unsupported in this drop.
+func TestSaveSubstrateFile_RejectsBundleSubstrates(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+
+	srcFile := filepath.Join(t.TempDir(), "test.txt")
+	if err := os.WriteFile(srcFile, []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	bundleNames := []string{"claude_skills", "claude_plugins", "example_thariq", "example_stil"}
+	for _, name := range bundleNames {
+		err := templates.SaveSubstrateFile(name, srcFile, "", "", false)
+		if err == nil {
+			t.Errorf("SaveSubstrateFile(%q) expected error but got nil", name)
+		}
+		if !strings.Contains(err.Error(), "directory bundle") || !strings.Contains(err.Error(), "unsupported") {
+			t.Errorf("SaveSubstrateFile(%q) error message not helpful: %v", name, err)
+		}
+	}
+}
+
+// TestSaveSubstrateFile_RejectsUnknownSubstrate verifies that an unknown
+// substrate name is rejected with an error naming the 10 supported defaults.
+func TestSaveSubstrateFile_RejectsUnknownSubstrate(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+
+	srcFile := filepath.Join(t.TempDir(), "test.txt")
+	if err := os.WriteFile(srcFile, []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	err := templates.SaveSubstrateFile("not_a_substrate", srcFile, "", "", false)
+	if err == nil {
+		t.Errorf("SaveSubstrateFile unknown substrate expected error but got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown substrate") {
+		t.Errorf("error message should mention unknown substrate: %v", err)
+	}
+	// Error should list the 10 supported defaults.
+	supportedSubstrates := []string{
+		"claude_agents", "claude_hooks", "claude_output_styles",
+		"claude_md_fragments", "claude_settings_fragments", "claude_mcp_servers",
+		"codex_agents", "codex_config_fragments", "codex_mcp_servers", "agents_md",
+	}
+	for _, sub := range supportedSubstrates {
+		if !strings.Contains(err.Error(), sub) {
+			t.Errorf("error message should list supported substrate %q: %v", sub, err)
+		}
+	}
+}
+
+// TestSaveSubstrateFile_RejectsMissingSourceFile verifies that a non-existent
+// source file is rejected with a helpful error.
+func TestSaveSubstrateFile_RejectsMissingSourceFile(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+
+	err := templates.SaveSubstrateFile("claude_agents", "/nonexistent/file.txt", "go", "file.md", false)
+	if err == nil {
+		t.Errorf("SaveSubstrateFile missing source expected error but got nil")
+	}
+	if !strings.Contains(err.Error(), "read source") {
+		t.Errorf("error message should mention read source: %v", err)
+	}
+}
+
+// TestSaveSubstrateFile_ConflictWithoutOverwrite verifies that saving to an
+// existing destination without overwrite=true errors.
+func TestSaveSubstrateFile_ConflictWithoutOverwrite(t *testing.T) {
+	root := t.TempDir()
+	restore := templates.SetRootForTest(root)
+	t.Cleanup(restore)
+
+	srcFile := filepath.Join(t.TempDir(), "test.md")
+	if err := os.WriteFile(srcFile, []byte("body"), 0o644); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+
+	// Save successfully the first time.
+	if err := templates.SaveSubstrateFile("claude_agents", srcFile, "go", "test.md", false); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+
+	// Try to save again without overwrite — should error.
+	err := templates.SaveSubstrateFile("claude_agents", srcFile, "go", "test.md", false)
+	if err == nil {
+		t.Errorf("expected conflict error on second save without overwrite")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error message should mention conflict: %v", err)
+	}
+
+	// With overwrite=true, should succeed.
+	srcFile2 := filepath.Join(t.TempDir(), "test2.md")
+	if err := os.WriteFile(srcFile2, []byte("new body"), 0o644); err != nil {
+		t.Fatalf("seed source 2: %v", err)
+	}
+	if err := templates.SaveSubstrateFile("claude_agents", srcFile2, "go", "test.md", true); err != nil {
+		t.Errorf("overwrite save: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(root, "agents", "go", "test.md"))
+	if string(got) != "new body" {
+		t.Errorf("overwrite did not work: %s", got)
+	}
+}

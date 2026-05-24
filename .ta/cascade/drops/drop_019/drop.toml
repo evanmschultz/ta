@@ -1,0 +1,30 @@
+[install_e2e_full_substrate]
+acceptance_criteria = "1. Test runs in <10s. 2. No pollution of real ~/.ta/ or .claude/. 3. Test failures produce actionable error messages (diff of expected vs actual settings.json). 4. Excluded paths (.ta/cascade/, .ta/roadmap/) verified untouched. 5. Tests both copy-only substrates and merge substrates. 6. Tests custom substrate added via project override."
+created_at = "2026-05-24T06:00:00Z"
+definition_of_complete = "1. New TestInstall_E2E_FullSubstrate in internal/install/ or new internal/installe2e/ package. 2. Fixture creates temp project + temp home dir (no live ~/.ta/ pollution). 3. Test seeds substrates with shipped defaults (drop_020 dependency) plus a custom test substrate. 4. Asserts file presence + content for each substrate. 5. Asserts registration entries in settings.json match expected for each substrate's [[register]] declaration. 6. Asserts re-running install is no-op (no file changes, no duplicate registrations). 7. mage check green. 8. CI green."
+drop_number = 19.0
+labels = ["install-e2e", "l3-i6-punt-resolution", "v01-followup"]
+objective = "Land TestInstall_E2E_FullSubstrate that the L2-I plan-QA originally punted. The test boots a fresh temp project, layers a custom substrate via project override (drop_017), runs ta template save (drop_016) to populate ~/.ta/<dir>, runs ta install, then verifies (a) all 14 default substrates plus the custom one copied to their declared destinations, (b) registration directives wrote real entries to settings_file (drop_018), (c) re-running install is idempotent. Sandbox-safe: runs in a temp dir, NOT in ta/main; backup primitives respect .ta/cascade/ and .ta/roadmap/ exclusions."
+packages = ["internal/installe2e", "internal/install"]
+paths = ["internal/installe2e/**", "internal/install/install_test.go"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "full-substrate install end-to-end test (L3-I6)"
+updated_at = "2026-05-24T06:00:00Z"
+
+[install_e2e_full_substrate-plan-qa-proof]
+created_at = "2026-05-24T06:45:18Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_019.drop.install_e2e_full_substrate"
+title = "Plan-QA proof of full-substrate install end-to-end test (L3-I6)"
+updated_at = "2026-05-24T06:45:18Z"
+
+[install_e2e_full_substrate-plan-qa-falsification]
+created_at = "2026-05-24T06:45:18Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_019.drop.install_e2e_full_substrate"
+title = "Plan-QA falsif of full-substrate install end-to-end test (L3-I6)"
+updated_at = "2026-05-24T06:45:18Z"

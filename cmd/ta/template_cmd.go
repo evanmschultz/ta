@@ -413,12 +413,13 @@ func newTemplateSaveCmd() *cobra.Command {
 	var overwrite bool
 	var asJSON bool
 	var kind string
+	var substrate string
 	var path string
 	var group string
 	var canonical string
 	cmd := &cobra.Command{
 		Use:   "save [<db>...]",
-		Short: "Promote project content to ~/.ta (schema | agent | config | docs-template)",
+		Short: "Promote project content to ~/.ta (schema | agent | config | docs-template | substrate)",
 		Long: "Promote project content into the home library. Default kind is " +
 			"`schema`: reads `<cwd>/.ta/schema.toml`, validates it through the " +
 			"meta-schema, and merges the named dbs into `~/.ta/schema.toml`. " +
@@ -427,9 +428,11 @@ func newTemplateSaveCmd() *cobra.Command {
 			"missing). `--kind=config --canonical=<name>` copies a project file " +
 			"into `~/.ta/configs/<canonical>`; `--kind=docs-template " +
 			"--canonical=<name>` does the same for `~/.ta/docs-templates/<canonical>.md`. " +
-			"Schema mode keeps the F15 conflict semantics (TTY confirm prompt or " +
-			"`--overwrite`); other kinds error on existing destinations unless " +
-			"`--overwrite` is set.",
+			"`--substrate=<name> --path=<file>` saves a file to the destination " +
+			"derived from the named substrate (10 file-shaped defaults only; directory " +
+			"bundles unsupported in this drop). Schema mode keeps the F15 conflict " +
+			"semantics (TTY confirm prompt or `--overwrite`); other kinds error on " +
+			"existing destinations unless `--overwrite` is set.",
 		Example: `  ta template save
   ta template save plans
   ta template save plans notes
@@ -438,6 +441,15 @@ func newTemplateSaveCmd() *cobra.Command {
   ta template save --kind=docs-template --path=./CLAUDE.md --canonical=CLAUDE`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
+			// --kind and --substrate are mutually exclusive.
+			if kind != "" && substrate != "" {
+				return fmt.Errorf("save: --kind and --substrate are mutually exclusive (use one or the other)")
+			}
+			// If --substrate is specified, route to the substrate lane.
+			if substrate != "" {
+				return runTemplateSaveSubstrate(c.OutOrStdout(), substrate, path, group, canonical, overwrite, asJSON)
+			}
+			// Otherwise, legacy --kind branches.
 			switch kind {
 			case "", "schema":
 				// Legacy warning is a stderr notice — emitted before the
@@ -462,9 +474,10 @@ func newTemplateSaveCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.Flags().StringVar(&kind, "kind", "", "what to save: schema (default) | agent | config | docs-template")
-	cmd.Flags().StringVar(&path, "path", "", "source file path (required for kind=agent|config|docs-template)")
-	cmd.Flags().StringVar(&group, "group", "", "agent subdir name under ~/.ta/agents/ (kind=agent only; empty = flat)")
-	cmd.Flags().StringVar(&canonical, "canonical", "", "destination filename (kind=agent|config|docs-template; defaults to basename of --path)")
+	cmd.Flags().StringVar(&substrate, "substrate", "", "substrate name (10 file-shaped defaults only; mutually exclusive with --kind)")
+	cmd.Flags().StringVar(&path, "path", "", "source file path (required for kind=agent|config|docs-template or substrate)")
+	cmd.Flags().StringVar(&group, "group", "", "agent subdir name under ~/.ta/agents/ (kind=agent or substrate=claude_agents only; empty = flat)")
+	cmd.Flags().StringVar(&canonical, "canonical", "", "destination filename (kind=agent|config|docs-template or any substrate; defaults to basename of --path)")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace existing destination without prompting")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON instead of laslig-rendered notice")
 	return cmd
@@ -534,6 +547,42 @@ func runTemplateSaveFlat(out io.Writer, srcPath, canonical string, overwrite, as
 		Kind:    kind,
 		Source:  srcPath,
 		Name:    canonical,
+		Written: true,
+	}
+	return emitTemplateSaveKindReport(out, report, asJSON)
+}
+
+// runTemplateSaveSubstrate handles --substrate=<name>. It calls the D1 helper
+// templates.SaveSubstrateFile and emits the result with uniform JSON output
+// via the existing report shape.
+func runTemplateSaveSubstrate(out io.Writer, substrate, srcPath, group, canonical string, overwrite, asJSON bool) error {
+	if srcPath == "" {
+		return fmt.Errorf("save --substrate=%s: --path is required", substrate)
+	}
+	// --group is only valid for grouped substrates (claude_agents).
+	if group != "" && substrate != "claude_agents" {
+		return fmt.Errorf("save: --group is only valid for --substrate=claude_agents; got %q", substrate)
+	}
+	// Default canonical to basename of --path when omitted (matches the
+	// flag help text contract; without this default, SaveSubstrateFile's
+	// destination path collapses to the parent dir and the conflict guard
+	// fires a misleading "already exists" error on the dir itself).
+	if canonical == "" {
+		canonical = filepath.Base(srcPath)
+	}
+	// Call the D1 helper. Errors bubble up directly (bundle-unsupported,
+	// unknown-substrate, file-not-found, and destination-exists errors are
+	// all user-facing and come from the helper).
+	if err := templates.SaveSubstrateFile(substrate, srcPath, group, canonical, overwrite); err != nil {
+		return err
+	}
+	// Emit success report. For substrates, the "kind" field is prefixed with
+	// "substrate:" and the "name" field holds the substrate name itself.
+	report := templateSaveKindReport{
+		Kind:    "substrate:" + substrate,
+		Source:  srcPath,
+		Group:   group,
+		Name:    substrate,
 		Written: true,
 	}
 	return emitTemplateSaveKindReport(out, report, asJSON)

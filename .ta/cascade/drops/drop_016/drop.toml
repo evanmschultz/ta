@@ -1,0 +1,298 @@
+[generic_template_save]
+acceptance_criteria = "1. Substrate lookup uses `installconfig.Defaults()` initially (drop_017 will extend to user+project overlay). 2. `--substrate=<x>` distinguishes two failure classes: unknown name vs known-but-unsupported bundle substrate, and both errors are helpful. 3. The new substrate save flow validates source file exists + readable BEFORE copying anywhere. 4. The home destination directory derived from `Substrate.Source` is created with mkdir-all if missing. 5. Idempotency / conflict behavior matches the current file-save helpers: existing destinations remain no-op or require `--overwrite` according to the helper already selected for that substrate. 6. Existing `--kind=schema|agent|config|docs-template` semantics remain unchanged. 7. JSON output (`--json`) remains uniform for the new substrate lane."
+created_at = "2026-05-24T06:00:00Z"
+definition_of_complete = "1. `ta template save --substrate=<name>` accepts ONLY the 10 file-shaped defaults: `claude_agents`, `claude_hooks`, `claude_output_styles`, `claude_md_fragments`, `claude_settings_fragments`, `claude_mcp_servers`, `codex_agents`, `codex_config_fragments`, `codex_mcp_servers`, `agents_md`. 2. Existing `--kind=schema|agent|config|docs-template` invocations continue to work unchanged; `--kind=schema` still merges into `~/.ta/schema.toml`, and `--kind=config|docs-template` still save into the generic `~/.ta/configs/` and `~/.ta/docs-templates/` homes. 3. `--substrate` explicitly rejects the four directory-bundle defaults (`claude_skills`, `claude_plugins`, `example_thariq`, `example_stil`) as unsupported in this drop. 4. Each substrate save derives its home destination from `substrate.Source`; `--group=<subdir>` remains supported only where the substrate needs it (`claude_agents`), and `--canonical=<name>` remains the filename override. 5. Command-level tests cover representative file-shaped substrates spanning grouped copy, plain file copy, append-metadata, and merge-metadata shapes. 6. `mage check` green. 7. CI green."
+drop_number = 16.0
+labels = ["template-save", "substrate-driven", "v01-followup"]
+objective = "Add a new file-shaped substrate-driven `ta template save --substrate=<name> --path=<file>` lane alongside the existing legacy `--kind=schema|agent|config|docs-template` branches. The new lane resolves only the 10 file-shaped defaults from `internal/installconfig/defaults.toml`, derives the home-library destination from each substrate's `Source`, preserves the existing schema merge semantics into `~/.ta/schema.toml`, and leaves the generic `~/.ta/configs/` and `~/.ta/docs-templates/` save branches unchanged. Directory-bundle substrate save (`claude_skills`, `claude_plugins`, `example_thariq`, `example_stil`) is explicitly out of scope for this drop and must error as unsupported rather than pretending to be a file copy."
+packages = ["cmd/ta", "internal/templates"]
+paths = ["cmd/ta/template_cmd.go", "cmd/ta/template_save_substrate_test.go", "internal/templates/**"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "generic ta template save over all substrates"
+updated_at = "2026-05-24T07:35:00Z"
+[generic_template_save-plan-qa-proof]
+created_at = "2026-05-24T06:45:18Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_016.drop.generic_template_save"
+title = "Plan-QA proof of generic ta template save over all substrates"
+updated_at = "2026-05-24T06:45:18Z"
+
+[generic_template_save-plan-qa-falsification]
+created_at = "2026-05-24T06:45:18Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_016.drop.generic_template_save"
+title = "Plan-QA falsif of generic ta template save over all substrates"
+updated_at = "2026-05-24T06:45:18Z"
+
+[planner_l1_generic_template_save]
+acceptance_criteria = "1. Each terminal builder droplet is <=1-2 small code blocks INCLUDING tests. 2. Cross-droplet collision strategy is explicit: `internal/templates` lands first, then `cmd/ta/template_cmd.go`, then `cmd/ta` test droplets serialize. 3. Legacy `--kind=schema|agent|config|docs-template` behavior is preserved explicitly, not assumed. 4. Persona target remains `ta-go-builder` for every child. 5. Representative coverage uses only file-shaped substrates and includes grouped copy, append-metadata, merge-metadata, plus an explicit unsupported-bundle guard."
+completed_at = "2026-05-24T07:35:00Z"
+completion_contract = {completion_notes = "L1 plan rewritten after round-1 falsification verdict `drop_016.drop.planner_l1_generic_template_save-plan-qa-falsification`. Parent scope narrowed from all 14 defaults to the 10 file-shaped substrates only. Legacy `--kind=schema|agent|config|docs-template` branches are now explicit preservation requirements rather than alias candidates. Four atomic builder droplets created: D1 internal/templates resolver, D2 cmd/ta branch, D3 legacy/scope guard tests, D4 representative file-shaped substrate tests. Collision order is D1 -> D2 -> D3 -> D4."}
+created_at = "2026-05-24T06:01:00Z"
+definition_of_complete = "Per-droplet acceptance: concrete paths, packages, blockers, verification command, and atomicity statement are written for each child. The decomposition matches the narrowed parent scope: 10 file-shaped substrates only, bundle save punted, and legacy schema/config/docs-template branches preserved unchanged. Parent DoC + AC are updated before descent. Plan-QA round-1 falsification verdict is cited in transition_notes."
+description = """
+L1 re-decomposition for `drop_016.drop.generic_template_save` after round-1 falsification verdict `drop_016.drop.planner_l1_generic_template_save-plan-qa-falsification`.
+
+Evidence basis for this rewrite:
+- `cmd/ta/template_cmd.go::{newTemplateSaveCmd,runTemplateSave,runTemplateSaveAgent,runTemplateSaveFlat}` are the current save seams. The committed code still routes `schema` through `<cwd>/.ta/schema.toml -> ~/.ta/schema.toml` merge semantics and routes `config` / `docs-template` through generic `~/.ta/configs/` and `~/.ta/docs-templates/` homes.
+- `internal/installconfig/defaults.go::Defaults`, `internal/installconfig/config.go::Substrate`, and `internal/installconfig/defaults_test.go::TestEmbeddedDefaults_Contains14Substrates` prove the embedded registry is 14 substrates total.
+- Committed `internal/installconfig/defaults.toml` proves the 10 file-shaped defaults (`claude_agents`, `claude_hooks`, `claude_output_styles`, `claude_md_fragments`, `claude_settings_fragments`, `claude_mcp_servers`, `codex_agents`, `codex_config_fragments`, `codex_mcp_servers`, `agents_md`) and the 4 directory bundles (`claude_skills`, `claude_plugins`, `example_thariq`, `example_stil`).
+- `internal/templates/templates.go::{SaveAgent,SaveConfig,SaveDocsTemplate}` and `internal/templates/multi_test.go` are the existing home-library save seams worth reusing; no committed generic substrate-save helper exists today.
+- Existing cmd tests already pin the legacy branches: `TestTemplateSaveBareMergesAllProjectDBs`, `TestF15_TemplateSave_MergesIntoSchemaToml`, `TestTemplateSaveKindAgent`, `TestTemplateSaveKindAgentCanonical`, and `TestTemplateSaveKindConfigDefaultsCanonical` are all present in `cmd/ta/template_cmd_test.go`.
+
+## D1 — internal/templates file-shaped substrate resolver
+id: `drop_016.drop.builder_d1_file_substrate_resolver`
+persona target: `ta-go-builder`
+paths:
+- `internal/templates/templates.go`
+- `internal/templates/multi_test.go`
+packages:
+- `internal/templates`
+objective:
+- Evidence: `Defaults()` + committed `defaults.toml` define the substrate catalog, while `SaveAgent` / `SaveConfig` / `SaveDocsTemplate` already own the home-library file-write rules. Add an internal-only resolver/writer for the new `--substrate` lane that accepts only the 10 file-shaped defaults, derives the home destination from `Substrate.Source`, reuses the existing helper seams where that keeps semantics honest, and rejects `claude_skills|claude_plugins|example_thariq|example_stil` as explicit future-drop bundle saves.
+acceptance criteria:
+- The supported-substrate set is exactly the 10 file-shaped names above.
+- Bundle substrates fail as "known but unsupported in this drop", not as unknown names.
+- `schema`, `config`, and `docs-template` are NOT modeled as substrate aliases anywhere in this helper.
+- Representative table tests prove destination derivation from `Substrate.Source` for grouped `claude_agents`, append-metadata `claude_md_fragments`, and merge-metadata `codex_mcp_servers` or `claude_settings_fragments`.
+- Scope stays internal-only; no public package API widening beyond what `cmd/ta` needs.
+verification command:
+- `mage testFunc 'TestSaveSubstrate_OnlyFileShapedDefaults|TestSaveSubstrate_RejectsBundleDefaults|TestSaveSubstrate_DerivesHomePathFromSource'`
+- `mage testPkg ./internal/templates`
+atomicity verification:
+- This is 2 small blocks: (1) resolver/writer logic in `internal/templates/templates.go`, (2) one table-driven test block in `internal/templates/multi_test.go`.
+notes:
+- `TestSaveSubstrate_OnlyFileShapedDefaults`, `TestSaveSubstrate_RejectsBundleDefaults`, and `TestSaveSubstrate_DerivesHomePathFromSource` are new, not yet in tree.
+
+## D2 — cmd/ta `--substrate` branch beside the legacy `--kind` branches
+id: `drop_016.drop.builder_d2_template_cmd_substrate_branch`
+persona target: `ta-go-builder`
+paths:
+- `cmd/ta/template_cmd.go`
+packages:
+- `cmd/ta`
+objective:
+- Evidence: the committed `newTemplateSaveCmd` switch is still the four-branch `schema|agent|config|docs-template` surface, and round-1 falsification proved those legacy branches cannot collapse into pure substrate dispatch. Add a separate `--substrate=<name>` lane beside the existing `--kind` switch, keep the legacy branches behaviorally unchanged, and route ONLY the new substrate lane through D1's file-shaped resolver.
+acceptance criteria:
+- `--kind=schema` still calls the schema merge path; `--kind=config` and `--kind=docs-template` still target the generic home libraries; `--kind=agent` stays intact.
+- `--substrate` is mutually exclusive with `--kind`.
+- `--group` remains valid only for `--substrate=claude_agents`; other substrates reject group usage loudly.
+- Bundle substrate errors surface through the D1 unsupported-bundle guard; unknown substrates still name the known supported set.
+- JSON success/error output stays uniform with the current `ta template save` family.
+verification command:
+- `mage testPkg ./cmd/ta`
+atomicity verification:
+- This is 2 small blocks: (1) flag validation + branch selection in `newTemplateSaveCmd`, (2) one focused `runTemplateSaveSubstrate` call path in `cmd/ta/template_cmd.go`.
+blockers:
+- `drop_016.drop.builder_d1_file_substrate_resolver`
+notes:
+- D2 is the sole owner of `cmd/ta/template_cmd.go`.
+
+## D3 — legacy-branch and scope-guard regression tests
+id: `drop_016.drop.builder_d3_legacy_branch_scope_tests`
+persona target: `ta-go-builder`
+paths:
+- `cmd/ta/template_cmd_test.go`
+packages:
+- `cmd/ta`
+objective:
+- Evidence: `cmd/ta/template_cmd_test.go` already pins schema merge (`TestTemplateSaveBareMergesAllProjectDBs`, `TestF15_TemplateSave_MergesIntoSchemaToml`) and legacy file-save behavior (`TestTemplateSaveKindAgent`, `TestTemplateSaveKindAgentCanonical`, `TestTemplateSaveKindConfigDefaultsCanonical`). Add a narrow regression block proving the new `--substrate` lane does not change those legacy branches and that bundle substrates fail with the explicit unsupported-scope message.
+acceptance criteria:
+- Existing legacy tests above remain green unchanged.
+- New, not yet in tree: one table-driven test proves `--kind=schema|agent|config|docs-template` still behave as before while `--substrate=claude_skills|claude_plugins|example_thariq|example_stil` fails as unsupported in this drop.
+- New, not yet in tree: one narrow validation test covers `--kind` + `--substrate` mutual exclusion and `--group` rejection for non-agent substrates if D2 adds those guards.
+- No production files are edited in this droplet.
+verification command:
+- `mage testFunc 'TestTemplateSaveBareMergesAllProjectDBs|TestF15_TemplateSave_MergesIntoSchemaToml|TestTemplateSaveKindAgent|TestTemplateSaveKindAgentCanonical|TestTemplateSaveKindConfigDefaultsCanonical|TestTemplateSaveSubstrateScopeGuards'`
+- `mage testPkg ./cmd/ta`
+atomicity verification:
+- This is 1 small block: one table-driven regression/validation test section in `cmd/ta/template_cmd_test.go`.
+blockers:
+- `drop_016.drop.builder_d2_template_cmd_substrate_branch`
+notes:
+- `TestTemplateSaveSubstrateScopeGuards` is new, not yet in tree.
+
+## D4 — representative command tests for file-shaped substrates only
+id: `drop_016.drop.builder_d4_representative_file_substrate_tests`
+persona target: `ta-go-builder`
+paths:
+- `cmd/ta/template_save_substrate_test.go` (new, not yet in tree)
+packages:
+- `cmd/ta`
+objective:
+- Evidence: committed `defaults.toml` gives four distinct file-shaped behaviors worth sampling without touching bundle save: grouped `claude_agents`, plain-copy `claude_hooks`, append-metadata `claude_md_fragments`, and merge-metadata `codex_mcp_servers` or `claude_settings_fragments`. Add a focused command-level test file that proves `ta template save --substrate` writes into the home-library path derived from each substrate's `Source`. These tests prove save-path scope only; they do NOT claim install/apply semantics for chmod, append, or merge behavior.
+acceptance criteria:
+- New, not yet in tree: one table-driven test in `cmd/ta/template_save_substrate_test.go` covers at least `claude_agents`, `claude_hooks`, `claude_md_fragments`, and one merge-metadata substrate (`codex_mcp_servers` or `claude_settings_fragments`).
+- Assertions prove the write lands under `~/.ta/agents`, `~/.ta/hooks`, `~/.ta/claude-md`, and the selected merge-metadata home dir, each derived from `Substrate.Source`.
+- The grouped `claude_agents` case proves `--group` routing; the other cases stay file-only.
+- Existing legacy kind tests stay green; this droplet only adds new `--substrate` coverage.
+verification command:
+- `mage testFunc 'TestTemplateSaveSubstrateRepresentativeFileDefaults'`
+- `mage testPkg ./cmd/ta`
+atomicity verification:
+- This is 2 small blocks: (1) one table-driven representative test block, (2) at most one tiny fixture/helper local to the new file.
+blockers:
+- `drop_016.drop.builder_d2_template_cmd_substrate_branch`
+- `drop_016.drop.builder_d3_legacy_branch_scope_tests`
+notes:
+- `TestTemplateSaveSubstrateRepresentativeFileDefaults` is new, not yet in tree.
+
+## Cross-droplet ordering / collision strategy
+- D1 lands first and is isolated to `internal/templates`.
+- D2 is the only droplet allowed to edit `cmd/ta/template_cmd.go`; every `cmd/ta` test droplet waits for it.
+- D3 and D4 both live in package `cmd/ta`; serialize them D3 -> D4 so the scope/legacy guard settles before the representative substrate matrix expands coverage.
+- No droplet claims bundle-save behavior, schema aliasing, or replacement of the legacy config/docs-template homes.
+
+## Routed unknowns
+- The exact internal helper shape in `internal/templates` is intentionally left open to the builder, but the observable contract is not: 10 file-shaped names only, bundle defaults unsupported, home path derived from `Substrate.Source`, and no schema/config/docs-template aliasing.
+- The representative merge-metadata substrate in D4 can be either `codex_mcp_servers` or `claude_settings_fragments`; both are verified file-shaped defaults in committed `defaults.toml`.
+- The plan remains read-only evidence-grounded; builders must re-read the touched files before editing.
+"""
+expected_outputs = ["drop_016.drop.builder_d1_file_substrate_resolver", "drop_016.drop.builder_d2_template_cmd_substrate_branch", "drop_016.drop.builder_d3_legacy_branch_scope_tests", "drop_016.drop.builder_d4_representative_file_substrate_tests"]
+labels = ["fe-planning-style-go-work", "L1"]
+objective = "Decompose drop_016 into 3-5 atomic builder droplets covering: (a) an internal/templates resolver/writer for the new `--substrate` lane that accepts only the 10 file-shaped defaults and derives the home destination from `Substrate.Source`; (b) a `cmd/ta/template_cmd.go` branch that adds `--substrate=<name>` beside the legacy `--kind=schema|agent|config|docs-template` branches without changing those legacy semantics; (c) regression tests proving schema/config/docs-template back-compat plus explicit bundle-scope guards; and (d) representative command tests for file-shaped substrates spanning grouped copy, append-metadata, and merge-metadata. Atomicity: each droplet is 1-2 small code blocks INCLUDING tests."
+outcome = "success"
+packages = ["cmd/ta", "internal/templates"]
+paths = ["cmd/ta/template_cmd.go", "internal/templates/**"]
+role = "planner"
+started_at = "2026-05-24T06:20:00Z"
+state = "complete"
+title = "L1 plan — generic ta template save"
+transition_notes = "Re-authored to resolve round-1 falsification verdict `drop_016.drop.planner_l1_generic_template_save-plan-qa-falsification`: (1) `schema` remains a standalone merge branch into `~/.ta/schema.toml`, not a substrate alias; (2) `config` and `docs-template` remain standalone legacy branches into `~/.ta/configs/` and `~/.ta/docs-templates/`; (3) the new `--substrate` lane is explicitly narrowed to the 10 file-shaped defaults, while `claude_skills`, `claude_plugins`, `example_thariq`, and `example_stil` are unsupported bundle saves in this drop."
+updated_at = "2026-05-24T07:36:00Z"
+[planner_l1_generic_template_save-plan-qa-proof]
+completion_contract = {completion_notes = "ROUND 2 PASS. Round 1 (preserved for audit): 'PASS. Plan-QA proof verified all cited symbols + acceptance/atomicity/serialization/back-compat claims against the live repo via Read + Grep + Hylla. Findings: (1) cmd/ta/template_cmd.go newTemplateSaveCmd at L412 + --kind switch at L441 confirmed (matches planner anchor :441). (2) internal/installconfig/config.go Substrate type at L36 confirmed. (3) internal/installconfig/defaults.toml contains exactly 14 substrate blocks (TestEmbeddedDefaults_Contains14Substrates at internal/installconfig/defaults_test.go:72 pins this). (4) The 3 representative substrates DO span the required shape matrix: claude_skills L55-57 = plain copy (source+destination only), claude_hooks L32-50 = chmod=0755 + 3 register entries, claude_md_fragments L88-92 = merge_strategy=append + destination_merge. (5) internal/templates/SaveAgent confirmed via Hylla (internal/templates/templates.go). (6) internal/configmerge/configmerge.go arrayContains confirmed at L333 (package-private helper consumed by mergeArrays). (7) runTemplateSaveFlat confirmed at cmd/ta/template_cmd.go:509. (8) Existing test names TestTemplateSaveKindAgent L666, TestTemplateSaveKindAgentCanonical L702, TestTemplateSaveKindConfigDefaultsCanonical L744 all present in cmd/ta/template_cmd_test.go. (9) Atomicity: D1=2 blocks (helper + table test), D3=1 block (new alias regression test), D4=2 blocks (new test file with helper) all hold cleanly. D2=2 blocks is BORDERLINE — planner declares flag plumbing + dispatch replacement across newTemplateSaveCmd + runTemplateSaveAgent + runTemplateSaveFlat. Acceptable because the substrate-driven path can collapse runAgent + runFlat into one shared callsite; flagging as a borderline observation, not a proof failure (Q7B-replacement haiku builder should still tolerate). (10) Serialization D1->D2->D3->D4 is sound: D1 produces helper D2 consumes; D3+D4 both correctly blocked on D2; D3->D4 serial on package cmd/ta even though file paths differ (defensible caution since both add tests to the same package). (11) Back-compat assertion present in planner AC #3 + D2 acceptance (--kind aliases preserved) + entire D3 droplet dedicated to alias regression. (12) Builder file-touch claims match parent drop\\'s paths array (cmd/ta/template_cmd.go, cmd/ta/template_save_substrate_test.go, internal/templates/**). MINOR NIT (not a plan defect): defaults.toml header lines 9-10 say \\'12 substrates\\' but file holds 14; that\\'s a stale comment for build-QA falsifier to flag, doesn\\'t undermine the plan. CONVERGENCE: (a) no unmitigated counterexample found by this proof pass; (b) evidence complete for every cited symbol + line + claim; (c) only unknown routed = D2 borderline atomicity, flagged for falsifier attention. Verdict PASS.' END ROUND 1. Round 2 verdict: PASS on the narrowed plan. Verified via Read of defaults.toml (full 161 lines) + Read of cmd/ta/template_cmd.go L400-520 + Read of all 7 ta records cited in spawn prompt. Findings: (R2-1) Parent DoC + AC + objective explicitly narrowed to 10 file-shaped substrates only. Parent DoC item 1 enumerates: claude_agents, claude_hooks, claude_output_styles, claude_md_fragments, claude_settings_fragments, claude_mcp_servers, codex_agents, codex_config_fragments, claude_mcp_servers wait — verified the 10 names match defaults.toml entries 1,2,4,6,7,8,9,10,11,12 exactly (claude_agents L22, claude_hooks L32, claude_output_styles L61, claude_settings_fragments L77, claude_md_fragments L88, claude_mcp_servers L98, codex_agents L111, codex_config_fragments L119, codex_mcp_servers L129, agents_md L139). (R2-2) Parent DoC item 3 + planner transition_notes explicitly enumerate the 4 unsupported bundle defaults: claude_skills (L55), claude_plugins (L68), example_thariq (L151), example_stil (L158). The four are correctly identified as directory-bundle shape distinct from file-shaped — claude_skills/plugins/example_* substrates have only source+destination (no chmod, no merge_strategy, no register), and their sources are directory trees (~/.ta/skills, ~/.ta/plugins, ~/.ta/examples/thariq, ~/.ta/examples/stil). Parent DoC #3 wording: explicitly rejects the four directory-bundle defaults as unsupported in this drop. (R2-3) Each droplet has paths + persona + verification + atomicity. D1 paths=[internal/templates/templates.go, internal/templates/multi_test.go]; persona=ta-go-builder (line in objective); verify=mage testFunc \\'Test...\\' + mage testPkg ./internal/templates; atomicity=2 blocks (resolver + table test). D2 paths=[cmd/ta/template_cmd.go]; persona=ta-go-builder; verify=mage testPkg ./cmd/ta; atomicity=2 blocks (flag validation + runTemplateSaveSubstrate callpath); blockers=[D1]. D3 paths=[cmd/ta/template_cmd_test.go]; persona=ta-go-builder; verify=mage testFunc on enumerated names + mage testPkg; atomicity=1 block; blockers=[D2]. D4 paths=[cmd/ta/template_save_substrate_test.go]; persona=ta-go-builder; verify=mage testFunc TestTemplateSaveSubstrateRepresentativeFileDefaults + mage testPkg; atomicity=2 blocks (table test + tiny helper); blockers=[D2,D3]. All four droplet records exist and are state=todo, structural_type=droplet, parent_id=drop_016.drop.planner_l1_generic_template_save. (R2-4) D1 explicitly includes the unsupported-bundle guard as a NEW droplet requirement: acceptance_criteria #2 \\'Bundle defaults fail as known-but-unsupported in this drop; truly unknown names fail as unknown.\\' and verification command includes TestSaveSubstrate_RejectsBundleDefaults. The guard is enforced at the resolver layer (D1) AND surfaced through the cmd layer (D2 AC #4) AND regression-tested (D3 AC #2). Three-layer defense matches round-1 falsification CE-3 (false-green risk from claude_skills as representative substrate). (R2-5) Legacy --kind branches preserved: Read cmd/ta/template_cmd.go L441-459 confirms 4-case switch (schema|agent|config|docs-template) lives in newTemplateSaveCmd at L412 and is NOT touched by the new --substrate lane. D2 objective explicitly says \\'Add a separate --substrate=<name> lane beside the existing --kind switch, keep the schema|agent|config|docs-template branches behaviorally unchanged\\'. D2 AC #1 spells out each legacy branch behavior preserved. D3 dedicates an entire droplet to regression-testing legacy branches (TestTemplateSaveBareMergesAllProjectDBs, TestF15_TemplateSave_MergesIntoSchemaToml, TestTemplateSaveKindAgent, TestTemplateSaveKindAgentCanonical, TestTemplateSaveKindConfigDefaultsCanonical) + scope-guards for --substrate (TestTemplateSaveSubstrateScopeGuards). (R2-6) Counterexample-to-fix mapping verified: Round-1 CE-1 (schema not a substrate alias) → fixed by Parent DoC #2 + planner transition_notes #1 + D2 objective explicit preservation + D2 AC #1 + D3 regression block. Round-1 CE-2 (config/docs-template not substrate aliases) → fixed by Parent DoC #2 + planner transition_notes #2 + D2 objective + D2 AC #1 + D3 regression. Round-1 CE-3 (bundle substrates excluded) → fixed by Parent DoC #1 narrowing to 10 file-shaped + Parent DoC #3 explicit bundle rejection + D1 AC #2 bundle guard + D2 AC #4 surfacing + D3 AC #2 regression + D4 AC #1 strict file-shaped-only test matrix. All three counterexamples mapped to specific fixes in round-2 plan. Additional findings: (R2-7) Cross-droplet serialization D1->D2->D3->D4 holds with declared blockers. D1 isolated to internal/templates (no cmd/ta collision). D2 sole owner of cmd/ta/template_cmd.go. D3+D4 serialize on package cmd/ta even though file paths differ (defensible). (R2-8) Planner explicitly states \\'No droplet claims bundle-save behavior, schema aliasing, or replacement of the legacy config/docs-template homes\\' — matches narrowed scope. (R2-9) Atomicity 1-2 small blocks INCLUDING tests holds for all 4 droplets (D1=2, D2=2, D3=1, D4=2). (R2-10) Routed unknowns section in planner is honest: internal helper shape is open to builder; merge-metadata substrate choice (codex_mcp_servers OR claude_settings_fragments) verified as both being file-shaped defaults in defaults.toml L77+L129. CONVERGENCE: (a) QA Proof attack pass found no unmitigated gap — all 6 spawn-prompt verification items confirmed + all 3 round-1 counterexamples mapped to specific round-2 fixes; (b) Evidence complete: every claim cross-checked against defaults.toml (lines cited), template_cmd.go L441 switch (read directly), all 7 ta records (read directly); (c) Unknowns: none new at this layer — D2 borderline atomicity from round 1 is unchanged (D2 still 2 blocks: flag plumbing + dispatch callpath) and the planner left the internal helper shape open by design. Verdict ROUND 2 PASS — narrowed plan correctly addresses all three round-1 falsification counterexamples and the 4 droplets are atomic + serialized + verification-instrumented."}
+created_at = "2026-05-24T06:45:54Z"
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_016.drop.planner_l1_generic_template_save"
+title = "Plan-QA proof of L1 plan — generic ta template save"
+transition_notes = "Round 2 proof in-progress. Round 1 was PASS on the wide-scope plan; round-2 plan was rewritten after round-1 falsification verdict drop_016.drop.planner_l1_generic_template_save-plan-qa-falsification flagged three counterexamples. Re-verifying narrowed plan."
+updated_at = "2026-05-24T07:05:00Z"
+[planner_l1_generic_template_save-plan-qa-falsification]
+completed_at = "2026-05-24T08:20:00Z"
+completion_contract = {completion_notes = "Round-1 audit preserved: Plan-QA falsification FAIL. Unmitigated counterexamples found requiring planner re-decomposition: (1) `schema` cannot be a thin substrate alias. Current `cmd/ta/template_cmd.go::newTemplateSaveCmd` still routes schema save through merge semantics into `~/.ta/schema.toml`, while `internal/installconfig/defaults.toml` declares no `schema` substrate and no substrate with equivalent aggregate-merge behavior. Replacing the 4-case switch with pure substrate dispatch would regress the existing `--kind=schema` contract. (2) `config` and `docs-template` are not single-substrate aliases. Current legacy kinds save into `~/.ta/configs/<canonical>` and `~/.ta/docs-templates/<canonical>.md`, but defaults only declare substrate-specific homes like `~/.ta/claude-settings`, `~/.ta/codex-config`, `~/.ta/claude-md`, and `~/.ta/agents-md`; no one substrate preserves existing generic alias behavior. (3) The decomposition is file-shaped but the parent drop claims all 14 substrates. D1/D2/D4 all specify `--path=<file>` plus file-content assertions, yet defaults include directory/bundle substrates such as `claude_skills`, `claude_plugins`, `example_thariq`, and `example_stil`. Using `claude_skills` as a representative substrate without directory-save semantics would produce a false green. Checked non-defects from round 1: `internal/templates/templates.go` and `internal/templates/multi_test.go` already exist, so D1 has no file-name collision; chmod/merge distinctions in defaults affect install/apply semantics, not the home-library save path itself. Round-2 verdict: PASS. The planner now narrows the new lane to the 10 file-shaped defaults only, keeps `schema|agent|config|docs-template` as explicit preserved legacy branches, and punts bundle substrates behind an explicit unsupported guard. D1 is scoped to an internal resolver/writer in `internal/templates` rather than aliasing legacy helpers; D2 keeps `--substrate` as a separate branch with mutual exclusion and `--group` validation; D3 explicitly preserves the existing legacy regression tests (`TestTemplateSaveBareMergesAllProjectDBs`, `TestF15_TemplateSave_MergesIntoSchemaToml`, `TestTemplateSaveKindAgent`, `TestTemplateSaveKindAgentCanonical`, `TestTemplateSaveKindConfigDefaultsCanonical`) and adds only scope/unsupported-bundle coverage; D4 maps the representative shapes to committed defaults (`claude_agents`, `claude_hooks`, `claude_md_fragments`, and one merge-metadata substrate such as `codex_mcp_servers` or `claude_settings_fragments`). The remaining merge/apply distinctions stay correctly out of scope because save semantics are source-dir writes derived from `Substrate.Source`, not destination-merge execution. Verification for current preserved surfaces: `mage testPkg ./cmd/ta` PASS; `mage testPkg ./internal/templates` PASS. Remaining unknown routed for audit: attached `gopls` in this session is mispointed at `hylla/main`, so live symbol queries were unreliable and repo-local source/test evidence was used instead."}
+created_at = "2026-05-24T06:45:54Z"
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_016.drop.planner_l1_generic_template_save"
+title = "Plan-QA falsif of L1 plan — generic ta template save"
+updated_at = "2026-05-24T06:45:54Z"
+[builder_d1_file_substrate_resolver]
+acceptance_criteria = "1. Supports exactly the 10 file-shaped defaults and no others. 2. Bundle defaults fail as known-but-unsupported in this drop; truly unknown names fail as unknown. 3. `schema`, `config`, and `docs-template` are not encoded as substrate aliases anywhere in this helper. 4. Representative tests prove destination derivation from `Substrate.Source` for grouped `claude_agents`, append-metadata `claude_md_fragments`, and one merge-metadata substrate. 5. No public package API widening beyond what `cmd/ta` needs."
+created_at = "2026-05-24T07:35:00Z"
+definition_of_complete = "1. `internal/templates` owns the new file-shaped substrate resolver/writer seam. 2. Tests cover the supported-name set, the bundle guard, and home-path derivation. 3. The droplet remains <=2 small code blocks including tests. 4. `mage testPkg ./internal/templates` green."
+files = ["internal/templates/templates.go", "internal/templates/multi_test.go"]
+labels = ["template-save", "substrate-driven", "drop-016", "d1"]
+objective = "Evidence: `internal/installconfig/defaults.go::Defaults`, `internal/installconfig/config.go::Substrate`, and `internal/installconfig/defaults_test.go::TestEmbeddedDefaults_Contains14Substrates` prove the 14-name embedded registry, while committed `internal/installconfig/defaults.toml` separates the 10 file-shaped defaults from the 4 directory bundles. `internal/templates/templates.go::{SaveAgent,SaveConfig,SaveDocsTemplate}` are the existing home-library save seams worth reusing. Add an internal-only substrate-save resolver/writer that accepts only the 10 file-shaped defaults, derives the home destination from `Substrate.Source`, and rejects `claude_skills|claude_plugins|example_thariq|example_stil` as explicit future-drop bundle saves."
+packages = ["internal/templates"]
+parent_id = "drop_016.drop.planner_l1_generic_template_save"
+paths = ["internal/templates/templates.go", "internal/templates/multi_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "D1 builder — file-shaped substrate resolver + unsupported bundle guard"
+updated_at = "2026-05-24T07:35:00Z"
+[builder_d2_template_cmd_substrate_branch]
+acceptance_criteria = "1. `--kind=schema` still merges into `~/.ta/schema.toml`; `--kind=agent|config|docs-template` remain unchanged. 2. `--substrate` is mutually exclusive with `--kind`. 3. `--group` remains valid only for `--substrate=claude_agents`; other substrates reject group usage loudly. 4. Bundle substrate names surface the D1 unsupported-bundle error. 5. JSON success/error output remains uniform with the current `ta template save` family."
+blockers = ["drop_016.drop.builder_d1_file_substrate_resolver"]
+created_at = "2026-05-24T07:35:00Z"
+definition_of_complete = "1. `cmd/ta/template_cmd.go` has an explicit new substrate branch instead of repurposing the legacy kind switch. 2. Legacy branches are preserved as-is in observable behavior. 3. The droplet remains <=2 small code blocks including tests-by-reference. 4. `mage testPkg ./cmd/ta` green."
+files = ["cmd/ta/template_cmd.go"]
+labels = ["template-save", "substrate-driven", "drop-016", "d2"]
+objective = "Evidence: committed `cmd/ta/template_cmd.go::{newTemplateSaveCmd,runTemplateSave,runTemplateSaveAgent,runTemplateSaveFlat}` still implement the four legacy save branches, and round-1 falsification proved those branches cannot collapse into pure substrate dispatch. Add a separate `--substrate=<name>` lane beside the existing `--kind` switch, keep the `schema|agent|config|docs-template` branches behaviorally unchanged, and route ONLY the new substrate lane through D1's file-shaped resolver."
+packages = ["cmd/ta"]
+parent_id = "drop_016.drop.planner_l1_generic_template_save"
+paths = ["cmd/ta/template_cmd.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "D2 builder — add `--substrate` branch beside legacy `--kind` saves"
+updated_at = "2026-05-24T07:35:00Z"
+[builder_d3_legacy_branch_scope_tests]
+acceptance_criteria = "1. Existing legacy tests above remain green unchanged. 2. New, not yet in tree: one table-driven test covers unsupported bundle names on `--substrate`. 3. New, not yet in tree: one narrow validation test covers `--kind` + `--substrate` mutual exclusion and `--group` rejection for non-agent substrates if D2 adds those guards. 4. No production files are edited in this droplet."
+blockers = ["drop_016.drop.builder_d2_template_cmd_substrate_branch"]
+created_at = "2026-05-24T07:35:00Z"
+definition_of_complete = "1. Only `cmd/ta/template_cmd_test.go` changes. 2. The added tests are honest and limited to scope/legacy behavior. 3. The droplet is 1 small code block including tests. 4. `mage testPkg ./cmd/ta` green."
+files = ["cmd/ta/template_cmd_test.go"]
+labels = ["template-save", "substrate-driven", "drop-016", "d3", "tests"]
+objective = "Evidence: `cmd/ta/template_cmd_test.go` already contains `TestTemplateSaveBareMergesAllProjectDBs`, `TestF15_TemplateSave_MergesIntoSchemaToml`, `TestTemplateSaveKindAgent`, `TestTemplateSaveKindAgentCanonical`, and `TestTemplateSaveKindConfigDefaultsCanonical`, which collectively pin the current schema/agent/config save semantics. Add one narrow regression block proving the new `--substrate` lane does not change those legacy branches and that bundle substrates fail as unsupported in this drop."
+packages = ["cmd/ta"]
+parent_id = "drop_016.drop.planner_l1_generic_template_save"
+paths = ["cmd/ta/template_cmd_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "D3 builder — legacy-branch + substrate-scope regression tests"
+updated_at = "2026-05-24T07:35:00Z"
+[builder_d4_representative_file_substrate_tests]
+acceptance_criteria = "1. New, not yet in tree: `cmd/ta/template_save_substrate_test.go` covers at least `claude_agents`, `claude_hooks`, `claude_md_fragments`, and one merge-metadata substrate. 2. Assertions prove the writes land under the expected `~/.ta/...` source-derived home dirs. 3. The grouped `claude_agents` case proves `--group`; non-agent cases remain file-only. 4. Existing legacy kind tests remain green unchanged."
+blockers = ["drop_016.drop.builder_d2_template_cmd_substrate_branch", "drop_016.drop.builder_d3_legacy_branch_scope_tests"]
+created_at = "2026-05-24T07:35:00Z"
+definition_of_complete = "1. One new command-level test file exists for representative file-shaped substrates only. 2. The test matrix samples grouped copy, plain copy, append-metadata, and merge-metadata. 3. The droplet remains <=2 small code blocks including any helper. 4. `mage testPkg ./cmd/ta` green."
+files = ["cmd/ta/template_save_substrate_test.go"]
+labels = ["template-save", "substrate-driven", "drop-016", "d4", "tests"]
+objective = "Evidence: committed `internal/installconfig/defaults.toml` marks grouped `claude_agents`, plain-copy `claude_hooks`, append-metadata `claude_md_fragments`, and merge-metadata `codex_mcp_servers` / `claude_settings_fragments` as file-shaped defaults. Add a focused command-level test file proving `ta template save --substrate` writes into the home-library path derived from each substrate's `Source`. These tests prove save-path scope only; they do not claim apply/install semantics for chmod, append, or merge behavior."
+packages = ["cmd/ta"]
+parent_id = "drop_016.drop.planner_l1_generic_template_save"
+paths = ["cmd/ta/template_save_substrate_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "D4 builder — representative command tests for file-shaped substrates"
+updated_at = "2026-05-24T07:35:00Z"
+
+[generic_template_save-build-qa-proof]
+completed_at = "2026-05-24T08:00:00Z"
+completion_contract = {completion_notes = "Build-QA proof PASS for drop_016 generic ta template save. Evidence verified directly from source: (1) internal/templates/templates.go::SaveSubstrateFile uses installconfig.Defaults() via installConfig() (line 1108+1165) satisfying AC#1 (drop_017 extends to overlay). (2) Bundle rejection via isBundleSubstrate() returns 'directory bundle ... unsupported in this drop' for claude_skills|claude_plugins|example_thariq|example_stil — satisfies AC#2 known-unsupported branch + DoC#3. (3) Unknown substrates surface 'unknown substrate %q; supported file-shaped defaults: ...' naming all 10 — satisfies AC#2 unknown branch. (4) supportedFileShapedDefaults var (lines 1174-1185) exactly matches the 10 file-shaped substrates in defaults.toml: claude_agents, claude_hooks, claude_output_styles, claude_md_fragments, claude_settings_fragments, claude_mcp_servers, codex_agents, codex_config_fragments, codex_mcp_servers, agents_md — satisfies DoC#1. (5) Source file existence check via os.Stat before copy (line 1124) satisfies AC#3. (6) destDir created via os.MkdirAll (line 1145) satisfies AC#4. (7) overwrite guard via os.Stat check (line 1151-1157) returns 'already exists; pass overwrite=true' — satisfies AC#5+AC#6. (8) cmd/ta/template_cmd.go::newTemplateSaveCmd preserves all 4 legacy --kind branches (schema/agent/config/docs-template) unchanged (lines 453-471) — satisfies DoC#2+AC#6 legacy preservation. (9) --substrate + --kind mutual exclusion at line 445-447. (10) --group only valid for claude_agents (line 562-565) satisfies DoC#4. (11) runTemplateSaveSubstrate emits templateSaveKindReport with 'substrate:<name>' kind prefix (lines 558-582) — JSON shape identical to legacy kind reports, satisfying AC#7. (12) All 5 legacy regression tests present and pass (TestTemplateSaveBareMergesAllProjectDBs, TestF15_TemplateSave_MergesIntoSchemaToml, TestTemplateSaveKindAgent, TestTemplateSaveKindAgentCanonical, TestTemplateSaveKindConfigDefaultsCanonical). (13) D3 added TestTemplateSaveSubstrateScopeGuards (9 cases: mutual exclusion + path-required + group guard + 4 bundle rejections + unknown-substrate listing) + 4 new legacy preservation tests (TestTemplateSave_LegacyKind{Schema,Agent,Config,DocsTemplate}StillWorks). (14) D4 new file cmd/ta/template_save_substrate_test.go has TestTemplateSaveSubstrateRepresentativeFileDefaults (4 cases: claude_agents grouped, claude_hooks plain, claude_md_fragments append-metadata, codex_mcp_servers merge-metadata — all verify destination derived from Substrate.Source) + TestTemplateSaveSubstrateJSONOutputUniform. (15) D1 added 5 SaveSubstrateFile tests in internal/templates/multi_test.go covering success, bundle rejection, unknown rejection, missing-source rejection, conflict/overwrite. Test verification: mage testFunc on all 4 droplet name patterns green (5+22+7 = 34 tests across batches); mage testPkg ./internal/templates = 77 pass; mage testPkg ./cmd/ta = 508 pass + 1 unrelated skip (TestPickerSelectionsContractCapture); mage check green with only unrelated skips (fuzz seeds, Playwright). git diff confirms touched files match plan paths exactly: cmd/ta/template_cmd.go +56, cmd/ta/template_cmd_test.go +189, internal/templates/templates.go +142, internal/templates/multi_test.go +162, cmd/ta/template_save_substrate_test.go new (206 lines). No production files mutated outside the 4 plan-scoped paths. Build-QA proof CONVERGENCE: (a) QA Falsification attacks (installconfig source / bundle silent-pass / legacy test deletion / mutual-exclusion skip / JSON drift / stale check) all answered with verified evidence; (b) all 6 DoC + 7 AC items traced to specific file:line + test names; (c) no remaining unknowns. PASS."}
+created_at = "2026-05-24T07:00:00Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-24T07:00:00Z"
+state = "complete"
+target_id = "drop_016.drop.generic_template_save"
+title = "Build-QA proof of generic template save"
+updated_at = "2026-05-24T07:00:00Z"
+[generic_template_save-build-qa-falsification]
+completed_at = "2026-05-24T08:30:00Z"
+completion_contract = {completion_notes = """
+ROUND 2 (post-C1 fix) — PASS.
+
+=== ROUND 1 VERDICT (preserved for audit) ===
+ROUND 1: FAIL — counterexample C1 (bare --substrate=X --path=foo silently dropped the file because resolveSubstrateDestination returned destFile="", collapsing dstPath to the parent dir, triggering a misleading 'already exists' error against the directory itself). Plus 2 yellow flags: Y1 bundle-rejection error does not name 4 bundles or 10 alternatives; Y2 JSON Kind uses 'substrate:<name>' prefix vs legacy 'agent'/'config'/'docs-template'. Both yellow flags accepted as non-blocking.
+
+=== ROUND 2 EVIDENCE ===
+(1) C1 fix verified in cmd/ta/template_cmd.go::runTemplateSaveSubstrate lines 566-572: when canonical == "", code now defaults canonical = filepath.Base(srcPath) BEFORE calling SaveSubstrateFile. Inline comment cites the round-1 failure mode. The fix lives at the cmd lane, not the helper — resolveSubstrateDestination is unchanged but is now never reachable with canonical="" from production code.
+
+(2) Regression test TestTemplateSaveSubstrateDefaultsCanonicalToBasename in cmd/ta/template_save_substrate_test.go lines 212-237: invokes `save --substrate=claude_hooks --path=<tmpfile-with-basename-my-hook.sh>` WITHOUT --canonical, then verifies (a) command succeeds (line 225-227) AND (b) destination file ~/.ta/hooks/my-hook.sh exists AND (c) file CONTENT matches the source bytes (line 230-236, os.ReadFile + string compare on srcContent). Content verification, not just existence. Test passes (`mage testFunc TestTemplateSaveSubstrateDefaultsCanonicalToBasename` green, 1/1, 30 pkgs, 29 PASS + 1 no-tests).
+
+(3) Production call-site audit via `git grep SaveSubstrateFile`: only one production caller (cmd/ta/template_cmd.go::runTemplateSaveSubstrate); other matches are internal/templates/multi_test.go (tests) + internal/templates/templates.go (definition). No leaked call path can bypass the basename default.
+
+(4) New attack 4 (--substrate=claude_agents --path=foo.md --group=bar without --canonical): traced through runTemplateSaveSubstrate → group-guard passes (claude_agents allowed grouped) → canonical defaults to 'foo.md' → SaveSubstrateFile → resolveSubstrateDestination returns (homeRoot/agents/bar, 'foo.md', nil) → dstPath = homeRoot/agents/bar/foo.md. Correct interplay; no counterexample.
+
+(5) Symmetry attack 5 (--kind=agent): runTemplateSaveAgent lines 499-506 derives name from filepath.Base(srcPath) minus '.md' when canonical is empty. runTemplateSaveFlat lines 530-535 defaults canonical = filepath.Base(srcPath). runTemplateSaveSubstrate now does the same. All three lanes are symmetric in spirit when canonical is empty. The minor asymmetry (agent strips .md) is pre-existing legacy behavior, not regressed by this drop.
+
+(6) Yellow flag Y1 status: bundle-rejection error in templates.go line 1120 is unchanged. Acceptable post-fix per round-1 verdict — not a contract violation, recommendation only. Not a blocker.
+
+(7) Yellow flag Y2 status: Kind="substrate:<name>" prefix at template_cmd.go line 582 is unchanged AND is now actively pinned by TestTemplateSaveSubstrateJSONOutputUniform line 200-202 (strings.HasPrefix(kindVal, 'substrate:')). The prefix is intentional and codified. Not a blocker.
+
+(8) `mage check` green: 1783 tests, 1771 passed, 0 failed, 12 skipped (all unrelated — TUI tuitest smoke, fuzz seeds, dotta walk-golden, picker contract capture, 2 Playwright E2E). 30 packages.
+
+No reproducer scratch files written during round 2 (read-only verification + 1 mage test invocation + 1 mage check). Working tree matches pre-attack state.
+
+Verdict: PASS — C1 is closed by the cmd-lane basename default. Regression test pins the contract with content-level verification. Yellow flags Y1+Y2 remain acceptable as documented in round 1. All build-QA convergence conditions met: (a) no unmitigated counterexample, (b) evidence completeness traced to file:line, (c) no remaining unknowns.
+"""}
+created_at = "2026-05-24T07:00:00Z"
+outcome = "success"
+role = "qa-falsification"
+started_at = "2026-05-24T08:00:00Z"
+state = "complete"
+target_id = "drop_016.drop.generic_template_save"
+title = "Build-QA falsif of generic template save"
+updated_at = "2026-05-24T09:30:00Z"

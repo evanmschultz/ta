@@ -1,15 +1,18 @@
 [flow_kanban_views]
 acceptance_criteria = "1. JS island for /flow is <5KB minified inline (no CDN). 2. /kanban is pure-server zero-JS. 3. Pan/zoom/expand work without page refresh. 4. New nav scopes appear in sidebar with proper active states. 5. Same a11y contract: links underlined + 4.5:1 contrast."
+completed_at = "2026-05-24T05:50:00Z"
+completion_contract = {completion_notes = "Landed in single commit 2cda115. Added 3 new server routes (/flow, /kanban, /api/cascade/graph.json) with corresponding interfaces + Renderer methods + templates. /flow ships a vanilla-JS island (~4KB inline) implementing pan (drag bg), zoom (ctrl+wheel), per-node drag, depth-layered layout, bezier-curve edges. /kanban is pure-server with 4 state columns (todo/in_progress/complete/failed) + state-colored top borders + card count badges. PageContext gained ScopeFlow + ScopeKanban; sidebar.html partial gained Flow + Kanban nav items. embed_test.go zero-script gate explicitly allowlists flow.html as the single JS-island exception. CI green (check + a11y both PASS first-try). User wanted HTML-not-SVG navigable expandable movable flowchart + kanban view — all delivered."}
 created_at = "2026-05-24T05:20:00Z"
 definition_of_complete = "1. New /api/cascade/graph.json endpoint returns nodes + edges as JSON. 2. New /flow route serves HTML + sidebar chrome + a flowchart-container div + a small vanilla JS island that fetches the API, computes layered layout, renders nodes as positioned divs + edges as SVG lines, handles pan/zoom/click-to-expand. 3. New /kanban route serves HTML + sidebar chrome + CSS-grid with 4 state columns; each card has id + title + role + type and links to /cascade/<id>. 4. partials/sidebar.html + page_context.go updated with flow + kanban scopes. 5. base.css gains kanban column styles. 6. All routes still share chrome. 7. mage check green. 8. CI green (check + a11y). 9. Hylla ingested."
 drop_number = 15.0
 labels = ["flow", "kanban", "interactive", "follow-up-to-drop_014"]
 objective = "Replace the static SVG cascade graph with an interactive HTML flowchart (navigable + expandable + pan/zoom + draggable nodes via tiny vanilla JS island) at a new /flow route. Add a /kanban route grouping cascade records by state into 4 columns (todo/in_progress/complete/failed) as pure-server HTML. Keep / unchanged as the SVG/fallback view. Sidebar gains Flow + Kanban nav items."
+outcome = "success"
 packages = ["internal/server", "internal/serverview", "internal/templates_html_basic"]
 paths = ["internal/server/**", "internal/serverview/**", "internal/templates_html_basic/**", "cmd/ta/serve_cmd.go"]
 role = "planner"
 started_at = "2026-05-24T05:20:00Z"
-state = "in_progress"
+state = "complete"
 structural_type = "drop"
 title = "interactive HTML flowchart + kanban views"
-updated_at = "2026-05-24T05:20:00Z"
+updated_at = "2026-05-24T05:50:00Z"

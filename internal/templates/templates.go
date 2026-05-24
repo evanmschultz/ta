@@ -41,6 +41,7 @@
 //   - ShowItem(item)                         — raw bytes for one item.
 //   - SaveAgent / SaveConfig / SaveDocsTemplate — promote a project file to the home library.
 //   - DeleteAgent / DeleteConfig / DeleteDocsTemplate — remove a home-library item; binary items error read-only.
+//   - SaveSubstrateFile(name, src, group, canonical, overwrite) — save a file to the home library using a named substrate's destination path (10 file-shaped defaults only; bundle substrates unsupported).
 package templates
 
 import (
@@ -57,6 +58,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/evanmschultz/ta/internal/fsatomic"
+	"github.com/evanmschultz/ta/internal/installconfig"
 	"github.com/evanmschultz/ta/internal/schema"
 )
 
@@ -1086,6 +1088,146 @@ func SaveConfig(canonical string, body []byte, force bool) error {
 // force=false errors on conflict.
 func SaveDocsTemplate(canonical string, body []byte, force bool) error {
 	return saveFlatItem(canonical, body, force, docsDir, ".md")
+}
+
+// SaveSubstrateFile copies a source file into the home library location
+// derived from a named substrate's Source path. Supports only the 10
+// file-shaped defaults from installconfig.Defaults(); bundle substrates
+// (claude_skills, claude_plugins, example_thariq, example_stil) are
+// explicitly unsupported in this drop. The group and canonical parameters
+// customize the destination: group applies only to claude_agents, and
+// canonical overrides the filename (for non-grouped substrates or custom names).
+//
+// Returns an error if:
+//   - substrateName is not recognized (error names the 10 supported defaults).
+//   - substrateName is one of the 4 bundle substrates (explicit unsupported error).
+//   - srcPath does not exist or is not readable.
+//   - overwrite=false and the destination already exists.
+func SaveSubstrateFile(substrateName, srcPath, group, canonical string, overwrite bool) error {
+	// Validate and acquire the substrate definition.
+	cfg, err := installConfig()
+	if err != nil {
+		return err
+	}
+	sub, ok := cfg.Substrates[substrateName]
+	if !ok {
+		return fmt.Errorf("templates: unknown substrate %q; supported file-shaped defaults: %s",
+			substrateName, joinSubstrateNames(supportedFileShapedDefaults))
+	}
+
+	// Reject bundle substrates.
+	if isBundleSubstrate(substrateName) {
+		return fmt.Errorf("templates: substrate %q is a directory bundle and is unsupported in this drop", substrateName)
+	}
+
+	// Validate source file exists and is readable.
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return fmt.Errorf("templates: read source %s: %w", srcPath, err)
+	}
+	if srcInfo.IsDir() {
+		return fmt.Errorf("templates: source %s is a directory, not a file", srcPath)
+	}
+
+	// Read source file.
+	srcData, err := os.ReadFile(srcPath)
+	if err != nil {
+		return fmt.Errorf("templates: read source %s: %w", srcPath, err)
+	}
+
+	// Expand ~/.ta in the substrate source to the actual home directory.
+	destDir, destFile, err := resolveSubstrateDestination(sub, group, canonical)
+	if err != nil {
+		return err
+	}
+
+	// Create parent directories.
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("templates: create %s: %w", destDir, err)
+	}
+
+	// Check for existing file if not overwriting.
+	dstPath := filepath.Join(destDir, destFile)
+	if !overwrite {
+		if _, err := os.Stat(dstPath); err == nil {
+			return fmt.Errorf("templates: %s already exists; pass overwrite=true to overwrite", dstPath)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("templates: stat %s: %w", dstPath, err)
+		}
+	}
+
+	// Write atomically.
+	return fsatomic.Write(dstPath, srcData)
+}
+
+// installConfig loads the embedded defaults from installconfig.
+func installConfig() (*installconfig.Config, error) {
+	cfg, err := installconfig.Defaults()
+	if err != nil {
+		return nil, fmt.Errorf("templates: load defaults: %w", err)
+	}
+	return cfg, nil
+}
+
+// supportedFileShapedDefaults lists the 10 file-shaped substrates that
+// SaveSubstrateFile accepts. Bundle substrates are explicitly excluded.
+var supportedFileShapedDefaults = []string{
+	"claude_agents",
+	"claude_hooks",
+	"claude_output_styles",
+	"claude_md_fragments",
+	"claude_settings_fragments",
+	"claude_mcp_servers",
+	"codex_agents",
+	"codex_config_fragments",
+	"codex_mcp_servers",
+	"agents_md",
+}
+
+// isBundleSubstrate checks if a substrate name is one of the 4 directory
+// bundles unsupported in this drop.
+func isBundleSubstrate(name string) bool {
+	return name == "claude_skills" || name == "claude_plugins" ||
+		name == "example_thariq" || name == "example_stil"
+}
+
+// joinSubstrateNames formats a slice of substrate names as a comma-separated
+// list for error messages.
+func joinSubstrateNames(names []string) string {
+	return strings.Join(names, ", ")
+}
+
+// resolveSubstrateDestination derives the home destination directory and
+// filename from a Substrate definition, accounting for the group parameter
+// (only for claude_agents) and canonical override. Returns (destDir, destFile, error).
+func resolveSubstrateDestination(sub installconfig.Substrate, group, canonical string) (string, string, error) {
+	homeRoot, err := Root()
+	if err != nil {
+		return "", "", err
+	}
+
+	// Expand ~/.ta in the source to the actual home root.
+	sourceExpanded := strings.ReplaceAll(sub.Source, "~/.ta", homeRoot)
+
+	// For grouped substrates (claude_agents), append the group subdir.
+	if group != "" {
+		sourceExpanded = filepath.Join(sourceExpanded, group)
+	}
+
+	// Determine filename: use canonical if provided, otherwise use the last
+	// component of the source path (or a sensible default).
+	filename := canonical
+	if filename == "" {
+		// If no canonical, the directory itself serves as the destination
+		// (for directory-shaped saves; file-shaped saves will fail at the
+		// source-validation stage if srcPath doesn't specify a filename).
+		// For simplicity, we do NOT invent a filename here — the caller
+		// must provide srcPath + canonical if the file isn't named
+		// naturally from the source path stem.
+		return sourceExpanded, "", nil
+	}
+
+	return sourceExpanded, filename, nil
 }
 
 // saveFlatItem handles the shared write path for configs and docs
