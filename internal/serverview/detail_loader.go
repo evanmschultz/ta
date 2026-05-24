@@ -36,22 +36,18 @@ func LoadDetail(projectPath string, id string) (DetailLoaderResult, error) {
 	// slice fast-paths to bytes-only and leaves Fields=nil (see
 	// internal/ops/ops.go line 140-142); GetAllFields parses + populates
 	// every declared field on the record's type, which is what the
-	// detail template needs.
-	result, _, err := ops.GetAllFields(projectPath, id, "")
+	// detail template needs. The second return value carries the resolved
+	// schema type — use it for template selection so we don't depend on a
+	// per-record structural_type field (cascade.planner + cascade.qa_*
+	// records don't declare one).
+	result, sectionType, err := ops.GetAllFields(projectPath, id, "")
 	if err != nil {
 		return DetailLoaderResult{}, fmt.Errorf("load record %q: %w", id, err)
 	}
 
-	// Extract the structural_type field to determine which template to use.
-	structuralType := coerceStringField(result.Fields, "structural_type")
-	if structuralType == "" {
-		return DetailLoaderResult{}, fmt.Errorf("record %q has no structural_type field", id)
-	}
-
-	// Resolve the template name for this structural_type.
-	templateName, err := templateNameForRecordType(structuralType)
+	templateName, err := templateNameForRecordType(sectionType.Name)
 	if err != nil {
-		return DetailLoaderResult{}, fmt.Errorf("record %q (type=%q): %w", id, structuralType, err)
+		return DetailLoaderResult{}, fmt.Errorf("record %q (type=%q): %w", id, sectionType.Name, err)
 	}
 
 	return DetailLoaderResult{

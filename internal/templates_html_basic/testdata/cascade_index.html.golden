@@ -158,7 +158,7 @@
     p { margin: 0; }
 
     a {
-      color: var(--accent);
+      color: var(--text-primary);
       text-decoration: none;
     }
 
@@ -313,7 +313,7 @@
     }
 
     .cascade-fallback a {
-      color: var(--accent);
+      color: var(--text-primary);
       text-decoration: none;
       font-family: var(--font-mono);
     }
