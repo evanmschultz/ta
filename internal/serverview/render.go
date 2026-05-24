@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"sort"
 	"strings"
@@ -57,10 +58,22 @@ func (r *Renderer) RenderCascadeTree(_ context.Context, w http.ResponseWriter, r
 		}
 	}
 	for _, n := range graph.Nodes {
-		if strings.HasPrefix(n.ID, "drop_") &&
-			(strings.Contains(n.ID, ".drop.planner_l1_") || strings.Contains(n.ID, ".drop.planner_l1.")) {
-			indexNodeIDs[n.ID] = struct{}{}
+		if !strings.HasPrefix(n.ID, "drop_") {
+			continue
 		}
+		if !strings.Contains(n.ID, ".drop.planner_l1_") && !strings.Contains(n.ID, ".drop.planner_l1.") {
+			continue
+		}
+		// Skip QA twin records (their ids carry the parent planner prefix
+		// plus a -plan-qa-*/-qa-* suffix, so the planner_l1_ substring
+		// match also pulls them in unless filtered explicitly).
+		if strings.HasSuffix(n.ID, "-plan-qa-proof") ||
+			strings.HasSuffix(n.ID, "-plan-qa-falsification") ||
+			strings.HasSuffix(n.ID, "-qa-proof") ||
+			strings.HasSuffix(n.ID, "-qa-falsification") {
+			continue
+		}
+		indexNodeIDs[n.ID] = struct{}{}
 	}
 	indexGraph := CascadeGraph{
 		Nodes: make([]CascadeNode, 0, len(indexNodeIDs)),
@@ -162,9 +175,11 @@ func (r *Renderer) RenderRoadmap(_ context.Context, w http.ResponseWriter, req *
 	}
 	sort.Strings(ids)
 
-	// Pre-render each version as a fragment.
+	// Pre-render each version as a fragment. RenderedFragment is typed
+	// template.HTML so the outer roadmap.html template embeds the bytes
+	// as markup instead of HTML-escaping them to plaintext.
 	type VersionFragment struct {
-		RenderedFragment string
+		RenderedFragment template.HTML
 	}
 	fragments := []VersionFragment{}
 	for _, id := range ids {
@@ -177,7 +192,7 @@ func (r *Renderer) RenderRoadmap(_ context.Context, w http.ResponseWriter, req *
 			return fmt.Errorf("render roadmap version %q: %w", id, renderErr)
 		}
 		fragments = append(fragments, VersionFragment{
-			RenderedFragment: string(fragmentOut),
+			RenderedFragment: template.HTML(fragmentOut),
 		})
 	}
 

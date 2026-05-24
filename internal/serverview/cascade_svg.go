@@ -148,7 +148,11 @@ func renderSVG(layout []nodePosition, graph CascadeGraph) (string, error) {
 		fmt.Fprintf(&buf, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1" opacity="0.6"/>`, x1, y1, x2, y2, stroke)
 	}
 
-	// Render nodes.
+	// Render nodes. Long ids and titles are truncated with an ellipsis so
+	// neighbouring nodes do not collide; the full text is preserved in a
+	// <title> child so the browser shows it on hover.
+	const maxIDChars = 32
+	const maxTitleChars = 36
 	for _, node := range graph.Nodes {
 		pos, ok := posMap[node.ID]
 		if !ok {
@@ -156,14 +160,17 @@ func renderSVG(layout []nodePosition, graph CascadeGraph) (string, error) {
 		}
 
 		bgColor := stateColor(node.State)
-		fmt.Fprintf(&buf, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s" stroke="black" stroke-width="1"/>`,
+		fmt.Fprintf(&buf, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s" stroke="#888" stroke-width="1" rx="4"/>`,
 			pos.x, pos.y, pos.width, pos.height, bgColor)
 
-		fmt.Fprintf(&buf, `<text x="%.1f" y="%.1f" font-size="10" font-family="monospace" text-anchor="middle" dominant-baseline="middle">%s</text>`,
-			pos.x+pos.width/2, pos.y+15, htmlEscape(node.ID))
+		idDisplay := truncateForSVG(node.ID, maxIDChars)
+		titleDisplay := truncateForSVG(node.Title, maxTitleChars)
 
-		fmt.Fprintf(&buf, `<text x="%.1f" y="%.1f" font-size="12" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">%s</text>`,
-			pos.x+pos.width/2, pos.y+45, htmlEscape(node.Title))
+		fmt.Fprintf(&buf, `<text x="%.1f" y="%.1f" font-size="10" font-family="monospace" text-anchor="middle" dominant-baseline="middle" fill="#1c1e28">%s<title>%s</title></text>`,
+			pos.x+pos.width/2, pos.y+18, htmlEscape(idDisplay), htmlEscape(node.ID))
+
+		fmt.Fprintf(&buf, `<text x="%.1f" y="%.1f" font-size="11" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle" fill="#1c1e28">%s<title>%s</title></text>`,
+			pos.x+pos.width/2, pos.y+40, htmlEscape(titleDisplay), htmlEscape(node.Title))
 	}
 
 	fmt.Fprintf(&buf, `</svg>`)
@@ -190,4 +197,18 @@ func stateColor(state string) string {
 // htmlEscape escapes HTML special characters for safe embedding in SVG text.
 func htmlEscape(s string) string {
 	return html.EscapeString(s)
+}
+
+// truncateForSVG shortens s to maxChars, replacing the tail with U+2026
+// when truncation occurs. Counts runes (not bytes) so multi-byte text is
+// not split mid-codepoint.
+func truncateForSVG(s string, maxChars int) string {
+	r := []rune(s)
+	if len(r) <= maxChars {
+		return s
+	}
+	if maxChars <= 1 {
+		return "…"
+	}
+	return string(r[:maxChars-1]) + "…"
 }
