@@ -244,8 +244,10 @@
   }
 
   a {
-    color: var(--text-primary);
-    text-decoration: none;
+      color: var(--text-primary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-thickness: 1px;
   }
 
   a:hover {
