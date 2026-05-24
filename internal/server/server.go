@@ -40,6 +40,9 @@ type Server struct {
 	notFoundRenderer      NotFoundRenderer
 	docsRenderer          DocsRenderer
 	searchRenderer        SearchRenderer
+	flowRenderer          FlowRenderer
+	kanbanRenderer        KanbanRenderer
+	graphAPIRenderer      GraphAPIRenderer
 }
 
 // New constructs a new Server with the given config and a base mux.
@@ -57,6 +60,9 @@ func New(cfg Config) *Server {
 	_ = s.registerCascadeRoute()
 	_ = s.registerDocsRoute()
 	_ = s.registerSearchRoute()
+	_ = s.registerFlowRoute()
+	_ = s.registerKanbanRoute()
+	_ = s.registerGraphAPIRoute()
 	return s
 }
 

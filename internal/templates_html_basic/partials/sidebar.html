@@ -43,6 +43,24 @@
 		</li>
 		<li>
 			<a
+				href="/flow"
+				class="sidebar-item"
+				{{- if eq .ActiveScope "flow" }} aria-current="page"{{ end }}
+			>
+				<span class="sidebar-item-label">Flow</span>
+			</a>
+		</li>
+		<li>
+			<a
+				href="/kanban"
+				class="sidebar-item"
+				{{- if eq .ActiveScope "kanban" }} aria-current="page"{{ end }}
+			>
+				<span class="sidebar-item-label">Kanban</span>
+			</a>
+		</li>
+		<li>
+			<a
 				href="/roadmap"
 				class="sidebar-item"
 				{{- if eq .ActiveScope "roadmap" }} aria-current="page"{{ end }}

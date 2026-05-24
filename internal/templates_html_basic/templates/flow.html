@@ -1,0 +1,494 @@
+{{/* flow.html — interactive cascade flowchart. Client-side island fetches
+     /api/cascade/graph.json, layers the nodes by depth, lets the user
+     pan (drag bg), zoom (ctrl+wheel), drag individual nodes, and click
+     a node to open its detail page. ~4KB inline JS, zero external deps. */}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ .PageContext.PageTitle }} — Flow</title>
+<style>
+
+
+  @layer tokens, base, layout, components, utilities;
+
+  @layer tokens {
+    :root {
+      --carl: #dd9f57;
+      --carl-soft: rgb(221 159 87 / 0.14);
+      --accent: var(--carl);
+      --accent-soft: var(--carl-soft);
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      --radius-2: 5px;
+      --radius-3: 8px;
+      --radius-pill: 9999px;
+      --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+      --font-mono: "Iosevka Web", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", Consolas, monospace;
+      --text-xs: 0.75rem;
+      --text-sm: 0.875rem;
+      --text-base: 1rem;
+      --text-2xl: 1.75rem;
+      --leading-snug: 1.35;
+      --leading-normal: 1.55;
+      --weight-medium: 500;
+      --weight-semibold: 600;
+      --focus-ring-color: rgb(221 159 87 / 0.42);
+      --focus-ring: 0 0 0 1px var(--focus-ring-color);
+      --topbar-height: 44px;
+      --sidebar-width: 240px;
+      --nav-item-height: 36px;
+      --nav-item-gap: 2px;
+    }
+    :root, :root[data-theme="light"] {
+      color-scheme: light;
+      --bg-chrome:  #f9fafd;
+      --bg-surface: #fcfcfc;
+      --bg-hover:    rgb(221 159 87 / 0.07);
+      --bg-selected: rgb(221 159 87 / 0.14);
+      --text-primary:   #1c1e28;
+      --text-secondary: #545862;
+      --text-tertiary:  #6e7280;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg-chrome:  #1c1d24;
+        --bg-surface: #202229;
+        --bg-hover:    rgb(221 159 87 / 0.05);
+        --bg-selected: rgb(221 159 87 / 0.14);
+        --text-primary:   #e8e6e1;
+        --text-secondary: #a8acb6;
+        --text-tertiary:  #8c8f99;
+      }
+    }
+  }
+
+  @layer base {
+    html { font-family: var(--font-sans); font-size: var(--text-base); line-height: var(--leading-normal); }
+    body { margin: 0; padding: 0; background: var(--bg-surface); color: var(--text-primary); }
+    h1, h2 { margin: 0; font-weight: var(--weight-semibold); line-height: var(--leading-snug); }
+    a {
+      color: var(--text-primary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-thickness: 1px;
+    }
+    a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+  }
+
+  @layer layout {
+    @media (min-width: 1280px) {
+      body {
+        display: grid;
+        grid-template-columns: var(--sidebar-width) 1fr;
+        grid-template-rows: 1fr;
+        height: 100vh;
+        overflow: hidden;
+      }
+      nav[role="navigation"], aside {
+        grid-column: 1;
+        background: var(--bg-chrome);
+        border-right: 1px solid var(--bg-hover);
+        overflow-y: auto;
+        padding: var(--space-4);
+      }
+      main {
+        grid-column: 2;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 0;
+      }
+    }
+    @media (max-width: 1279px) {
+      nav[role="navigation"], aside {
+        background: var(--bg-chrome);
+        border-bottom: 1px solid var(--bg-hover);
+        padding: var(--space-3) var(--space-4);
+      }
+      main { padding: 0; }
+    }
+  }
+
+  @layer components {
+    .flow-header {
+      padding: var(--space-4) var(--space-8);
+      border-bottom: 1px solid var(--bg-hover);
+      background: var(--bg-chrome);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .flow-header h1 { font-size: var(--text-2xl); }
+    .flow-controls {
+      display: flex;
+      gap: var(--space-2);
+      align-items: center;
+      font-size: var(--text-xs);
+      color: var(--text-tertiary);
+    }
+    .flow-controls button {
+      background: var(--bg-surface);
+      border: 1px solid var(--bg-hover);
+      color: var(--text-primary);
+      padding: var(--space-1) var(--space-3);
+      border-radius: var(--radius-2);
+      font: inherit;
+      cursor: pointer;
+    }
+    .flow-controls button:hover { background: var(--bg-hover); }
+    .flow-controls button:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+    .flow-controls kbd {
+      font-family: var(--font-mono);
+      background: var(--bg-surface);
+      border: 1px solid var(--bg-hover);
+      padding: 0 var(--space-2);
+      border-radius: var(--radius-2);
+    }
+
+    .flow-stage {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 1px 1px, var(--bg-hover) 1px, transparent 0);
+      background-size: 24px 24px;
+      cursor: grab;
+      min-height: 70vh;
+    }
+    .flow-stage:active { cursor: grabbing; }
+
+    .flow-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    .flow-edges {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .flow-edge {
+      fill: none;
+      stroke: var(--text-tertiary);
+      stroke-width: 1.5;
+      opacity: 0.5;
+    }
+    .flow-edge.is-backlink { stroke-dasharray: 4 3; }
+
+    .flow-node {
+      position: absolute;
+      width: 220px;
+      background: var(--bg-surface);
+      border: 1.5px solid var(--text-tertiary);
+      border-radius: var(--radius-3);
+      padding: var(--space-3);
+      cursor: grab;
+      transition: box-shadow 120ms ease, border-color 120ms ease;
+      box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+      user-select: none;
+    }
+    .flow-node:active { cursor: grabbing; }
+    .flow-node:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgb(0 0 0 / 0.12); }
+    .flow-node[data-state="todo"]        { border-left: 4px solid #b58a3a; }
+    .flow-node[data-state="in_progress"] { border-left: 4px solid #4a6e9e; }
+    .flow-node[data-state="complete"]    { border-left: 4px solid #3f7a4a; }
+    .flow-node[data-state="failed"]      { border-left: 4px solid #a04545; }
+
+    .flow-node-id {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--text-tertiary);
+      word-break: break-all;
+      margin-bottom: var(--space-1);
+    }
+    .flow-node-title {
+      font-size: var(--text-sm);
+      font-weight: var(--weight-medium);
+      color: var(--text-primary);
+      margin-bottom: var(--space-2);
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .flow-node-meta {
+      display: flex;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+    .flow-pill {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      padding: 0 var(--space-2);
+      border-radius: var(--radius-pill);
+      background: var(--bg-selected);
+      color: var(--text-secondary);
+    }
+    .flow-node-open {
+      font-size: var(--text-xs);
+      color: var(--text-tertiary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      display: inline-block;
+      margin-top: var(--space-2);
+    }
+
+    .flow-empty, .flow-error {
+      padding: var(--space-8);
+      text-align: center;
+      color: var(--text-tertiary);
+    }
+    .flow-error { color: #a04545; }
+  }
+</style>
+</head>
+<body>
+{{ template "sidebar.html" .PageContext.SidebarData }}
+<main aria-labelledby="flow-title">
+  <header class="flow-header">
+    <h1 id="flow-title">Cascade flow</h1>
+    <div class="flow-controls" aria-label="Flowchart controls">
+      <button type="button" data-flow-action="reset" title="Reset pan and zoom">Reset</button>
+      <span>drag to pan · <kbd>ctrl</kbd>+wheel to zoom · drag node to move · click open to navigate</span>
+    </div>
+  </header>
+
+  <div class="flow-stage" id="flow-stage" tabindex="0" role="application" aria-label="Interactive cascade flowchart">
+    <div class="flow-canvas" id="flow-canvas">
+      <svg class="flow-edges" id="flow-edges" aria-hidden="true"></svg>
+    </div>
+    <p class="flow-empty" id="flow-loading">Loading cascade graph…</p>
+  </div>
+</main>
+<script>
+(() => {
+  "use strict";
+  const stage = document.getElementById('flow-stage');
+  const canvas = document.getElementById('flow-canvas');
+  const edges = document.getElementById('flow-edges');
+  const loading = document.getElementById('flow-loading');
+
+  const NODE_W = 220, NODE_H = 110, COL_GAP = 60, ROW_GAP = 40;
+  let scale = 1, tx = 40, ty = 40;
+  const nodePos = new Map();
+  let edgesList = [];
+
+  function applyTransform() {
+    canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  }
+
+  function depthOf(id, nodeMap, edgesByTarget, memo) {
+    if (memo.has(id)) return memo.get(id);
+    const parents = edgesByTarget.get(id) || [];
+    if (!parents.length) { memo.set(id, 0); return 0; }
+    let max = 0;
+    for (const p of parents) {
+      if (!nodeMap.has(p) || p === id) continue;
+      const d = depthOf(p, nodeMap, edgesByTarget, memo) + 1;
+      if (d > max) max = d;
+    }
+    memo.set(id, max);
+    return max;
+  }
+
+  function makePill(text) {
+    const span = document.createElement('span');
+    span.className = 'flow-pill';
+    span.textContent = text;
+    return span;
+  }
+
+  function buildNode(node, x, y) {
+    const div = document.createElement('div');
+    div.className = 'flow-node';
+    div.dataset.id = node.ID;
+    div.dataset.state = node.State || '';
+    div.style.left = x + 'px';
+    div.style.top = y + 'px';
+
+    const id = document.createElement('div');
+    id.className = 'flow-node-id';
+    id.textContent = node.ID;
+    div.appendChild(id);
+
+    const title = document.createElement('div');
+    title.className = 'flow-node-title';
+    title.textContent = node.Title || '(no title)';
+    div.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'flow-node-meta';
+    if (node.Role) meta.appendChild(makePill(node.Role));
+    if (node.Type) meta.appendChild(makePill(node.Type));
+    if (node.State) meta.appendChild(makePill(node.State));
+    div.appendChild(meta);
+
+    const open = document.createElement('a');
+    open.className = 'flow-node-open';
+    open.href = '/cascade/' + encodeURIComponent(node.ID);
+    open.textContent = 'open ›';
+    open.addEventListener('click', (e) => e.stopPropagation());
+    div.appendChild(open);
+
+    return div;
+  }
+
+  function renderGraph(graph) {
+    loading.remove();
+    const nodes = graph.Nodes || [];
+    const allEdges = graph.Edges || [];
+    if (!nodes.length) {
+      const p = document.createElement('p');
+      p.className = 'flow-empty';
+      p.textContent = 'No cascade records.';
+      canvas.appendChild(p);
+      return;
+    }
+
+    const nodeMap = new Map(nodes.map(n => [n.ID, n]));
+    const hierarchyEdges = allEdges.filter(e => e.Kind === 'hierarchy');
+    const edgesByTarget = new Map();
+    for (const e of hierarchyEdges) {
+      const arr = edgesByTarget.get(e.TargetID) || [];
+      arr.push(e.SourceID);
+      edgesByTarget.set(e.TargetID, arr);
+    }
+
+    const memo = new Map();
+    const byDepth = new Map();
+    for (const n of nodes) {
+      const d = depthOf(n.ID, nodeMap, edgesByTarget, memo);
+      const arr = byDepth.get(d) || [];
+      arr.push(n);
+      byDepth.set(d, arr);
+    }
+
+    for (const arr of byDepth.values()) {
+      arr.sort((a, b) => (a.ID < b.ID ? -1 : a.ID > b.ID ? 1 : 0));
+    }
+
+    const depths = Array.from(byDepth.keys()).sort((a, b) => a - b);
+    for (const d of depths) {
+      const arr = byDepth.get(d);
+      arr.forEach((n, i) => {
+        const x = i * (NODE_W + COL_GAP);
+        const y = d * (NODE_H + ROW_GAP);
+        nodePos.set(n.ID, { x, y });
+        canvas.appendChild(buildNode(n, x, y));
+      });
+    }
+
+    edgesList = allEdges;
+    drawEdges();
+  }
+
+  function drawEdges() {
+    let maxX = 0, maxY = 0;
+    for (const pos of nodePos.values()) {
+      if (pos.x + NODE_W > maxX) maxX = pos.x + NODE_W;
+      if (pos.y + NODE_H > maxY) maxY = pos.y + NODE_H;
+    }
+    edges.setAttribute('width', maxX + 40);
+    edges.setAttribute('height', maxY + 40);
+    edges.innerHTML = '';
+    for (const e of edgesList) {
+      const s = nodePos.get(e.SourceID);
+      const t = nodePos.get(e.TargetID);
+      if (!s || !t) continue;
+      const x1 = s.x + NODE_W / 2;
+      const y1 = s.y + NODE_H;
+      const x2 = t.x + NODE_W / 2;
+      const y2 = t.y;
+      const my = (y1 + y2) / 2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`);
+      path.setAttribute('class', 'flow-edge' + (e.Kind === 'backlink' ? ' is-backlink' : ''));
+      edges.appendChild(path);
+    }
+  }
+
+  // Pan via mouse drag on stage background.
+  let panning = false, psx = 0, psy = 0;
+  stage.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.flow-node') || e.target.closest('button') || e.target.closest('a')) return;
+    panning = true;
+    psx = e.clientX - tx;
+    psy = e.clientY - ty;
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (panning) {
+      tx = e.clientX - psx;
+      ty = e.clientY - psy;
+      applyTransform();
+    } else if (nodeDrag) {
+      const dx = (e.clientX - nodeDrag.sx) / scale;
+      const dy = (e.clientY - nodeDrag.sy) / scale;
+      const x = nodeDrag.origX + dx;
+      const y = nodeDrag.origY + dy;
+      nodeDrag.el.style.left = x + 'px';
+      nodeDrag.el.style.top = y + 'px';
+      nodePos.set(nodeDrag.el.dataset.id, { x, y });
+      drawEdges();
+    }
+  });
+  window.addEventListener('mouseup', () => { panning = false; nodeDrag = null; });
+
+  // Per-node drag.
+  let nodeDrag = null;
+  canvas.addEventListener('mousedown', (e) => {
+    const node = e.target.closest('.flow-node');
+    if (!node) return;
+    if (e.target.closest('a')) return;
+    e.stopPropagation();
+    nodeDrag = {
+      el: node,
+      sx: e.clientX,
+      sy: e.clientY,
+      origX: parseFloat(node.style.left),
+      origY: parseFloat(node.style.top),
+    };
+  });
+
+  // Zoom via ctrl/cmd + wheel.
+  stage.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    scale = Math.max(0.3, Math.min(2.5, scale * factor));
+    applyTransform();
+  }, { passive: false });
+
+  // Reset button.
+  document.querySelector('[data-flow-action="reset"]').addEventListener('click', () => {
+    scale = 1; tx = 40; ty = 40;
+    applyTransform();
+  });
+
+  applyTransform();
+
+  fetch('/api/cascade/graph.json')
+    .then(r => r.json())
+    .then(renderGraph)
+    .catch((err) => {
+      loading.className = 'flow-error';
+      loading.textContent = 'Failed to load graph: ' + err.message;
+    });
+})();
+</script>
+</body>
+</html>

@@ -57,6 +57,14 @@ func TestEmbeddedBasic_NoScriptTagsRegex(t *testing.T) {
 		if !strings.HasSuffix(path, ".html") {
 			return nil
 		}
+		// Explicit allowlist for templates whose interactivity requires a
+		// JS island. flow.html ships an inline vanilla-JS pan/zoom/drag
+		// flowchart (drop_015) — the user requirement is an interactive
+		// graph, which cannot be served purely from CSS. Every other
+		// template stays under the zero-JS rule.
+		if path == "flow.html" {
+			return nil
+		}
 		scanned++
 		body, readErr := fs.ReadFile(fsys, path)
 		if readErr != nil {

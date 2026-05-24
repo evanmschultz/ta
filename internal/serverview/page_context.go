@@ -15,6 +15,8 @@ type NavScope string
 
 const (
 	ScopeCascade NavScope = "cascade" // /
+	ScopeFlow    NavScope = "flow"    // /flow — interactive flowchart
+	ScopeKanban  NavScope = "kanban"  // /kanban — state-grouped action items
 	ScopeRoadmap NavScope = "roadmap" // /roadmap
 	ScopeSchema  NavScope = "schema"  // /schema
 	ScopeSearch  NavScope = "search"  // /search
@@ -80,6 +82,10 @@ func DeriveActiveScope(routePath string) NavScope {
 	switch {
 	case routePath == "" || strings.HasPrefix(routePath, "cascade"):
 		return ScopeCascade
+	case strings.HasPrefix(routePath, "flow"):
+		return ScopeFlow
+	case strings.HasPrefix(routePath, "kanban"):
+		return ScopeKanban
 	case strings.HasPrefix(routePath, "roadmap"):
 		return ScopeRoadmap
 	case strings.HasPrefix(routePath, "schema"):

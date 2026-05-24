@@ -1,0 +1,293 @@
+{{/* kanban.html — state-grouped action items view. Pure-server HTML; zero JS. */}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ .PageContext.PageTitle }} — Kanban</title>
+<style>
+
+
+  @layer tokens, base, layout, components, utilities;
+
+  @layer tokens {
+    :root {
+      --carl: #dd9f57;
+      --carl-hover: #e3a868;
+      --carl-pressed: #d39243;
+      --carl-soft: rgb(221 159 87 / 0.14);
+      --accent: var(--carl);
+      --accent-soft: var(--carl-soft);
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      --radius-2: 5px;
+      --radius-3: 8px;
+      --radius-pill: 9999px;
+      --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+      --font-mono: "Iosevka Web", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", Consolas, monospace;
+      --text-xs: 0.75rem;
+      --text-sm: 0.875rem;
+      --text-base: 1rem;
+      --text-lg: 1.125rem;
+      --text-xl: 1.375rem;
+      --text-2xl: 1.75rem;
+      --leading-snug: 1.35;
+      --leading-normal: 1.55;
+      --weight-regular: 400;
+      --weight-medium: 500;
+      --weight-semibold: 600;
+      --focus-ring-color: rgb(221 159 87 / 0.42);
+      --focus-ring: 0 0 0 1px var(--focus-ring-color);
+      --topbar-height: 44px;
+      --sidebar-width: 240px;
+      --nav-item-height: 36px;
+      --nav-item-gap: 2px;
+    }
+    :root, :root[data-theme="light"] {
+      color-scheme: light;
+      --bg-chrome:  #f9fafd;
+      --bg-surface: #fcfcfc;
+      --bg-hover:    rgb(221 159 87 / 0.07);
+      --bg-selected: rgb(221 159 87 / 0.14);
+      --text-primary:   #1c1e28;
+      --text-secondary: #545862;
+      --text-tertiary:  #6e7280;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg-chrome:  #1c1d24;
+        --bg-surface: #202229;
+        --bg-hover:    rgb(221 159 87 / 0.05);
+        --bg-selected: rgb(221 159 87 / 0.14);
+        --text-primary:   #e8e6e1;
+        --text-secondary: #a8acb6;
+        --text-tertiary:  #8c8f99;
+      }
+    }
+  }
+
+  @layer base {
+    html { font-family: var(--font-sans); font-size: var(--text-base); line-height: var(--leading-normal); }
+    body { margin: 0; padding: 0; background: var(--bg-surface); color: var(--text-primary); }
+    h1, h2, h3 { margin: 0; font-weight: var(--weight-semibold); line-height: var(--leading-snug); }
+    a {
+      color: var(--text-primary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-thickness: 1px;
+    }
+    a:hover { text-decoration-thickness: 2px; }
+    a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+  }
+
+  @layer layout {
+    @media (min-width: 1280px) {
+      body {
+        display: grid;
+        grid-template-columns: var(--sidebar-width) 1fr;
+        grid-template-rows: 1fr;
+        min-height: 100vh;
+      }
+      nav[role="navigation"], aside {
+        grid-column: 1;
+        background: var(--bg-chrome);
+        border-right: 1px solid var(--bg-hover);
+        overflow-y: auto;
+        padding: var(--space-4);
+      }
+      main {
+        grid-column: 2;
+        padding: var(--space-6) var(--space-8);
+        min-width: 0;
+        overflow-x: auto;
+      }
+    }
+    @media (max-width: 1279px) {
+      nav[role="navigation"], aside {
+        background: var(--bg-chrome);
+        border-bottom: 1px solid var(--bg-hover);
+        padding: var(--space-3) var(--space-4);
+      }
+      main { padding: var(--space-4) var(--space-5); }
+    }
+  }
+
+  @layer components {
+    main > header { margin-bottom: var(--space-6); }
+    main > header h1 { font-size: var(--text-2xl); margin-bottom: var(--space-2); }
+    main > header .breadcrumb {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+    }
+
+    .kanban-board {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--space-4);
+    }
+
+    @media (max-width: 1024px) {
+      .kanban-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .kanban-board { grid-template-columns: 1fr; }
+    }
+
+    .kanban-column {
+      background: var(--bg-chrome);
+      border: 1px solid var(--bg-hover);
+      border-radius: var(--radius-3);
+      padding: var(--space-3);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      min-height: 200px;
+    }
+
+    .kanban-column-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 0 var(--space-2);
+    }
+
+    .kanban-column-header h2 {
+      font-size: var(--text-sm);
+      font-weight: var(--weight-semibold);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+    }
+
+    .kanban-column-count {
+      font-variant-numeric: tabular-nums;
+      font-size: var(--text-xs);
+      color: var(--text-tertiary);
+      background: var(--bg-surface);
+      padding: 0 var(--space-2);
+      border-radius: var(--radius-pill);
+    }
+
+    .kanban-column[data-state="todo"]        { border-top: 3px solid #b58a3a; }
+    .kanban-column[data-state="in_progress"] { border-top: 3px solid #4a6e9e; }
+    .kanban-column[data-state="complete"]    { border-top: 3px solid #3f7a4a; }
+    .kanban-column[data-state="failed"]      { border-top: 3px solid #a04545; }
+
+    .kanban-column-cards {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+
+    .kanban-card {
+      display: block;
+      background: var(--bg-surface);
+      border: 1px solid var(--bg-hover);
+      border-radius: var(--radius-2);
+      padding: var(--space-3);
+      color: var(--text-primary);
+      text-decoration: none;
+      transition: background-color 120ms ease, border-color 120ms ease;
+    }
+
+    .kanban-card:hover {
+      background: var(--bg-hover);
+      border-color: var(--accent);
+      text-decoration: none;
+    }
+
+    .kanban-card:focus-visible {
+      outline: var(--focus-ring);
+      outline-offset: 2px;
+    }
+
+    .kanban-card-id {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--text-tertiary);
+      display: block;
+      margin-bottom: var(--space-1);
+      word-break: break-all;
+    }
+
+    .kanban-card-title {
+      font-size: var(--text-sm);
+      font-weight: var(--weight-medium);
+      color: var(--text-primary);
+      display: block;
+      margin-bottom: var(--space-2);
+    }
+
+    .kanban-card-meta {
+      display: flex;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+
+    .kanban-pill {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      padding: 0 var(--space-2);
+      border-radius: var(--radius-pill);
+      background: var(--bg-selected);
+      color: var(--text-secondary);
+    }
+
+    .kanban-empty {
+      font-size: var(--text-sm);
+      color: var(--text-tertiary);
+      text-align: center;
+      padding: var(--space-4) 0;
+      font-style: italic;
+    }
+  }
+</style>
+</head>
+<body>
+{{ template "sidebar.html" .PageContext.SidebarData }}
+<main aria-labelledby="kanban-title">
+  <header>
+    <h1 id="kanban-title">{{ .PageContext.PageTitle }}</h1>
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      {{ range $i, $crumb := .PageContext.Breadcrumb }}
+        {{ if $i }} / {{ end }}
+        {{ if $crumb.URL }}<a href="{{ $crumb.URL }}">{{ $crumb.Label }}</a>{{ else }}{{ $crumb.Label }}{{ end }}
+      {{ end }}
+    </nav>
+  </header>
+
+  <section class="kanban-board" aria-label="Action items grouped by state">
+    {{ range .Columns }}
+    <div class="kanban-column" data-state="{{ .State }}">
+      <div class="kanban-column-header">
+        <h2>{{ .Label }}</h2>
+        <span class="kanban-column-count">{{ len .Cards }}</span>
+      </div>
+      <div class="kanban-column-cards">
+        {{ if .Cards }}
+          {{ range .Cards }}
+          <a class="kanban-card" href="/cascade/{{ .ID }}">
+            <span class="kanban-card-id">{{ .ID }}</span>
+            <span class="kanban-card-title">{{ if .Title }}{{ .Title }}{{ else }}(no title){{ end }}</span>
+            <span class="kanban-card-meta">
+              {{ if .Role }}<span class="kanban-pill">{{ .Role }}</span>{{ end }}
+              {{ if .Type }}<span class="kanban-pill">{{ .Type }}</span>{{ end }}
+            </span>
+          </a>
+          {{ end }}
+        {{ else }}
+          <p class="kanban-empty">No records.</p>
+        {{ end }}
+      </div>
+    </div>
+    {{ end }}
+  </section>
+</main>
+</body>
+</html>

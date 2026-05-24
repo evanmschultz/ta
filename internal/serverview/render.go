@@ -10,6 +10,7 @@ package serverview
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -366,4 +367,101 @@ func isRecordNotFound(err error) bool {
 		return false
 	}
 	return errors.Is(err, ops.ErrRecordNotFound) || errors.Is(err, ops.ErrFileNotFound)
+}
+
+// RenderFlow implements server.FlowRenderer. The /flow page is the shared
+// chrome shell plus a flowchart-container div that a small vanilla JS
+// island wires up to /api/cascade/graph.json. The flowchart layout and
+// pan/zoom/expand interactions live entirely in the client; this method
+// only serves the page shell.
+func (r *Renderer) RenderFlow(_ context.Context, w http.ResponseWriter, req *http.Request) error {
+	pageContext := NewPageContextForRoute(req.URL.Path, "Flow")
+	data := map[string]any{"PageContext": pageContext}
+	out, err := templates_html_basic.Render("flow.html", data)
+	if err != nil {
+		return fmt.Errorf("render flow: %w", err)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, err = w.Write(out)
+	return err
+}
+
+// KanbanColumn is one of the four state columns on the /kanban view.
+type KanbanColumn struct {
+	State string
+	Label string
+	Cards []KanbanCard
+}
+
+// KanbanCard is a single record's card in a kanban column.
+type KanbanCard struct {
+	ID    string
+	Title string
+	Role  string
+	Type  string
+}
+
+// RenderKanban implements server.KanbanRenderer. The /kanban page groups
+// every cascade record by its `state` field into 4 columns. Card content
+// links to the record's detail page. Pure server-rendered, zero JS.
+func (r *Renderer) RenderKanban(_ context.Context, w http.ResponseWriter, req *http.Request) error {
+	graph, err := LoadCascadeGraph(r.projectPath)
+	if err != nil {
+		return fmt.Errorf("render kanban: load graph: %w", err)
+	}
+
+	columns := []KanbanColumn{
+		{State: "todo", Label: "Todo"},
+		{State: "in_progress", Label: "In Progress"},
+		{State: "complete", Label: "Complete"},
+		{State: "failed", Label: "Failed"},
+	}
+	columnIndex := map[string]int{
+		"todo":        0,
+		"in_progress": 1,
+		"complete":    2,
+		"failed":      3,
+	}
+	for _, n := range graph.Nodes {
+		idx, ok := columnIndex[n.State]
+		if !ok {
+			continue
+		}
+		columns[idx].Cards = append(columns[idx].Cards, KanbanCard{
+			ID:    n.ID,
+			Title: n.Title,
+			Role:  n.Role,
+			Type:  n.Type,
+		})
+	}
+
+	pageContext := NewPageContextForRoute(req.URL.Path, "Kanban")
+	data := map[string]any{
+		"PageContext": pageContext,
+		"Columns":     columns,
+	}
+	out, err := templates_html_basic.Render("kanban.html", data)
+	if err != nil {
+		return fmt.Errorf("render kanban: %w", err)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, err = w.Write(out)
+	return err
+}
+
+// RenderGraphAPI implements server.GraphAPIRenderer. Returns the full
+// cascade graph (nodes + edges) as JSON. Consumed by the /flow page's
+// client-side flowchart renderer.
+func (r *Renderer) RenderGraphAPI(_ context.Context, w http.ResponseWriter, _ *http.Request) error {
+	graph, err := LoadCascadeGraph(r.projectPath)
+	if err != nil {
+		return fmt.Errorf("render graph API: load graph: %w", err)
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(graph); err != nil {
+		return fmt.Errorf("render graph API: encode: %w", err)
+	}
+	return nil
 }

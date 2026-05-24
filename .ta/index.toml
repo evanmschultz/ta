@@ -4023,7 +4023,7 @@ updated = 2026-05-23T06:12:09.342004Z
 created = 2026-05-23T04:30:03.442174Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-23T05:56:29.254841Z
+updated = 2026-05-24T05:32:29.167706Z
 
 [drop_014.drop.ta_serve_ux_rework-build-qa-falsification]
 created = 2026-05-23T19:04:57.756736Z
@@ -4048,6 +4048,14 @@ created = 2026-05-23T04:30:03.458851Z
 db_name = 'cascade'
 type = 'qa_proof'
 updated = 2026-05-23T04:30:03.458851Z
+
+[drop_015]
+[drop_015.drop]
+[drop_015.drop.flow_kanban_views]
+created = 2026-05-24T05:32:41.437005Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-24T05:32:41.437005Z
 
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]

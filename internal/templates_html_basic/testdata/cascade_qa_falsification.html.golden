@@ -397,6 +397,22 @@
 		</li>
 		<li>
 			<a
+				href="/flow"
+				class="sidebar-item"
+			>
+				<span class="sidebar-item-label">Flow</span>
+			</a>
+		</li>
+		<li>
+			<a
+				href="/kanban"
+				class="sidebar-item"
+			>
+				<span class="sidebar-item-label">Kanban</span>
+			</a>
+		</li>
+		<li>
+			<a
 				href="/roadmap"
 				class="sidebar-item"
 			>
