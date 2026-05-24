@@ -40,3 +40,6 @@ internal/templates_html_embed/dist/*
 
 # drop_014 visual verification screenshots (regenerate via playwright)
 /drop_014-*.png
+
+# pnpm install artifacts (CI installs fresh; commit lockfile separately if pinning desired)
+/a11y/pnpm-lock.yaml
