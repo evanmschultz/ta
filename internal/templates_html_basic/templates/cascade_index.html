@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>L3-E1-D-A3 render engine — drop 004</title>
+<title>{{ .PageContext.PageTitle }} — Cascade</title>
 <style>
-   
+  /* base.css — ta Track A foundational styles (inlined for zero-deps cascade_index.html) */
 
   @layer tokens, base, layout, components, utilities;
 
@@ -271,332 +271,106 @@
     }
   }
 
-   
+  /* cascade_index.html component styles */
   @layer components {
-    .drop-id {
+    .cascade-svg-container {
+      margin: var(--space-6) 0;
+      border: 1px solid var(--bg-hover);
+      border-radius: var(--radius-3);
+      background: var(--bg-surface);
+      padding: var(--space-4);
+      overflow: auto;
+      min-height: 400px;
+    }
+
+    .cascade-svg-container svg {
+      display: block;
+      max-width: none;
+    }
+
+    .cascade-fallback {
+      margin: var(--space-6) 0;
+      padding: var(--space-4);
+      border: 1px solid var(--bg-hover);
+      border-radius: var(--radius-3);
+      background: var(--bg-surface);
+    }
+
+    .cascade-fallback ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .cascade-fallback li {
+      padding: var(--space-3) var(--space-2);
+      border-bottom: 1px solid var(--bg-hover);
       font-size: var(--text-sm);
-      color: var(--text-tertiary);
+    }
+
+    .cascade-fallback li:last-child {
+      border-bottom: none;
+    }
+
+    .cascade-fallback a {
+      color: var(--accent);
+      text-decoration: none;
       font-family: var(--font-mono);
     }
-    .pills {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      margin-top: var(--space-1);
-    }
-    .pill {
-      display: inline-block;
-      padding: var(--space-1) var(--space-3);
-      border-radius: var(--radius-pill);
-      font-size: var(--text-sm);
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-weight: var(--weight-medium);
-    }
-    .pill[data-key="state"][data-value="todo"] { background: #e5e7eb; color: #6b7280; }
-    .pill[data-key="state"][data-value="in_progress"] { background: #fef3c7; color: #b45309; }
-    .pill[data-key="state"][data-value="complete"] { background: #d1fae5; color: #047857; }
-    .pill[data-key="state"][data-value="failed"] { background: #fee2e2; color: #b91c1c; }
-    .pill[data-key="state"][data-value="archived"] { background: #e5e7eb; color: #4b5563; }
 
-    section {
-      margin-block: var(--space-6);
+    .cascade-fallback a:hover {
+      text-decoration: underline;
     }
-    section h2 {
-      font-size: var(--text-lg);
-      margin: 0 0 var(--space-2);
-      color: var(--text-primary);
-    }
-    dl.meta {
-      display: grid;
-      grid-template-columns: max-content 1fr;
-      column-gap: var(--space-4);
-      row-gap: var(--space-2);
-      margin: 0;
-    }
-    dl.meta dt {
-      color: var(--text-secondary);
-      font-size: var(--text-sm);
-    }
-    dl.meta dd {
-      margin: 0;
-      font-size: var(--text-base);
-      word-break: break-word;
-    }
-    ul.flat {
-      margin: 0;
-      padding-left: var(--space-5);
-    }
-    ul.flat li { margin-block: var(--space-1); }
-    .prose {
-      white-space: pre-wrap;
-      font-size: var(--text-base);
-      color: var(--text-primary);
-    }
-    header {
-      display: grid;
+
+    .cascade-node-meta {
+      display: inline-flex;
       gap: var(--space-2);
-      border-bottom: 1px solid var(--bg-hover);
-      padding-bottom: var(--space-4);
-      margin-bottom: var(--space-5);
-    }
-    header h1 {
-      margin: 0;
-      font-size: var(--text-2xl);
-      line-height: var(--leading-tight);
-    }
-    footer {
-      margin-top: var(--space-8);
-      padding-top: var(--space-4);
-      border-top: 1px solid var(--bg-hover);
-      font-size: var(--text-sm);
+      margin-left: var(--space-3);
+      font-size: var(--text-xs);
       color: var(--text-secondary);
     }
-  }
-
-  @media (max-width: 767px) {
-    dl.meta { grid-template-columns: 1fr; }
-    dl.meta dt { margin-top: var(--space-2); }
   }
 </style>
 </head>
 <body>
-<nav class="sidebar" role="navigation" aria-label="Primary">
-	<ul class="sidebar-items">
-		<li>
-			<a
-				href="/"
-				class="sidebar-item"
-			>
-				<span class="sidebar-item-label">Cascade Index</span>
-			</a>
-		</li>
-		<li>
-			<a
-				href="/roadmap"
-				class="sidebar-item"
-			>
-				<span class="sidebar-item-label">Roadmap</span>
-			</a>
-		</li>
-		<li>
-			<a
-				href="/schema"
-				class="sidebar-item"
-			>
-				<span class="sidebar-item-label">Schema</span>
-			</a>
-		</li>
-		<li>
-			<form method="get" action="/search" class="sidebar-search-form">
-				<input
-					type="text"
-					name="q"
-					placeholder="Search..."
-					class="sidebar-search-input"
-					aria-label="Search cascade records"
-				/>
-			</form>
-		</li>
-	</ul>
-</nav>
+{{ template "sidebar.html" .PageContext.SidebarData }}
 
-<style>
-	 
-
-	.sidebar {
-		width: 100%;
-		height: 100%;
-		background: var(--bg-chrome);
-		padding: 0 var(--space-3) var(--nav-padding-bottom);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.sidebar-items {
-		display: flex;
-		flex-direction: column;
-		gap: var(--nav-item-gap);
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-
-	.sidebar-item {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		width: 100%;
-		height: var(--nav-item-height);
-		padding: 0 var(--space-3);
-		border-radius: var(--radius-2);
-		color: var(--text-secondary);
-		text-align: left;
-		text-decoration: none;
-		font-size: var(--text-sm);
-		transition:
-			background-color var(--duration-fast) var(--ease-out),
-			color var(--duration-fast) var(--ease-out);
-	}
-
-	.sidebar-item:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.sidebar-item[aria-current="page"] {
-		background: var(--bg-selected);
-		color: var(--text-primary);
-		font-weight: var(--weight-medium);
-	}
-
-	.sidebar-item:focus-visible {
-		outline: none;
-		box-shadow: var(--focus-ring);
-	}
-
-	.sidebar-item-label {
-		flex: 1;
-	}
-
-	 
-
-	.sidebar-search-form {
-		display: flex;
-		width: 100%;
-		height: var(--nav-item-height);
-		padding: 0;
-		margin: 0;
-	}
-
-	.sidebar-search-input {
-		flex: 1;
-		padding: 0 var(--space-3);
-		border: none;
-		border-radius: var(--radius-2);
-		background: var(--bg-hover);
-		color: var(--text-primary);
-		font-size: var(--text-sm);
-		font-family: inherit;
-	}
-
-	.sidebar-search-input::placeholder {
-		color: var(--text-secondary);
-	}
-
-	.sidebar-search-input:focus {
-		outline: none;
-		box-shadow: var(--focus-ring);
-		background: var(--bg-surface);
-	}
-
-	 
-
-	@media (max-width: 1279px) {
-		.sidebar-items {
-			flex-direction: row;
-		}
-
-		.sidebar-item {
-			flex: 1;
-		}
-	}
-
-	@media (max-width: 767px) {
-		.sidebar {
-			padding: 0;
-			gap: 0;
-		}
-
-		.sidebar-items {
-			gap: 0;
-		}
-
-		.sidebar-item {
-			border-radius: 0;
-			padding: var(--space-2);
-			height: auto;
-			flex-direction: column;
-			justify-content: center;
-			font-size: var(--text-xs);
-		}
-
-		.sidebar-search-form {
-			display: none;
-		}
-	}
-</style>
-
-
-<main aria-labelledby="drop-title">
+<main>
   <header>
-    <div class="drop-id">drop_004</div>
-    <h1 id="drop-title">L3-E1-D-A3 render engine</h1>
-    <div class="pills" aria-label="Drop metadata">
-      <span class="pill" data-key="structural_type" data-value="droplet">droplet</span>
-      <span class="pill" data-key="role" data-value="builder">builder</span>
-      <span class="pill" data-key="state" data-value="in_progress">in_progress</span>
-      
-      
-    </div>
+    <h1>{{ .PageContext.PageTitle }}</h1>
+    {{ if .PageContext.Breadcrumb }}
+    <nav aria-label="Breadcrumb" style="font-size: var(--text-sm); color: var(--text-secondary);">
+      {{ range $i, $crumb := .PageContext.Breadcrumb }}
+        {{ if $i }} / {{ end }}
+        {{ if $crumb.URL }}<a href="{{ $crumb.URL }}">{{ $crumb.Label }}</a>{{ else }}{{ $crumb.Label }}{{ end }}
+      {{ end }}
+    </nav>
+    {{ end }}
   </header>
 
-  <section aria-label="Timestamps and identifiers">
-    <h2>Identifiers</h2>
-    <dl class="meta">
-      <dt>drop_number</dt><dd>004</dd>
-      <dt>parent_id</dt><dd>drop_004.drop.l3_e1_astro_substrate</dd>
-      <dt>created_at</dt><dd><time datetime="2026-05-18T08:00:00Z">2026-05-18T08:00:00Z</time></dd>
-      <dt>updated_at</dt><dd><time datetime="2026-05-18T08:00:00Z">2026-05-18T08:00:00Z</time></dd>
-      <dt>started_at</dt><dd><time datetime="2026-05-18T08:00:00Z">2026-05-18T08:00:00Z</time></dd>
-      
-    </dl>
-  </section>
+  {{ if .SVG }}
+  <div class="cascade-svg-container">
+    {{ .SVG }}
+  </div>
+  {{ end }}
 
-  
-  <section aria-label="Objective">
-    <h2>Objective</h2>
-    <div class="prose">Track A render engine using stdlib html/template.</div>
-  </section>
-  
-
-  
-
-  
-
-  
-
-  
-  <section aria-label="Paths owned">
-    <h2>Paths</h2>
-    <ul class="flat">
-      <li>internal/templates_html_basic/render.go</li><li>internal/templates_html_basic/render_test.go</li>
+  {{ if .Nodes }}
+  <section aria-label="Cascade records" class="cascade-fallback">
+    <h2>Records</h2>
+    <ul>
+      {{ range .Nodes }}
+      <li>
+        <a href="/cascade/{{ .ID }}">{{ if .Title }}{{ .Title }}{{ else }}{{ .ID }}{{ end }}</a>
+        <span class="cascade-node-meta">
+          <span>role: <strong>{{ .Role }}</strong></span>
+          <span>state: <strong>{{ .State }}</strong></span>
+          <span>type: <strong>{{ .Type }}</strong></span>
+        </span>
+      </li>
+      {{ end }}
     </ul>
   </section>
-  
-
-  
-
-  
-  <section aria-label="Blockers">
-    <h2>Blockers</h2>
-    <ul class="flat">
-      <li>drop_004.drop.builder_l3_e1_da2_basic_embed</li>
-    </ul>
-  </section>
-  
-
-  
-  <section aria-label="Transition notes">
-    <h2>Transition notes</h2>
-    <div class="prose">Render done. Attack payload: &lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</div>
-  </section>
-  
-
-  <footer>
-    Rendered from ta record <code>cascade.drop</code>. Track A (zero-deps) template.
-  </footer>
+  {{ end }}
 </main>
 </body>
 </html>

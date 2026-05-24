@@ -37,6 +37,7 @@ type Server struct {
 	mux                   *http.ServeMux
 	viewRenderer          ViewRenderer
 	cascadeDetailRenderer CascadeDetailRenderer
+	notFoundRenderer      NotFoundRenderer
 	docsRenderer          DocsRenderer
 	searchRenderer        SearchRenderer
 }

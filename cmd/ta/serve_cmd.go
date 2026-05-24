@@ -83,7 +83,8 @@ func runServeHTTP(ctx context.Context, stderr io.Writer, cfg serveConfig) error 
 		WithViewRenderer(renderer).
 		WithCascadeDetailRenderer(renderer).
 		WithDocsRenderer(renderer).
-		WithSearchRenderer(renderer)
+		WithSearchRenderer(renderer).
+		WithNotFoundRenderer(renderer)
 	fmt.Fprintf(stderr, "ta serve: listening on http://%s:%d (project=%s)\n",
 		cfg.Bind, cfg.Port, projectPath)
 	return srv.Run(ctx)

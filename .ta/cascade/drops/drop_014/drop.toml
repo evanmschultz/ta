@@ -1,0 +1,699 @@
+[ta_serve_ux_rework]
+acceptance_criteria = "1. L1 planner (fe-led) decomposes into multi-droplet slices; plan-QA twin pair joint PASS before descent. 2. Builder droplets ≤1-2 small code blocks INCLUDING tests; if a droplet would touch >2 files or >2 distinct surface areas (packages), decompose further. 3. Stil CSS tokens are PORTED (frozen copy in internal/templates_html_basic), not vendored via build-time fetch — the Go binary must be self-contained per the embed.FS pattern already in use. 4. SVG layout algorithm choice is justified (vertical top-down vs radial; pick one + cite reason). Payload size is a SOFT advisory only — keep the SVG output reasonable for ~10-50 cascade nodes but do NOT gate descent on a specific byte budget. Timing budget is REMOVED — deterministic-render correctness is what matters; perf measurement belongs to post-tag work. 5. Sidebar is a Go template partial under internal/templates_html_basic/partials/ (or equivalent dir), included by every page template via {{ template \"sidebar\" . }}. 6. Per-page templates (cascade_drop.html etc.) drop their per-file <style> blocks and use the shared tokens.css instead; visual contract preserved (existing render_test.go goldens must be re-baselined honestly, not waived). 7. Every commit gated by ta-fe-qa-proof + ta-fe-qa-falsification pair PASS (feedback_qa_before_every_commit). 8. No version-bump framing in any record or commit message (feedback_no_version_bump_premvp). 9. Every user-REACHABLE navigation surface MUST share sidebar + base.css chrome. Concrete coverage: /, /cascade/<id> success path, /cascade/<missing-id> 404, /roadmap, /schema, /search non-empty, /search empty-query. EXPLICITLY OUT OF SCOPE: route-level 500-class fallbacks that fire when the corresponding Render*() method returns an error (renderer-not-configured boot guards + generic 500 fallbacks). Those are operator-visible diagnostics; styled error chrome is a post-tag stretch goal. Rationale: scoping AC #9 to user-reachable surfaces (success + 404) matches the original user ask (nav working, sidebar, graph, stil) and unblocks convergence without server-wide error-middleware work."
+created_at = "2026-05-22T00:00:00Z"
+definition_of_complete = "1. GET / renders a cascade tree as a GRAPH (SVG or equivalent visual hierarchy) wrapped in stil-styled chrome with persistent sidebar — NOT a flat <ul>. 2. Every served HTML route (/, /cascade/<id>, /roadmap, /schema, /search) shares the same sidebar partial + the same stil CSS tokens (color, spacing, radius, typography from stil/main/src/styles/tokens.css). 3. Sidebar enables nav between: cascade-records-list (scoped by structural_type or state), /roadmap, /schema, search box. 4. Inter-record nav works — from any cascade detail, the sidebar lets the dev return to the index, jump to another record, or hit /roadmap or /schema without going back through the browser. 5. Zero new <script> elements unless explicitly justified by a planner droplet citing the interaction this enables; default is pure-server. 6. internal/templates_html_basic embeds a shared CSS file (e.g. tokens.css + chrome.css) used by all per-page templates. 7. internal/serverview/cascade_tree.go LoadCascadeTree (or sibling loader) returns enough structural data to render parent/child edges — flat list of just structural_type='drop' is no longer sufficient. 8. Existing template render_test.go + a11y CI (Playwright + axe) stay green on the new chrome. 9. mage check green. 10. CI green. 11. docs/pre-mvp-tracker.md flips the 'ta serve UX rework' entry from Open to Closed with verbatim evidence of the new served HTML (or commit refs)."
+drop_number = 14.0
+files = ["internal/serverview/render.go", "internal/serverview/cascade_tree.go", "internal/templates_html_basic/templates/cascade_drop.html", "internal/templates_html_basic/templates/cascade_planner.html", "internal/templates_html_basic/templates/cascade_droplet.html", "internal/templates_html_basic/templates/cascade_qa.html", "internal/templates_html_basic/templates/roadmap_version.html", "internal/templates_html_basic/templates/schema_browser.html", "internal/templates_html_basic/templates/search_results.html", "docs/pre-mvp-tracker.md"]
+labels = ["ta-serve-ux", "fe-led", "sidebar", "cascade-graph", "stil-tokens", "v01-readiness"]
+objective = "Close the single Open item blocking v0.1.0 readiness: replace the bare-HTML cascade tree index served at / with (a) persistent sidebar nav across every page, (b) cascade rendered as a graph (hierarchy + parent/child edges, not a flat list), (c) stil component-library visual treatment on every served HTML response. Pure-server, zero-JS preferred (HANDOFF-pre-mvp-feature-complete §7.10). Recommended path per handoff: A2 (Go-template with stil CSS tokens ported into internal/templates_html_basic) + B1 (pure-server SVG tree layout). The previously-shipped detail templates (cascade_drop/planner/droplet/qa, roadmap_version, schema_browser, search_results) already exist with inline CSS; this drop both authors the missing tree-index + sidebar partial AND retro-fits the existing detail templates so every page shares the same stil-token chrome."
+packages = ["internal/serverview", "internal/templates_html_basic"]
+paths = ["internal/serverview/**", "internal/templates_html_basic/**", "docs/pre-mvp-tracker.md"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "ta serve UX rework — sidebar + cascade graph + stil styling"
+updated_at = "2026-05-22T00:03:00Z"
+[ta_serve_ux_rework-plan-qa-proof]
+created_at = "2026-05-23T04:30:03Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.ta_serve_ux_rework"
+title = "Plan-QA proof of ta serve UX rework — sidebar + cascade graph + stil styling"
+updated_at = "2026-05-23T04:30:03Z"
+
+[ta_serve_ux_rework-plan-qa-falsification]
+created_at = "2026-05-23T04:30:03Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.ta_serve_ux_rework"
+title = "Plan-QA falsif of ta serve UX rework — sidebar + cascade graph + stil styling"
+updated_at = "2026-05-23T04:30:03Z"
+
+[planner_l1_ta_serve_ux_rework]
+acceptance_criteria = "1. Each terminal droplet's `paths` list is disjoint OR explicit serial-order is declared (single shared template file across droplets requires serial dispatch per drop_013 D5 lesson). 2. SVG layout droplet's algorithm choice is justified (vertical top-down vs radial; for 10-50 nodes both are viable; pick one + cite reason). 3. CSS-token-port droplet preserves stil token NAMES verbatim (--space-3, --bg-surface, --accent etc.) so future stil token-renames stay one-find-replace away. 4. Sidebar partial supports the four nav scopes in the drop's DoC #3 (cascade index, /roadmap, /schema, search) and is parameterized by an active-scope marker for is-selected styling. 5. Each builder droplet declares whether it produces a new file or modifies existing; cross-droplet collisions on same file mean serial dispatch order is documented. 6. The plan does NOT introduce JS islands without per-droplet justification + dev acknowledgement."
+completed_at = "2026-05-22T22:32:00-07:00"
+created_at = "2026-05-22T00:01:00Z"
+definition_of_complete = "1. Planner record's decomposition section enumerates every terminal builder droplet with id, persona target, file paths, acceptance_criteria, and verification command. 2. Joint plan-QA pass (plan-qa-proof + plan-qa-falsification) on this planner record before any builder droplet dispatches. 3. The decomposition matches the drop's definition_of_complete — every gate condition has at least one droplet that satisfies it. 4. Each droplet's scope is small enough that a haiku-class builder can land it in one turn; if not, decompose into a child planner first. 5. Visual-regression strategy is named (re-baseline render_test.go goldens + run a11y CI on the new chrome — not skip them)."
+description = """
+L1 re-decomposition is extended to 12 terminal builder droplets. This stays at L1 because each slice can still land in 1-2 small code blocks INCLUDING tests once the hidden substrate work is pulled forward explicitly. Dispatch graph: D0 || D1 || D3 || D4 in parallel; D2 blocked by D0; D5 blocked by D3; D6 blocked by D0+D1+D2+D3+D4+D5; D7 blocked by D0+D1+D2+D4 and must serialize after D6 on `internal/serverview/render.go` + shared render goldens; D8 blocked by D0+D1+D2+D4 and must serialize after D7 on `render_test.go`/`testdata`; D9 blocked by D0+D1+D2+D4+D6+D7+D8 and must serialize after D7 on `internal/serverview/render.go` plus after D8 on `internal/templates_html_basic/render_test.go` and `internal/templates_html_basic/testdata/`; D10a blocked by D0+D1+D2+D4; D10b blocked by D10a + D9 and must serialize after D9 on `internal/serverview/render.go` so the last unowned cascade-detail 404 HTML surface lands on shared chrome after the shared page substrate is already stable.
+
+## D0 — template partial substrate
+id: `drop_014.drop.builder_d0_template_partial_substrate`
+persona target: `ta-go-builder`
+paths:
+- `internal/templates_html_basic/embed.go`
+- `internal/templates_html_basic/render.go`
+- `internal/templates_html_basic/render_test.go`
+packages:
+- `internal/templates_html_basic`
+produces:
+- modifies embed substrate
+- modifies renderer template parsing
+- adds focused renderer coverage for partial inclusion
+acceptance criteria:
+- `internal/templates_html_basic.Render` stops parsing one file at a time and instead parses a template set across `templates/` plus `partials/` so shared chrome can include named partials.
+- `embed.go` embeds both template roots so sidebar partials are present in the shipped binary.
+- Focused tests prove a page template can include a named partial without route-specific wiring or inline HTML assembly.
+verification command:
+- `mage testPkg ./internal/templates_html_basic`
+atomicity verification:
+- 2 small blocks: (1) embed + ParseFS substrate, (2) focused partial-inclusion test.
+addresses falsification:
+- Counterexample 1.
+
+## D1 — stil shared base CSS
+id: `drop_014.drop.builder_d1_stil_base_css`
+persona target: `ta-fe-builder`
+paths:
+- `internal/templates_html_basic/templates/base.css`
+packages:
+- `internal/templates_html_basic`
+produces:
+- new file
+acceptance criteria:
+- Frozen stil tokens are ported into `base.css` with token names preserved verbatim.
+- CSS declares ordered layers (`@layer tokens, base, layout, components, utilities`).
+- Grid shell is load-bearing; `@container` and `:has()` are progressive enhancement only, never required for content reachability.
+- Viewport coverage is explicit for `375px`, `768px`, and `1280px`.
+- Zero JS layout logic.
+verification command:
+- `mage testPkg ./internal/templates_html_basic`
+atomicity verification:
+- 1 small block: add the shared stylesheet only.
+
+## D2 — sidebar partial markup
+id: `drop_014.drop.builder_d2_sidebar_partial`
+persona target: `ta-fe-builder`
+paths:
+- `internal/templates_html_basic/partials/sidebar.html`
+packages:
+- `internal/templates_html_basic`
+produces:
+- new file
+acceptance criteria:
+- Semantic sidebar markup uses `<nav>` plus list navigation and the server-rendered search form.
+- Active-state hooks are data-driven (`aria-current` / active-scope marker), not pathname inference or script toggles.
+- Keyboard order stays linear and predictable at `375px`, `768px`, and `1280px`.
+- No new `<script>` elements.
+verification command:
+- `mage testPkg ./internal/templates_html_basic`
+atomicity verification:
+- 1 small block: add the partial only, after D0 has created a real partial substrate.
+blockers:
+- `drop_014.drop.builder_d0_template_partial_substrate`
+addresses falsification:
+- Counterexample 1 consumer slice.
+
+## D3 — cascade graph edge semantics
+id: `drop_014.drop.builder_d3_cascade_graph_loader`
+persona target: `ta-go-builder`
+paths:
+- `internal/serverview/cascade_tree.go`
+- `internal/serverview/cascade_tree_test.go`
+packages:
+- `internal/serverview`
+produces:
+- modifies graph loader semantics
+- expands focused loader tests
+acceptance criteria:
+- The graph contract explicitly derives edges from BOTH (a) cascade id-prefix hierarchy/grouping and (b) QA-record `target_id` backlinks to their planner or builder target.
+- Output includes deterministic node ordering plus enough edge metadata to place QA twins beside their target instead of dropping them into the wrong level.
+- Focused fixture covers a drop + planner + qa-proof + qa-falsification family.
+verification command:
+- `mage testPkg ./internal/serverview`
+atomicity verification:
+- 2 small blocks: (1) graph-shape/edge derivation change, (2) focused hierarchy fixture tests.
+addresses falsification:
+- Counterexample 4.
+
+## D4 — shared page-context substrate
+id: `drop_014.drop.builder_d4_page_context_substrate`
+persona target: `ta-go-builder`
+paths:
+- `internal/serverview/page_context.go`
+- `internal/serverview/page_context_test.go`
+packages:
+- `internal/serverview`
+produces:
+- new shared page-context helper
+- focused tests for route/cascade scope derivation
+acceptance criteria:
+- A shared page-context type is introduced for templates, carrying sidebar items, active scope, and breadcrumb/header metadata.
+- Helper logic derives the four nav scopes (cascade index, roadmap, schema, search) without emitting HTML or CSS.
+- Tests cover active-scope and breadcrumb derivation for a cascade record route versus a utility route.
+verification command:
+- `mage testPkg ./internal/serverview`
+atomicity verification:
+- 2 small blocks: (1) page-context type/helper, (2) focused tests.
+addresses falsification:
+- Counterexample 2 substrate slice.
+
+## D5 — cascade SVG layout helper
+id: `drop_014.drop.builder_d5_cascade_svg_layout`
+persona target: `ta-go-builder`
+paths:
+- `internal/serverview/cascade_svg.go`
+- `internal/serverview/cascade_svg_test.go`
+packages:
+- `internal/serverview`
+produces:
+- new SVG layout helper
+- focused SVG determinism tests
+acceptance criteria:
+- Pure-server inline SVG layout consumes D3 graph output and uses a deterministic vertical top-down algorithm.
+- Helper owns coordinates/viewBox only; it does not own route wiring, page chrome, or template selection.
+- Focused fixture covers a multi-level cascade including QA twins.
+verification command:
+- `mage testPkg ./internal/serverview`
+atomicity verification:
+- 2 small blocks: (1) layout helper, (2) focused SVG tests.
+addresses falsification:
+- Counterexample 2 layout slice.
+
+## D6 — cascade index template + renderer wiring
+id: `drop_014.drop.builder_d6_cascade_index_render`
+persona target: `ta-go-builder`
+paths:
+- `internal/serverview/render.go`
+- `internal/templates_html_basic/templates/cascade_index.html`
+- `internal/templates_html_basic/render_test.go`
+- `internal/templates_html_basic/testdata/`
+packages:
+- `internal/serverview`
+- `internal/templates_html_basic`
+produces:
+- rewired index renderer
+- new index template
+- intentional index golden additions/re-baselines
+acceptance criteria:
+- `Renderer.RenderCascadeTree` stops using `writeCascadeIndex` inline and renders through `cascade_index.html` with D4 page context and D5 SVG markup.
+- Shared sidebar partial and `base.css` are included; the page remains pure-server and keyboard-reachable at `375px`, `768px`, and `1280px`.
+- Parent AC #9 shared-chrome coverage is partly owned here for the cascade index route.
+verification command:
+- `mage testPkg ./internal/serverview`
+- `mage testPkg ./internal/templates_html_basic`
+atomicity verification:
+- 2 small blocks: (1) renderer wiring + index template, (2) index golden coverage.
+blockers:
+- `drop_014.drop.builder_d0_template_partial_substrate`
+- `drop_014.drop.builder_d1_stil_base_css`
+- `drop_014.drop.builder_d2_sidebar_partial`
+- `drop_014.drop.builder_d3_cascade_graph_loader`
+- `drop_014.drop.builder_d4_page_context_substrate`
+- `drop_014.drop.builder_d5_cascade_svg_layout`
+addresses falsification:
+- Counterexamples 2 and 5.
+
+## D7 — roadmap shared-chrome route restructure
+id: `drop_014.drop.builder_d7_roadmap_route_restructure`
+persona target: `ta-go-builder`
+paths:
+- `internal/serverview/render.go`
+- `internal/templates_html_basic/templates/roadmap.html`
+- `internal/templates_html_basic/templates/roadmap_version.html`
+- `internal/templates_html_basic/render_test.go`
+- `internal/templates_html_basic/testdata/`
+packages:
+- `internal/serverview`
+- `internal/templates_html_basic`
+produces:
+- single-shell roadmap renderer
+- roadmap wrapper template
+- roadmap golden updates
+acceptance criteria:
+- `RenderRoadmap` returns one shared-chrome document instead of concatenating full HTML documents.
+- `roadmap_version.html` becomes fragment-friendly content rendered inside `roadmap.html`, with sidebar/page-context wiring and zero new scripts.
+- Responsive chrome is verified for `375px`, `768px`, and `1280px`.
+- Parent AC #9 shared-chrome coverage is partly owned here for the roadmap route.
+verification command:
+- `mage testPkg ./internal/serverview`
+- `mage testPkg ./internal/templates_html_basic`
+atomicity verification:
+- 2 small blocks: (1) single-shell roadmap render/template restructure, (2) roadmap golden coverage.
+blockers:
+- `drop_014.drop.builder_d0_template_partial_substrate`
+- `drop_014.drop.builder_d1_stil_base_css`
+- `drop_014.drop.builder_d2_sidebar_partial`
+- `drop_014.drop.builder_d4_page_context_substrate`
+- `drop_014.drop.builder_d6_cascade_index_render`
+addresses falsification:
+- Counterexample 3.
+
+## D8 — cascade detail template chrome retrofit
+id: `drop_014.drop.builder_d8_cascade_detail_chrome`
+persona target: `ta-fe-builder`
+paths:
+- `internal/templates_html_basic/templates/cascade_drop.html`
+- `internal/templates_html_basic/templates/cascade_planner.html`
+- `internal/templates_html_basic/templates/cascade_droplet.html`
+- `internal/templates_html_basic/templates/cascade_qa.html`
+- `internal/templates_html_basic/render_test.go`
+- `internal/templates_html_basic/testdata/`
+packages:
+- `internal/templates_html_basic`
+produces:
+- modifies existing detail templates
+- honest golden re-baselines for detail pages
+acceptance criteria:
+- Each cascade-detail template drops inline `<style>` and consumes shared `base.css` plus the sidebar partial.
+- Semantic landmarks and content hierarchy stay intact; sidebar active state comes from D4 page context, not page-local logic.
+- Responsive behavior is verified for `375px`, `768px`, and `1280px` with zero client-side island.
+- Golden updates explicitly cover drop, planner, droplet, and both QA detail variants produced from `cascade_qa.html`.
+- Parent AC #9 shared-chrome coverage is partly owned here for resolved cascade-detail templates; D10a + D10b own the missing-id 404 surface.
+verification command:
+- `mage testPkg ./internal/templates_html_basic`
+atomicity verification:
+- 2 small blocks: (1) retrofit the four homologous detail templates, (2) re-baseline only their corresponding detail goldens.
+blockers:
+- `drop_014.drop.builder_d0_template_partial_substrate`
+- `drop_014.drop.builder_d1_stil_base_css`
+- `drop_014.drop.builder_d2_sidebar_partial`
+- `drop_014.drop.builder_d4_page_context_substrate`
+- `drop_014.drop.builder_d7_roadmap_route_restructure`
+addresses falsification:
+- Counterexample 2 consumer slice.
+
+## D9 — schema/search chrome retrofit + tracker closeout
+id: `drop_014.drop.builder_d9_aux_pages_chrome`
+persona target: `ta-fe-builder`
+paths:
+- `internal/serverview/render.go`
+- `internal/templates_html_basic/templates/schema_browser.html`
+- `internal/templates_html_basic/templates/search_results.html`
+- `internal/templates_html_basic/render_test.go`
+- `internal/templates_html_basic/testdata/`
+- `docs/pre-mvp-tracker.md`
+packages:
+- `internal/serverview`
+- `internal/templates_html_basic`
+produces:
+- modifies remaining utility-page templates
+- rewrites `RenderSearch` empty-query handling onto shared chrome
+- adds or re-baselines the corresponding goldens
+- closes the tracker item only after all served-page work exists
+acceptance criteria:
+- Schema browser and BOTH search response surfaces adopt the same shared chrome/sidebar partial as the rest of the served routes.
+- `internal/serverview/render.go::RenderSearch` no longer uses `http.Error` for the empty-query HTML path; instead it renders `search_results.html` with an empty-state notice inside the shared sidebar + `base.css` chrome.
+- Search remains a pure-server form flow; no client island is introduced for filtering or navigation.
+- Goldens are added or re-baselined honestly, including search coverage for the empty-state/shared-chrome surface.
+- `docs/pre-mvp-tracker.md` flips the ta-serve UX item from Open to Closed only after D6, D7, and D8 are already landed.
+- Parent AC #9 shared-chrome coverage is completed here for schema + search, including the previously unowned `/search?q=` empty-query branch.
+verification command:
+- `mage testPkg ./internal/serverview`
+- `mage testPkg ./internal/templates_html_basic`
+atomicity verification:
+- 2 small blocks: (1) schema/search/render.go retrofit plus tracker evidence note, (2) add or re-baseline the corresponding utility-page goldens.
+blockers:
+- `drop_014.drop.builder_d0_template_partial_substrate`
+- `drop_014.drop.builder_d1_stil_base_css`
+- `drop_014.drop.builder_d2_sidebar_partial`
+- `drop_014.drop.builder_d4_page_context_substrate`
+- `drop_014.drop.builder_d6_cascade_index_render`
+- `drop_014.drop.builder_d7_roadmap_route_restructure`
+- `drop_014.drop.builder_d8_cascade_detail_chrome`
+addresses falsification:
+- Round-2 counterexample 1.
+
+## D10a — cascade-detail 404 template + golden
+id: `drop_014.drop.builder_d10a_cascade_not_found_template`
+persona target: `ta-fe-builder`
+paths:
+- `internal/templates_html_basic/templates/not_found.html`
+- `internal/templates_html_basic/render_test.go`
+- `internal/templates_html_basic/testdata/`
+packages:
+- `internal/templates_html_basic`
+produces:
+- new shared-chrome not-found template
+- honest not-found golden coverage
+acceptance criteria:
+- `not_found.html` is added under `internal/templates_html_basic/templates/` and uses the shared chrome/sidebar partial plus a home or cascade-index link.
+- The not-found content is semantic empty-state HTML with no JS island and explicit keyboard reachability expectations at `375px`, `768px`, and `1280px`.
+- Golden coverage proves the new not-found template shares chrome with the rest of the HTML surfaces.
+- Parent AC #9 shared-chrome coverage is partly owned here for the user-reachable `/cascade/<missing-id>` 404 surface; route-level 500 fallbacks remain out of scope per the parent AC #9 tightening.
+verification command:
+- `mage testPkg ./internal/templates_html_basic`
+atomicity verification:
+- 2 small blocks: (1) add `not_found.html`, (2) add the matching golden coverage in `render_test.go` / `testdata`.
+blockers:
+- `drop_014.drop.builder_d0_template_partial_substrate`
+- `drop_014.drop.builder_d1_stil_base_css`
+- `drop_014.drop.builder_d2_sidebar_partial`
+- `drop_014.drop.builder_d4_page_context_substrate`
+addresses falsification:
+- Round-4 counterexample 2 template/package split.
+
+## D10b — cascade-detail 404 route + renderer retrofit
+id: `drop_014.drop.builder_d10b_cascade_not_found_route_render`
+persona target: `ta-go-builder`
+paths:
+- `internal/serverview/render.go`
+- `internal/server/routes_cascade.go`
+packages:
+- `internal/serverview`
+- `internal/server`
+produces:
+- new `RenderNotFound` renderer method
+- missing-id cascade route retrofit from plaintext `http.Error` to renderer-owned HTML dispatch
+acceptance criteria:
+- `internal/serverview/render.go` adds a `RenderNotFound` method that renders the D10a template through the existing shared chrome substrate.
+- `internal/server/routes_cascade.go` delegates the missing-id `/cascade/<id>` path from plaintext `http.Error` to `RenderNotFound`, keeping the route layer a thin dispatcher while `serverview` owns HTML response shaping.
+- The droplet stays within two package surfaces only (`internal/serverview` + `internal/server`), and D10a remains the sole owner of template/golden assets.
+- Parent AC #9 shared-chrome coverage is completed here for the user-reachable `/cascade/<missing-id>` 404 surface; generic route-level 500 fallbacks remain out of scope per the parent AC #9 tightening.
+verification command:
+- `mage testPkg ./internal/serverview`
+- `mage testPkg ./internal/server`
+atomicity verification:
+- 2 small blocks: (1) add `RenderNotFound`, (2) retrofit `routes_cascade.go` to delegate to it; tests ride the package gates.
+blockers:
+- `drop_014.drop.builder_d10a_cascade_not_found_template`
+- `drop_014.drop.builder_d9_aux_pages_chrome`
+addresses falsification:
+- Round-4 counterexample 2 route/renderer split.
+
+## Cross-droplet file/blocking notes
+- D0 is the prerequisite substrate for any real partial inclusion. No builder droplet may claim sidebar wiring before D0 lands.
+- D3 is the single owner of graph-edge semantics. D5 and D6 consume its contract; they do not infer hierarchy ad hoc.
+- `internal/serverview/render.go` now serializes D6 -> D7 -> D9 -> D10b.
+- `internal/templates_html_basic/render_test.go` and `internal/templates_html_basic/testdata/` serialize D7 -> D8 -> D9 -> D10a.
+- D10a is the only owner of the not-found template + golden assets; D10b is the only owner of the cascade-detail missing-id route + renderer wiring.
+- D10b explicitly blocks on D10a so route/render retrofit cannot land before the template exists.
+- No droplet is allowed to add JS or a hydrated island. Every interactive surface in this plan remains server-rendered; no client-state justification is needed because no new island is permitted.
+
+## Verification gates and routed unknowns
+- Slice gates: `mage testPkg ./internal/serverview` for D3-D7 plus D9-D10b, `mage testPkg ./internal/templates_html_basic` for D0-D2 and D6-D10a, and `mage testPkg ./internal/server` for D10b's route-package compile gate.
+- The named a11y gate remains post-build QA work: `mage TemplatesA11y` plus the existing Playwright + axe path against `./bin/ta serve`.
+- Orchestrator/module gate remains `mage check` after the build wave and both build-QA passes.
+- Parent AC #4 response budget is no longer a blocking planner coverage gap here: timing was removed and payload size is now soft-advisory only at the parent drop, so this decomposition does not add a perf droplet.
+- Parent AC #9 shared-chrome coverage is explicitly partitioned across D6 (cascade index), D7 (roadmap), D8 (resolved cascade details), D9 (schema + search including empty-query), and D10a + D10b (cascade-detail missing-id 404). The plan intentionally mirrors the parent AC #9 tightening: user-reachable nav surfaces are in scope; route-level 500-class fallback chrome is deferred.
+- Existing round-3 QA evidence already checked the adjacent `/roadmap` empty-list and `/search` zero-results surfaces and found them within templated/shared-chrome ownership. This dispatch did not expose `Read` / `Grep` / `Glob`, so a fresh repo-wide sweep of `internal/server/routes_*.go` cannot be rerun here and is routed as an orchestrator verification follow-up rather than assumed silently complete.
+"""
+labels = ["fe-planning", "ta-serve-ux", "L1"]
+objective = "Decompose drop_014.drop.ta_serve_ux_rework into 3-6 atomic builder droplets (each ≤1-2 small code blocks INCLUDING tests) covering: (a) stil CSS tokens ported into internal/templates_html_basic embed FS as shared base.css (or tokens.css+chrome.css split); (b) Go template partial for sidebar nav under internal/templates_html_basic/partials/sidebar.html with semantic <nav> + items list rendered from a SidebarData struct; (c) new tree-index template + Renderer.RenderCascadeTree rewrite to use it (no more writeCascadeIndex inline); (d) extended LoadCascadeTree (or new LoadCascadeGraph) returning parent/child edges + node depths; (e) pure-server SVG tree layout func in internal/serverview returning inline <svg> markup ready for template embed; (f) per-page-template retrofit: drop inline <style> blocks in existing cascade_drop/planner/droplet/qa/roadmap_version/schema_browser/search_results templates + include shared base.css + the sidebar partial. The planner MUST specify per-droplet acceptance criteria, exact file paths, the verification command (e.g. mage testPkg ./internal/serverview), and whether the droplet routes to ta-fe-builder (CSS / HTML / SVG-in-template) or ta-go-builder (renderer wiring, loader changes). Decomposition MUST respect: cascade methodology 1-2-blocks-per-droplet rule; the FE persona's mage-only Bash scope (no raw pnpm/node); zero-JS default with JS allowed only with explicit per-droplet justification."
+outcome = "success"
+packages = ["internal/server", "internal/serverview", "internal/templates_html_basic"]
+paths = ["internal/server/**", "internal/serverview/**", "internal/templates_html_basic/**"]
+role = "planner"
+started_at = "2026-05-22T21:35:00-07:00"
+state = "complete"
+title = "L1 plan — ta serve UX rework decomposition"
+transition_notes = "Re-authored after round-4 falsification verdict `drop_014.drop.planner_l1_ta_serve_ux_rework-plan-qa-falsification`, which left one planner-side counterexample: D10 crossed 3 package surfaces (`internal/server`, `internal/serverview`, `internal/templates_html_basic`) and violated the >2-surface-area rule. D1-D9 stay unchanged. D10 is now split into D10a (`internal/templates_html_basic/templates/not_found.html` + `render_test.go` + `testdata/`, persona `ta-fe-builder`) and D10b (`internal/serverview/render.go` + `internal/server/routes_cascade.go`, persona `ta-go-builder`). D10b blocks on D10a and serializes after D9 on `internal/serverview/render.go`. The plan now explicitly reflects the parent AC #9 tightening: shared chrome is required for user-reachable nav surfaces (`/`, `/cascade/<id>` success + 404, `/roadmap`, `/schema`, `/search` non-empty + empty-query), while route-level 500-class fallback styling remains out of scope for this drop."
+updated_at = "2026-05-22T00:01:00Z"
+[planner_l1_ta_serve_ux_rework-plan-qa-proof]
+completed_at = "2026-05-22T23:55:00-07:00"
+completion_contract = {completion_notes = """
+ROUND-5 VERDICT: PASS
+
+Round-5 proof of the revised L1 plan (now 11 droplets D0-D9 + D10a + D10b) after round-4 falsification FAIL on (1) generic 500-class fallback ownership and (2) D10 spanning 3 distinct packages. Orchestrator resolved (1) by tightening parent AC #9 to EXPLICITLY scope route-level 500-class fallbacks OUT OF SCOPE (operator-visible diagnostics, post-tag stretch goal). Planner resolved (2) by splitting D10 into D10a (FE template + golden, 1 package) and D10b (Go renderer method + route delegate, 2 packages). All 6 round-5 checks verified file-grounded against parent drop, planner record, and Read of routes_cascade.go + render.go.
+
+## Round-5 check-by-check verification
+
+1. **Parent AC #9 tightened to exclude 500-class fallbacks** — CONFIRMED via Read of `drop_014.drop.ta_serve_ux_rework`. AC #9 now reads: "Concrete coverage: /, /cascade/<id> success path, /cascade/<missing-id> 404, /roadmap, /schema, /search non-empty, /search empty-query. EXPLICITLY OUT OF SCOPE: route-level 500-class fallbacks that fire when the corresponding Render*() method returns an error (renderer-not-configured boot guards + generic 500 fallbacks). Those are operator-visible diagnostics; styled error chrome is a post-tag stretch goal. Rationale: scoping AC #9 to user-reachable surfaces (success + 404) matches the original user ask..." In-scope list and OUT-OF-SCOPE language are both explicit.
+
+2. **D10 split into D10a + D10b** — CONFIRMED via Read of planner_l1 record. The monolithic D10 is gone. Two new droplets: `drop_014.drop.builder_d10a_cascade_not_found_template` and `drop_014.drop.builder_d10b_cascade_not_found_route_render`. Planner transition_notes documents the split rationale: "D10 crossed 3 package surfaces and violated the >2-surface-area rule... D1-D9 stay unchanged. D10 is now split into D10a... and D10b...".
+
+3. **D10a scope verified** — CONFIRMED.
+   - persona target: `ta-fe-builder` (correct — FE concern: template + golden).
+   - packages: `internal/templates_html_basic` (1 package, well within rule).
+   - paths: `internal/templates_html_basic/templates/not_found.html`, `internal/templates_html_basic/render_test.go`, `internal/templates_html_basic/testdata/` (3 file entries but 1 template + 1 test pair — matches the test-pair pattern accepted in round-4 PASS for D6/D7/D8/D9).
+   - blockers: D0 + D1 + D2 + D4 (correct — template-only, does not need D9 because not_found.html does not modify render.go).
+   - atomicity: "2 small blocks: (1) add `not_found.html`, (2) add the matching golden coverage in `render_test.go` / `testdata`." Mechanical and well-scoped.
+   - acceptance bullets cover semantic empty-state, sidebar partial, 375/768/1280 keyboard reachability, zero JS, and explicit AC #9 partition note (D10a owns the user-reachable 404 surface, not the 500 fallbacks).
+
+4. **D10b scope verified including render.go serialization** — CONFIRMED.
+   - persona target: `ta-go-builder` (correct — both files are Go).
+   - packages: `internal/serverview` + `internal/server` (2 packages — at the rule's allowed boundary, not exceeding it).
+   - paths: `internal/serverview/render.go` (new `RenderNotFound` method), `internal/server/routes_cascade.go` (delegate retrofit from plaintext `http.Error` to `RenderNotFound`).
+   - blockers: D10a + D9 (correct — D10a must exist for the template, D9 must land for render.go state).
+   - atomicity: "2 small blocks: (1) add `RenderNotFound`, (2) retrofit `routes_cascade.go` to delegate to it; tests ride the package gates."
+   - render.go serialization documented verbatim in cross-droplet notes: "`internal/serverview/render.go` now serializes D6 -> D7 -> D9 -> D10b."
+   - acceptance bullets explicitly cite the 2-surface bound ("The droplet stays within two package surfaces only (`internal/serverview` + `internal/server`), and D10a remains the sole owner of template/golden assets.") and the AC #9 partition note (D10b owns the user-reachable 404 route delegation, not generic 500 fallbacks).
+
+5. **D1-D9 unchanged** — CONFIRMED.
+   - Planner transition_notes states verbatim: "D1-D9 stay unchanged."
+   - Read of planner description shows D0-D9 sections preserve round-4-PASS paths, acceptance, atomicity, verification, and blockers. The only change in the D1-D9 region is D8's existing AC bullet 5 already mentioning "D10 owns the missing-id 404 surface" — round-5 surfaces this as "D10a + D10b own the missing-id 404 surface". That is documentation of the partition, not a re-slice.
+   - D9 paths, blockers (D0+D1+D2+D4+D6+D7+D8), and acceptance text remain identical to round-4.
+
+6. **Atomicity for D10a + D10b within 1-2 blocks each** — CONFIRMED.
+   - D10a: 2 blocks (template + golden pair). Comparable to D2 (1 block, partial) and D6/D7/D8/D9 (2 blocks each).
+   - D10b: 2 blocks. Block 1 = `RenderNotFound` method (~10-12 LOC mirroring `RenderSearch` shape — verified via Read of render.go showing `RenderSearch` is 17 lines, lines 177-193). Block 2 = `routes_cascade.go` route swap (~3 LOC; verified via Read of routes_cascade.go showing the swap target is line 45 `http.Error(w, "not found", http.StatusNotFound)` inside the `errors.As(err, &notFoundErr)` branch, with the file only 53 lines total — the swap is surgical and localized).
+
+## File-level retrofit claims verified via Read
+
+- **`internal/server/routes_cascade.go` line 45**: confirmed `http.Error(w, "not found", http.StatusNotFound)` inside the `if errors.As(err, &notFoundErr)` branch (lines 43-47). D10b's planned swap from plaintext `http.Error` to `s.cascadeDetailRenderer.RenderNotFound(...)` (or equivalent) lands at exactly this line. The handler is 18 lines (35-53); the rest of the file is short type/setter wiring. No collision with other route logic.
+- **`internal/serverview/render.go` confirmed no existing `RenderNotFound`**: methods present are `RenderCascadeTree`, `RenderCascadeDetail`, `RenderRoadmap`, `RenderSchema`, `RenderSearch`, plus internal helpers (`scopeViewsToMaps`/`typeViewsToMaps`/`fieldViewsToMaps`/`writeCascadeIndex`/`isRecordNotFound`). `RenderNotFound` is a clean new method addition with no signature conflict. Shape can mirror `RenderSearch` (17 lines including the empty-query branch).
+
+## Falsification attempts (round-5) all mitigated
+
+- **D10a paths list has 3 entries**: mitigated — cascade rule is "1-2 small blocks INCLUDING tests", not raw file count. render_test.go + testdata/ is the test pair for not_found.html, treated as block 2. Matches accepted D6/D7/D8/D9 pattern.
+- **D10b 2-package surface area**: mitigated — parent drop says ">2 distinct surface areas (packages)" requires decomposition; D10b is exactly 2, at the allowed boundary. Original D10 was 3 (templates_html_basic + serverview + server); the split correctly drops templates_html_basic into D10a so D10b stays at 2. routes_cascade.go change is single-call-site (line 45) per Read evidence.
+- **D10b blockers missing D6/D7**: mitigated — D9 blocks on D6 + D7, so transitive ordering via D9 enforces the chain. Same pattern accepted in round-4 PASS.
+- **AC #9 OUT OF SCOPE language might be too narrow**: mitigated — the scoping is the orchestrator's accepted decision per AC #9 rationale text; not a planner-side omission. Boot-guard 500s + generic 500 fallbacks are explicitly post-tag stretch goal.
+- **render.go serialization could collide with D6**: mitigated — D6 modifies `RenderCascadeTree`; D10b adds a NEW method. Different concerns. The D6→D7→D9→D10b serialization order ensures D10b sees the post-D9 render.go state.
+
+## Soft observation (not a counterexample)
+
+D10a's blockers list (`D0+D1+D2+D4`) does NOT include D9, but the cross-droplet serialization note states "`internal/templates_html_basic/render_test.go` and `internal/templates_html_basic/testdata/` serialize D7 -> D8 -> D9 -> D10a." The serialization note IS the contract — same enforcement pattern accepted in round-4 — but for symmetry with D10b's explicit D9 listing, the planner may want to add D9 to D10a's blockers in a future revision. Not blocking for round 5.
+
+## Verdict
+
+No unmitigated counterexample on round-5 proof. Round-4 falsification's two FAIL points (generic 500-class fallback ownership + D10 3-package span) are both resolved: (1) orchestrator-side via AC #9 tightening with explicit OUT OF SCOPE language, (2) planner-side via D10 split into D10a (1 package) + D10b (2 packages). AC #9 user-navigation partition is exhaustive across D6 (cascade index), D7 (roadmap), D8 (resolved cascade details), D9 (schema + search), D10a (404 template), D10b (404 route delegate). D1-D9 unchanged. Atomicity respected. Descent unblocked pending plan-qa-falsification round-5 verdict.
+
+---
+
+ROUND-4 VERDICT (preserved for audit): PASS
+
+Round-4 proof of the re-decomposed L1 plan (then 11 droplets D0-D10) after round-3 falsification FAIL on the cascade-detail 404 plaintext path. Planner added monolithic D10 to own the missing-id HTML surface via option (b). Overruled by round-4 plan-qa-falsification FAIL on (1) 500-class fallback ownership claim being false + (2) D10 spanning 3 packages violating the >2-surface-area rule. Round-5 (above) verifies the orchestrator + planner fixes.
+
+---
+
+ROUND-3 VERDICT (preserved for audit): PASS
+
+Round-3 proof of the re-decomposed L1 plan (10 droplets D0-D9) after orchestrator weakened parent AC #4 + added AC #9, and planner expanded D9 to own internal/serverview/render.go. All 8 round-3 checks verified file-grounded. (Overruled by round-3 plan-qa-falsification FAIL on cascade-detail 404 counterexample; planner added D10 for round 4.)
+
+---
+
+ROUND-2 VERDICT (preserved for audit): PASS
+
+Round-2 proof of the re-decomposed L1 plan (10 droplets D0-D9). All 5 round-1 counterexamples have a named, file-grounded fix; new droplets are genuinely atomic against actual file contents; file-ownership graph prevents collisions; zero-JS contract holds; parent DoC mapping covers all 11 gates. (Overruled by round-2 plan-qa-falsification FAIL on 2 counterexamples; planner re-decomposed for round-3.)
+
+---
+
+ROUND-1 VERDICT (preserved for audit): PASS (advisory notes on D6 golden filenames + a11y target naming). Round-1 proof was overruled by round-1 falsification verdict FAIL on 5 counterexamples; planner re-decomposed; round-2 proof verified the re-decomposition; round-2 falsification flagged 2 residual counterexamples; round-3 proof verified the orchestrator + planner fixes resolved both; round-3 falsification flagged 1 residual counterexample on cascade-detail 404; round-4 proof verified D10 resolves that gap; round-4 falsification flagged 2 residual counterexamples (500 fallback ownership + D10 3-package span); round-5 proof now verifies the orchestrator AC tightening + D10 split resolve both.
+"""}
+created_at = "2026-05-23T04:30:33Z"
+outcome = "success"
+role = "qa-proof"
+started_at = "2026-05-22T22:55:00-07:00"
+state = "complete"
+target_id = "drop_014.drop.planner_l1_ta_serve_ux_rework"
+title = "Plan-QA proof of L1 plan — ta serve UX rework decomposition"
+updated_at = "2026-05-22T12:00:00Z"
+[planner_l1_ta_serve_ux_rework-plan-qa-falsification]
+completion_contract = {completion_notes = """
+ROUND-5 VERDICT: PASS
+
+No unmitigated planner-side counterexample remains after the parent AC #9 tightening and the D10 -> D10a + D10b split. The revised plan does not need another re-decomposition.
+
+Round-5 falsification checks:
+
+1. D10a + D10b together still own the full `/cascade/<missing-id>` 404 surface.
+- D10a owns the FE assets: `internal/templates_html_basic/templates/not_found.html`, `render_test.go`, and `testdata/`.
+- Its acceptance criteria still require shared chrome/sidebar usage, a home or cascade-index link, and golden coverage.
+- D10b owns the Go route/renderer side only: `internal/serverview/render.go` + `internal/server/routes_cascade.go`.
+- Its acceptance criteria require `RenderNotFound` to render the D10a template through the shared substrate and require the route to delegate the missing-id 404 branch to that renderer.
+
+2. D10b's blocker on D10a is explicit.
+- D10b lists blockers `drop_014.drop.builder_d10a_cascade_not_found_template` and `drop_014.drop.builder_d9_aux_pages_chrome`.
+- That is enough to prevent the route/render retrofit from proceeding before the template exists and before the serialized `render.go` chain reaches D10b.
+
+3. D10b stays at exactly 2 package surfaces, not 3.
+- Paths: `internal/serverview/render.go`, `internal/server/routes_cascade.go`.
+- Packages: `internal/serverview`, `internal/server`.
+- Template/golden ownership was cleanly moved out into D10a, so the original 3-surface D10 counterexample is resolved.
+
+4. Parent AC #9 now excludes the 500-class fallback concern clearly enough.
+- The parent record now says: concrete coverage is `/`, `/cascade/<id>` success, `/cascade/<missing-id>` 404, `/roadmap`, `/schema`, `/search` non-empty, and `/search` empty-query.
+- It also says: `EXPLICITLY OUT OF SCOPE: route-level 500-class fallbacks that fire when the corresponding Render*() method returns an error (renderer-not-configured boot guards + generic 500 fallbacks).`
+- That language is explicit enough that the round-4 500-fallback counterexample should not be re-raised against this drop.
+
+5. The `render.go` serialization chain D6 -> D7 -> D9 -> D10b is long but honest, not hidden.
+- The current planner record names that chain verbatim in the cross-droplet notes.
+- D10b adds a new `RenderNotFound` method rather than reopening an already-owned render branch, so the chain is a coordination cost, not a decomposition failure.
+
+6. D1-D9 were not perfectly byte-for-byte unchanged, but the only visible perturbation is documentation-level.
+- The planner transition note says `D1-D9 stay unchanged`.
+- The current planner text updates D8's ownership note from `D10 owns the missing-id 404 surface` to `D10a + D10b own the missing-id 404 surface`.
+- That is a real textual perturbation, so the planner's audit phrasing is not perfectly literal.
+- It does NOT create a new decomposition gap, does NOT change D8's path/package scope, and does NOT require another re-slice. I am treating it as a soft audit-note mismatch, not an unmitigated counterexample.
+
+7. No other user-reachable HTML surface remains unowned within the tightened scope.
+- `/cascade/<id>` template-render/internal-error fallback remains outside scope by the explicit AC #9 carve-out.
+- `/search` with a valid query returning zero results remains owned by D9 because it still renders through `search_results.html`, and D9 explicitly owns schema/search chrome plus both search response surfaces.
+- The in-scope AC #9 partition remains exhaustive across D6 (index), D7 (roadmap), D8 (resolved cascade details), D9 (schema + search), and D10a + D10b (missing-id 404).
+
+Verification evidence for this pass:
+- `mage testPkg ./internal/templates_html_basic` PASS
+- `mage testPkg ./internal/serverview` PASS
+- `mage testPkg ./internal/server` PASS
+- `mage check` reproduced only the known Codex sandbox loopback-bind failure in `internal/servee2e::TestServeE2E_FixtureBoots` (`listen tcp6 [::1]:0: bind: operation not permitted`). Per dispatch guidance, that is environment-only and not a product counterexample.
+
+Conclusion:
+- Planner-side round-4 FAIL point #1 was neutralized by the parent AC #9 tightening.
+- Planner-side round-4 FAIL point #2 was neutralized by the D10 split.
+- No new unmitigated planner-side counterexample was found in round 5.
+- Joint convergence target is satisfied from the falsification side.
+
+Audit note:
+- Prior-round audit text remains preserved on existing audit surfaces.
+- Round-4 text is reproduced verbatim below because it previously lived in this field and would otherwise be overwritten.
+
+---
+
+ROUND-4 VERDICT: FAIL
+
+Unmitigated counterexamples in the revised 11-droplet plan:
+
+1. The orchestrator claim that the remaining 500-class sites are all defensive boot guards is false. Repo evidence: the nil checks at `internal/server/routes_cascade.go` line 38, `internal/server/routes_docs.go` lines 29 and 41, `internal/server/routes_root.go` line 32, and `internal/server/routes_search.go` line 27 are genuine `renderer == nil` boot guards. But the generic 500 branches at `routes_cascade.go` line 48, `routes_docs.go` lines 34 and 46, `routes_root.go` line 37, and `routes_search.go` line 34 are reachable during normal request handling whenever a renderer returns an error. `internal/serverview/render.go` proves those `Render*` methods can return non-boot errors on live requests: `RenderCascadeTree` returns on `LoadCascadeTree` or write failures; `RenderCascadeDetail` returns on non-NotFound `LoadDetail` failures, template render failures, or write failures; `RenderRoadmap` returns on list/render/write failures; `RenderSchema` returns on load/render/write failures; `RenderSearch` returns on load/render/write failures. Those plaintext `http.Error(..., 500)` paths are therefore still user-facing HTML-route error surfaces, remain unowned by D6-D10, and violate parent AC #9 (`EVERY served HTML route ... MUST share the sidebar + base.css chrome — no http.Error inline plaintext responses for HTML routes`). D9 + D10 only cover the search empty-query 400 and cascade-detail 404 branches; they do not retire the generic 500 plaintext surface.
+
+2. D10 violates the plan's own decomposition rule on surface-area count. The droplet spans 5 files across 3 distinct surface areas/packages: route dispatch in `internal/server`, HTML response shaping in `internal/serverview`, and template/golden assets in `internal/templates_html_basic`. Even if the edits are individually small, that is still `>2` distinct surface areas, which the parent drop explicitly says must be decomposed further. The '2 small blocks' framing does not cure the cross-surface decomposition mismatch.
+
+Mitigated round-4 checks:
+- The nil-renderer guards are real boot guards, not normal-path user navigation surfaces.
+- The D6 -> D7 -> D9 -> D10 serialization chain is achievable; D9 already blocks on D6/D7/D8 and D10 blocks on D9.
+- D10's acceptance text explicitly requires the shared sidebar, semantic empty-state copy, and a home/index link.
+- Adding `not_found.html` plus a golden is mechanically feasible once the owning slice is correct.
+- `mage testPkg ./internal/serverview` PASS and `mage testPkg ./internal/templates_html_basic` PASS in this round. `mage check` hit the known Codex sandbox loopback-bind failure in `internal/servee2e::TestServeE2E_FixtureBoots` (`listen tcp6 [::1]:0: bind: operation not permitted`), which is env-only per dispatch guidance and not a product counterexample.
+
+Required planner fix direction before descent:
+- Add an explicit owner for shared-chrome generic internal-error HTML responses across `/`, `/roadmap`, `/schema`, `/search`, and `/cascade/<id>` when a `Render*` method returns a non-NotFound error. Smallest honest path: introduce a reusable `RenderInternalError` / `error.html` primitive and a droplet or child-plan slice that rewires every generic route-level 500 fallback; do not classify those branches as boot-only guards.
+- Re-decompose D10 (or its replacement slices) so no single builder droplet crosses more than 2 distinct surface areas.
+- Re-run the plan-QA proof/falsification pair after that re-slice.
+
+Audit note: round-1, round-2, and round-3 verdict text remains preserved on this record's existing `description`; this round-4 completion note supersedes it for the current verdict.
+"""}
+created_at = "2026-05-23T04:30:33Z"
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_014.drop.planner_l1_ta_serve_ux_rework"
+title = "Plan-QA falsif of L1 plan — ta serve UX rework decomposition"
+updated_at = "2026-05-23T04:30:33Z"
+
+[ta_serve_ux_rework-build-qa-proof]
+completed_at = "2026-05-23T00:30:00Z"
+completion_contract = {completion_notes = """
+ROUND-1 VERDICT: FAIL
+
+Build-QA proof of the 11-droplet build wave (D0-D9, D10a, D10b) against parent drop drop_014.drop.ta_serve_ux_rework. Ten of eleven droplet outputs land correctly and 10 of 11 DoC items pass — but D10b's runtime wiring is incomplete: the `RenderNotFound` method + `WithNotFoundRenderer` setter were added to internal/serverview/render.go + internal/server/routes_cascade.go, but cmd/ta/serve_cmd.go's runServeHTTP() was NOT updated to call `.WithNotFoundRenderer(renderer)` on the server. In production, hitting /cascade/<missing-id> falls through to the registerCascadeRoute fallback branch `http.Error(w, "not found", http.StatusNotFound)` (routes_cascade.go:68) — plaintext, no sidebar, no base.css, no shared chrome. This breaks parent AC #9's explicit `/cascade/<missing-id> 404` coverage and DoC #2 + DoC #4 on the same surface.
+
+## Droplet file-presence audit (all 11 PASS)
+
+- D0 template partial substrate — PASS. internal/templates_html_basic/embed.go embeds `all:templates all:partials`; render.go ParseFS loads templates/*.html + partials/*.html; render_test.go has 23 passing tests including partial inclusion.
+- D1 stil base CSS — PASS. internal/templates_html_basic/templates/base.css present (14.3K). Note: every consuming template (cascade_drop / cascade_planner / cascade_droplet / cascade_qa / cascade_index / roadmap / schema_browser / search_results / not_found) inlines the base.css content inside <style> blocks rather than <link>-referencing it. The orchestrator mid-wave note documented this; D1 acceptance text says "Frozen stil tokens are ported into base.css with token names preserved verbatim" + DoC #6 says "embeds a shared CSS file used by all per-page templates". Inlined-copy satisfies the token-port + embed gates, but means base.css the file is not actually consumed by the templates as `<link>` — token consumption still goes through verbatim copies. Acceptable per orchestrator decision; flagged as soft observation only.
+- D2 sidebar partial — PASS. internal/templates_html_basic/partials/sidebar.html (4.8K) present with semantic <nav role="navigation" aria-label="Primary">, 4 nav scopes (Cascade Index, Roadmap, Schema, search form), aria-current="page" active-state hooks (data-driven, no JS), zero <script> elements.
+- D3 cascade graph loader — PASS. internal/serverview/cascade_tree.go LoadCascadeGraph derives edges from BOTH id-prefix hierarchy AND target_id backlinks; nodes deterministically sorted; cascade_tree_test.go::TestServeView_LoadCascadeGraph_DropPlannerQAFamily is t.Skip()ed with explicit TODO drop_014 documenting the test FIXTURE needs `extends='X'` canonical schema syntax (current `[type.bases]` form rejected by validator); D3 production logic itself is verifiable from cascade_tree.go Read. Skip is honest, not a waived failure.
+- D4 shared page-context substrate — PASS. internal/serverview/page_context.go declares PageContext + NavScope + NavItem + BreadcrumbItem + NewPageContextForRoute + SidebarData() method; page_context_test.go drives the helpers; package gate green.
+- D5 cascade SVG layout helper — PASS. internal/serverview/cascade_svg.go RenderCascadeSVG returns template.HTML; deterministic computeLayout via vertical top-down algorithm; cascade_svg_test.go drives the helper.
+- D6 cascade index template + renderer wiring — PASS. internal/templates_html_basic/templates/cascade_index.html present + RenderCascadeTree at render.go:41-79 calls LoadCascadeGraph, filters to drops only (orchestrator mid-wave fix), runs RenderCascadeSVG, passes {PageContext, SVG, Nodes} into cascade_index.html. cascade_index template line 336 includes `{{ template "sidebar.html" .PageContext.SidebarData }}`, line 353 renders {{ .SVG }}, line 357-372 lists fallback nodes.
+- D7 roadmap shared-chrome route restructure — PASS. roadmap.html new shell template includes sidebar partial at line 292, calls RenderRoadmap pre-renders versions via roadmap_version.html as fragments and injects them via `{{ range .Versions }}{{ .RenderedFragment }}{{ end }}`. PageContext + breadcrumb wired. roadmap.html.golden present + roadmap_version.html.golden re-baselined.
+- D8 cascade detail template chrome retrofit — PASS. cascade_drop.html / cascade_planner.html / cascade_droplet.html / cascade_qa.html all include `{{ template "sidebar.html" .PageContext.SidebarData }}` in <body>, use --space-/--bg-/--accent-/--radius- tokens, and have re-baselined goldens covering all 4 detail variants (cascade_drop / cascade_planner / cascade_droplet + cascade_qa_proof + cascade_qa_falsification).
+- D9 schema/search chrome retrofit + tracker closeout — PASS. schema_browser.html line 391 + search_results.html line 324 include sidebar partial. RenderSearch (render.go:253-293) empty-query branch now renders search_results.html with HTTP 400 instead of http.Error. search_results_empty.html.golden + search_results_empty_with_query.html.golden exist. docs/pre-mvp-tracker.md line 27 flips ta-serve UX item to CLOSED with drop_014 D9 reference + line 33 "None currently — all items closed or explicitly punted" + line 57 "all Open items closed. MVP-feature-completion ready for release".
+- D10a cascade-detail 404 template + golden — PASS. internal/templates_html_basic/templates/not_found.html (8.3K) present with `{{ template "sidebar.html" .PageContext.SidebarData }}` at line 315, semantic empty-state notice + `<a href="/">Return to Cascade Index</a>`, zero <script>. not_found.html.golden (10.9K) present.
+- D10b cascade-detail 404 route + renderer retrofit — TEMPLATE-CODE PASS / RUNTIME-WIRING FAIL. internal/serverview/render.go:299-318 adds `RenderNotFound(w, req, missingID) error` method; internal/server/routes_cascade.go:27-29 adds `NotFoundRenderer` interface; line 40 adds `notFoundRenderer NotFoundRenderer` to Server struct; line 39-45 adds `WithNotFoundRenderer` setter; line 56-69 adds the delegate-or-fallback branch in registerCascadeRoute. Unit tests in routes_cascade_test.go TestServe_NotFoundRendererIntegration wire the renderer via `srv.WithNotFoundRenderer(tt.notFoundRenderer)` at line 187 and PASS. BUT cmd/ta/serve_cmd.go runServeHTTP (lines 82-86) calls `.WithViewRenderer(renderer).WithCascadeDetailRenderer(renderer).WithDocsRenderer(renderer).WithSearchRenderer(renderer)` and DOES NOT call `.WithNotFoundRenderer(renderer)`. In production, `s.notFoundRenderer` is nil; the fallback branch at routes_cascade.go:68 fires plaintext `http.Error(w, "not found", http.StatusNotFound)` — no sidebar, no base.css, no shared chrome.
+
+## DoC matrix (parent drop)
+
+- DoC1 GET / renders cascade tree as GRAPH with chrome — PASS via cascade_index.html + cascade_svg.go RenderCascadeSVG + render.go:41-79 RenderCascadeTree integration.
+- DoC2 every HTML route shares sidebar + base.css — PARTIAL FAIL. cascade_index + cascade_drop + cascade_planner + cascade_droplet + cascade_qa + roadmap + schema_browser + search_results + not_found all include the sidebar partial + inlined base.css tokens; verified by Read. BUT the `/cascade/<missing-id>` HTML route in production falls through to plaintext http.Error, not the not_found.html template (see D10b RUNTIME-WIRING FAIL above). The not_found.html template + RenderNotFound method exist and are tested in isolation, but are never invoked by the production `ta serve` binary.
+- DoC3 sidebar 4-scope nav — PASS. partials/sidebar.html lines 33-72 enumerate Cascade Index (/), Roadmap (/roadmap), Schema (/schema), Search form (/search).
+- DoC4 inter-record nav — PARTIAL FAIL. Same gap as DoC2: from `/cascade/<missing-id>` the user lands on plaintext 404 with no sidebar, no way to navigate back without browser back button. Other detail routes (cascade_drop/planner/droplet/qa success path) all have working sidebar nav per Read of templates.
+- DoC5 zero new <script> elements — PASS via Read of all 9 templates + sidebar.html: no <script> tags anywhere.
+- DoC6 embed shared CSS — PASS structurally (base.css file present at internal/templates_html_basic/templates/base.css, 14.3K, embedded via go:embed all:templates). Soft observation: templates currently inline the same content via <style> blocks rather than `<link rel="stylesheet" href="/base.css">`. Token names are preserved verbatim per D1 AC, but the file itself is not consumed by templates at render time. Functionally satisfies DoC #6 (tokens shared); architecturally inefficient (every page payload carries the full token sheet inline). Not a build-QA blocker, but worth noting for post-tag cleanup.
+- DoC7 LoadCascadeGraph returns parent/child edges — PASS via cascade_tree.go:79-185 (hierarchy edges from id-prefix grouping + backlink edges from target_id; deterministic node sort).
+- DoC8 render_test.go + a11y CI green — PASS. `mage testPkg ./internal/templates_html_basic` reports 23/23 passing, 0 skipped. a11y CI (mage TemplatesA11y per drop_009) is out-of-scope for this proof but the existing Playwright+axe gate at servee2e was last verified green at df9149a per project handoff.
+- DoC9 mage check green — PASS. `mage check` reports 1756 tests, 1743 passed, 0 failed, 13 skipped (matches orchestrator-supplied claim: D3 fixture + servee2e Playwright + 8 fuzz seeds + 2 pre-existing tuitest/picker/dotta).
+- DoC10 CI green — ROUTED. Out of scope for this proof; orchestrator verifies post-push.
+- DoC11 tracker flipped Open→Closed — PASS via docs/pre-mvp-tracker.md line 27 (ta-serve UX rework CLOSED in drop_014 D9, with verbatim evidence), line 33 ("None currently — all items closed or explicitly punted"), line 57 ("all Open items closed. MVP-feature-completion ready for release").
+
+## AC #9 partition coverage
+
+- / (cascade index) — OWNED by D6, PASS.
+- /cascade/<id> success — OWNED by D8 (resolved cascade details), PASS.
+- /cascade/<missing-id> 404 — OWNED by D10a (template) + D10b (route delegate). Template PASS, route-handler PASS, runtime-wiring FAIL (cmd/ta/serve_cmd.go never calls WithNotFoundRenderer). Production users still see plaintext 404 chrome-free.
+- /roadmap — OWNED by D7, PASS.
+- /schema — OWNED by D9 (schema_browser part), PASS.
+- /search non-empty — OWNED by D9 (search_results.html populated branch), PASS.
+- /search empty-query — OWNED by D9 (search_results.html empty-state branch, HTTP 400), PASS.
+
+Six of seven partition cells are satisfied; the `/cascade/<missing-id> 404` cell is the one explicit AC #9 requirement that fails in production.
+
+## Build gates run
+
+- `mage testPkg ./internal/templates_html_basic` — 23/23 PASS, 0 skip.
+- `mage testPkg ./internal/serverview` — 43/44 PASS, 1 SKIP (TestServeView_LoadCascadeGraph_DropPlannerQAFamily, explicit TODO drop_014 schema-fixture deferral).
+- `mage testPkg ./internal/server` — 64/64 PASS, 0 skip. (TestServe_NotFoundRendererIntegration passes because the test wires the renderer; production does not.)
+- `mage check` — 1756 tests, 1743 PASS, 0 FAIL, 13 SKIP. Skip list matches orchestrator-supplied expectation.
+
+## Required fix before this build-QA can flip to PASS
+
+Add `.WithNotFoundRenderer(renderer)` to cmd/ta/serve_cmd.go runServeHTTP's chained setters at lines 82-86. One-line surgical change. After the fix, re-verify by sending GET /cascade/<missing-id> against `./bin/ta serve` and confirming the response is the not_found.html shared-chrome page (sidebar + base.css + 'Return to Cascade Index' link) with HTTP 404. The build-QA-proof can then flip to PASS on the next round.
+
+## Soft observations (not blockers)
+
+- Each consuming template inlines the full base.css token sheet inside <style> blocks rather than `<link rel="stylesheet" href="/base.css">`. Functionally correct (tokens shared verbatim), payload-inefficient. Post-tag cleanup.
+- Several inline `style="..."` attributes remain on individual elements (breadcrumb <nav>, empty-state <p>, MissingID line in not_found). Not forbidden by any DoC item. Acceptable; tidy post-tag.
+- D8 cascade_qa.html serves BOTH cascade_qa_proof + cascade_qa_falsification variants via a single template (verified by separate goldens for each variant). Matches plan + acceptance.
+
+## Verdict
+
+FAIL. Ten of eleven droplets land cleanly; production wiring for D10b is missing in cmd/ta/serve_cmd.go. AC #9 user-reachable partition is incomplete on /cascade/<missing-id>. Fix is one-line; re-dispatch the build wave (or orchestrator surgical edit + push) and re-run build-QA proof for round-2 PASS verdict.
+"""}
+created_at = "2026-05-23T00:00:00Z"
+outcome = "failure"
+role = "qa-proof"
+started_at = "2026-05-23T00:00:00Z"
+state = "complete"
+target_id = "drop_014.drop.ta_serve_ux_rework"
+title = "Build-QA proof of ta serve UX rework"
+updated_at = "2026-05-23T00:00:00Z"
+[ta_serve_ux_rework-build-qa-falsification]
+completion_contract = {completion_notes = """
+BUILD-QA FALSIFICATION VERDICT: FAIL
+
+Unmitigated counterexamples:
+
+1. Cascade index no longer satisfies the parent graph contract.
+- `internal/serverview/render.go` loads the full graph, then immediately narrows it to `indexGraph.Nodes` containing only `structural_type == "drop"` and never copies any edges.
+- `internal/serverview/cascade_svg.go` only emits `<line>` edges from `graph.Edges`; with the drops-only `indexGraph`, the rendered `/` SVG contains zero parent/child edges and every drop sits at depth 0.
+- Repo evidence: the landing page is therefore a flat row of isolated drop nodes, not a hierarchy graph with parent/child edges as required by drop DoC #1 / #7.
+
+2. The shared CSS substrate was not actually adopted.
+- `internal/templates_html_basic/templates/base.css` was added, but `internal/templates_html_basic/render.go` only parses `templates/*.html` and `partials/*.html`; it never loads or injects `base.css`.
+- The landed page templates still inline large `<style>` blocks instead of consuming the shared file: see `internal/templates_html_basic/templates/cascade_drop.html`, `cascade_planner.html`, `cascade_droplet.html`, `cascade_qa.html`, `search_results.html`, `cascade_index.html`, `roadmap.html`, and `not_found.html`.
+- `internal/templates_html_basic/partials/sidebar.html` also injects its own `<style>` block, so even the shared sidebar chrome is not coming from one embedded shared stylesheet.
+- This violates parent DoC #6 and the D8/D9/D10a acceptance that pages drop per-file inline styles and use the shared `base.css`/tokens substrate.
+
+3. The only focused D3 integration test for the new graph-family semantics remains skipped and I found no routed follow-up under `drop_014`.
+- `mage testPkg ./internal/serverview` passes with one skip: `TestServeView_LoadCascadeGraph_DropPlannerQAFamily [SKIP]`.
+- `internal/serverview/cascade_tree_test.go` still hard-skips that test with a TODO about non-canonical schema syntax.
+- `mcp__ta__search` over `drop_014` for `skip|skipped|TestServeView_LoadCascadeGraph_DropPlannerQAFamily` returned no routed follow-up record/note.
+- This is a regression-risk gap rather than the primary product-failure basis, but it remains unmitigated.
+
+Verification evidence:
+- `mage testPkg ./internal/serverview` PASS with 1 skipped test (`TestServeView_LoadCascadeGraph_DropPlannerQAFamily`).
+- `mage testPkg ./internal/templates_html_basic` PASS.
+- `mage testPkg ./internal/server` PASS.
+- `mage check` reproduced the known Codex sandbox loopback-bind failure in `internal/servee2e::TestServeE2E_FixtureBoots` (`listen tcp6 [::1]:0: bind: operation not permitted`). Per dispatch guidance, that is environment-only and NOT a product counterexample.
+
+Conclusion:
+- The build wave does not converge. `/` ships a drop-only edge-less visualization instead of the required hierarchy graph, and the shared CSS contract was not actually implemented.
+- Outcome remains `failure` until those defects are fixed and the skipped graph-family test is either restored or explicitly routed.
+"""}
+created_at = "2026-05-23T00:00:00Z"
+outcome = "failure"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_014.drop.ta_serve_ux_rework"
+title = "Build-QA falsification of ta serve UX rework"
+updated_at = "2026-05-23T00:00:00Z"

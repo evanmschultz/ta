@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>L3 sub-planner: cascade_planner template authoring — planner</title>
+<title>Cascade browser — Cascade</title>
 <style>
    
 
@@ -273,103 +273,62 @@
 
    
   @layer components {
-    .planner-tag {
+    .cascade-svg-container {
+      margin: var(--space-6) 0;
+      border: 1px solid var(--bg-hover);
+      border-radius: var(--radius-3);
+      background: var(--bg-surface);
+      padding: var(--space-4);
+      overflow: auto;
+      min-height: 400px;
+    }
+
+    .cascade-svg-container svg {
+      display: block;
+      max-width: none;
+    }
+
+    .cascade-fallback {
+      margin: var(--space-6) 0;
+      padding: var(--space-4);
+      border: 1px solid var(--bg-hover);
+      border-radius: var(--radius-3);
+      background: var(--bg-surface);
+    }
+
+    .cascade-fallback ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .cascade-fallback li {
+      padding: var(--space-3) var(--space-2);
+      border-bottom: 1px solid var(--bg-hover);
       font-size: var(--text-sm);
-      color: var(--text-tertiary);
+    }
+
+    .cascade-fallback li:last-child {
+      border-bottom: none;
+    }
+
+    .cascade-fallback a {
+      color: var(--accent);
+      text-decoration: none;
       font-family: var(--font-mono);
     }
-    .pills {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      margin-top: var(--space-1);
-    }
-    .pill {
-      display: inline-block;
-      padding: var(--space-1) var(--space-3);
-      border-radius: var(--radius-pill);
-      font-size: var(--text-sm);
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-weight: var(--weight-medium);
-    }
-    .pill[data-key="state"][data-value="todo"] { background: #e5e7eb; color: #6b7280; }
-    .pill[data-key="state"][data-value="in_progress"] { background: #fef3c7; color: #b45309; }
-    .pill[data-key="state"][data-value="complete"] { background: #d1fae5; color: #047857; }
-    .pill[data-key="state"][data-value="failed"] { background: #fee2e2; color: #b91c1c; }
-    .pill[data-key="state"][data-value="archived"] { background: #e5e7eb; color: #4b5563; }
 
-    section {
-      margin-block: var(--space-6);
+    .cascade-fallback a:hover {
+      text-decoration: underline;
     }
-    section h2 {
-      font-size: var(--text-lg);
-      margin: 0 0 var(--space-2);
-      color: var(--text-primary);
-    }
-    dl.meta {
-      display: grid;
-      grid-template-columns: max-content 1fr;
-      column-gap: var(--space-4);
-      row-gap: var(--space-2);
-      margin: 0;
-    }
-    dl.meta dt {
-      color: var(--text-secondary);
-      font-size: var(--text-sm);
-    }
-    dl.meta dd {
-      margin: 0;
-      font-size: var(--text-base);
-      word-break: break-word;
-    }
-    ul.flat {
-      margin: 0;
-      padding-left: var(--space-5);
-    }
-    ul.flat li { margin-block: var(--space-1); }
-    ol.decision-log {
-      margin: 0;
-      padding-left: var(--space-6);
-    }
-    ol.decision-log li {
-      margin-block: var(--space-2);
-      padding-left: var(--space-1);
-    }
-    pre.prose {
-      white-space: pre-wrap;
-      font-size: var(--text-base);
-      color: var(--text-primary);
-      margin: 0;
-      font-family: var(--font-sans);
-      background: transparent;
-      border: 0;
-      padding: 0;
-    }
-    header {
-      display: grid;
+
+    .cascade-node-meta {
+      display: inline-flex;
       gap: var(--space-2);
-      border-bottom: 1px solid var(--bg-hover);
-      padding-bottom: var(--space-4);
-      margin-bottom: var(--space-5);
-    }
-    header h1 {
-      margin: 0;
-      font-size: var(--text-2xl);
-      line-height: var(--leading-tight);
-    }
-    footer {
-      margin-top: var(--space-8);
-      padding-top: var(--space-4);
-      border-top: 1px solid var(--bg-hover);
-      font-size: var(--text-sm);
+      margin-left: var(--space-3);
+      font-size: var(--text-xs);
       color: var(--text-secondary);
     }
-  }
-
-  @media (max-width: 767px) {
-    dl.meta { grid-template-columns: 1fr; }
-    dl.meta dt { margin-top: var(--space-2); }
   }
 </style>
 </head>
@@ -542,88 +501,43 @@
 </style>
 
 
-<main aria-labelledby="planner-title">
+<main>
   <header>
-    <div class="planner-tag">cascade.planner</div>
-    <h1 id="planner-title">L3 sub-planner: cascade_planner template authoring</h1>
-    <div class="pills" aria-label="Planner metadata">
-      <span class="pill" data-key="structural_type" data-value=""></span>
-      <span class="pill" data-key="role" data-value="planner">planner</span>
-      <span class="pill" data-key="state" data-value="in_progress">in_progress</span>
-      
-      <span class="pill" data-key="priority" data-value="high">high</span>
-    </div>
+    <h1>Cascade browser</h1>
+    
   </header>
 
-  <section aria-label="Identifiers and timestamps">
-    <h2>Identifiers</h2>
-    <dl class="meta">
-      <dt>parent_id</dt><dd>drop_004.drop.l3_e2_simple_views</dd>
-      <dt>created_at</dt><dd><time datetime="2026-05-18T10:00:00Z">2026-05-18T10:00:00Z</time></dd>
-      <dt>updated_at</dt><dd><time datetime="2026-05-18T10:30:00Z">2026-05-18T10:30:00Z</time></dd>
-      <dt>started_at</dt><dd><time datetime="2026-05-18T10:00:00Z">2026-05-18T10:00:00Z</time></dd>
+  
+  <div class="cascade-svg-container">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" width="100%" height="100%"><rect x="10" y="10" width="180" height="60" fill="#e6ffe6" stroke="black" stroke-width="1"/><text x="100" y="40" font-size="10" font-family="monospace" text-anchor="middle">drop_010.drop</text></svg>
+  </div>
+  
+
+  
+  <section aria-label="Cascade records" class="cascade-fallback">
+    <h2>Records</h2>
+    <ul>
       
-    </dl>
-  </section>
-
-  
-  <section aria-label="Objective">
-    <h2>Objective</h2>
-    <pre class="prose">Author cascade.planner Track A template. Attack payload: &lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</pre>
-  </section>
-  
-
-  
-
-  
-  <section aria-label="Decision log">
-    <h2>Decision log</h2>
-    <ol class="decision-log">
-      <li>Reuse cascade_drop palette verbatim — no new tokens.</li><li>Render decision_log as &lt;ol&gt; timeline (planner-specific emphasis).</li><li>Use &lt;pre class=&#34;prose&#34;&gt; for markdown fields per Track A zero-JS rule.</li>
-    </ol>
-  </section>
-  
-
-  
-  <section aria-label="Acceptance criteria">
-    <h2>Acceptance criteria</h2>
-    <pre class="prose">All planner fields rendered; goldens stable; mage testPkg green.</pre>
-  </section>
-  
-
-  
-  <section aria-label="Validation plan">
-    <h2>Validation plan</h2>
-    <pre class="prose">Golden compare &#43; substring asserts &#43; XSS escape check.</pre>
-  </section>
-  
-
-  
-  <section aria-label="Paths owned">
-    <h2>Paths</h2>
-    <ul class="flat">
-      <li>internal/templates_html_basic/templates/cascade_planner.html</li><li>internal/templates_html_basic/render_test.go</li>
+      <li>
+        <a href="/cascade/drop_010.drop.test_drop">Test drop</a>
+        <span class="cascade-node-meta">
+          <span>role: <strong>planner</strong></span>
+          <span>state: <strong>in_progress</strong></span>
+          <span>type: <strong>drop</strong></span>
+        </span>
+      </li>
+      
+      <li>
+        <a href="/cascade/drop_010.drop.test_planner.planner_l1">L1 planner with XSS: &lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</a>
+        <span class="cascade-node-meta">
+          <span>role: <strong>planner</strong></span>
+          <span>state: <strong>todo</strong></span>
+          <span>type: <strong>planner</strong></span>
+        </span>
+      </li>
+      
     </ul>
   </section>
-  
-
-  
-  <section aria-label="Packages affected">
-    <h2>Packages</h2>
-    <ul class="flat">
-      <li>internal/templates_html_basic</li>
-    </ul>
-  </section>
-  
-
-  
-
-  
-  <footer aria-label="Transition notes">
-    <strong>Transition notes:</strong> L3-E2-D-V2 complete; ready for build-QA twins.
-  </footer>
-  
-
   
 </main>
 </body>

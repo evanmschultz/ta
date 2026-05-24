@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ .PageContext.PageTitle }} — {{ .role }}</title>
+<title>{{ .PageContext.PageTitle }} — Cascade</title>
 <style>
-  /* base.css — ta Track A foundational styles (inlined for zero-deps cascade detail templates) */
+  /* base.css — ta Track A foundational styles (inlined for zero-deps not_found.html) */
 
   @layer tokens, base, layout, components, utilities;
 
@@ -271,185 +271,61 @@
     }
   }
 
-  /* cascade detail component styles */
+  /* not_found.html component styles */
   @layer components {
-    .qa-tag {
-      font-size: var(--text-sm);
-      color: var(--text-tertiary);
-      font-family: var(--font-mono);
+    .not-found-section {
+      margin: var(--space-6) 0;
+      padding: var(--space-8);
+      border: 1px solid var(--bg-hover);
+      border-radius: var(--radius-3);
+      background: var(--bg-surface);
+      text-align: center;
     }
-    .qa-target {
-      font-size: var(--text-base);
+
+    .not-found-section p {
+      margin-bottom: var(--space-6);
       color: var(--text-secondary);
+      font-size: var(--text-base);
     }
-    .qa-target code {
-      font-family: var(--font-mono);
-      font-size: var(--text-sm);
-      color: var(--text-primary);
-      word-break: break-all;
-    }
-    .pills {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      margin-top: var(--space-1);
-    }
-    .pill {
+
+    .not-found-section a {
       display: inline-block;
-      padding: var(--space-1) var(--space-3);
-      border-radius: var(--radius-pill);
-      font-size: var(--text-sm);
-      background: var(--accent-soft);
+      padding: var(--space-3) var(--space-6);
+      background-color: var(--accent-soft);
+      border-radius: var(--radius-2);
       color: var(--accent);
+      text-decoration: none;
       font-weight: var(--weight-medium);
+      transition: background-color var(--duration-fast) var(--ease-out);
     }
-    .pill[data-key="state"][data-value="todo"] { background: #e5e7eb; color: #6b7280; }
-    .pill[data-key="state"][data-value="in_progress"] { background: #fef3c7; color: #b45309; }
-    .pill[data-key="state"][data-value="complete"] { background: #d1fae5; color: #047857; }
-    .pill[data-key="state"][data-value="failed"] { background: #fee2e2; color: #b91c1c; }
-    .pill[data-key="state"][data-value="archived"] { background: #e5e7eb; color: #4b5563; }
-    .pill[data-key="outcome"][data-value="pass"]    { background: #d1fae5; color: #047857; }
-    .pill[data-key="outcome"][data-value="success"] { background: #d1fae5; color: #047857; }
-    .pill[data-key="outcome"][data-value="fail"]    { background: #fee2e2; color: #b91c1c; }
-    .pill[data-key="outcome"][data-value="failure"] { background: #fee2e2; color: #b91c1c; }
-    .pill[data-key="outcome"][data-value="blocked"] { background: #ede9fe; color: #5b21b6; }
-    .pill-role-qa-proof          { background: #eef1f8; color: #1f4ed8; }
-    .pill-role-qa-falsification  { background: #fef3c7; color: #b45309; }
 
-    section {
-      margin-block: var(--space-6);
+    .not-found-section a:hover {
+      background-color: var(--accent-soft);
+      text-decoration: underline;
     }
-    section h2 {
-      font-size: var(--text-lg);
-      margin: 0 0 var(--space-2);
-      color: var(--text-primary);
-    }
-    dl.meta {
-      display: grid;
-      grid-template-columns: max-content 1fr;
-      column-gap: var(--space-4);
-      row-gap: var(--space-2);
-      margin: 0;
-    }
-    dl.meta dt {
-      color: var(--text-secondary);
-      font-size: var(--text-sm);
-    }
-    dl.meta dd {
-      margin: 0;
-      font-size: var(--text-base);
-      word-break: break-word;
-    }
-    ul.flat {
-      margin: 0;
-      padding-left: var(--space-5);
-    }
-    ul.flat li { margin-block: var(--space-1); }
-    pre.prose {
-      white-space: pre-wrap;
-      font-size: var(--text-base);
-      color: var(--text-primary);
-      margin: 0;
-      font-family: var(--font-sans);
-      background: transparent;
-      border: 0;
-      padding: 0;
-    }
-    header {
-      display: grid;
-      gap: var(--space-2);
-      border-bottom: 1px solid var(--bg-hover);
-      padding-bottom: var(--space-4);
-      margin-bottom: var(--space-5);
-    }
-    header h1 {
-      margin: 0;
-      font-size: var(--text-2xl);
-      line-height: var(--leading-tight);
-    }
-    footer {
-      margin-top: var(--space-8);
-      padding-top: var(--space-4);
-      border-top: 1px solid var(--bg-hover);
-      font-size: var(--text-sm);
-      color: var(--text-secondary);
-    }
-  }
 
-  @media (max-width: 767px) {
-    dl.meta { grid-template-columns: 1fr; }
-    dl.meta dt { margin-top: var(--space-2); }
+    .not-found-section a:focus-visible {
+      outline: var(--focus-ring);
+      outline-offset: 2px;
+    }
   }
 </style>
 </head>
 <body>
 {{ template "sidebar.html" .PageContext.SidebarData }}
 
-<main aria-labelledby="qa-title">
+<main>
   <header>
-    <div class="qa-tag">cascade.{{ .role }}</div>
-    <h1 id="qa-title">{{ .title }}</h1>
-    <div class="qa-target">target_id: <code>{{ .target_id }}</code></div>
-    <div class="pills" aria-label="QA metadata">
-      <span class="pill pill-role-{{ .role }}" data-key="role" data-value="{{ .role }}">{{ .role }}</span>
-      <span class="pill" data-key="state" data-value="{{ .state }}">{{ .state }}</span>
-      {{ if .outcome }}<span class="pill" data-key="outcome" data-value="{{ .outcome }}">{{ .outcome }}</span>{{ end }}
-      {{ if .priority }}<span class="pill" data-key="priority" data-value="{{ .priority }}">{{ .priority }}</span>{{ end }}
-    </div>
+    <h1>Record Not Found</h1>
   </header>
 
-  <section aria-label="Identifiers and timestamps">
-    <h2>Identifiers</h2>
-    <dl class="meta">
-      {{ if .parent_id }}<dt>parent_id</dt><dd>{{ .parent_id }}</dd>{{ end }}
-      <dt>created_at</dt><dd><time datetime="{{ .created_at }}">{{ .created_at }}</time></dd>
-      <dt>updated_at</dt><dd><time datetime="{{ .updated_at }}">{{ .updated_at }}</time></dd>
-      {{ if .started_at }}<dt>started_at</dt><dd><time datetime="{{ .started_at }}">{{ .started_at }}</time></dd>{{ end }}
-      {{ if .completed_at }}<dt>completed_at</dt><dd><time datetime="{{ .completed_at }}">{{ .completed_at }}</time></dd>{{ end }}
-    </dl>
+  <section aria-label="Not found notice" class="not-found-section">
+    <p>The cascade record you requested does not exist.</p>
+    {{ if .MissingID }}
+    <p style="font-size: var(--text-sm); color: var(--text-tertiary); margin-bottom: var(--space-4);">Requested ID: <code>{{ .MissingID }}</code></p>
+    {{ end }}
+    <a href="/">Return to Cascade Index</a>
   </section>
-
-  {{ if .objective }}
-  <section aria-label="Objective">
-    <h2>Objective</h2>
-    <pre class="prose">{{ .objective }}</pre>
-  </section>
-  {{ end }}
-
-  {{ if .description }}
-  <section aria-label="Description">
-    <h2>Description</h2>
-    <pre class="prose">{{ .description }}</pre>
-  </section>
-  {{ end }}
-
-  {{ if .findings }}
-  <section aria-label="Findings">
-    <h2>Findings</h2>
-    <pre class="prose">{{ .findings }}</pre>
-  </section>
-  {{ end }}
-
-  {{ if .counterexamples }}
-  <section aria-label="Counterexamples">
-    <h2>Counterexamples</h2>
-    <ul class="flat">
-      {{ range .counterexamples }}<li>{{ . }}</li>{{ end }}
-    </ul>
-  </section>
-  {{ end }}
-
-  {{ if .transition_notes }}
-  <footer aria-label="Transition notes">
-    <strong>Transition notes:</strong> {{ .transition_notes }}
-  </footer>
-  {{ end }}
-
-  {{ if not .transition_notes }}
-  <footer>
-    Rendered from ta record <code>cascade.{{ .role }}</code>. Track A (zero-deps) template.
-  </footer>
-  {{ end }}
 </main>
 </body>
 </html>

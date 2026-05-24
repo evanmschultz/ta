@@ -3,85 +3,333 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Search Results</title>
+<title>{{ .PageContext.PageTitle }} — Search</title>
 <style>
-  :root {
-    --fg: #111;
-    --fg-muted: #555;
-    --bg: #fafafa;
-    --bg-card: #fff;
-    --border: #d6d6d6;
+  /* base.css — ta Track A foundational styles (inlined for zero-deps shared chrome) */
+
+  @layer tokens, base, layout, components, utilities;
+
+  @layer tokens {
+    :root {
+      --carl: #dd9f57;
+      --carl-hover: #e3a868;
+      --carl-pressed: #d39243;
+      --carl-soft: rgb(221 159 87 / 0.14);
+
+      --accent: var(--carl);
+      --accent-hover: var(--carl-hover);
+      --accent-pressed: var(--carl-pressed);
+      --accent-soft: var(--carl-soft);
+
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      --space-10: 2.5rem;
+      --space-12: 3rem;
+
+      --radius-1: 2px;
+      --radius-2: 5px;
+      --radius-3: 8px;
+      --radius-4: 10px;
+      --radius-pill: 9999px;
+      --corner-radius: var(--radius-4);
+
+      --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+      --font-serif: ui-serif, "Charter", "Source Serif 4", "Iowan Old Style", Georgia, serif;
+      --font-mono: "Iosevka Web", "Iosevka", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", Consolas, monospace;
+
+      --text-xs: 0.75rem;
+      --text-sm: 0.875rem;
+      --text-base: 1rem;
+      --text-lg: 1.125rem;
+      --text-xl: 1.375rem;
+      --text-2xl: 1.75rem;
+      --text-3xl: 2.25rem;
+
+      --leading-tight: 1.2;
+      --leading-snug: 1.35;
+      --leading-normal: 1.55;
+      --leading-relaxed: 1.7;
+
+      --weight-regular: 400;
+      --weight-medium: 500;
+      --weight-semibold: 600;
+
+      --tracking-tight: -0.02em;
+      --tracking-wide: 0.02em;
+
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --duration-fast: 120ms;
+      --duration-base: 180ms;
+
+      --focus-ring-width: 1px;
+      --focus-ring-color: rgb(221 159 87 / 0.42);
+      --focus-ring: 0 0 0 var(--focus-ring-width) var(--focus-ring-color);
+
+      --topbar-height: 44px;
+      --rail-width: 56px;
+      --sidebar-width: 240px;
+      --aside-width: clamp(280px, 32vw, 400px);
+
+      --nav-item-height: 36px;
+      --nav-item-gap: 2px;
+      --nav-padding-bottom: var(--space-4);
+
+      --bottom-tabs-height: 56px;
+      --drawer-width: min(80vw, 320px);
+    }
+
+    @media (max-width: 40rem) {
+      :root {
+        --sidebar-width: auto;
+        --aside-width: auto;
+      }
+    }
+
+    :root,
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg-chrome:  #f9fafd;
+      --bg-surface: #fcfcfc;
+      --bg-hover:    rgb(221 159 87 / 0.07);
+      --bg-selected: rgb(221 159 87 / 0.14);
+      --text-primary:   #1c1e28;
+      --text-secondary: #545862;
+      --text-tertiary:  #6e7280;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg-chrome:  #1c1d24;
+        --bg-surface: #202229;
+        --bg-hover:    rgb(221 159 87 / 0.05);
+        --bg-selected: rgb(221 159 87 / 0.14);
+        --text-primary:   #e8e6e1;
+        --text-secondary: #a8acb6;
+        --text-tertiary:  #8c8f99;
+        --focus-ring-color: rgb(221 159 87 / 0.5);
+      }
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg-chrome:  #1a1c23;
+      --bg-surface: #202229;
+      --bg-hover:    rgb(221 159 87 / 0.05);
+      --bg-selected: rgb(221 159 87 / 0.14);
+      --text-primary:   #e8e6e1;
+      --text-secondary: #a8acb6;
+      --text-tertiary:  #6a6e78;
+      --focus-ring-color: rgb(221 159 87 / 0.5);
+    }
   }
-  html { color-scheme: light; }
-  body {
-    margin: 0;
-    padding: 1.5rem;
-    background: var(--bg);
-    color: var(--fg);
-    font: 1rem/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  @layer base {
+    html {
+      font-family: var(--font-sans);
+      font-size: var(--text-base);
+      line-height: var(--leading-normal);
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-surface);
+      color: var(--text-primary);
+      font-weight: var(--weight-regular);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    main, header, footer, nav, section, article {
+      display: block;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      margin: 0;
+      font-weight: var(--weight-semibold);
+      line-height: var(--leading-snug);
+    }
+
+    h1 { font-size: var(--text-3xl); }
+    h2 { font-size: var(--text-2xl); }
+    h3 { font-size: var(--text-xl); }
+    h4 { font-size: var(--text-lg); }
+    h5, h6 { font-size: var(--text-base); }
+
+    p { margin: 0; }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    button, input, textarea, select {
+      font-family: inherit;
+      font-size: inherit;
+    }
+
+    button:focus-visible, a:focus-visible, input:focus-visible,
+    textarea:focus-visible, select:focus-visible {
+      outline: var(--focus-ring);
+      outline-offset: 2px;
+    }
   }
-  main {
-    max-width: 64rem;
-    margin: 0 auto;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    padding: 1.5rem 1.75rem 2rem;
+
+  @layer layout {
+    @media (min-width: 1280px) {
+      body {
+        display: grid;
+        grid-template-columns: var(--sidebar-width) 1fr;
+        grid-template-rows: auto 1fr;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      nav[role="navigation"],
+      aside {
+        grid-row: 2;
+        grid-column: 1;
+        width: var(--sidebar-width);
+        background-color: var(--bg-chrome);
+        border-right: 1px solid var(--bg-hover);
+        overflow-y: auto;
+        padding: var(--space-4);
+      }
+
+      main {
+        grid-row: 2;
+        grid-column: 2;
+        overflow-y: auto;
+        padding: var(--space-8);
+      }
+    }
+
+    @media (min-width: 768px) and (max-width: 1279px) {
+      body {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        height: auto;
+        min-height: 100vh;
+      }
+
+      nav[role="navigation"],
+      aside {
+        grid-row: 2;
+        background-color: var(--bg-chrome);
+        border-bottom: 1px solid var(--bg-hover);
+        overflow-x: auto;
+        padding: var(--space-4) var(--space-6);
+        display: flex;
+        gap: var(--space-4);
+      }
+
+      main {
+        grid-row: 3;
+        padding: var(--space-6);
+        max-width: 100%;
+      }
+    }
+
+    @media (max-width: 767px) {
+      body {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      main {
+        grid-row: 2;
+        overflow-y: auto;
+        padding: var(--space-4);
+      }
+
+      nav[role="navigation"],
+      aside {
+        grid-row: 3;
+        height: var(--bottom-tabs-height);
+        background-color: var(--bg-chrome);
+        border-top: 1px solid var(--bg-hover);
+        display: flex;
+        gap: 0;
+        padding: 0;
+        overflow-x: auto;
+      }
+
+      nav[role="navigation"] a,
+      aside a {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-2);
+        font-size: var(--text-xs);
+        color: var(--text-secondary);
+      }
+    }
   }
-  header {
-    display: grid;
-    gap: 0.5rem;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 1rem;
-    margin-bottom: 1.25rem;
-  }
-  header h1 {
-    margin: 0;
-    font-size: 1.5rem;
-    line-height: 1.25;
-  }
-  .meta-tag {
-    font-size: 0.875rem;
-    color: var(--fg-muted);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-  ul.results {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  ul.results li {
-    padding: 0.75rem 0;
-    border-bottom: 1px solid var(--border);
-  }
-  ul.results li:last-child {
-    border-bottom: 0;
-  }
-  ul.results li code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    color: var(--fg-muted);
-    font-size: 0.9rem;
-  }
-  footer {
-    margin-top: 2rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
-    font-size: 0.8125rem;
-    color: var(--fg-muted);
-  }
-  @media (max-width: 40rem) {
-    body { padding: 0.75rem; }
-    main { padding: 1rem; }
+
+  /* search_results.html component styles */
+  @layer components {
+    .meta-tag {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+
+    ul.results {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    ul.results li {
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--bg-hover);
+    }
+
+    ul.results li:last-child {
+      border-bottom: 0;
+    }
+
+    ul.results li code {
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .empty-state {
+      padding: var(--space-8) var(--space-4);
+      text-align: center;
+      color: var(--text-secondary);
+    }
+
+    .empty-state p {
+      font-size: var(--text-lg);
+      margin: 0;
+    }
   }
 </style>
 </head>
 <body>
+{{ template "sidebar.html" .PageContext.SidebarData }}
+
 <main aria-labelledby="search-title">
   <header>
     <div class="meta-tag">search results</div>
-    <h1 id="search-title">Search Results</h1>
+    <h1 id="search-title">{{ .PageContext.PageTitle }}</h1>
   </header>
 
+  {{ if .Results }}
   <ul class="results">
     {{ range .Results }}
     <li>
@@ -89,9 +337,14 @@
     </li>
     {{ end }}
   </ul>
+  {{ else }}
+  <section class="empty-state" aria-label="No results">
+    <p>{{ if .Query }}No results for query "{{ .Query }}".{{ else }}Enter a search query.{{ end }}</p>
+  </section>
+  {{ end }}
 
   <footer>
-    Rendered via ta search query. Track A (zero-deps) backend-rendered template.
+    Rendered via ta search query. Track A shared-chrome template.
   </footer>
 </main>
 </body>

@@ -37,3 +37,6 @@ web/templates_embed/.astro/
 web/templates_embed/dist/
 internal/templates_html_embed/dist/*
 !internal/templates_html_embed/dist/.keep
+
+# drop_014 visual verification screenshots (regenerate via playwright)
+/drop_014-*.png

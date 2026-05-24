@@ -1,0 +1,208 @@
+{{- /*
+	sidebar.html — shared navigation sidebar partial for ta serve UX.
+
+	Included by consuming templates via {{ template "partials/sidebar.html" . }}.
+
+	Expected context: a struct carrying .ActiveScope (string: "cascade_index", "roadmap", "schema", or empty)
+	and the page metadata needed for active-state styling.
+
+	Semantic structure:
+	- <nav> with aria-label="Primary" for accessibility
+	- <ul> + <li> for list navigation
+	- Four nav scopes: cascade index (/), roadmap (/roadmap), schema (/schema), search (/search)
+	- Active state via aria-current="page" (data-driven, not JS)
+	- Server-rendered search form (pure HTML, no client island)
+	- Zero <script> elements
+	- Linear keyboard order (semantic HTML, no reordering)
+
+	Responsive behavior:
+	- 375px (mobile): sidebar becomes bottom nav (grid-row: 3 via base.css)
+	- 768px (tablet): sidebar becomes horizontal chrome bar (grid-row: 2 via base.css)
+	- 1280px (desktop): sidebar vertical in grid column 1 (grid-column: 1 via base.css)
+
+	base.css tokens used:
+	- --sidebar-width, --bg-chrome, --bg-hover, --bg-selected
+	- --text-secondary, --text-primary
+	- --space-3, --space-4, --space-2
+	- --nav-item-height, --nav-item-gap
+	- --focus-ring
+	- --text-sm, --text-xs, --weight-semibold, --weight-medium
+	- --radius-2, --ease-out, --duration-fast
+*/ -}}
+
+<nav class="sidebar" role="navigation" aria-label="Primary">
+	<ul class="sidebar-items">
+		<li>
+			<a
+				href="/"
+				class="sidebar-item"
+				{{- if eq .ActiveScope "cascade" }} aria-current="page"{{ end }}
+			>
+				<span class="sidebar-item-label">Cascade Index</span>
+			</a>
+		</li>
+		<li>
+			<a
+				href="/roadmap"
+				class="sidebar-item"
+				{{- if eq .ActiveScope "roadmap" }} aria-current="page"{{ end }}
+			>
+				<span class="sidebar-item-label">Roadmap</span>
+			</a>
+		</li>
+		<li>
+			<a
+				href="/schema"
+				class="sidebar-item"
+				{{- if eq .ActiveScope "schema" }} aria-current="page"{{ end }}
+			>
+				<span class="sidebar-item-label">Schema</span>
+			</a>
+		</li>
+		<li>
+			<form method="get" action="/search" class="sidebar-search-form">
+				<input
+					type="text"
+					name="q"
+					placeholder="Search..."
+					class="sidebar-search-input"
+					aria-label="Search cascade records"
+				/>
+			</form>
+		</li>
+	</ul>
+</nav>
+
+<style>
+	/* Sidebar — ta serve shared navigation chrome.
+	 * Ported from stil Sidebar.astro pattern.
+	 */
+
+	.sidebar {
+		width: 100%;
+		height: 100%;
+		background: var(--bg-chrome);
+		padding: 0 var(--space-3) var(--nav-padding-bottom);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.sidebar-items {
+		display: flex;
+		flex-direction: column;
+		gap: var(--nav-item-gap);
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.sidebar-item {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		width: 100%;
+		height: var(--nav-item-height);
+		padding: 0 var(--space-3);
+		border-radius: var(--radius-2);
+		color: var(--text-secondary);
+		text-align: left;
+		text-decoration: none;
+		font-size: var(--text-sm);
+		transition:
+			background-color var(--duration-fast) var(--ease-out),
+			color var(--duration-fast) var(--ease-out);
+	}
+
+	.sidebar-item:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.sidebar-item[aria-current="page"] {
+		background: var(--bg-selected);
+		color: var(--text-primary);
+		font-weight: var(--weight-medium);
+	}
+
+	.sidebar-item:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
+	}
+
+	.sidebar-item-label {
+		flex: 1;
+	}
+
+	/* Search form — server-rendered, pure HTML. */
+
+	.sidebar-search-form {
+		display: flex;
+		width: 100%;
+		height: var(--nav-item-height);
+		padding: 0;
+		margin: 0;
+	}
+
+	.sidebar-search-input {
+		flex: 1;
+		padding: 0 var(--space-3);
+		border: none;
+		border-radius: var(--radius-2);
+		background: var(--bg-hover);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		font-family: inherit;
+	}
+
+	.sidebar-search-input::placeholder {
+		color: var(--text-secondary);
+	}
+
+	.sidebar-search-input:focus {
+		outline: none;
+		box-shadow: var(--focus-ring);
+		background: var(--bg-surface);
+	}
+
+	/* Responsive behavior — handled by base.css grid media queries.
+	 * At 375px: sidebar becomes grid-row: 3 (bottom nav), flex becomes horizontal
+	 * At 768px: sidebar becomes grid-row: 2 (horizontal chrome), flex becomes row
+	 * At 1280px: sidebar stays grid-column: 1 (vertical), flex stays column
+	 * base.css overrides flex-direction and gap as needed per media query.
+	 */
+
+	@media (max-width: 1279px) {
+		.sidebar-items {
+			flex-direction: row;
+		}
+
+		.sidebar-item {
+			flex: 1;
+		}
+	}
+
+	@media (max-width: 767px) {
+		.sidebar {
+			padding: 0;
+			gap: 0;
+		}
+
+		.sidebar-items {
+			gap: 0;
+		}
+
+		.sidebar-item {
+			border-radius: 0;
+			padding: var(--space-2);
+			height: auto;
+			flex-direction: column;
+			justify-content: center;
+			font-size: var(--text-xs);
+		}
+
+		.sidebar-search-form {
+			display: none;
+		}
+	}
+</style>

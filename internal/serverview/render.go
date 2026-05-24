@@ -12,9 +12,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/evanmschultz/ta/internal/ops"
 	"github.com/evanmschultz/ta/internal/server"
@@ -36,21 +36,77 @@ func NewRenderer(projectPath string) *Renderer {
 }
 
 // RenderCascadeTree implements server.ViewRenderer. The cascade tree
-// index page has no dedicated Track A template; it renders inline as a
-// minimal list of records linking to per-record detail pages.
-func (r *Renderer) RenderCascadeTree(_ context.Context, w http.ResponseWriter, _ *http.Request) error {
-	nodes, err := LoadCascadeTree(r.projectPath)
+// index page loads the full cascade graph (nodes + edges), renders it as
+// an SVG visualization, and displays it through the cascade_index.html template
+// with sidebar navigation and breadcrumb metadata.
+func (r *Renderer) RenderCascadeTree(_ context.Context, w http.ResponseWriter, req *http.Request) error {
+	graph, err := LoadCascadeGraph(r.projectPath)
 	if err != nil {
-		return fmt.Errorf("render cascade tree: %w", err)
+		return fmt.Errorf("render cascade tree: load graph: %w", err)
 	}
+
+	// The index SVG shows drops + their direct planner children so the
+	// hierarchy contract (drop -> planner edges) is visible without
+	// dragging in the full ~150-node graph (droplets + QA twins live
+	// behind each drop's detail page). With one planner per drop the
+	// width stays bounded and the depth-2 tree is scannable.
+	indexNodeIDs := make(map[string]struct{}, 32)
+	for _, n := range graph.Nodes {
+		if n.Type == "drop" {
+			indexNodeIDs[n.ID] = struct{}{}
+		}
+	}
+	for _, n := range graph.Nodes {
+		if strings.HasPrefix(n.ID, "drop_") &&
+			(strings.Contains(n.ID, ".drop.planner_l1_") || strings.Contains(n.ID, ".drop.planner_l1.")) {
+			indexNodeIDs[n.ID] = struct{}{}
+		}
+	}
+	indexGraph := CascadeGraph{
+		Nodes: make([]CascadeNode, 0, len(indexNodeIDs)),
+		Edges: make([]Edge, 0, len(indexNodeIDs)),
+	}
+	for _, n := range graph.Nodes {
+		if _, ok := indexNodeIDs[n.ID]; ok {
+			indexGraph.Nodes = append(indexGraph.Nodes, n)
+		}
+	}
+	for _, e := range graph.Edges {
+		_, srcOk := indexNodeIDs[e.SourceID]
+		_, dstOk := indexNodeIDs[e.TargetID]
+		if srcOk && dstOk {
+			indexGraph.Edges = append(indexGraph.Edges, e)
+		}
+	}
+
+	svg, err := RenderCascadeSVG(indexGraph)
+	if err != nil {
+		return fmt.Errorf("render cascade tree: render svg: %w", err)
+	}
+
+	pageContext := NewPageContextForRoute(req.URL.Path, "Cascade browser")
+
+	data := map[string]any{
+		"PageContext": pageContext,
+		"SVG":         svg,
+		"Nodes":       indexGraph.Nodes,
+	}
+
+	out, err := templates_html_basic.Render("cascade_index.html", data)
+	if err != nil {
+		return fmt.Errorf("render cascade tree: render template: %w", err)
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	return writeCascadeIndex(w, nodes)
+	_, err = w.Write(out)
+	return err
 }
 
 // RenderCascadeDetail implements server.CascadeDetailRenderer. The
 // {id} path parameter is resolved to a single record via LoadDetail,
-// then rendered through the matching Track A template. Missing records
-// surface as server.NotFoundError so the HTTP handler returns 404.
+// then rendered through the matching Track A template with shared chrome
+// (PageContext + sidebar navigation). Missing records surface as
+// server.NotFoundError so the HTTP handler returns 404.
 func (r *Renderer) RenderCascadeDetail(_ context.Context, w http.ResponseWriter, req *http.Request) error {
 	id := req.PathValue("id")
 	if id == "" {
@@ -63,7 +119,28 @@ func (r *Renderer) RenderCascadeDetail(_ context.Context, w http.ResponseWriter,
 		}
 		return fmt.Errorf("render cascade detail %q: %w", id, err)
 	}
-	out, err := templates_html_basic.Render(res.TemplateName, res.Fields)
+
+	// Extract the record's title for use in page context.
+	// Fall back to a generic title if the record has no title field.
+	recordTitle := "Cascade detail"
+	if title, ok := res.Fields["title"].(string); ok && title != "" {
+		recordTitle = title
+	}
+
+	// Build PageContext for the cascade detail page.
+	pageContext := NewPageContextForRoute(req.URL.Path, recordTitle)
+
+	// Merge the cascade record's fields with PageContext for template rendering.
+	// The detail templates now expect both the record fields AND the PageContext.
+	data := map[string]any{
+		"PageContext": pageContext,
+	}
+	// Copy all record fields into the data map for template consumption.
+	for k, v := range res.Fields {
+		data[k] = v
+	}
+
+	out, err := templates_html_basic.Render(res.TemplateName, data)
 	if err != nil {
 		return fmt.Errorf("render cascade detail %q: %w", id, err)
 	}
@@ -74,53 +151,77 @@ func (r *Renderer) RenderCascadeDetail(_ context.Context, w http.ResponseWriter,
 
 // RenderRoadmap implements server.DocsRenderer. Lists every
 // roadmap.version record under the project, sorts by id, and renders
-// each through the roadmap_version.html template. Output is a single
-// concatenated HTML document with each version rendered in turn.
-func (r *Renderer) RenderRoadmap(_ context.Context, w http.ResponseWriter, _ *http.Request) error {
+// each as an HTML fragment through the roadmap_version.html template.
+// Output is a single shared-chrome document with each version rendered
+// as a fragment inside roadmap.html, with sidebar navigation and breadcrumb.
+func (r *Renderer) RenderRoadmap(_ context.Context, w http.ResponseWriter, req *http.Request) error {
+	// Load all roadmap.version record ids.
 	ids, err := ops.ListSections(r.projectPath, "roadmap.version", 0, true)
 	if err != nil {
 		return fmt.Errorf("render roadmap: %w", err)
 	}
 	sort.Strings(ids)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := io.WriteString(w, `<!DOCTYPE html><html><body>`); err != nil {
-		return err
+
+	// Pre-render each version as a fragment.
+	type VersionFragment struct {
+		RenderedFragment string
 	}
+	fragments := []VersionFragment{}
 	for _, id := range ids {
 		res, loadErr := LoadRoadmapVersion(r.projectPath, id)
 		if loadErr != nil {
 			continue
 		}
-		out, renderErr := templates_html_basic.Render(res.TemplateName, res.Fields)
+		fragmentOut, renderErr := templates_html_basic.Render(res.TemplateName, res.Fields)
 		if renderErr != nil {
 			return fmt.Errorf("render roadmap version %q: %w", id, renderErr)
 		}
-		if _, err := w.Write(out); err != nil {
-			return err
-		}
+		fragments = append(fragments, VersionFragment{
+			RenderedFragment: string(fragmentOut),
+		})
 	}
-	if _, err := io.WriteString(w, `</body></html>`); err != nil {
-		return err
+
+	// Build PageContext for the roadmap route.
+	pageContext := NewPageContextForRoute(req.URL.Path, "Roadmap")
+
+	// Prepare template data with page context and version fragments.
+	data := map[string]any{
+		"PageContext": pageContext,
+		"Versions":    fragments,
 	}
-	return nil
+
+	out, err := templates_html_basic.Render("roadmap.html", data)
+	if err != nil {
+		return fmt.Errorf("render roadmap: render template: %w", err)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, err = w.Write(out)
+	return err
 }
 
 // RenderSchema implements server.DocsRenderer. Loads the schema view
 // from .ta/schema.toml via LoadSchema and renders it through
-// schema_browser.html.
+// schema_browser.html with shared chrome (PageContext + sidebar).
 //
 // The schema_browser.html template accesses template fields via lowercase
-// keys ({{ .scopes }}, {{ .types }}, {{ .fields }}) because Go html/template
-// uses exact field-name match for structs. SchemaLoaderResult's typed
-// Scopes/Types/Fields fields therefore do not resolve. RenderSchema
-// converts the typed result to a map[string]any with lowercase keys
-// matching the template's expectations.
-func (r *Renderer) RenderSchema(_ context.Context, w http.ResponseWriter, _ *http.Request) error {
+// keys ({{ .scopes }}) and injects PageContext for shared sidebar navigation.
+// RenderSchema converts the typed result to a map[string]any with lowercase
+// keys matching the template's expectations.
+func (r *Renderer) RenderSchema(_ context.Context, w http.ResponseWriter, req *http.Request) error {
 	res, err := LoadSchema(r.projectPath)
 	if err != nil {
 		return fmt.Errorf("render schema: %w", err)
 	}
-	data := map[string]any{"scopes": scopeViewsToMaps(res.Scopes)}
+
+	// Build PageContext for the schema route.
+	pageContext := NewPageContextForRoute(req.URL.Path, "Schema browser")
+
+	// Prepare template data with page context and scopes.
+	data := map[string]any{
+		"PageContext": pageContext,
+		"scopes":      scopeViewsToMaps(res.Scopes),
+	}
 	out, err := templates_html_basic.Render(res.TemplateName, data)
 	if err != nil {
 		return fmt.Errorf("render schema: %w", err)
@@ -170,20 +271,43 @@ func fieldViewsToMaps(fields []FieldView) []map[string]any {
 	return out
 }
 
-// RenderSearch implements server.SearchRenderer. Empty query surfaces a
-// 400 Bad Request inline (without bubbling up an error so the route
-// handler does not also write a 500). Non-empty queries run through
-// LoadSearch and render via search_results.html.
-func (r *Renderer) RenderSearch(_ context.Context, w http.ResponseWriter, _ *http.Request, query string) error {
+// RenderSearch implements server.SearchRenderer. Empty query renders an
+// empty-state notice via search_results.html with shared chrome and HTTP 400
+// status. Non-empty queries run through LoadSearch and render results.
+func (r *Renderer) RenderSearch(_ context.Context, w http.ResponseWriter, req *http.Request, query string) error {
+	// Build PageContext for the search route.
+	pageContext := NewPageContextForRoute(req.URL.Path, "Search")
+
+	// If query is empty, render an empty-state notice with 400 status.
 	if query == "" {
-		http.Error(w, "missing required query parameter q", http.StatusBadRequest)
-		return nil
+		data := map[string]any{
+			"PageContext": pageContext,
+			"Query":       "",
+			"Results":     nil,
+		}
+		out, err := templates_html_basic.Render("search_results.html", data)
+		if err != nil {
+			return fmt.Errorf("render search (empty): %w", err)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_, err = w.Write(out)
+		return err
 	}
+
+	// Non-empty query: load and render results.
 	res, err := LoadSearch(r.projectPath, query)
 	if err != nil {
 		return fmt.Errorf("render search %q: %w", query, err)
 	}
-	out, err := templates_html_basic.Render(res.TemplateName, res)
+
+	// Inject PageContext into the search results data.
+	data := map[string]any{
+		"PageContext": pageContext,
+		"Query":       query,
+		"Results":     res.Results,
+	}
+	out, err := templates_html_basic.Render("search_results.html", data)
 	if err != nil {
 		return fmt.Errorf("render search %q: %w", query, err)
 	}
@@ -192,28 +316,39 @@ func (r *Renderer) RenderSearch(_ context.Context, w http.ResponseWriter, _ *htt
 	return err
 }
 
-// writeCascadeIndex writes a minimal inline cascade tree index page.
-// Each node renders as one anchored <li> linking to /cascade/<id>.
-func writeCascadeIndex(w io.Writer, nodes []CascadeNode) error {
-	if _, err := io.WriteString(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Cascade browser</title></head><body><h1>Cascade browser</h1><ul>`); err != nil {
-		return err
+// RenderNotFound renders a 404 page for a missing cascade record via the
+// shared not_found.html template with PageContext and the missing ID.
+// The response is styled with shared chrome (sidebar, base.css) and sets
+// HTTP 404 status code.
+func (r *Renderer) RenderNotFound(w http.ResponseWriter, req *http.Request, missingID string) error {
+	// Build PageContext for the not-found page (cascade scope).
+	pageContext := NewPageContextForRoute(req.URL.Path, "Not Found")
+
+	// Prepare template data with page context and missing ID.
+	data := map[string]any{
+		"PageContext": pageContext,
+		"MissingID":   missingID,
 	}
-	for _, n := range nodes {
-		line := fmt.Sprintf(`<li><a href="/cascade/%s">%s</a> — role:%s state:%s</li>`, n.ID, n.Title, n.Role, n.State)
-		if _, err := io.WriteString(w, line); err != nil {
-			return err
-		}
+
+	out, err := templates_html_basic.Render("not_found.html", data)
+	if err != nil {
+		return fmt.Errorf("render not found: %w", err)
 	}
-	if _, err := io.WriteString(w, `</ul></body></html>`); err != nil {
-		return err
-	}
-	return nil
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusNotFound)
+	_, err = w.Write(out)
+	return err
 }
 
 // isRecordNotFound is a best-effort check that the loader's error came
-// from ops.Get on a missing record. The underlying ops sentinel is
-// ops.ErrRecordNotFound (wrapped); LoadDetail wraps it further with the
-// id and other context, so errors.Is still unwraps to the sentinel.
+// from a missing record. Catches both record-level (ops.ErrRecordNotFound,
+// from the index) and file-level (ops.ErrFileNotFound, from the resolver
+// trying a backend's file pattern that does not exist) sentinels — both
+// surface for unknown ids depending on which lookup path fails first.
 func isRecordNotFound(err error) bool {
-	return err != nil && errors.Is(err, ops.ErrRecordNotFound)
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ops.ErrRecordNotFound) || errors.Is(err, ops.ErrFileNotFound)
 }

@@ -1,0 +1,482 @@
+/**
+ * base.css — ta Track A (zero-deps) foundational styles.
+ *
+ * Ported from stil tokens.css + grid shell layout primitives.
+ * Designed to be embedded or inlined into Track A templates.
+ *
+ * @layer ordering:
+ *   tokens   — CSS custom properties (brand, spacing, radius, typography, motion, shape, chrome dims)
+ *   base     — color-scheme, html/body/main fundamentals, typography defaults
+ *   layout   — grid shell (topbar, sidebar, main content) + responsive behavior
+ *   components — (reserved for template-level component styles)
+ *   utilities  — (reserved for utility classes)
+ */
+
+@layer tokens, base, layout, components, utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Layer: tokens
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+@layer tokens {
+  :root {
+    /* ─── Brand: accent (theme-agnostic) ────────────────────────────────── */
+    /* --carl is the brand value. --accent is the semantic alias adapters
+     * and components reference, so the brand can shift without rewriting
+     * every consumer. */
+    --carl: #dd9f57;
+    --carl-hover: #e3a868;
+    --carl-pressed: #d39243;
+    --carl-soft: rgb(221 159 87 / 0.14);
+
+    --accent: var(--carl);
+    --accent-hover: var(--carl-hover);
+    --accent-pressed: var(--carl-pressed);
+    --accent-soft: var(--carl-soft);
+
+    /* ─── Spacing — 4px base ────────────────────────────────────────────── */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-10: 2.5rem;
+    --space-12: 3rem;
+
+    /* ─── Radius ────────────────────────────────────────────────────────── */
+    --radius-1: 2px;
+    --radius-2: 5px;
+    --radius-3: 8px;
+    --radius-4: 10px;
+    --radius-pill: 9999px;
+
+    /* The inner chrome corner — viewport top-left + aside top-left.
+     * One var, used by both. */
+    --corner-radius: var(--radius-4);
+
+    /* ─── Typography ───────────────────────────────────────────────────── */
+    --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+    --font-serif: ui-serif, "Charter", "Source Serif 4", "Iowan Old Style", Georgia, serif;
+    --font-mono: "Iosevka Web", "Iosevka", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", Consolas, monospace;
+
+    --text-xs: 0.75rem;
+    --text-sm: 0.875rem;
+    --text-base: 1rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.375rem;
+    --text-2xl: 1.75rem;
+    --text-3xl: 2.25rem;
+
+    --leading-tight: 1.2;
+    --leading-snug: 1.35;
+    --leading-normal: 1.55;
+    --leading-relaxed: 1.7;
+
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+
+    --tracking-tight: -0.02em;
+    --tracking-wide: 0.02em;
+
+    /* ─── Motion ───────────────────────────────────────────────────────── */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --duration-fast: 120ms;
+    --duration-base: 180ms;
+
+    /* ─── Shape: focus ring + elevation ─────────────────────────────────── */
+    --focus-ring-width: 1px;
+    --focus-ring-color: rgb(221 159 87 / 0.42);
+    --focus-ring: 0 0 0 var(--focus-ring-width) var(--focus-ring-color);
+
+    --shadow-card: none;
+
+    /* ─── Chrome dimensions ────────────────────────────────────────────── */
+    --topbar-height: 44px;
+    --rail-width: 56px;
+    --sidebar-width: 240px;
+    --aside-width: clamp(280px, 32vw, 400px);
+
+    /* Shared between NavRail and Sidebar — keeps the two columns vertically
+     * synchronized so each rail item sits at the same Y as its sidebar peer. */
+    --nav-item-height: 36px;
+    --nav-item-gap: 2px;
+    --nav-padding-bottom: var(--space-4);
+
+    /* Mobile chrome — only used at ≤640px breakpoints. */
+    --bottom-tabs-height: 56px;
+    --drawer-width: min(80vw, 320px);
+    --sheet-default-height: 70vh;
+    --sheet-handle-height: 18px;
+  }
+
+  /* ─── Light theme (default) ──────────────────────────────────────────── */
+  :root,
+  :root[data-theme="light"] {
+    color-scheme: light;
+
+    /* Two surfaces — chrome (the L-frame) and surface (everything else). */
+    --bg-chrome:  #f9fafd;
+    --bg-surface: #fcfcfc;
+
+    /* State overlays — alpha-only. */
+    --bg-hover:    rgb(221 159 87 / 0.07);
+    --bg-selected: rgb(221 159 87 / 0.14);
+
+    /* Text — three tones. Tertiary tuned to ≥4.5:1 against --bg-chrome. */
+    --text-primary:   #1c1e28;
+    --text-secondary: #545862;
+    --text-tertiary:  #6e7280;
+  }
+
+  /* ─── Dark theme ─────────────────────────────────────────────────────── */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+
+      --bg-chrome:  #1c1d24;
+      --bg-surface: #202229;
+
+      --bg-hover:    rgb(221 159 87 / 0.05);
+      --bg-selected: rgb(221 159 87 / 0.14);
+
+      --text-primary:   #e8e6e1;
+      --text-secondary: #a8acb6;
+      --text-tertiary:  #8c8f99;
+
+      --focus-ring-color: rgb(221 159 87 / 0.5);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --bg-chrome:  #1a1c23;
+    --bg-surface: #202229;
+
+    --bg-hover:    rgb(221 159 87 / 0.05);
+    --bg-selected: rgb(221 159 87 / 0.14);
+
+    --text-primary:   #e8e6e1;
+    --text-secondary: #a8acb6;
+    --text-tertiary:  #6a6e78;
+
+    --focus-ring-color: rgb(221 159 87 / 0.5);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Layer: base
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+    font-weight: var(--weight-regular);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Semantic structural elements */
+  main {
+    display: block;
+  }
+
+  header,
+  footer,
+  nav {
+    display: block;
+  }
+
+  section,
+  article {
+    display: block;
+  }
+
+  /* Typography defaults */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: 0;
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-snug);
+  }
+
+  h1 {
+    font-size: var(--text-3xl);
+  }
+
+  h2 {
+    font-size: var(--text-2xl);
+  }
+
+  h3 {
+    font-size: var(--text-xl);
+  }
+
+  h4 {
+    font-size: var(--text-lg);
+  }
+
+  h5,
+  h6 {
+    font-size: var(--text-base);
+  }
+
+  p {
+    margin: 0;
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+
+  /* Form elements baseline */
+  button {
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  /* Focus ring on interactive elements */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Layer: layout
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Grid shell layout primitives: topbar, sidebar, main content grid.
+ * Responsive behavior via intrinsic sizing and media queries.
+ *
+ * Viewports:
+ *   375px (mobile)
+ *   768px (tablet)
+ *   1280px (desktop)
+ */
+
+@layer layout {
+  /* ─── Desktop grid (1280px+): topbar + [sidebar | main] ─────────────── */
+  @media (min-width: 1280px) {
+    body {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) 1fr;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header[role="banner"] {
+      grid-column: 1 / -1;
+      height: var(--topbar-height);
+      background-color: var(--bg-chrome);
+      border-bottom: 1px solid var(--bg-hover);
+    }
+
+    nav[role="navigation"],
+    aside {
+      grid-row: 2;
+      grid-column: 1;
+      width: var(--sidebar-width);
+      background-color: var(--bg-chrome);
+      border-right: 1px solid var(--bg-hover);
+      overflow-y: auto;
+      padding: var(--space-4);
+    }
+
+    main {
+      grid-row: 2;
+      grid-column: 2;
+      overflow-y: auto;
+      padding: var(--space-8);
+    }
+  }
+
+  /* ─── Tablet grid (768px–1279px): stacked topbar + sidebar ──────────── */
+  @media (min-width: 768px) and (max-width: 1279px) {
+    body {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      height: auto;
+      min-height: 100vh;
+    }
+
+    header[role="banner"] {
+      grid-row: 1;
+      height: var(--topbar-height);
+      background-color: var(--bg-chrome);
+      border-bottom: 1px solid var(--bg-hover);
+      padding: 0 var(--space-6);
+      display: flex;
+      align-items: center;
+    }
+
+    nav[role="navigation"],
+    aside {
+      grid-row: 2;
+      background-color: var(--bg-chrome);
+      border-bottom: 1px solid var(--bg-hover);
+      overflow-x: auto;
+      padding: var(--space-4) var(--space-6);
+      display: flex;
+      gap: var(--space-4);
+    }
+
+    main {
+      grid-row: 3;
+      padding: var(--space-6);
+      max-width: 100%;
+    }
+  }
+
+  /* ─── Mobile (≤767px): stacked layout, bottom tabs ──────────────────── */
+  @media (max-width: 767px) {
+    body {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header[role="banner"] {
+      grid-row: 1;
+      height: var(--topbar-height);
+      background-color: var(--bg-chrome);
+      border-bottom: 1px solid var(--bg-hover);
+      padding: 0 var(--space-4);
+      display: flex;
+      align-items: center;
+      font-size: var(--text-sm);
+    }
+
+    main {
+      grid-row: 2;
+      overflow-y: auto;
+      padding: var(--space-4);
+    }
+
+    nav[role="navigation"],
+    aside {
+      grid-row: 3;
+      height: var(--bottom-tabs-height);
+      background-color: var(--bg-chrome);
+      border-top: 1px solid var(--bg-hover);
+      display: flex;
+      gap: 0;
+      padding: 0;
+      overflow-x: auto;
+    }
+
+    nav[role="navigation"] a,
+    aside a {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--text-secondary);
+    }
+  }
+
+  /* ─── Common layout utilities ──────────────────────────────────────── */
+
+  /* Intrinsic width container for readable text */
+  .prose {
+    max-width: 65ch;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Grid for responsive component layouts */
+  .grid-auto {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-6);
+  }
+
+  /* Stack layout (vertical flexbox) */
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  /* Cluster layout (horizontal flexbox with wrapping) */
+  .cluster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    align-items: center;
+  }
+
+  /* Row layout (horizontal grid for equal-width columns) */
+  .row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-6);
+  }
+
+  /* Container query support for progressive enhancement */
+  @supports (container-type: inline-size) {
+    [data-container] {
+      container-type: inline-size;
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Layer: components
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Reserved for template-level component styles.
+ * Define component-specific selectors here as needed.
+ */
+
+@layer components {
+  /* Placeholder for component styles */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Layer: utilities
+ * ═══════════════════════────────────────────────────────────────────────────
+ * Reserved for utility-class styles.
+ */
+
+@layer utilities {
+  /* Placeholder for utility styles */
+}

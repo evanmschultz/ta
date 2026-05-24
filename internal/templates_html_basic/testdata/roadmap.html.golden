@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>L3 sub-planner: cascade_planner template authoring — planner</title>
+<title>Roadmap — Roadmap</title>
 <style>
    
 
@@ -273,103 +273,18 @@
 
    
   @layer components {
-    .planner-tag {
-      font-size: var(--text-sm);
-      color: var(--text-tertiary);
-      font-family: var(--font-mono);
-    }
-    .pills {
+    .roadmap-versions {
       display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      margin-top: var(--space-1);
+      flex-direction: column;
+      gap: var(--space-6);
     }
-    .pill {
-      display: inline-block;
-      padding: var(--space-1) var(--space-3);
-      border-radius: var(--radius-pill);
-      font-size: var(--text-sm);
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-weight: var(--weight-medium);
-    }
-    .pill[data-key="state"][data-value="todo"] { background: #e5e7eb; color: #6b7280; }
-    .pill[data-key="state"][data-value="in_progress"] { background: #fef3c7; color: #b45309; }
-    .pill[data-key="state"][data-value="complete"] { background: #d1fae5; color: #047857; }
-    .pill[data-key="state"][data-value="failed"] { background: #fee2e2; color: #b91c1c; }
-    .pill[data-key="state"][data-value="archived"] { background: #e5e7eb; color: #4b5563; }
 
-    section {
-      margin-block: var(--space-6);
+    .roadmap-version-item {
+      border: 1px solid var(--bg-hover);
+      border-radius: var(--radius-3);
+      padding: var(--space-6);
+      background: var(--bg-surface);
     }
-    section h2 {
-      font-size: var(--text-lg);
-      margin: 0 0 var(--space-2);
-      color: var(--text-primary);
-    }
-    dl.meta {
-      display: grid;
-      grid-template-columns: max-content 1fr;
-      column-gap: var(--space-4);
-      row-gap: var(--space-2);
-      margin: 0;
-    }
-    dl.meta dt {
-      color: var(--text-secondary);
-      font-size: var(--text-sm);
-    }
-    dl.meta dd {
-      margin: 0;
-      font-size: var(--text-base);
-      word-break: break-word;
-    }
-    ul.flat {
-      margin: 0;
-      padding-left: var(--space-5);
-    }
-    ul.flat li { margin-block: var(--space-1); }
-    ol.decision-log {
-      margin: 0;
-      padding-left: var(--space-6);
-    }
-    ol.decision-log li {
-      margin-block: var(--space-2);
-      padding-left: var(--space-1);
-    }
-    pre.prose {
-      white-space: pre-wrap;
-      font-size: var(--text-base);
-      color: var(--text-primary);
-      margin: 0;
-      font-family: var(--font-sans);
-      background: transparent;
-      border: 0;
-      padding: 0;
-    }
-    header {
-      display: grid;
-      gap: var(--space-2);
-      border-bottom: 1px solid var(--bg-hover);
-      padding-bottom: var(--space-4);
-      margin-bottom: var(--space-5);
-    }
-    header h1 {
-      margin: 0;
-      font-size: var(--text-2xl);
-      line-height: var(--leading-tight);
-    }
-    footer {
-      margin-top: var(--space-8);
-      padding-top: var(--space-4);
-      border-top: 1px solid var(--bg-hover);
-      font-size: var(--text-sm);
-      color: var(--text-secondary);
-    }
-  }
-
-  @media (max-width: 767px) {
-    dl.meta { grid-template-columns: 1fr; }
-    dl.meta dt { margin-top: var(--space-2); }
   }
 </style>
 </head>
@@ -387,7 +302,7 @@
 		<li>
 			<a
 				href="/roadmap"
-				class="sidebar-item"
+				class="sidebar-item" aria-current="page"
 			>
 				<span class="sidebar-item-label">Roadmap</span>
 			</a>
@@ -542,88 +457,43 @@
 </style>
 
 
-<main aria-labelledby="planner-title">
+<main>
   <header>
-    <div class="planner-tag">cascade.planner</div>
-    <h1 id="planner-title">L3 sub-planner: cascade_planner template authoring</h1>
-    <div class="pills" aria-label="Planner metadata">
-      <span class="pill" data-key="structural_type" data-value=""></span>
-      <span class="pill" data-key="role" data-value="planner">planner</span>
-      <span class="pill" data-key="state" data-value="in_progress">in_progress</span>
+    <h1>Roadmap</h1>
+    
+    <nav aria-label="Breadcrumb" style="font-size: var(--text-sm); color: var(--text-secondary);">
       
-      <span class="pill" data-key="priority" data-value="high">high</span>
-    </div>
+        
+        <a href="/">Cascade</a>
+      
+         / 
+        Roadmap
+      
+    </nav>
+    
   </header>
 
-  <section aria-label="Identifiers and timestamps">
-    <h2>Identifiers</h2>
-    <dl class="meta">
-      <dt>parent_id</dt><dd>drop_004.drop.l3_e2_simple_views</dd>
-      <dt>created_at</dt><dd><time datetime="2026-05-18T10:00:00Z">2026-05-18T10:00:00Z</time></dd>
-      <dt>updated_at</dt><dd><time datetime="2026-05-18T10:30:00Z">2026-05-18T10:30:00Z</time></dd>
-      <dt>started_at</dt><dd><time datetime="2026-05-18T10:00:00Z">2026-05-18T10:00:00Z</time></dd>
-      
-    </dl>
+  
+  <section class="roadmap-versions" aria-label="Roadmap versions">
+    
+    <div class="roadmap-version-item">
+      &lt;article&gt;
+  &lt;header&gt;
+    &lt;div class=&#34;version-tag&#34;&gt;roadmap.version&lt;/div&gt;
+    &lt;h2 id=&#34;version-title&#34;&gt;v1.0.0&lt;/h2&gt;
+    &lt;div class=&#34;target-band&#34;&gt;Q4 2026&lt;/div&gt;
+    &lt;div class=&#34;pills&#34; aria-label=&#34;Version metadata&#34;&gt;
+      &lt;span class=&#34;pill&#34; data-key=&#34;status&#34; data-value=&#34;planning&#34;&gt;planning&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/header&gt;
+  &lt;section aria-label=&#34;Vision summary&#34;&gt;
+    &lt;h3&gt;Vision&lt;/h3&gt;
+    &lt;pre class=&#34;prose&#34;&gt;Future roadmap version 1.0.0 vision.&lt;/pre&gt;
+  &lt;/section&gt;
+&lt;/article&gt;
+    </div>
+    
   </section>
-
-  
-  <section aria-label="Objective">
-    <h2>Objective</h2>
-    <pre class="prose">Author cascade.planner Track A template. Attack payload: &lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</pre>
-  </section>
-  
-
-  
-
-  
-  <section aria-label="Decision log">
-    <h2>Decision log</h2>
-    <ol class="decision-log">
-      <li>Reuse cascade_drop palette verbatim — no new tokens.</li><li>Render decision_log as &lt;ol&gt; timeline (planner-specific emphasis).</li><li>Use &lt;pre class=&#34;prose&#34;&gt; for markdown fields per Track A zero-JS rule.</li>
-    </ol>
-  </section>
-  
-
-  
-  <section aria-label="Acceptance criteria">
-    <h2>Acceptance criteria</h2>
-    <pre class="prose">All planner fields rendered; goldens stable; mage testPkg green.</pre>
-  </section>
-  
-
-  
-  <section aria-label="Validation plan">
-    <h2>Validation plan</h2>
-    <pre class="prose">Golden compare &#43; substring asserts &#43; XSS escape check.</pre>
-  </section>
-  
-
-  
-  <section aria-label="Paths owned">
-    <h2>Paths</h2>
-    <ul class="flat">
-      <li>internal/templates_html_basic/templates/cascade_planner.html</li><li>internal/templates_html_basic/render_test.go</li>
-    </ul>
-  </section>
-  
-
-  
-  <section aria-label="Packages affected">
-    <h2>Packages</h2>
-    <ul class="flat">
-      <li>internal/templates_html_basic</li>
-    </ul>
-  </section>
-  
-
-  
-
-  
-  <footer aria-label="Transition notes">
-    <strong>Transition notes:</strong> L3-E2-D-V2 complete; ready for build-QA twins.
-  </footer>
-  
-
   
 </main>
 </body>

@@ -3999,6 +3999,56 @@ db_name = 'cascade'
 type = 'segment'
 updated = 2026-05-22T22:35:26.105482Z
 
+[drop_014]
+[drop_014.drop]
+[drop_014.drop.planner_l1_ta_serve_ux_rework]
+created = 2026-05-23T04:30:33.23649Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T06:08:26.9352Z
+
+[drop_014.drop.planner_l1_ta_serve_ux_rework-plan-qa-falsification]
+created = 2026-05-23T04:30:33.271037Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T06:16:57.594605Z
+
+[drop_014.drop.planner_l1_ta_serve_ux_rework-plan-qa-proof]
+created = 2026-05-23T04:30:33.256529Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T06:12:09.342004Z
+
+[drop_014.drop.ta_serve_ux_rework]
+created = 2026-05-23T04:30:03.442174Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-23T05:56:29.254841Z
+
+[drop_014.drop.ta_serve_ux_rework-build-qa-falsification]
+created = 2026-05-23T19:04:57.756736Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T19:17:45.718652Z
+
+[drop_014.drop.ta_serve_ux_rework-build-qa-proof]
+created = 2026-05-23T19:04:57.741972Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T19:11:40.595784Z
+
+[drop_014.drop.ta_serve_ux_rework-plan-qa-falsification]
+created = 2026-05-23T04:30:03.473756Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T04:30:03.473756Z
+
+[drop_014.drop.ta_serve_ux_rework-plan-qa-proof]
+created = 2026-05-23T04:30:03.458851Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T04:30:03.458851Z
+
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]
 created = 2026-05-16T00:32:08.792073Z

@@ -2,9 +2,8 @@ package templates_html_basic
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io/fs"
+	"html/template"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,8 +34,30 @@ func TestRenderBasic_CascadeDrop(t *testing.T) {
 	// {{ .field }} actions. The transition_notes value carries a
 	// deliberate XSS-style payload so the post-render assertion can
 	// verify html/template's contextual auto-escape.
+	// PageContext is the shared chrome context injected by the renderer.
+	// The PageContext.PageTitle is set to the record title by RenderCascadeDetail.
+	recordTitle := "L3-E1-D-A3 render engine"
+	pageContext := map[string]any{
+		"PageTitle": recordTitle,
+		"SidebarData": map[string]any{
+			"Items": []map[string]any{
+				{
+					"Label":    "Cascade browser",
+					"URL":      "/cascade",
+					"IsActive": true,
+				},
+				{
+					"Label":    "Roadmap",
+					"URL":      "/roadmap",
+					"IsActive": false,
+				},
+			},
+		},
+		"ActiveScope": "cascade",
+	}
 	data := map[string]any{
-		"title":               "L3-E1-D-A3 render engine",
+		"PageContext":         pageContext,
+		"title":               recordTitle,
 		"drop_number":         "004",
 		"structural_type":     "droplet",
 		"role":                "builder",
@@ -154,8 +175,30 @@ func TestRenderBasic_CascadePlanner(t *testing.T) {
 	// rides on the objective field (markdown-format, user-controlled
 	// in practice via planner-agent output), so the auto-escape
 	// assertion can verify html/template's contextual filtering.
+	// PageContext is the shared chrome context injected by the renderer.
+	// The PageContext.PageTitle is set to the record title by RenderCascadeDetail.
+	plannerTitle := "L3 sub-planner: cascade_planner template authoring"
+	pageContext := map[string]any{
+		"PageTitle": plannerTitle,
+		"SidebarData": map[string]any{
+			"Items": []map[string]any{
+				{
+					"Label":    "Cascade browser",
+					"URL":      "/cascade",
+					"IsActive": true,
+				},
+				{
+					"Label":    "Roadmap",
+					"URL":      "/roadmap",
+					"IsActive": false,
+				},
+			},
+		},
+		"ActiveScope": "cascade",
+	}
 	data := map[string]any{
-		"title":               "L3 sub-planner: cascade_planner template authoring",
+		"PageContext":         pageContext,
+		"title":               plannerTitle,
 		"structural_type":     "",
 		"role":                "planner",
 		"state":               "in_progress",
@@ -288,8 +331,30 @@ func TestRenderBasic_CascadeDroplet(t *testing.T) {
 	// state + created_at + updated_at + title as unconditional). The
 	// XSS payload rides on the objective field so the auto-escape
 	// assertion can verify html/template's contextual filtering.
+	// PageContext is the shared chrome context injected by the renderer.
+	// The PageContext.PageTitle is set to the record title by RenderCascadeDetail.
+	dropletTitle := "L3-E2-D-V3 cascade_droplet template authoring"
+	pageContext := map[string]any{
+		"PageTitle": dropletTitle,
+		"SidebarData": map[string]any{
+			"Items": []map[string]any{
+				{
+					"Label":    "Cascade browser",
+					"URL":      "/cascade",
+					"IsActive": true,
+				},
+				{
+					"Label":    "Roadmap",
+					"URL":      "/roadmap",
+					"IsActive": false,
+				},
+			},
+		},
+		"ActiveScope": "cascade",
+	}
 	data := map[string]any{
-		"title":        "L3-E2-D-V3 cascade_droplet template authoring",
+		"PageContext":  pageContext,
+		"title":        dropletTitle,
 		"role":         "builder",
 		"state":        "in_progress",
 		"outcome":      "",
@@ -433,12 +498,53 @@ func TestRenderBasic_CascadeQA(t *testing.T) {
 		extraAbsent   []string // substrings that MUST NOT appear in this case
 	}
 
+	qaProfTitle := "Build-QA proof of L3-E2-D-V4 cascade_qa template"
+	pageContextProof := map[string]any{
+		"PageTitle": qaProfTitle,
+		"SidebarData": map[string]any{
+			"Items": []map[string]any{
+				{
+					"Label":    "Cascade browser",
+					"URL":      "/cascade",
+					"IsActive": true,
+				},
+				{
+					"Label":    "Roadmap",
+					"URL":      "/roadmap",
+					"IsActive": false,
+				},
+			},
+		},
+		"ActiveScope": "cascade",
+	}
+
+	qaFalsifTitle := "Build-QA falsification of L3-E2-D-V4 cascade_qa template"
+	pageContextFalsif := map[string]any{
+		"PageTitle": qaFalsifTitle,
+		"SidebarData": map[string]any{
+			"Items": []map[string]any{
+				{
+					"Label":    "Cascade browser",
+					"URL":      "/cascade",
+					"IsActive": true,
+				},
+				{
+					"Label":    "Roadmap",
+					"URL":      "/roadmap",
+					"IsActive": false,
+				},
+			},
+		},
+		"ActiveScope": "cascade",
+	}
+
 	cases := []qaCase{
 		{
 			name: "qa_proof",
 			role: "qa-proof",
 			data: map[string]any{
-				"title":            "Build-QA proof of L3-E2-D-V4 cascade_qa template",
+				"PageContext":      pageContextProof,
+				"title":            qaProfTitle,
 				"role":             "qa-proof",
 				"state":            "complete",
 				"outcome":          "pass",
@@ -488,7 +594,8 @@ func TestRenderBasic_CascadeQA(t *testing.T) {
 			name: "qa_falsification",
 			role: "qa-falsification",
 			data: map[string]any{
-				"title":        "Build-QA falsification of L3-E2-D-V4 cascade_qa template",
+				"PageContext":  pageContextFalsif,
+				"title":        qaFalsifTitle,
 				"role":         "qa-falsification",
 				"state":        "complete",
 				"outcome":      "fail",
@@ -677,7 +784,10 @@ func TestRenderBasic_RoadmapVersion(t *testing.T) {
 
 	rendered := string(out)
 
-	// (1) Field values appear in the output.
+	// (1) Field values appear in the output. roadmap_version.html is now a
+	// FRAGMENT (no DOCTYPE/html/head/body) consumed by roadmap.html.
+	// The fragment includes version content, pill metadata, and inline
+	// <style> for scoped component styling.
 	wantContains := []string{
 		"v0.1.0",
 		"Q3 2026",
@@ -697,8 +807,8 @@ func TestRenderBasic_RoadmapVersion(t *testing.T) {
 		"F23 token expansion shipped",
 		"TUI verification artifacts under cmd/ta/testdata/vhs/",
 		"cmd/ta coverage ≥70%",
-		"<!DOCTYPE html>",
-		"v0.1.0 — roadmap</title>",
+		// Fragment structure: <article> not <main>, no DOCTYPE.
+		"<article aria-labelledby=\"version-title\">",
 		"roadmap.version",
 		// Status pill markup with the data-* attributes that drive the
 		// palette selector in the inline <style> block. Pinning these
@@ -722,7 +832,7 @@ func TestRenderBasic_RoadmapVersion(t *testing.T) {
 	// (2) Empty-field conditionals do NOT render.
 	wantAbsent := []string{
 		`aria-label="Risks"`,            // risks absent → no section
-		`<h2>Risks</h2>`,                // ditto, h2 form
+		`<h3>Risks</h3>`,                // ditto, h3 form (fragment uses h3 instead of h2)
 		`aria-label="Timestamps"`,       // created_at + updated_at absent → no section
 		`<dt>created_at</dt>`,           // created_at empty → no row
 		`<dt>updated_at</dt>`,           // updated_at empty → no row
@@ -749,6 +859,142 @@ func TestRenderBasic_RoadmapVersion(t *testing.T) {
 
 	// (4) Whole-output golden compare.
 	assertGoldenBytes(t, "roadmap_version.html", out)
+}
+
+// TestRenderBasic_RoadmapPage drives the outer roadmap.html template
+// (the shared-chrome page shell, added by D7) with a mock PageContext
+// and 1-2 pre-rendered version fragments. Asserts:
+//
+//  1. every page-context field reaches the output (PageTitle, Breadcrumb,
+//     sidebar active scope);
+//  2. the outer shared chrome is rendered (DOCTYPE, sidebar partial,
+//     base.css layers, responsive grid layout);
+//  3. each version fragment's content appears inside the page;
+//  4. the rendered bytes match a committed golden fixture.
+//
+// This test pins the integration point between RenderRoadmap (serverview)
+// and the shared-chrome pattern established by D6 (cascade_index.html).
+func TestRenderBasic_RoadmapPage(t *testing.T) {
+	t.Parallel()
+
+	// Mock PageContext and version fragments. The PageContext is built by
+	// NewPageContextForRoute("/roadmap", "Roadmap") in RenderRoadmap.
+	data := map[string]any{
+		"PageContext": map[string]any{
+			"PageTitle": "Roadmap",
+			"SidebarData": map[string]any{
+				"Items": []map[string]any{
+					{
+						"Label":    "Cascade",
+						"Route":    "/",
+						"Scope":    "cascade",
+						"IsActive": false,
+					},
+					{
+						"Label":    "Roadmap",
+						"Route":    "/roadmap",
+						"Scope":    "roadmap",
+						"IsActive": true,
+					},
+					{
+						"Label":    "Schema",
+						"Route":    "/schema",
+						"Scope":    "schema",
+						"IsActive": false,
+					},
+					{
+						"Label":    "Search",
+						"Route":    "/search",
+						"Scope":    "search",
+						"IsActive": false,
+					},
+				},
+				"ActiveScope": "roadmap",
+			},
+			"Breadcrumb": []map[string]any{
+				{
+					"Label": "Cascade",
+					"URL":   "/",
+				},
+				{
+					"Label": "Roadmap",
+					"URL":   "",
+				},
+			},
+		},
+		"Versions": []map[string]any{
+			{
+				"RenderedFragment": `<article>
+  <header>
+    <div class="version-tag">roadmap.version</div>
+    <h2 id="version-title">v1.0.0</h2>
+    <div class="target-band">Q4 2026</div>
+    <div class="pills" aria-label="Version metadata">
+      <span class="pill" data-key="status" data-value="planning">planning</span>
+    </div>
+  </header>
+  <section aria-label="Vision summary">
+    <h3>Vision</h3>
+    <pre class="prose">Future roadmap version 1.0.0 vision.</pre>
+  </section>
+</article>`,
+			},
+		},
+	}
+
+	out, err := Render("roadmap.html", data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rendered := string(out)
+
+	// (1) PageContext fields reach the output.
+	wantContains := []string{
+		"<!DOCTYPE html>",
+		"<title>Roadmap — Roadmap</title>",
+		// Sidebar partial included via {{ template "partials/sidebar.html" . }}
+		`<nav class="sidebar" role="navigation" aria-label="Primary">`,
+		// Active scope marked in sidebar.
+		`href="/roadmap"`,
+		`aria-current="page"`,
+		// Breadcrumb trail from PageContext.
+		`<nav aria-label="Breadcrumb"`,
+		"Cascade",
+		"Roadmap",
+		// Page title in main header.
+		`<h1>Roadmap</h1>`,
+		// Base.css shared styling (layers declaration).
+		`@layer tokens, base, layout, components, utilities`,
+		// Responsive grid layout (1280px desktop).
+		`grid-template-columns: var(--sidebar-width) 1fr`,
+		// Version fragments rendered inside shared chrome.
+		`<section class="roadmap-versions" aria-label="Roadmap versions">`,
+		// Version content from the fragment.
+		"roadmap.version",
+		"v1.0.0",
+		"planning",
+		"Future roadmap version 1.0.0 vision.",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered output missing expected substring %q", want)
+		}
+	}
+
+	// (2) Shared-chrome structure is present (DOCTYPE, html, head, body).
+	wantAbsent := []string{
+		// Fragment-only elements must NOT appear at the page level.
+		`<article aria-labelledby="version-title">`, // fragment marker
+	}
+	for _, absent := range wantAbsent {
+		if strings.Contains(rendered, absent) {
+			t.Errorf("rendered output contains unexpected substring %q (fragment marker leaked)", absent)
+		}
+	}
+
+	// (3) Whole-output golden compare.
+	assertGoldenBytes(t, "roadmap.html", out)
 }
 
 // TestRenderBasic_SchemaBrowser drives the schema_browser template
@@ -783,6 +1029,26 @@ func TestRenderBasic_RoadmapVersion(t *testing.T) {
 func TestRenderBasic_SchemaBrowser(t *testing.T) {
 	t.Parallel()
 
+	// Mock PageContext for the schema browser page.
+	pageContext := map[string]any{
+		"PageTitle": "Schema Browser",
+		"SidebarData": map[string]any{
+			"Items": []map[string]any{
+				{
+					"Label":    "Cascade",
+					"Route":    "/",
+					"IsActive": false,
+				},
+				{
+					"Label":    "Schema",
+					"Route":    "/schema",
+					"IsActive": true,
+				},
+			},
+			"ActiveScope": "schema",
+		},
+	}
+
 	// Mock meta-view payload. Single scope `cascade` with two types
 	// (`drop` extends `ActionItem`; `planner` extends `ActionItem`),
 	// each carrying fields that cover the field-type axis: string,
@@ -790,6 +1056,7 @@ func TestRenderBasic_SchemaBrowser(t *testing.T) {
 	// description of one field (`paths` on the drop type) so the
 	// auto-escape assertion has a meaningful target.
 	data := map[string]any{
+		"PageContext": pageContext,
 		"scopes": []map[string]any{
 			{
 				"name":        "cascade",
@@ -879,10 +1146,10 @@ func TestRenderBasic_SchemaBrowser(t *testing.T) {
 
 	// (1) Field values appear in the output. Each scope / type / field
 	// name reaches the rendered surface; enum entries each materialize
-	// as a <span class="chip"> chip.
+	// as a <span class="chip"> chip. The title now uses PageContext.
 	wantContains := []string{
 		"<!DOCTYPE html>",
-		"<title>Schema Browser</title>",
+		"<title>Schema Browser — Schema</title>",
 		"schema browser",
 		`id="schema-title"`,
 		// Scope-level surfaces.
@@ -1006,8 +1273,10 @@ func TestRenderBasic_MissingTemplateReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "does_not_exist.html") {
 		t.Errorf("error %q does not mention the missing template name", err)
 	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("error does not unwrap to fs.ErrNotExist: %v", err)
+	// The new ParseFS-based implementation returns "not found in set" error
+	// rather than wrapping fs.ErrNotExist, since template lookup is different.
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error %q does not describe template not found: %v", err.Error(), err)
 	}
 }
 
@@ -1025,6 +1294,462 @@ func TestRenderBasic_EmptyTemplateNameReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "empty template name") {
 		t.Errorf("error %q does not describe the empty-name failure", err)
 	}
+}
+
+// TestRenderBasic_PartialInclusion verifies that a page template can include
+// a named partial from the partials/ subdirectory when using ParseFS.
+// This test proves that both templates and partials are loaded into a single
+// template set and that {{ template "partials/..." }} directives work end-to-end.
+func TestRenderBasic_PartialInclusion(t *testing.T) {
+	t.Parallel()
+
+	data := map[string]any{
+		"title": "Test Page",
+	}
+
+	out, err := Render("test_with_sidebar.html", data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rendered := string(out)
+
+	// Verify that the sidebar partial was included
+	wantContains := []string{
+		"<!DOCTYPE html>",
+		"<aside class=\"sidebar\">",
+		"<nav>",
+		"<a href=\"/\">Home</a>",
+		"<h1>Test Page</h1>",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered output missing expected substring %q", want)
+		}
+	}
+}
+
+// TestRenderBasic_CascadeIndex drives the cascade_index.html template
+// (the landing page rendering the full cascade graph with SVG visualization)
+// with a mock PageContext and CascadeGraph payload. Asserts that:
+//
+//  1. every interpolated field (PageContext.PageTitle, SVG, Nodes list) appears
+//     in the rendered output;
+//  2. the sidebar partial is included and the active scope is set correctly;
+//  3. the SVG graph markup is embedded without escaping (template.HTML wrapping);
+//  4. the fallback node list renders correctly for accessibility when JS is off;
+//  5. a deliberately-injected <script> payload in a CascadeNode title is
+//     auto-escaped by html/template;
+//  6. the rendered bytes match a committed golden fixture.
+func TestRenderBasic_CascadeIndex(t *testing.T) {
+	t.Parallel()
+
+	// Mock PageContext for the cascade index page.
+	// The sidebar template expects ActiveScope to be one of the special values
+	// that it checks against. We pass "cascade_index" to match the sidebar logic.
+	pageContext := map[string]any{
+		"PageTitle":   "Cascade browser",
+		"ActiveScope": "cascade_index",
+		"Breadcrumb":  []map[string]any{},
+	}
+
+	// Mock CascadeNode list with XSS payload in one title.
+	nodes := []map[string]any{
+		{
+			"ID":    "drop_010.drop.test_drop",
+			"Title": "Test drop",
+			"Role":  "planner",
+			"State": "in_progress",
+			"Type":  "drop",
+		},
+		{
+			"ID":    "drop_010.drop.test_planner.planner_l1",
+			"Title": "L1 planner with XSS: <script>alert('xss')</script>",
+			"Role":  "planner",
+			"State": "todo",
+			"Type":  "planner",
+		},
+	}
+
+	// Mock SVG graph string (minimal valid SVG).
+	svg := template.HTML(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" width="100%" height="100%"><rect x="10" y="10" width="180" height="60" fill="#e6ffe6" stroke="black" stroke-width="1"/><text x="100" y="40" font-size="10" font-family="monospace" text-anchor="middle">drop_010.drop</text></svg>`)
+
+	data := map[string]any{
+		"PageContext": pageContext,
+		"SVG":         svg,
+		"Nodes":       nodes,
+	}
+
+	out, err := Render("cascade_index.html", data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rendered := string(out)
+
+	// (1) PageContext fields appear in the output.
+	wantContains := []string{
+		"Cascade browser",
+		"<!DOCTYPE html>",
+		"<h1>Cascade browser</h1>",
+		// Sidebar items (basic presence check).
+		"Cascade Index",
+		"Roadmap",
+		"Schema",
+		"Search cascade records",
+		// Fallback node list.
+		"drop_010.drop.test_drop",
+		"drop_010.drop.test_planner.planner_l1",
+		"planner",
+		"in_progress",
+		"todo",
+		// Metadata from nodes list.
+		"role: <strong>planner</strong>",
+		"state: <strong>in_progress</strong>",
+		"type: <strong>drop</strong>",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered output missing expected substring %q", want)
+		}
+	}
+
+	// (2) SVG embedding (should be present unescaped).
+	if !strings.Contains(rendered, "<svg") || !strings.Contains(rendered, "xmlns=") {
+		t.Errorf("rendered output missing SVG graph markup")
+	}
+
+	// (3) Node links are properly formatted for cascade detail navigation.
+	if !strings.Contains(rendered, `<a href="/cascade/drop_010.drop.test_drop"`) {
+		t.Errorf("rendered output missing cascade detail link for test_drop")
+	}
+
+	// (4) XSS auto-escape: the title with <script> tag must be escaped.
+	if strings.Contains(rendered, "<script>") {
+		t.Errorf("rendered output contains literal <script> tag — html/template auto-escape bypassed")
+	}
+	if !strings.Contains(rendered, "&lt;script&gt;") {
+		t.Errorf("rendered output missing escaped &lt;script&gt; entity — payload may have been dropped instead of escaped")
+	}
+
+	// (5) Whole-output golden compare.
+	assertGoldenBytes(t, "cascade_index.html", out)
+}
+
+// TestRenderBasic_SearchResults drives the search_results.html template
+// with both populated and empty-state cases. Asserts that:
+//
+//  1. populated results render with PageContext + sidebar chrome and each
+//     result ID appears in a <li><code> block;
+//  2. empty-state case (Results nil or empty, Query "") renders the empty
+//     notice ("Enter a search query.") with shared chrome;
+//  3. empty-state case with a query string ("No results for query...") renders
+//     the query-specific notice;
+//  4. a deliberately-injected <script> payload in a result ID is auto-escaped
+//     by html/template so the rendered HTML carries no literal <script> tag;
+//  5. the rendered bytes match committed golden fixtures.
+func TestRenderBasic_SearchResults(t *testing.T) {
+	t.Parallel()
+
+	// Mock PageContext for the search results page.
+	pageContext := map[string]any{
+		"PageTitle": "Search",
+		"SidebarData": map[string]any{
+			"Items": []map[string]any{
+				{
+					"Label":    "Cascade",
+					"Route":    "/",
+					"IsActive": false,
+				},
+				{
+					"Label":    "Search",
+					"Route":    "/search",
+					"IsActive": true,
+				},
+			},
+			"ActiveScope": "search",
+		},
+	}
+
+	type searchCase struct {
+		name          string
+		query         string
+		results       []map[string]any
+		extraContains []string
+		extraAbsent   []string
+		goldenName    string
+	}
+
+	cases := []searchCase{
+		{
+			name:  "populated_results",
+			query: "cascade",
+			results: []map[string]any{
+				{"ID": "drop_001.drop.foo"},
+				{"ID": "drop_002.drop.bar"},
+				{"ID": "drop_003.drop.baz"},
+			},
+			extraContains: []string{
+				"<title>Search — Search</title>",
+				"<!DOCTYPE html>",
+				`<code>drop_001.drop.foo</code>`,
+				`<code>drop_002.drop.bar</code>`,
+				`<code>drop_003.drop.baz</code>`,
+				`<ul class="results">`,
+			},
+			extraAbsent: []string{
+				`<section class="empty-state"`,
+				"Enter a search query",
+				"No results for query",
+			},
+			goldenName: "search_results.html",
+		},
+		{
+			name:    "empty_state_no_query",
+			query:   "",
+			results: nil,
+			extraContains: []string{
+				"<title>Search — Search</title>",
+				"<!DOCTYPE html>",
+				"Enter a search query.",
+				`<section class="empty-state"`,
+			},
+			extraAbsent: []string{
+				`<ul class="results">`,
+				`<code>drop_`,
+			},
+			goldenName: "search_results_empty.html",
+		},
+		{
+			name:    "empty_state_with_query",
+			query:   "nonexistent",
+			results: []map[string]any{},
+			extraContains: []string{
+				"<title>Search — Search</title>",
+				"<!DOCTYPE html>",
+				`No results for query "nonexistent".`,
+				`<section class="empty-state"`,
+			},
+			extraAbsent: []string{
+				`<ul class="results">`,
+				`<code>drop_`,
+			},
+			goldenName: "search_results_empty_with_query.html",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := map[string]any{
+				"PageContext": pageContext,
+				"Query":       tc.query,
+				"Results":     tc.results,
+			}
+
+			out, err := Render("search_results.html", data)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+
+			rendered := string(out)
+
+			// (1) + (2) + (3) Check case-specific strings.
+			for _, want := range tc.extraContains {
+				if !strings.Contains(rendered, want) {
+					t.Errorf("rendered output missing expected substring %q", want)
+				}
+			}
+
+			for _, absent := range tc.extraAbsent {
+				if strings.Contains(rendered, absent) {
+					t.Errorf("rendered output contains unexpected substring %q", absent)
+				}
+			}
+
+			// (4) <script> auto-escape. If results contain a literal <script>
+			// tag, html/template MUST escape it.
+			if strings.Contains(rendered, "<script>") {
+				t.Errorf("rendered output contains literal <script> tag — html/template auto-escape bypassed")
+			}
+			if strings.Contains(rendered, "<script ") {
+				t.Errorf("rendered output contains literal <script attribute — html/template auto-escape bypassed")
+			}
+
+			// (5) Whole-output golden compare per case.
+			assertGoldenBytes(t, tc.goldenName, out)
+		})
+	}
+}
+
+// TestRenderBasic_CascadeIndex_EmptyGraph verifies that cascade_index.html
+// gracefully handles an empty cascade graph (no nodes, no edges). The template
+// should render the page chrome but skip both SVG and fallback node list.
+func TestRenderBasic_CascadeIndex_EmptyGraph(t *testing.T) {
+	t.Parallel()
+
+	pageContext := map[string]any{
+		"PageTitle":   "Cascade browser",
+		"ActiveScope": "cascade_index",
+		"Breadcrumb":  []map[string]any{},
+	}
+
+	data := map[string]any{
+		"PageContext": pageContext,
+		"SVG":         template.HTML(""),
+		"Nodes":       []map[string]any{},
+	}
+
+	out, err := Render("cascade_index.html", data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rendered := string(out)
+
+	// Page title should still be present.
+	if !strings.Contains(rendered, "Cascade browser") {
+		t.Errorf("rendered output missing page title for empty graph")
+	}
+
+	// Empty Nodes array means the fallback section is gated out ({{ if .Nodes }} is falsy for empty array).
+	// The empty graph should NOT render the cascade-fallback section.
+	// But the page structure (DOCTYPE, sidebar, main) should still be present.
+	if !strings.Contains(rendered, "<!DOCTYPE html>") {
+		t.Errorf("rendered output missing basic HTML structure")
+	}
+	if !strings.Contains(rendered, "<main>") {
+		t.Errorf("rendered output missing main element")
+	}
+}
+
+// TestRenderBasic_NotFound drives the not_found.html template (cascade-detail
+// not-found page, added by D10a) with a mock PageContext and optional MissingID
+// to verify the empty-state error page renders correctly. Asserts the same four
+// guarantees as the sibling drop / planner / droplet / qa / roadmap tests:
+//
+//  1. every page-context field reaches the output (PageTitle, sidebar active scope);
+//  2. the shared chrome is rendered (DOCTYPE, sidebar partial, base.css layers,
+//     responsive grid layout), and the empty-state notice + home link are present;
+//  3. a deliberately-injected <script> payload in the MissingID field (optional
+//     user-facing display) is auto-escaped by html/template so the rendered HTML
+//     carries no literal <script> tag, only escaped &lt;script&gt; entities;
+//  4. the rendered bytes match a committed golden fixture so future edits to the
+//     template surface as an inspectable diff.
+//
+// The not_found template emphasizes the empty-state notice and prominent home
+// link (styled as a button-like <a> with accent-soft background), making the
+// path back to the cascade index obvious. The sidebar active scope is "cascade"
+// to maintain consistency with the cascade-detail context.
+func TestRenderBasic_NotFound(t *testing.T) {
+	t.Parallel()
+
+	// Mock PageContext for the not-found page. The PageContext is the shared
+	// chrome context injected by the renderer, carrying PageTitle and SidebarData.
+	// SidebarData includes Items (unused in not_found but needed for sidebar
+	// partial signature) and ActiveScope (set to "cascade" for consistency).
+	pageContext := map[string]any{
+		"PageTitle": "Record Not Found",
+		"SidebarData": map[string]any{
+			"Items": []map[string]any{
+				{
+					"Label":    "Cascade Index",
+					"URL":      "/",
+					"IsActive": false,
+				},
+				{
+					"Label":    "Roadmap",
+					"URL":      "/roadmap",
+					"IsActive": false,
+				},
+				{
+					"Label":    "Schema",
+					"URL":      "/schema",
+					"IsActive": false,
+				},
+			},
+			"ActiveScope": "cascade",
+		},
+	}
+	data := map[string]any{
+		"PageContext": pageContext,
+		"MissingID":   "drop_999.drop.example_not_found",
+	}
+
+	out, err := Render("not_found.html", data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rendered := string(out)
+
+	// (1) Field values and page structure appear in the output.
+	wantContains := []string{
+		"<!DOCTYPE html>",
+		"<html lang=\"en\">",
+		// Shared chrome: base.css layers declaration.
+		"@layer tokens, base, layout, components, utilities",
+		// Shared chrome: CSS custom properties (sample tokens).
+		"--carl: #dd9f57",
+		"--space-4: 1rem",
+		// Sidebar partial included via {{ template "sidebar.html" .PageContext.SidebarData }}.
+		`<nav class="sidebar" role="navigation" aria-label="Primary">`,
+		// Active scope marked in sidebar (ActiveScope: "cascade").
+		`href="/"`,
+		`aria-current="page"`,
+		// Page structure.
+		"<main>",
+		"<header>",
+		"<h1>Record Not Found</h1>",
+		// Empty-state section.
+		`<section aria-label="Not found notice"`,
+		// Empty-state notice text.
+		"The cascade record you requested does not exist.",
+		// Missing ID display (optional field rendered when present).
+		"drop_999.drop.example_not_found",
+		// Home link to return to cascade index.
+		`<a href="/">Return to Cascade Index</a>`,
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered output missing expected substring %q", want)
+		}
+	}
+
+	// (2) Empty-field conditionals do NOT render. If MissingID were empty,
+	// the {{ if .MissingID }} block should not render.
+	// For this test, MissingID is present, so we don't test absence.
+	// But we verify the section structure is sound.
+	if !strings.Contains(rendered, `<section aria-label="Not found notice"`) {
+		t.Errorf("rendered output missing empty-state section landmark")
+	}
+
+	// (3) <script> auto-escape. Test with XSS payload in MissingID.
+	// Re-render with malicious payload to verify escaping.
+	dataWithPayload := map[string]any{
+		"PageContext": pageContext,
+		"MissingID":   "drop_xss<script>alert('xss')</script>",
+	}
+	outPayload, errPayload := Render("not_found.html", dataWithPayload)
+	if errPayload != nil {
+		t.Fatalf("Render with payload: %v", errPayload)
+	}
+	renderedPayload := string(outPayload)
+
+	// Verify literal <script> tag is NOT present.
+	if strings.Contains(renderedPayload, "<script>") {
+		t.Errorf("rendered output with XSS payload contains literal <script> tag — html/template auto-escape bypassed")
+	}
+	if strings.Contains(renderedPayload, "<script ") {
+		t.Errorf("rendered output with XSS payload contains literal <script attribute — html/template auto-escape bypassed")
+	}
+	// Confirm the escaped form IS present (positive evidence the data
+	// reached the output and was filtered, not silently dropped).
+	if !strings.Contains(renderedPayload, "&lt;script&gt;") {
+		t.Errorf("rendered output with XSS payload missing escaped &lt;script&gt; entity — payload may have been dropped instead of escaped")
+	}
+
+	// (4) Whole-output golden compare (with the original MissingID, not the XSS version).
+	assertGoldenBytes(t, "not_found.html", out)
 }
 
 // assertGoldenBytes compares got against testdata/<name>.golden,
