@@ -1,6 +1,7 @@
 # Binaries
 /bin/*
 !/bin/agent-dispatch.sh
+!/bin/enforce_editable_paths.sh
 /dist/
 
 # Test and coverage artifacts
@@ -41,5 +42,19 @@ internal/templates_html_embed/dist/*
 # drop_014 visual verification screenshots (regenerate via playwright)
 /drop_014-*.png
 
+# drop_015 /flow + /kanban visual verification screenshots (regenerate via the
+# /flow and /kanban skills); root-level captures, referenced by no doc.
+/flow-v1*.png
+/kanban-v1.png
+/final-index.png
+
 # pnpm install artifacts (CI installs fresh; commit lockfile separately if pinning desired)
 /a11y/pnpm-lock.yaml
+
+# Ephemeral sandbox/gate probe fixtures (throwaway dirs from the gatekeeping
+# investigation; never commit — regenerate by re-running the probes).
+/.sbx*/
+/.barehook/
+/.asrt*/
+/.ra1/
+/.ra2/
