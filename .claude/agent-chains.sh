@@ -88,13 +88,19 @@ EOF
 # higher stakes), the orchestrator may escalate to opus on REPEATED
 # sonnet failures — judgment call, not automatic.
 #
-# Sandbox: workspace-write so the QA agent can run `mage check` / `mage
-# testPkg` (which writes to go build cache + pnpm node_modules + /tmp).
-# The persona's tools: line is the actual write-discipline; codex's
-# sandbox is defense-in-depth, not the primary gate.
+# Sandbox: read-only. QA NEVER edits source (4-project consensus 2026-05-25).
+# codex ignores the persona `tools:` line and its PreToolUse hooks are dead on
+# 0.133.0, so `--sandbox read-only` is the ONLY mechanical source-edit gate for a
+# codex QA role — `workspace-write` would let codex QA write source (the bug we
+# are fixing). Falsification is adversarial READ + reason; it posts its verdict
+# via the ta MCP, which runs OUTSIDE the sandbox so it works fine under read-only.
+# mage re-runs are the claude-native build-qa-proof twin's job + the orchestrator's
+# drop-end gate, NOT the codex falsification twin's. `-c approval_policy=never`
+# makes the sandbox actually enforce in exec mode (bare --sandbox is inert without
+# it; --ephemeral also sets it — belt-and-suspenders).
 chain_qa_falsification() {
   cat <<'EOF'
-codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=high||
+codex-exec|gpt-5.4|--sandbox read-only -c approval_policy=never -c model_reasoning_effort=high||
 EOF
 }
 
