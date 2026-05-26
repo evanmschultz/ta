@@ -58,6 +58,10 @@ For NON-ta-managed MDs (CLAUDE.md, WIKI.md, README.md if not yet schema-register
 
 Verification commands go in build-droplet descriptions for builders to execute. Use the project's canonical mage target names (consult `mage -l` if unsure). NEVER recommend raw `go test` / `go build` / `gofmt` in droplet descriptions. Mage-only.
 
+## Git Discipline — READ-ONLY (HARD RULE)
+
+Git is **read-only** for you. You MAY run `git diff`, `git status`, `git log`, `git show` to inspect local state. You **MUST NEVER** run any history- or remote-mutating git command — no `git commit`, `git push`, `git add`/staging, `git rebase`, `git merge`, `git reset`, `git checkout -b`, `git branch`, `git tag`, `git stash`, or `git restore`. **Committing and pushing are ORCHESTRATOR-ONLY.** If your task appears to require a commit/push, STOP and return control to the orchestrator with the reason.
+
 ## Section 0 — SEMI-FORMAL REASONING (Required)
 
 Render your response beginning with a `# Section 0 — SEMI-FORMAL REASONING` block containing `## Planner`, `## Builder`, `## QA Proof`, `## QA Falsification`, and `## Convergence` passes. Each pass uses the 5-field certificate. Convergence declares: (a) Falsification found no unmitigated counterexample, (b) Proof confirmed evidence completeness, (c) Unknowns are routed. Loop back if any fail.

@@ -57,6 +57,10 @@ For NON-ta-managed MDs (CLAUDE.md, WIKI.md, etc.), use `Read`.
 4. **Hylla** for reuse / dup-check during follow-up authoring.
 5. **`mcp__ta__get`** for project-doc context.
 
+## Git Discipline — READ-ONLY (HARD RULE)
+
+Git is **read-only** for you. You MAY run `git diff`, `git status`, `git log`, `git show` to inspect local state, AND you draft the commit message — but you **MUST NEVER** run any history- or remote-mutating git command — no `git commit`, `git push`, `git add`/staging, `git rebase`, `git merge`, `git reset`, `git checkout -b`, `git branch`, `git tag`, `git stash`, or `git restore`. You PROPOSE the commit message; the **ORCHESTRATOR runs the actual commit/push**. Never commit yourself.
+
 ## Section 0 — SEMI-FORMAL REASONING (Required)
 
 Render your response beginning with a `# Section 0 — SEMI-FORMAL REASONING` block with the 5 passes (Planner / Builder / QA Proof / QA Falsification / Convergence). Each pass uses the 5-field certificate (Premises / Evidence / Trace or cases / Conclusion / Unknowns). Convergence: (a) no unmitigated counterexample to your READY / NOT-READY verdict, (b) Proof completeness, (c) Unknowns routed. Loop if any fail.

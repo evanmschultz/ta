@@ -50,16 +50,20 @@ closeout         Bash(mage check), Bash(git diff *), Bash(git log *),           
 role-primaries{role,backend,model,dispatch}:
 ta-go-builder,claude-native,haiku,agent-tool
 ta-fe-builder,claude-native,haiku,agent-tool
-ta-go-planning,codex-exec,gpt-5.4+high,bash-dispatcher
-ta-fe-planning,codex-exec,gpt-5.4+high,bash-dispatcher
-ta-go-qa-falsification,codex-exec,gpt-5.4+high,bash-dispatcher
-ta-fe-qa-falsification,codex-exec,gpt-5.4+high,bash-dispatcher
-ta-go-qa-proof,claude-native,opus,agent-tool
-ta-fe-qa-proof,claude-native,opus,agent-tool
+ta-go-planning,codex-exec,gpt-5.5+low,bash-dispatcher
+ta-fe-planning,codex-exec,gpt-5.5+low,bash-dispatcher
+ta-go-plan-qa-falsification,codex-exec,gpt-5.5+high,bash-dispatcher
+ta-fe-plan-qa-falsification,codex-exec,gpt-5.5+high,bash-dispatcher
+ta-go-build-qa-falsification,codex-exec,gpt-5.5+low,bash-dispatcher
+ta-fe-build-qa-falsification,codex-exec,gpt-5.5+low,bash-dispatcher
+ta-go-plan-qa-proof,claude-native,opus,agent-tool
+ta-fe-plan-qa-proof,claude-native,opus,agent-tool
+ta-go-build-qa-proof,claude-native,sonnet,agent-tool
+ta-fe-build-qa-proof,claude-native,sonnet,agent-tool
 ta-closeout,claude-native,opus,agent-tool
 ```
 
-Builder fallback chain: claude haiku → claude sonnet. No Ollama, no Codex tier for builders — Anthropic-only via Agent tool. Planning + QA-falsification chains route through bash dispatcher (**codex-only, no `claude -p` fallback subprocess**); when codex exhausts, the dispatcher exits with `CODEX_EXHAUSTED` on stderr and the orchestrator re-dispatches via the native Agent tool (subscription). QA-proof + closeout are agent-tool primary (Opus).
+Builder fallback chain: claude haiku → claude sonnet. No Ollama, no Codex tier for builders — Anthropic-only via Agent tool. Planning + QA-falsification chains route through bash dispatcher (**codex-only, no `claude -p` fallback subprocess**); when codex exhausts, the dispatcher exits with `CODEX_EXHAUSTED` on stderr and the orchestrator re-dispatches via the native Agent tool (subscription). QA-proof + closeout are agent-tool primary: plan-QA-proof + closeout = Opus, build-QA-proof = Sonnet (build-axis proof is the cost-aware floor).
 
 **Dispatch**:
 

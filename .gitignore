@@ -1,8 +1,13 @@
 # Binaries
 /bin/*
 !/bin/agent-dispatch.sh
-!/bin/enforce_editable_paths.sh
 /dist/
+
+# Agent-dispatch per-run audit captures + gate hook debug log + pycache
+# (transient veracity artifacts; regenerated every dispatch — never commit).
+.claude/agent-runs/
+.claude/hooks/__pycache__/
+.claude/hooks/ta_gate_debug.log
 
 # Test and coverage artifacts
 coverage.out
