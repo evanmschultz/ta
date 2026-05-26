@@ -56,6 +56,12 @@
 - **Tools per type**: planning + plan-qa → hylla(read) + context7 + gopls(go)/playwright(fe) + ta; build-qa
   → **no hylla** + context7 + gopls/playwright + ta; builder → per-file edit + the above (read); ALL FE
   roles → **Playwright**; ALL Go roles → gopls; **no role gets git mutation** (orchestrator is sole committer).
+- **Bash is SCOPED, never bare** (canonical 2026-05-26 — see `AGENT_SANDBOX_SPEC.md` §4): personas declare
+  `Bash(git diff *)` / `Bash(mage ...)`, NOT bare `Bash`. Real second layer for claude-native roles (Claude
+  Code filters non-allowlisted tools); documentation-only for codex (execpolicy + sandbox is the gate).
+  **ta is already scoped; hylla + valv personas should converge UP** (persona-only change; dispatcher/hook
+  already support it). Every persona also carries a `## Git Discipline — READ-ONLY` section reinforcing
+  orchestrator-only git.
 
 ## 4. Veracity (hard rule, all channels)
 

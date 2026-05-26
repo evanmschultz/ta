@@ -49,6 +49,7 @@ legacy bootstrap sand REPLACES, and is the other repos' interim only). Concretel
   project trees with a subdir `-C`) — but is **void for `/tmp`-resident repos** and is writable-roots-
   dependent, so **execpolicy is PRIMARY**, native is defense-in-depth.
 - codex PreToolUse hooks are **dead on 0.133.0 exec** — use execpolicy + `-C`, never codex hooks.
+- codex **ignores the persona `tools:` line** (it drives shell / `apply_patch` directly) — for codex roles that line is DOCUMENTATION, not enforcement; the gate is execpolicy + `--sandbox` + `network:false`. (claude-native Agent-tool roles DO enforce it — see §4 scoped-Bash.)
 - codex MCP servers run **outside** the sandbox → injected `ta`/`hylla` MCP write records even under `read-only`.
 - Hook runtime: **Go binary** (Claude Code bundles neither node nor python on Windows; bash is Windows-broken).
 
@@ -92,6 +93,13 @@ as a subprocess → refuse "use the Agent tool". Translation:
   for `*-go-*`; playwright for `*-fe-*`; context7 always; `web_search`) + execpolicy (git/command) +
   `read-only` sandbox for non-editing roles. claude roles → persona `tools:` allowlist + the Go gate hook
   (per-file edit for builder; `edit:[]` for qa/closeout) + `bash_deny`.
+- **Bash is SCOPED, never bare** (canonical 2026-05-26): personas declare `Bash(git diff *)` /
+  `Bash(git log *)` / `Bash(git status)` / `Bash(mage ...)` — NOT bare `Bash`. For claude-native
+  (Agent-tool) roles this is a real second layer (Claude Code filters non-allowlisted tools from the
+  model's visible toolset) ON TOP of the gate hook; for codex roles it is documentation (§2 caveat —
+  execpolicy + sandbox + `network:false` are the gate there). Bare `Bash` is the deprecated default:
+  **ta is already scoped; hylla + valv personas should converge UP** (dispatcher/hook already support it
+  — persona-only change).
 
 ## 5. Cross-cutting (all four agree)
 - **Veracity audit (HARD):** every channel RETURNS the full tool-call trace (claude `--output-format
