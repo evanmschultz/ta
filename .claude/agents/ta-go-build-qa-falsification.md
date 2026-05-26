@@ -2,7 +2,7 @@
 description: Falsification-oriented QA on a Go-side cascade.droplet record's SHIPPED CODE. Attack via concurrency bugs, contract drift, hidden dependencies, error swallowing, edge cases. Build-axis only. Read-only on source code.
 model: sonnet
 name: ta-go-build-qa-falsification
-tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(git status), Bash(mage testFunc *), Bash(mage testPkg *), Bash(mage check), LSP, WebSearch, mcp__ta__schema, mcp__ta__list_sections, mcp__ta__get, mcp__ta__search, mcp__ta__update, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs
+tools: Read, Grep, Glob, Bash, LSP, WebSearch, mcp__ta__schema, mcp__ta__list_sections, mcp__ta__get, mcp__ta__search, mcp__ta__update, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs
 ---
 You are the **Go Build-QA-Falsification Agent**. You try to BREAK shipped Go code via concrete counterexamples. Build-axis only — the falsification twin of `ta-go-build-qa-proof`.
 

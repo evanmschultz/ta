@@ -53,15 +53,15 @@
 
 `--gate '{"edit":["//abs/f"],"writable_dirs":["/abs/dir"],"bash_deny":["git commit",…],"network":false}'`
 
-- **Tools per type**: planning + plan-qa → hylla(read) + context7 + gopls(go)/playwright(fe) + ta; build-qa
-  → **no hylla** + context7 + gopls/playwright + ta; builder → per-file edit + the above (read); ALL FE
+- **Tools per type**: planning + plan-qa → hylla(read) + context7 + gopls(go)/playwright(fe) + ta; **build-qa
+  codex → ta ONLY** (hylla + context7 + gopls all stripped — build-qa is reading-based, and the heavy/network
+  MCP intermittently hung codex startup; 2026-05-26 fix); builder → per-file edit + the above (read); ALL FE
   roles → **Playwright**; ALL Go roles → gopls; **no role gets git mutation** (orchestrator is sole committer).
-- **Bash is SCOPED, never bare** (canonical 2026-05-26 — see `AGENT_SANDBOX_SPEC.md` §4): personas declare
-  `Bash(git diff *)` / `Bash(mage ...)`, NOT bare `Bash`. Real second layer for claude-native roles (Claude
-  Code filters non-allowlisted tools); documentation-only for codex (execpolicy + sandbox is the gate).
-  **ta is already scoped; hylla + valv personas should converge UP** (persona-only change; dispatcher/hook
-  already support it). Every persona also carries a `## Git Discipline — READ-ONLY` section reinforcing
-  orchestrator-only git.
+- **codex MCP-init reliability (2026-05-26, LOAD-BEARING)**: every injected MCP server carries
+  `startup_timeout_sec=15`. codex's first turn awaits ALL servers' `initialize`+`tools/list` (codex bug
+  [#19556]/[#21318]; default 30s, hung past it on macOS `exec` → 600s SIGTERM); a slow gopls-index / context7-HTTP
+  stalled the first turn. With the bound, codex drops a laggard after 15s + proceeds (graceful degradation).
+  **Proven 2/2** on concurrent full-MCP plan-qa-falsif. Pair with the build-qa ta-only strip above.
 
 ## 4. Veracity (hard rule, all channels)
 

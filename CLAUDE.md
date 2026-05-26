@@ -25,26 +25,14 @@ The dispatcher passes the persona's frontmatter `tools:` line as `--allowedTools
 
 ### Persona Bash Scoping Discipline — Mage-Only, Never Raw Language Tooling
 
-**Agents NEVER run raw language tooling.** No `go test`, no `go vet`, no `go build`, no `gofmt`, no `gofumpt`, no `pnpm`, no `npm`, no `node`, no `npx`. All test/build/check commands route through the project's build runner — for ta, that's mage. **Orchestrators are the exception** (they're trusted to run any command); agents are scoped.
+**Agents NEVER run raw language tooling.** No `go test`, no `go vet`, no `go build`, no `gofmt`, no `gofumpt`, no `pnpm`, no `npm`, no `node`, no `npx`. All test/build/check commands route through mage. This is **persona-PROSE discipline** (each persona's Mage/Tool Discipline section), NOT a `tools:` scope — see the lever note below. **Orchestrators are the exception** (trusted to run any command).
 
-Per-role Bash allowlist (verified empirically — `--allowedTools` filters tools from the model's visible toolset, so disallowed Bash patterns are simply absent from the model's tool descriptions):
+**Persona `tools:` lines declare PLAIN `Bash` — NOT scoped `Bash(...)`** (2026-05-26, proven; see hylla `BIN_AGENT_REPAIR_TRACKING.md` fix #5/#6 + `HYLLA_BIN.md`). Narrowing `tools:` for git was the WRONG lever: codex **ignores** the persona `tools:` line entirely, and scoping over-restricts the built-in channel (blocks `go doc` + `mage` variants the role legitimately needs). The git-mutation block is enforced MECHANICALLY, independent of `tools:`:
 
-```
-role             scoped Bash (allowed)                                          NOT allowed
-----             ----                                                            ----
-builder          Bash(mage testFunc *), Bash(mage testPkg *),                    go *, gofmt, gofumpt,
-                 Bash(git diff *), Bash(git log *), Bash(git status)             pnpm *, npm *, node *,
-                                                                                  npx *, git commit/push/reset
-planner          (NO Bash — planners author plans, don't run commands)            all
-qa-proof         Bash(mage testFunc *), Bash(mage testPkg *), Bash(mage check),  raw lang tooling,
-qa-falsif        Bash(git diff *), Bash(git log *), Bash(git status)             git commit/push/reset
-closeout         Bash(mage check), Bash(git diff *), Bash(git log *),            raw lang tooling,
-                 Bash(git status)                                                 git commit/push/reset
-```
+- **Built-in Agent-tool roles** (builder, qa-proof, closeout): `.claude/hooks/ta_action_gate.py` denies git-mutation verbs (commit/push/add/fetch/pull/rebase/merge/reset/checkout/…) for EVERY scoped agent as a **hardcoded baseline, independent of the passed `bash_deny`** (so an orch that forgets git in `bash_deny` still can't let an agent commit). Read-only git (`diff`/`status`/`log`/`show`) + `go doc` + `mage` stay allowed.
+- **codex roles** (planning, *-falsification): TWO codex-native layers — `--sandbox read-only` (no fs writes → commit/add/merge fail; no network → push/fetch/pull fail; invocation-agnostic) + hermetic execpolicy `prefix_rule(forbidden)` for all git-mutation verbs. Codex agents = read-only git ONLY.
 
-**If a capability is missing, add a mage target — do NOT broaden the persona's Bash scope.** Example: ta-fe-* agents currently rely on mage targets for FE testing. If FE tests today only route through `pnpm run test`, the right fix is adding `mage testFe` (and similar) to magefile.go, NOT adding `Bash(pnpm *)` to fe persona allowlists. Other projects adopting this pattern follow the same rule — mage (or your project's equivalent build runner) is the only tool/test entrypoint for agents.
-
-**Verified at runtime**: Claude Code's `--allowedTools` enforcement is strong. Tools NOT in the allowlist (including unscoped `Bash` when only `Bash(mage testFunc *)` is allowed) are FILTERED FROM THE MODEL'S VISIBLE TOOLSET. The model doesn't see them in its tool descriptions and so doesn't attempt them. Smoke verified: an agent asked to call a tool outside its allowlist self-reports "I cannot use that tool because it is not part of my allowlist" — no `permission_denials` event, no `tool_use` attempt.
+**Orchestrator is the sole committer/pusher** (both channels, all roles). If a capability is missing, **add a mage target** — never reach for raw language tooling, never re-narrow `tools:` for git.
 
 ```
 role-primaries{role,backend,model,dispatch}:
@@ -137,6 +125,18 @@ Spawn prompts for dispatched ta-go-* roles MUST include the Hylla artifact ref `
 - Bare `ta` without a TTY is the MCP server.
 - **NEVER invoke raw `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`.** Always route through mage.
 
+## Cascade Methodology — Plan Down, Build Up (LOAD-BEARING)
+
+Canonical contract: [`CASCADE_METHODOLOGY.md`](CASCADE_METHODOLOGY.md) (identical to tillsyn's — tillsyn is the methodology SOURCE; reconcile toward it, never overwrite it) + [`HYLLA_BIN.md`](HYLLA_BIN.md) §5. The orchestrator drives the cascade to completion **autonomously**.
+
+1. **PLAN DOWN, BUILD UP.** Plan top-down (a plan node decomposes into child plans + atomic build droplets); build bottom-up (atoms land first, integration nodes follow once their inputs are green). Every plan node auto-gets a plan-QA pair (proof ∥ falsification); every build auto-gets a build-QA pair.
+2. **RECURSE ON ATOMICITY — NO CHILD CAP.** A planner emits as many children as the work needs; the ONLY cap is atomic-droplet sizing (**1-2 small code blocks, ≤80 LOC incl. tests**). A sub-goal bigger than that → emit a `kind=plan` child (a sub-planner decomposes it), NOT an oversize build. "3-4 droplets per leaf" is the typical RESULT, never a rule. Multi-level + **ASYMMETRIC** depth is the norm — branches nest as deep as each needs; a shared interface/type sits as a shallow leaf with `blocked_by` from its deeper consumers.
+3. **PER-BRANCH PARALLELISM.** Keep every unblocked node of every kind moving at once — sibling sub-planners, plan-QA pairs, builders, build-QA pairs that are code-independent ALL run concurrently. QA twins are ALWAYS a parallel pair. The ONLY serialization is `blocked_by` naming a real shared file/package or must-exist-first symbol; a spurious `blocked_by` is an anti-pattern (plan-QA-falsification flags it).
+4. **`blocked_by` ON A PLAN NODE GATES ITS BUILDS, NOT ITS DECOMPOSITION.** Decomposition is read-only design — a planner decomposes against a dependency's spec'd shape and marks its build droplets `blocked_by`; only the builders wait on the built symbol. Sibling sub-planners launch as soon as their parent's plan-QA is green, not after upstream leaves finish building.
+5. **DESCENT GATE (per branch, not per tree).** A plan node's plan-QA PAIR must both PASS before that node launches its child planners OR its build droplets — serializes only that one branch's depth; sibling branches descend/build/QA fully in parallel. A plan-QA FAIL → wipe-and-replan that subtree.
+6. **DROPLET-LEVEL QA = the automated `mage ci` gate (NOT LLM).** Per droplet: builder builds → `mage ci` green → the orchestrator closes the auto-created build-QA twins against that gate + commits the droplet (no push). LLM proof/falsification QA runs at the planner/integration level, where integration risk lives — not per trivial droplet.
+7. **ORCH AUTO-ADVANCE.** Drive the cascade to completion autonomously; do NOT ask permission per tick. plan-QA green → immediately launch children; all planning in a subtree green → immediately launch builders → build-QA/mage-gate-close → commit → advance descendants/ancestors. Loop until the cascade group is done. STOP and ask the dev ONLY for: (a) a genuine fork the spec/methodology/memory can't resolve, (b) a hard blocker, (c) a QA FAIL needing a design ruling, (d) a destructive/outward action (push/PR/ingest). NEVER stop to ask "should I fire the next level / the builders" — that's always yes; just do it. Per-tick "say go" check-ins are an anti-pattern.
+
 ## Cascade-managed development — use ta to manage ta
 
 For any non-trivial work (multi-droplet slice, planner/builder/QA roles, QA twins), track via ta cascade records — not in-session task lists or markdown plans.
@@ -146,8 +146,8 @@ Workflow per [`docs/cascade-methodology.md`](docs/cascade-methodology.md) §3 + 
 1. **Drop record** — `mcp__ta__create` a `cascade.drop`. id = `drop_NNN.drop.<slug>`. Required: `drop_number`, `structural_type='drop'`, `role`, `state`, `title`, `created_at`, `updated_at`.
 2. **Planner record** — `mcp__ta__create` a `cascade.planner` child. Dispatch a `ta-go-planning` (or `ta-fe-planning`) role via the dispatcher; the dispatched role updates the planner record via `mcp__ta__update`.
 3. **Plan-QA twins** — when the planner is created, immediately create `cascade.qa_proof` + `cascade.qa_falsification` children (`target_id = <planner-id>`, `state = 'todo'`). These BLOCK descent. Dispatch as parallel background calls.
-4. **Recursive decomposition** — if a planner would emit more than 4 children OR cross more than 1 domain concern OR cross more than 1 package, it MUST decompose into child planners. Cascade recurses through planner levels — each terminal level emits 3-6 atomic droplets per child planner touching disjoint paths. Plan-QA twins fire at EVERY planner node.
-5. **Builder droplets** — terminal leaves only. One `cascade.droplet` per atomic build slice, each touching ≤4 distinct code-block edits. Builders dispatch in parallel when `paths` are disjoint. No LLM QA at droplet level; build+test is the only droplet-level gate.
+4. **Recursive decomposition — recurse on ATOMICITY, NO child cap** — a planner emits as many children as the work needs; the ONLY cap is atomic-droplet sizing (1-2 small code blocks, ≤80 LOC incl. tests). A sub-goal bigger than that → emit a `cascade.planner` child (a sub-planner decomposes it), NOT an oversize build droplet. "3-4 droplets per leaf" is the typical RESULT, never a rule. Multi-level + ASYMMETRIC depth is the norm. Plan-QA twins fire at EVERY planner node. (See the methodology section above + `CASCADE_METHODOLOGY.md`.)
+5. **Builder droplets** — terminal leaves only. One `cascade.droplet` per atomic build slice = **1-2 small code blocks (≤80 LOC incl. tests)**. Builders dispatch in parallel when `paths` are disjoint. No LLM QA at droplet level; the automated `mage ci` gate is the only droplet-level QA (the orchestrator closes the build-QA twins against that gate, then commits — no push).
 6. **Package-level build+test** — after all droplets for a package report `complete`, run `mage testPkg <path>`. Failures cycle: enclosing planner ingests failure → fix directive → droplet re-runs.
 7. **Build-QA twins at EVERY planner level** — once all direct children of a planner are `complete` AND package gates green, create two QA children targeting the sub-tree. Both must complete+success before the planner reports complete to its parent.
 8. **Closeout + commit** — after L1 drop's build-QA passes, run `mage check`, then commit per segment-close (MCP server bounces after every commit + `mage install` + Claude Code restart; batch reduces friction).

@@ -4269,43 +4269,43 @@ updated = 2026-05-16T00:32:08.832206Z
 created = 2026-05-20T02:15:56.296942Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:10:08.581427Z
+updated = 2026-05-26T21:42:20.524277Z
 
 [ta-fe-build-qa-falsification]
 created = 2026-05-24T22:34:52.014408Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:10:08.66852Z
+updated = 2026-05-26T21:42:20.508165Z
 
 [ta-fe-build-qa-proof]
 created = 2026-05-24T22:34:51.997208Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:10:08.651916Z
+updated = 2026-05-26T21:42:20.47528Z
 
 [ta-fe-builder]
 created = 2026-05-19T04:13:54.180508Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:10:40.778412Z
+updated = 2026-05-26T21:42:20.339829Z
 
 [ta-fe-plan-qa-falsification]
 created = 2026-05-24T22:34:51.981197Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:10:08.633333Z
+updated = 2026-05-26T21:42:20.442381Z
 
 [ta-fe-plan-qa-proof]
 created = 2026-05-24T22:34:51.965313Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:10:08.614624Z
+updated = 2026-05-26T21:42:20.408634Z
 
 [ta-fe-planning]
 created = 2026-05-19T04:14:08.958005Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:10:08.597965Z
+updated = 2026-05-26T21:44:05.256104Z
 
 [ta-fe-qa-falsification]
 created = 2026-05-19T04:14:08.942606Z
@@ -4323,37 +4323,37 @@ updated = 2026-05-21T18:09:31.929225Z
 created = 2026-05-24T22:34:51.932328Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:07:04.868564Z
+updated = 2026-05-26T21:42:20.492427Z
 
 [ta-go-build-qa-proof]
 created = 2026-05-24T22:34:51.916294Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:07:04.850818Z
+updated = 2026-05-26T21:42:20.458555Z
 
 [ta-go-builder]
 created = 2026-05-16T21:58:40.656117Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:10:08.563075Z
+updated = 2026-05-26T21:42:20.319909Z
 
 [ta-go-plan-qa-falsification]
 created = 2026-05-24T22:34:51.900393Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:07:04.833355Z
+updated = 2026-05-26T21:42:20.425822Z
 
 [ta-go-plan-qa-proof]
 created = 2026-05-24T22:34:51.883521Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:07:04.813462Z
+updated = 2026-05-26T21:42:20.391542Z
 
 [ta-go-planning]
 created = 2026-05-16T23:22:18.871549Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T19:07:04.791779Z
+updated = 2026-05-26T21:44:05.236316Z
 
 [ta-go-qa-falsification]
 created = 2026-05-16T23:22:18.895437Z
