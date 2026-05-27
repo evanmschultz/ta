@@ -1,5 +1,34 @@
 [seed_library_init_defaults]
 acceptance_criteria = "1. Seed content quality: each seed is a real working example, not just a placeholder. Acceptable examples: a useful PreToolUse git-commit-style guard hook (sanitized from ta own); a starter skill bundle with proper SKILL.md frontmatter; generic non-ta-specific agent personas like code-reviewer + qa-proof; sample CLAUDE.md fragment with be-concise rules; sample settings.local.json fragment showing JSON-merge shape; sample .mcp.json fragment as commented placeholder. 2. Total seed size <500KB embedded. 3. ta init-defaults is safe on a fresh machine (no ~/.ta yet) — creates ~/.ta + subdirs as needed. 4. Interactive flow shows what would be copied per substrate (file count + sample names) before asking Y/N. 5. JSON output (--json) reports per-substrate outcome (added, skipped, error). 6. Seed content avoids ta-internal references (no drop_NNN ids, no cascade methodology specifics, no project-specific paths)."
+comments = [{author = "agent:planner", body = """
+## L1 Planning Complete
+
+### Plan tree
+
+Two cascade.planner sub-goals (L1-A seed-content, L1-B init-defaults-cmd) each with plan-QA proof+falsification twins. Two atomic cascade.droplet leaves (C1 mage, C2 README). 9 records total.
+
+### Decomposition rationale
+
+Drop spans 7+ files, 3 packages, 8+ production symbols: mandatory multi-level decomposition.
+
+L1-A: A1a (claude seed files, 0 Go symbols) + A1b (codex seed files, 0 Go symbols) + A2 (seedsFS var + SeedFS func, 2 symbols, 2 files; blocked on A1a+A1b).
+
+L1-B: B1 (initDefaultsFlags + newInitDefaultsCmd, 2 symbols, 2 files) + B2 (runInitDefaults + copySubstrateSeed, 2 symbols, 1 file; blocked on B1+A2) + B3 (test file; blocked on B2).
+
+C1 (mage): InstallNoSeeds new func + Install modification, 1 file; blocked on L1-A+L1-B.
+C2 (README): prose only, independent.
+
+### Key design decisions
+
+1. Install() exec path: uses install_hygiene.Report.BinaryPath ($HOME/.local/bin/ta), not ./bin/ta.
+2. SeedFS(name): single //go:embed all:seeds var + fs.Sub per-substrate.
+3. copySubstrateSeed destination: substrate name -> ~/.ta/<dir> per defaults.toml source paths.
+4. Interactive mode: per-substrate Y/N prompts.
+
+### Hylla Feedback
+
+Keyword search returned rpc error (summary attribute not indexed with type term). Vector search returned empty for package-level queries. All evidence gathered via Read+Bash on working tree. Suggestion: use hylla_search with query_text for vector; keyword index needs repair.
+""", id = "plan-l1-complete", timestamp = "2026-05-26T10:00:00Z"}]
 created_at = "2026-05-24T06:00:00Z"
 definition_of_complete = "1. internal/installconfig/seeds/<substrate>/<file> contains opinionated useful starter content for the 10 substrates. 2. Seeds are embedded via //go:embed and exposed via installconfig.SeedFS(substrateName) -> fs.FS. 3. New cmd/ta init_defaults_cmd.go implements ta init-defaults [--interactive | --all | --none] [--overwrite] [--substrate=<name>]. 4. Per-file skip-if-exists unless --overwrite. 5. magefile.go gains InstallNoSeeds target; existing Install adds the init-defaults step at the end (interactive). 6. Tests: seed FS walk; per-substrate file count + non-empty assertion; init-defaults idempotency; --all flag bypass; --none flag bypass. 7. mage check green; CI green. 8. README updated with the bundled-seeds story."
 drop_number = 20.0
@@ -8,23 +37,395 @@ objective = "Ship opinionated useful starter content for the 10 substrates curre
 packages = ["internal/installconfig", "cmd/ta"]
 paths = ["internal/installconfig/seeds/**", "internal/installconfig/seeds.go", "internal/installconfig/seeds_test.go", "cmd/ta/init_defaults_cmd.go", "cmd/ta/init_defaults_cmd_test.go", "magefile.go", "README.md"]
 role = "planner"
-state = "todo"
+state = "in_progress"
 structural_type = "drop"
 title = "shipped seed library + ta init-defaults opt-in install"
-updated_at = "2026-05-24T06:00:00Z"
-
+updated_at = "2026-05-26T10:00:00Z"
 [seed_library_init_defaults-plan-qa-proof]
+comments = [{author = "agent:qa-proof", body = """
+## Plan-QA Proof Verdict (L1)
+
+**verdict: PASS**
+
+### 1. Coverage — every parent acceptance_criteria + def-of-complete bullet maps to a child
+
+Parent `drop_020.drop.seed_library_init_defaults`:
+- AC#1 (seed content quality across 11 substrates) → L1-A (A1a claude_hooks/skills/agents/output_styles/md_fragments/settings_fragments/mcp_servers + A1b codex_agents/codex_config_fragments/codex_mcp_servers/agents_md). 11 substrates ENUMERATED across the two A1 droplets.
+- AC#2 (total seed size <500KB) → L1-A acceptance criteria explicitly carries the <500KB cap.
+- AC#3 (safe on fresh machine, creates ~/.ta) → L1-B B2 `runInitDefaults` + `copySubstrateSeed` (destination = ~/.ta/<dir>).
+- AC#4 (interactive flow shows file count + sample names before Y/N) → L1-B B2 spec: 'Interactive mode prints file count + sample names per substrate, prompts Y/N'.
+- AC#5 (--json per-substrate outcome added/skipped/error) → L1-B B1 flag `--json` + B2 spec: '--json emits per-substrate JSON outcome'.
+- AC#6 (seed content avoids ta-internal references) → owned by L1-A; will be measured at L1-A's plan-QA twin.
+
+DoC bullets:
+- 1 (seeds under internal/installconfig/seeds/<substrate>/<file>) → L1-A A1a+A1b.
+- 2 (//go:embed + installconfig.SeedFS) → L1-A A2.
+- 3 (cmd/ta init_defaults_cmd.go cobra command with all 5 flags) → L1-B B1.
+- 4 (per-file skip-if-exists unless --overwrite) → L1-B B2 spec: 'Per-file skip-if-exists unless --overwrite'.
+- 5 (magefile InstallNoSeeds + Install adds final init-defaults step) → C1 droplet.
+- 6 (tests: FS walk, per-substrate file count, idempotency, --all bypass, --none bypass) → L1-A A2 (FS walk + non-empty) + L1-B B3 (idempotency/all/none/overwrite tests).
+- 7 (mage check green, CI green) → handled by closeout + standing CI gates (orchestrator concern, not a child).
+- 8 (README updated) → C2 droplet.
+
+Full coverage matrix populated. No orphaned bullets.
+
+### 2. Atomicity MEASURED per child
+
+- **L1-A `planner_l1_seed_content` — SEGMENT correctly designated.** Spans 11 substrate seed directories + new `seeds.go` (`seedsFS embed.FS` var + `SeedFS` func = 2 production symbols) + `seeds_test.go`. Multi-package content (claude/* + codex/*) + Go API surface is structurally >2 symbols, >3 files. SEGMENT is the correct designation. L1-A's own plan-QA twin will MEASURE A1a/A1b/A2 atomicity at L2.
+- **L1-B `planner_l1_init_defaults_cmd` — SEGMENT correctly designated.** Projects 4 production symbols across 2 new files + 1-line addition to main.go: `initDefaultsFlags` type + `newInitDefaultsCmd` func (B1) + `runInitDefaults` + `copySubstrateSeed` (B2) + tests (B3). 4 production symbols > 2-symbol droplet ceiling. SEGMENT correct. L1-B's own plan-QA twin will MEASURE B1/B2/B3 atomicity at L2.
+- **C1 `droplet_l1_mage_no_seeds_install` — ATOMIC droplet correctly designated.** Measured: 1 new `InstallNoSeeds()` func + 1 modified `Install()` body = 2 production symbols, magefile.go ONLY (1 file), projected ~25 LOC diff per spec. Within the 1-2 symbol / ≤80 LOC / ≤3 files ceiling. Block-counting: NEW `InstallNoSeeds` is its own block; MODIFY `Install` is a cohesive same-purpose edit cluster (one functional change — append the init-defaults exec step), so 1 block. Total 2 blocks. ATOMIC OK.
+- **C2 `droplet_l1_readme_seeds_story` — ATOMIC droplet correctly designated.** Measured: 0 production symbols (prose only), 1 file (README.md), 2 sections to edit (`## Install` para + new `## Starter library` section), ≤30 LOC diff per spec. Doc-edit cluster = 1 block. ATOMIC OK.
+
+### 3. Symbol grounding
+
+Existing anchors verified at HEAD 7a589af:
+- `installconfig.Defaults()` exists at internal/installconfig/defaults.go:23-25, returns `(*Config, error)`, uses `//go:embed defaults.toml` (parallel pattern to planned `//go:embed all:seeds`). Hylla node `github.com/evanmschultz/ta/internal/installconfig/Defaults` confirms.
+- `installconfig.Config` confirmed via Hylla `code.depends_on` edges from Defaults.
+- `installconfig.LoadBytes` confirmed (call site in Defaults body).
+- `install_hygiene.Run` exists at internal/install_hygiene/install_hygiene.go, signature `func Run(ctx context.Context, opts Options) (Report, error)`. Hylla node confirms.
+- `install_hygiene.Report.BinaryPath` exists (Hylla node, docstring: 'Always populated'). C1 plan's claim that `Install()` must capture Report.BinaryPath via the currently-discarded return value is correct.
+- magefile.go `Install()` confirmed at lines 56-69; currently `_, err = install_hygiene.Run(...)` — C1 must change to `rep, err := install_hygiene.Run(...)` then use `rep.BinaryPath`. Grounded.
+- cmd/ta/main.go `cmd.AddCommand(newGetCmd(), ..., newInitCmd(), newIndexCmd(), newServeCmd())` confirmed at lines 106-119. B1 plan's '1-line addition' to insert `newInitDefaultsCmd()` is grounded — established pattern.
+- README `## Install` heading confirmed at line 17, `mage install` code block at lines 21-23. C2 landing zone grounded.
+- NEW symbols correctly flagged via being absent from the committed tree: `seedsFS`, `SeedFS`, `initDefaultsFlags`, `newInitDefaultsCmd`, `runInitDefaults`, `copySubstrateSeed`, `InstallNoSeeds`. None of these resolve in Hylla.
+
+### 4. Blocker graph
+
+- L1-A `planner_l1_seed_content` blockers=[] — correct; SeedFS API + content has no external dep.
+- L1-B `planner_l1_init_defaults_cmd` blockers=[] — correct; planner-level decomposition is read-only design work and can proceed against L1-A's spec'd `SeedFS` shape. **Build-time** dep on `SeedFS` is captured INSIDE L1-B at B2's `blocked_by` (per L1-B description: 'Blocked on B1 (same file) + drop_020.drop.planner_l1_seed_content (needs SeedFS API)'). Decomposition-vs-build distinction handled correctly per methodology §4.
+- C1 `droplet_l1_mage_no_seeds_install` blockers=[L1-B, L1-A] — correct; mage Install can't exec the new `ta init-defaults` command until L1-B builds it, and seed embedding must exist in the binary (L1-A complete) for the exec to do anything.
+- C2 `droplet_l1_readme_seeds_story` blockers=[] — acceptable; README documents the contract specced in L1-B + parent drop, both of which are recorded. Doc work parallel to build is sound cascade practice.
+- L1-A vs L1-B parallel — packages disjoint (`internal/installconfig` vs `cmd/ta`); paths disjoint (`internal/installconfig/seeds*` vs `cmd/ta/init_defaults_cmd*` + `cmd/ta/main.go`). No shared file. Correctly unserialized.
+- C2 vs all others parallel — `README.md` shared with nothing. Correctly unserialized.
+
+### 5. No D5 regression
+
+- D5 fix at 7a589af modified `internal/install/install.go` + tests (applyRegistrations projectRoot resolution).
+- drop_020 parent `paths` slice: `[internal/installconfig/seeds/**, internal/installconfig/seeds.go, internal/installconfig/seeds_test.go, cmd/ta/init_defaults_cmd.go, cmd/ta/init_defaults_cmd_test.go, magefile.go, README.md]`. **`internal/install/install.go` is ABSENT.** Non-interference by file-scope.
+- No L1 child names `internal/install/install.go` in its paths either. Confirmed: L1-A paths = `internal/installconfig/{seeds/, seeds.go, seeds_test.go}`; L1-B paths = `cmd/ta/{init_defaults_cmd.go, init_defaults_cmd_test.go, main.go}`; C1 paths = `magefile.go`; C2 paths = `README.md`. No overlap with the D5 surface.
+- D5 applyRegistrations contract preserved by non-interference.
+
+### Failures
+
+None.
+
+### NITs (advisory, not blocking)
+
+- N1: C2 README spec mentions `mage installNoSeeds` (lowercase target name in the user-facing text) — the actual mage target is `InstallNoSeeds`, which `mage` invokes as `mage installNoSeeds` (mage lowercases the first letter on the CLI). Builder should preserve the mage CLI-form `mage installNoSeeds` in the README prose — already correct in the spec. Mention this only because if a future amendment ever renames the target it must update both ends.
+- N2: L1-B B1 spec calls main.go a '1-line addition' but B1's file-count claim is 2 (init_defaults_cmd.go + main.go). The L2 plan-QA twin for L1-B should MEASURE the actual delta to main.go — if the AddCommand block is reformatted to admit the new cmd, that may exceed 1 line. The L1 verdict accepts the 2-file claim; the L2 measurement is L2's responsibility.
+- N3: L1-B B2 spec mentions calling `installconfig.SeedFS(name)` and iterating per substrate — but the destination mapping from substrate name to ~/.ta/<dir> is in `defaults.toml` (via `Defaults()` → `Config`). The L1-B decomposition doesn't make explicit whether B2 reads `installconfig.Defaults()` for destination paths or hardcodes them. L2 plan-QA should verify B2's spec is unambiguous on this point.
+
+## Hylla Feedback
+
+- `hylla_search_keyword` consistently errors with `rpc error: code = Unknown desc = : Attribute summary is not indexed with type term` for the field combinations `["summary", "content"]` and any node_type filter. Same error reported in parent planner's own Hylla feedback. Suggested upstream fix: re-ingest with summary indexed as type=term or drop the term-search requirement when summary is included in fields. Workaround for L1 review: vector search (`hylla_search_vector` field=content) + direct node lookup (`hylla_node_full`) — both worked correctly and grounded all existing symbols (Run, Report, Defaults, F3DecisionLog, SeedHomeSchema).
+- Vector search returned irrelevant top hits (Vhs, F3DecisionLog) for some queries, suggesting embedding similarity drift on conceptual queries. Direct `hylla_node_full` on known symbol ids was the reliable path.
+
+## Tools Used
+
+- `mcp__ta__get` × 1 (6 items: plan-qa-proof record + drop_020 root + 4 L1 children)
+- `mcp__hylla__hylla_search_keyword` × 2 (both errored — same `summary not indexed` failure documented above)
+- `mcp__hylla__hylla_search_vector` × 3 (one returned 0 hits, two returned tangential hits)
+- `mcp__hylla__hylla_node_full` × 3 (Report, Run, Defaults — ALL grounded the existing symbols cleanly)
+- `Read` × 3 (magefile.go lines 50-130 → Install grounded, cmd/ta/main.go lines 100-140 → AddCommand grounded, README.md lines 1-120 → Install heading grounded, internal/installconfig/defaults.go full 25 LOC → embed pattern grounded)
+- `Bash` × 2 succeeded (`git log -1 7a589af --stat` → D5 file scope confirmed; `wc -l` → magefile.go=390, cmd/ta/main.go=323, defaults.go=25, README.md=226; `ls -la` → file inventories confirmed). 2 `Bash` grep calls denied by the persona's bash_deny scope — recovered via Read.
+- `mcp__ta__update` × 1 (this verdict comment)
+
+verdict: PASS
+""", id = "plan-qa-proof-l1-verdict", timestamp = "2026-05-27T00:00:00Z"}]
 created_at = "2026-05-24T06:45:18Z"
 role = "qa-proof"
 state = "todo"
 target_id = "drop_020.drop.seed_library_init_defaults"
 title = "Plan-QA proof of shipped seed library + ta init-defaults opt-in install"
 updated_at = "2026-05-24T06:45:18Z"
-
 [seed_library_init_defaults-plan-qa-falsification]
+comments = [{author = "agent:qa-falsification", body = """
+## Plan-QA Falsification Verdict (L1)
+
+**verdict: FAIL** — two concrete counterexamples on Axis 2 (scope coverage) + Axis 4 (Rule 3.5 family / hidden infrastructure dependency). One additional concern survives to NIT.
+
+### 1. Attack vectors tried
+
+- Axis 1 atomicity MEASUREMENT (C1+C2 + sub-planner designation) — MITIGATED (see §2).
+- Axis 2 scope coverage (AC + DoC bullets vs children) — **FAILURE** (substrate undercounting, see §3.1).
+- Axis 3 symbol grounding (Rule 3.5 family check on NEW symbols) — MITIGATED (see §4).
+- Axis 4 seam TODO hunt + hidden infrastructure (Rule 3.5) — **FAILURE** (AC#3 `~/.ta` creation seam unspecified, see §3.2).
+- Axis 5 blocker-graph soundness — MITIGATED (see §5).
+- Axis 6 drop_004 / installable-substrate overlap — MITIGATED (see §6).
+- Axis 7 substrate-count drift (10 vs 11 vs reality) — folded into Axis 2 failure.
+
+### 2. Atomicity measurement
+
+Measured each child against ≤2 production symbols / ≤80 LOC / ≤3 files (CLAUDE.md countable-blocks rule):
+
+- **C1 droplet_l1_mage_no_seeds_install — ATOMIC OK.** New `InstallNoSeeds()` (1 block, new top-level func) + cohesive edit cluster on existing `Install()` body to append the `exec.Command(rep.BinaryPath, "init-defaults", "--interactive")` step (1 block, same-purpose edit). 2 blocks total, 1 file (`magefile.go`), projected ~25 LOC. Confirmed against the actual `Install()` body at lines 56-69 (currently `_, err = install_hygiene.Run(...)` → must capture `rep` to read `rep.BinaryPath`). Within budget.
+- **C2 droplet_l1_readme_seeds_story — ATOMIC OK.** 0 production symbols, 1 file (`README.md`), 2 sections (`## Install` paragraph + new `## Starter library` heading), ≤30 LOC. Within budget.
+- **L1-A planner_l1_seed_content — correctly designated SEGMENT.** Its preview names A1a (7 substrates of content), A1b (4 substrates), A2 (2 Go symbols across 2 files). The L1 plan's tag `(droplet)` on A1a is wishful — 7 substrate-content directories meeting AC#1 quality bar (working hook script, skill bundle with SKILL.md frontmatter, agent personas, CLAUDE.md fragment, settings fragment, .mcp.json fragment, output-style .md) will EASILY exceed 80 LOC of new content. **The sub-planner L1-A will be forced to re-split A1a at L2 — that is correct cascade behavior, so L1 itself is not a FAIL on this axis.** Filed as NIT N4 below.
+- **L1-B planner_l1_init_defaults_cmd — correctly designated SEGMENT.** Preview names B1 (2 symbols), B2 (2 symbols), B3 (tests). B2's scope (interactive prompts + per-substrate file enumeration + sample names + Y/N input handling + JSON output + skip-if-exists) is plausible at 2 symbols only if everything is inlined into `runInitDefaults` — likely over-budget at build time. The sub-planner L2 will re-split. Filed as NIT N5.
+
+### 3. FAILURES
+
+#### 3.1 Axis 2 — substrate undercount (scope-coverage gap)
+
+**Counterexample.** `internal/installconfig/defaults.toml` ships 14 substrates: `claude_agents`, `claude_hooks`, `claude_skills`, `claude_output_styles`, **`claude_plugins`**, `claude_settings_fragments`, `claude_md_fragments`, `claude_mcp_servers`, `codex_agents`, `codex_config_fragments`, `codex_mcp_servers`, `agents_md`, `example_thariq`, `example_stil`. Confirmed by reading defaults.toml (1-164) at HEAD `7a589af`. (defaults.go header comment is stale: it claims `12 substrates` for the 14-substrate file — pre-existing drift, not a drop_020 defect, but it misled the planner.)
+
+The 2 `example_*` substrates already have embed sources via the root `embed.go all:examples` tree. Substrates needing fresh seeds = 14 − 2 = **12**, NOT the 10 the root objective claims, NOT the 11 the L1-A spec + root acceptance criteria enumerate.
+
+Specific missing substrate: **`claude_plugins`** (defaults.toml lines 71-73: `source = "~/.ta/plugins", destination = ".claude/plugins"`). Neither the root drop's enumeration nor L1-A A1a's list contains `claude_plugins`. AC#1 (`each seed is a real working example`) cannot be met for `claude_plugins` if no droplet covers it.
+
+**Impact.** Without amendment, drop_020 lands a partial seed library — running `ta init-defaults` on a fresh machine would silently skip `claude_plugins`, breaking the AC#1 invariant for that substrate.
+
+**Routes to fix.** (a) Root objective + AC #1 + L1-A spec must enumerate 12 substrates including `claude_plugins`. OR (b) explicitly call out `claude_plugins` as an accepted-omission with a sibling drop covering it.
+
+#### 3.2 Axis 4 — AC#3 unspecified seam (Rule 3.5 hidden-infrastructure)
+
+**Counterexample.** AC#3 requires: `ta init-defaults is safe on a fresh machine (no ~/.ta yet) — creates ~/.ta + subdirs as needed.`
+
+The L1-B spec for B2 names `runInitDefaults(out, errOut io.Writer, f initDefaultsFlags) error` + `copySubstrateSeed(seedFS fs.FS, destDir string, overwrite bool) (added, skipped int, err error)`. **Neither symbol is spec'd to create `~/.ta` or the per-substrate subdirs.**
+
+Fresh-machine call path of standalone `ta init-defaults` (no prior `mage install`):
+1. Dev installs the `ta` binary some other way (e.g. `go install` to GOBIN).
+2. Dev runs `ta init-defaults --all` cold.
+3. `runInitDefaults` iterates substrates, calls `copySubstrateSeed(seedFS, destDir, overwrite)` where `destDir = filepath.Join(home, ".ta", "<sub>")`.
+4. **`~/.ta` does not exist. `os.WriteFile` inside `copySubstrateSeed` fails with `ENOENT` because the parent dir isn't created.**
+
+The existing `install_hygiene.SeedHomeSchema` (internal/install_hygiene/install_hygiene.go:245-336) DOES `os.MkdirAll(taDir, 0o755)` — but only when called via `install_hygiene.Run`, i.e. from `mage Install`. The init-defaults command, as spec'd, does NOT route through Run. So the `mage install` path works (because Run runs first and creates `~/.ta`), but the standalone `ta init-defaults` path AC#3 explicitly requires DOES NOT.
+
+**Impact.** Without amendment, AC#3 cannot be satisfied. The B2 spec is silent on the seam that creates the home root and per-substrate dirs.
+
+**Routes to fix.** Any of:
+- (a) L1-B B2 spec adds `os.MkdirAll(destDir, 0o755)` to `copySubstrateSeed` AND adds `os.MkdirAll(filepath.Join(home, ".ta"), 0o755)` to `runInitDefaults` before the loop. Adds at most a few LOC; B2 stays in budget.
+- (b) L1-B introduces a new B0 droplet that calls `install_hygiene.SeedHomeSchema` (or a sibling helper) to ensure home-root before the substrate loop runs.
+- (c) L1-B B2 delegates dir-creation to a NEW symbol that the planner must name (in which case symbol count of B2 increases and the sub-planner must re-split).
+
+Whichever is chosen, the L1 plan must name it.
+
+### 4. Symbol grounding (Rule 3.5 family check)
+
+No new failures. Verified at HEAD `7a589af` via Hylla vector search + direct file Read:
+- NEW symbols correctly absent from committed tree: `seedsFS`, `SeedFS`, `initDefaultsFlags`, `newInitDefaultsCmd`, `runInitDefaults`, `copySubstrateSeed`, `InstallNoSeeds`. No false existence claims.
+- EXISTING anchors confirmed: `install_hygiene.Run` (internal/install_hygiene/install_hygiene.go:155), `install_hygiene.Report.BinaryPath` (struct field at install_hygiene.go:117, docstring `Always populated`), `magefile.Install` (magefile.go:56-69), `cmd/ta/main.go cmd.AddCommand(...)` (lines 106-119), `installconfig.Defaults()` (internal/installconfig/defaults.go:23), `installconfig.Config` (config.go:13).
+- The C1 plan's load-bearing claim — `binaryPath from the returned Report` — is grounded: `Report.BinaryPath` is set at install_hygiene.go:195 (`seedRep.BinaryPath = binaryPath`) and the docstring confirms it is always populated.
+
+No `TODO` / `DEFERRED` / `follow-up` / `FIXME` / `not yet` markers in the seams I read (magefile.go full 391 LOC, install_hygiene.go full 352 LOC, cmd/ta/main.go full 324 LOC, installconfig/defaults.go 25 LOC, installconfig/config.go 55 LOC).
+
+### 5. Blocker graph
+
+- L1-A blockers=[] — correct, content + new API has no dep.
+- L1-B blockers=[] — correct, planner-level decomposition can proceed against L1-A's spec'd `SeedFS` shape; build-time dep handled inside L1-B at B2.
+- C1 blockers=[L1-B, L1-A] — correct, `mage Install` can't exec a nonexistent command, and the binary must embed the seeds for the exec to have effect.
+- C2 blockers=[] — acceptable. Doc work parallel to build is sound. Mild risk: if the README ships citing `mage installNoSeeds`/`ta init-defaults --all` before C1 lands, the doc and code are temporarily out of sync — but the SPEC is recorded so the README is authoring against the contract, not vapor. Mitigated.
+
+No over-blocking, no under-blocking on this axis.
+
+### 6. drop_004 overlap (Axis 6)
+
+No conflict. drop_004 shipped the `installconfig` package + `defaults.toml` + the install engine that walks `~/.ta/<dir>` content. drop_020 fills the `seeds` SOURCE side that drop_004 left empty (defaults.toml header comment: `Source paths point at ~/.ta/<name> — the dotta tree the install engine walks at apply time` — but no shipping path populates `~/.ta/<name>` from the binary). drop_020 closes that loop. No symbol or file overlap with the drop_018 D5 fix at `7a589af` either (D5 modified `internal/install/install.go`, absent from drop_020's `paths` slice).
+
+### NITs
+
+- **N4** (carries from atomicity discussion): L1-A's preview tags A1a `(droplet)` but A1a's stated scope (7 substrates × AC#1 quality-bar content) almost certainly exceeds the 80-LOC content budget. The L1-A sub-planner will need to re-split A1a per-substrate (or per-cluster). L1-A is correctly designated SEGMENT, so this re-decomposition is the L2 plan-QA's job; flagging for visibility.
+- **N5**: L1-B's B2 projected 2 symbols may not survive build (interactive Y/N + sample-name preview + JSON marshaling + skip-if-exists + per-substrate iteration). Sub-planner will re-split. Same posture as N4.
+- **N6**: The proof twin's N3 stands — B2 does not specify whether substrate→destination mapping comes from `installconfig.Defaults()` (the source-of-truth) or is hardcoded. L2 plan-QA must pin this.
+- **N7**: defaults.go header comment claims `12 substrates` but defaults.toml ships 14. Pre-existing drift, not a drop_020 defect, but the planner inherited the stale count and propagated it. Should be cleaned up opportunistically when drop_020 amends.
+
+### Open questions (attention candidates)
+
+- **Q1**: Should `claude_plugins` substrate get a seed in this drop, a sibling drop, or be explicitly excluded (e.g. because plugin bundles ship through a different channel)? The L1 plan must take a position.
+- **Q2**: For AC#3 (fresh-machine safety), is the preferred fix (a) add MkdirAll into B2's helpers, (b) introduce B0 that delegates to `SeedHomeSchema`, or (c) name a new helper in L1-B? Dev judgment requested before re-plan.
+
+### Routing recommendation
+
+Return to planner. Required amendments:
+1. Enumerate 12 substrates including `claude_plugins` (root objective + AC#1 + L1-A A1a/A1b).
+2. Spec the `~/.ta`/subdir creation seam in L1-B B2 (or add a sibling droplet).
+3. Per CLAUDE.md mandate, **re-MEASURE every droplet** after amendment (not just changed children) — the sibling proof twin already PASSED at 11 substrates; that judgment must be re-issued post-amendment.
+
+## Hylla Feedback
+
+- `hylla_search_keyword` consistently errors `rpc error: code = Unknown desc = : Attribute <field> is not indexed with type term` for EVERY field combination tried — `content`, `summary`, `docstring`, and combinations. Same as the proof twin reported. The keyword index is broken for ta@main snapshot 19.
+- `hylla_search_vector` works but ranks tangential top-N hits (Vhs, F3DecisionLog, Subtree) on conceptual queries. Useful for confirming a symbol's absence (no exact match in top-K), less useful for grounding a known symbol.
+- `hylla_node_full detail_mode=raw` for `Run`, `Install`, `Report` each returned >100K characters (the full file body in many cases), exceeding the response token cap. The compact (non-raw) mode succeeded earlier in the proof twin's run; raw is unusable at this size. Fallback: direct `Read` of source files worked cleanly.
+- Snapshot 19 is at `dbeafca`; HEAD is `7a589af` (one commit ahead — the D5 fix to applyRegistrations). The fix is to `internal/install/install.go`, outside drop_020's `paths` slice, so the snapshot lag is non-blocking for this review.
+
+## Tools Used
+
+- `mcp__ta__get` × 1 (6 items: this falsif record + drop_020 root + 4 L1 children)
+- `mcp__ta__search` × 1 (cross-record query for `init-defaults|InstallNoSeeds` — surfaced the proof twin's PASS verdict)
+- `mcp__hylla__hylla_search_keyword` × 8 (ALL ERRORED — keyword index broken, see Hylla Feedback)
+- `mcp__hylla__hylla_search_vector` × 5 (one returned 0 hits; four returned tangential hits; useful as absence-confirmation tool)
+- `mcp__hylla__hylla_artifact_overview` × 1 (confirmed snapshot 19 / commit dbeafca / 14-substrate ledger)
+- `mcp__hylla__hylla_node_full` × 3 (all returned >100K chars and dumped to overflow files; unusable in raw mode — see Hylla Feedback)
+- `Read` × 4: magefile.go (391 LOC, full), install_hygiene.go (352 LOC, full), cmd/ta/main.go (324 LOC, full), installconfig/defaults.toml (164 LOC, full), installconfig/defaults.go (25 LOC, full), installconfig/config.go (55 LOC, full). Total ~1311 LOC inspected.
+- `Bash` × 2 succeeded (`git rev-parse HEAD` + `git log --oneline -5` → confirmed HEAD `7a589af` + D5 commit landing); 4 `Bash` grep/awk/find calls denied by `bash_deny` — recovered via Read.
+- `mcp__ta__update` × 1 (this verdict comment).
+
+verdict: FAIL
+""", id = "plan-qa-falsif-l1-verdict", timestamp = "2026-05-27T05:30:00Z"}]
 created_at = "2026-05-24T06:45:18Z"
 role = "qa-falsification"
 state = "todo"
 target_id = "drop_020.drop.seed_library_init_defaults"
 title = "Plan-QA falsif of shipped seed library + ta init-defaults opt-in install"
 updated_at = "2026-05-24T06:45:18Z"
+[planner_l1_seed_content]
+blockers = []
+created_at = "2026-05-26T10:00:00Z"
+description = """
+Objective: Materialize the embedded seed library backing `ta init-defaults`. Two concerns in sequence: (1) create seed content files under `internal/installconfig/seeds/<substrate>/`; (2) add `seeds.go` with the `//go:embed all:seeds` directive and exported `SeedFS(name string) (fs.FS, error)` accessor, plus `seeds_test.go` with FS-walk + per-substrate file-count + non-empty assertions.
+
+Sub-goals:
+- A1a (droplet): Claude-facing seed content files for claude_hooks, claude_skills, claude_agents, claude_md_fragments, claude_settings_fragments, claude_mcp_servers, claude_output_styles. Pure content (shell scripts, .md files, JSON/TOML stubs). Zero Go production symbols. Touches <=3 content dirs per droplet boundary.
+- A1b (droplet): Codex-facing seed content for codex_agents, codex_config_fragments, codex_mcp_servers, agents_md. Pure content. Zero Go production symbols.
+- A2 (droplet): seeds.go (package-level `seedsFS embed.FS` var + exported `SeedFS` func) + seeds_test.go. 2 production symbols, 2 files, <=80 LOC. Blocked on A1a AND A1b.
+
+Acceptance criteria: each substrate dir non-empty; SeedFS returns rooted sub-FS per substrate name; unknown name errors; TestSeedFS_Walk + TestSeedFS_FileNonEmpty green; total seed size <500KB; mage check green.
+
+Verification: `mage testPkg ./internal/installconfig`
+"""
+packages = ["internal/installconfig"]
+parent_id = "drop_020.drop.seed_library_init_defaults"
+paths = ["internal/installconfig/seeds/", "internal/installconfig/seeds.go", "internal/installconfig/seeds_test.go"]
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L1-A: seed content files + SeedFS embed API"
+updated_at = "2026-05-26T10:00:00Z"
+
+[planner_l1_seed_content-plan-qa-proof]
+created_at = "2026-05-27T04:21:25Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_020.drop.planner_l1_seed_content"
+title = "Plan-QA proof of L1-A: seed content files + SeedFS embed API"
+updated_at = "2026-05-27T04:21:25Z"
+
+[planner_l1_seed_content-plan-qa-falsification]
+created_at = "2026-05-27T04:21:25Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_020.drop.planner_l1_seed_content"
+title = "Plan-QA falsif of L1-A: seed content files + SeedFS embed API"
+updated_at = "2026-05-27T04:21:25Z"
+
+[planner_l1_init_defaults_cmd]
+blockers = []
+created_at = "2026-05-26T10:00:00Z"
+description = """
+Objective: Implement the `ta init-defaults` cobra subcommand.
+
+Sub-goals:
+- B1 (droplet): `initDefaultsFlags` struct (new type) + `newInitDefaultsCmd()` cobra command wired into `cmd/ta/main.go` via `cmd.AddCommand(newInitDefaultsCmd())`. Flags: --interactive (default on TTY), --all, --none, --overwrite, --substrate=<name>, --json. 2 production symbols (1 type + 1 func), 2 files (new init_defaults_cmd.go + 1-line addition to main.go). <=80 LOC. No blockers (parallel with L1-A track).
+- B2 (droplet): `runInitDefaults(out, errOut io.Writer, f initDefaultsFlags) error` + `copySubstrateSeed(seedFS fs.FS, destDir string, overwrite bool) (added, skipped int, err error)`. Calls `installconfig.SeedFS(name)`. Interactive mode prints file count + sample names per substrate, prompts Y/N. --all bypasses prompts. --none is a no-op. --json emits per-substrate JSON outcome. Per-file skip-if-exists unless --overwrite. 2 production symbols, 1 file (init_defaults_cmd.go). Blocked on B1 (same file) + drop_020.drop.planner_l1_seed_content (needs SeedFS API).
+- B3 (droplet): init_defaults_cmd_test.go with TestInitDefaults_Idempotency, TestInitDefaults_AllFlag, TestInitDefaults_NoneFlag, TestInitDefaults_Overwrite. 0 production symbols, 1 file. Blocked on B2.
+
+Verification: `TA_TEST_PKG=./cmd/ta mage testFunc 'TestInitDefaults'`
+"""
+packages = ["cmd/ta"]
+parent_id = "drop_020.drop.seed_library_init_defaults"
+paths = ["cmd/ta/init_defaults_cmd.go", "cmd/ta/init_defaults_cmd_test.go", "cmd/ta/main.go"]
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L1-B: ta init-defaults cobra command"
+updated_at = "2026-05-26T10:00:00Z"
+
+[planner_l1_init_defaults_cmd-plan-qa-proof]
+created_at = "2026-05-27T04:21:25Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_020.drop.planner_l1_init_defaults_cmd"
+title = "Plan-QA proof of L1-B: ta init-defaults cobra command"
+updated_at = "2026-05-27T04:21:25Z"
+
+[planner_l1_init_defaults_cmd-plan-qa-falsification]
+created_at = "2026-05-27T04:21:25Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_020.drop.planner_l1_init_defaults_cmd"
+title = "Plan-QA falsif of L1-B: ta init-defaults cobra command"
+updated_at = "2026-05-27T04:21:25Z"
+
+[droplet_l1_mage_no_seeds_install]
+blockers = ["drop_020.drop.planner_l1_init_defaults_cmd", "drop_020.drop.planner_l1_seed_content"]
+created_at = "2026-05-26T10:00:00Z"
+description = """
+Objective: Add `InstallNoSeeds()` mage target + wire the `ta init-defaults --interactive` invocation into the existing `Install()` target.
+
+Production symbols to add/change:
+1. NEW top-level function `InstallNoSeeds()` in magefile.go — identical to `Install()` but skips the final `ta init-defaults` invocation. Documents as the mage target for CI/automated installs where seeding is undesired.
+2. MODIFY `Install()` body — after the `install_hygiene.Run` call succeeds, exec the freshly-installed binary (`binaryPath` from the returned Report) with args `["init-defaults", "--interactive"]` via `os/exec`. This gives the dev an interactive seed-install step at the end of mage install.
+
+Exec path: use `binaryPath` from `install_hygiene.Report.BinaryPath` (already returned by `install_hygiene.Run`) — NOT `./bin/ta`. The binary is installed to `$HOME/.local/bin/ta`, not the build dir. If exec returns a non-nil error, surface it as a wrapped error from `Install()`.
+
+File budget: magefile.go only. 1 file, 1 new symbol + 1 modified function = 2 blocks. Estimated diff: ~25 LOC.
+
+Blockers: drop_020.drop.planner_l1_init_defaults_cmd must be complete (the `init-defaults` command must exist before mage Install can meaningfully call it). drop_020.drop.planner_l1_seed_content must also be complete (seeds must be embedded in the binary).
+
+Verification: `mage check` (full CI gate). Also: `mage -l` should list both `Install` and `InstallNoSeeds` as targets.
+"""
+packages = ["main"]
+parent_id = "drop_020.drop.seed_library_init_defaults"
+paths = ["magefile.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "C1: mage InstallNoSeeds target + Install seeds step"
+updated_at = "2026-05-26T10:00:00Z"
+
+[droplet_l1_mage_no_seeds_install-qa-proof]
+created_at = "2026-05-27T04:22:23Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_020.drop.droplet_l1_mage_no_seeds_install"
+title = "QA proof of C1: mage InstallNoSeeds target + Install seeds step"
+updated_at = "2026-05-27T04:22:23Z"
+
+[droplet_l1_mage_no_seeds_install-qa-falsification]
+created_at = "2026-05-27T04:22:23Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_020.drop.droplet_l1_mage_no_seeds_install"
+title = "QA falsif of C1: mage InstallNoSeeds target + Install seeds step"
+updated_at = "2026-05-27T04:22:23Z"
+
+[droplet_l1_readme_seeds_story]
+blockers = []
+created_at = "2026-05-26T10:00:00Z"
+description = """
+Objective: Update README.md to document the bundled-seeds story introduced by drop_020.
+
+Edits (prose only — 0 Go production symbols, 1 file):
+1. Under the `## Install` section, add a paragraph after the `mage install` code block explaining that the install step now includes an interactive `ta init-defaults` prompt that installs opinionated starter content (hooks, skills, agent personas, CLAUDE.md fragments, settings fragments, MCP server stubs) into `~/.ta/`. Mention that answering N (or running `mage installNoSeeds`) skips the seeding step.
+2. Add a new `## Starter library (ta init-defaults)` section (or similar heading) describing: what substrates are seeded, how to run `ta init-defaults --all` to non-interactively install all seeds, how to run `ta init-defaults --none` to skip, and that seeds are skip-if-exists by default (idempotent).
+
+File budget: README.md only. 0 production symbols. <=30 LOC diff. Independent of all code droplets — can run in parallel.
+
+Blockers: none (README can be written once the command interface is specced in drop_020.drop.planner_l1_init_defaults_cmd, which is already recorded).
+
+Verification: No automated gate. Builder confirms the new section is coherent and accurate against the acceptance_criteria in drop_020.drop.seed_library_init_defaults.
+"""
+packages = []
+parent_id = "drop_020.drop.seed_library_init_defaults"
+paths = ["README.md"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "C2: README bundled-seeds story"
+updated_at = "2026-05-26T10:00:00Z"
+
+[droplet_l1_readme_seeds_story-qa-proof]
+created_at = "2026-05-27T04:22:23Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_020.drop.droplet_l1_readme_seeds_story"
+title = "QA proof of C2: README bundled-seeds story"
+updated_at = "2026-05-27T04:22:23Z"
+
+[droplet_l1_readme_seeds_story-qa-falsification]
+created_at = "2026-05-27T04:22:23Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_020.drop.droplet_l1_readme_seeds_story"
+title = "QA falsif of C2: README bundled-seeds story"
+updated_at = "2026-05-27T04:22:23Z"

@@ -63,3 +63,8 @@ internal/templates_html_embed/dist/*
 /.asrt*/
 /.ra1/
 /.ra2/
+
+# Hylla per-run logs + workdir — dev directive 2026-05-27: do not commit
+# any .hylla/ or hylla/ contents while hylla iteration is in flight.
+.hylla/
+/hylla/

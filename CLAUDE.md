@@ -2,6 +2,24 @@
 
 Project-local guidance for working inside the `ta` tree. Global rules (Tillsyn coordination, Section 0 reasoning, evidence sources, worktree hygiene, output style) live at `~/.claude/CLAUDE.md` and are NOT duplicated here.
 
+## 2026-05-27 Subagent Discipline Update (LOAD-BEARING)
+
+Cross-project rule set hardened after the tillsyn `B.8` cascade exposed two failure modes (silent self-rescoping + plan-QA missing upstream TODOs). Canonical source: tillsyn's `feedback_subagent_scope_tightening.md` memory + `CASCADE_METHODOLOGY.md § Subagent Discipline (2026-05-27)`. Mirrored here so ta-managed cascades enforce the same discipline.
+
+- **Per-persona test surface (minimum only).**
+  - Planners: NO test execution. Specify test commands for builders; do not run mage targets.
+  - Plan-QA (proof + falsification): `mage test-pkg <full-import-path>` for read-only verification of a code claim. NEVER `mage ci` / `mage test-func` / raw `go *`.
+  - Builders: `mage test-func <full-import-path> <TestFuncName>` ONLY for each new/modified test func they wrote. LIST each invocation by FULL name in `## Tools Used`. NEVER `mage test-pkg`, `mage ci`, `mage build`, raw `go test`/`go build`/`go vet`, `gofmt`/`gofumpt`, `go list`. `mage format` allowed ONCE at the end.
+  - Build-QA (proof + falsification): `mage test-func <full-import-path> <SpecificFunc>` ONLY for the funcs they verify / attack-test.
+  - Closeout: `mage ci` ONCE (unique role privilege; cascade-end final gate; no concurrent builders).
+- **Hylla MANDATORY-PRIMARY** for committed Go code (planners + plan-QA): `mcp__hylla__hylla_search` / `hylla_node_full` / `hylla_search_keyword` / `hylla_refs_find` / `hylla_graph_nav` BEFORE Read/LSP. Zero Hylla calls in `## Hylla Feedback` = automatic FAIL.
+- **Failure-attribution rule (sibling-WIP coexistence).** When `mage test-*` errors, file-path check FIRST: error in a file OUTSIDE your declared `paths` → report `BLOCKED-by-sibling-WIP` with file:line + STOP, never edit it; error inside your `paths` → MINE, attack it; test failure in a func NOT yours → observation only, don't touch.
+- **No self-rescoping.** If work exceeds 1-2 small code blocks (>80 prod LOC, >3 prod files, or ≥3 distinct top-level production symbols), STOP and report BLOCKED for re-split. NEVER ship partial work + grade BUILD COMPLETE (B.8 anti-pattern 2026-05-27).
+- **Plan-QA-falsification — Rule 3.5: hunt deferred-infrastructure TODOs at integration seams.** For EVERY seam the plan wires, `mcp__hylla__hylla_node_full` the surrounding code (~30 lines either side). Inline `// TODO` / `// DEFERRED` / `// follow-up droplet` / `// not yet` / "blocked on" comments = plan **FAIL**. PLUS family-level existence checks: when claiming a symbol exists/doesn't, query Hylla for sibling/caller/called-by — partial families are common planning traps (e.g. `LoadAgentDefinition` exists but `ResolveAgentPath` doesn't).
+- **Closing-comment veracity** (`## Hylla Feedback` + `## Tools Used` MANDATORY in every closing comment, including LOC counts from `wc -l`).
+- **Orchestrator audits EVERY agent EVERY time** via jq-filter on the JSONL transcript checking for: raw `go *`, `mage ci`/`mage test-pkg` from builders, zero `mcp__hylla__*` from planners/plan-QA, Edit/Write outside declared `paths`, git mutations, `till.auth_request operation=create` mid-run, cross-droplet snooping, `grep`/`sed`/`awk` via Bash (use native Grep/Read), missing closing-comment sections.
+- **Test-concurrency escalation criterion**: prompt-tightening + failure-attribution sufficient today; add per-package flock to `mage test-*` only if 3+ groups observe runtime test-state collision.
+
 ## Agent Routing — Backend Dispatch (Chain Mode)
 
 `ta-*` subagents route to different LLM backends based on role. Each role has a fallback chain (primary + ordered fallbacks). The orchestrator MUST honor this routing.

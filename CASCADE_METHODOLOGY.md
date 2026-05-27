@@ -26,6 +26,33 @@ The build phase reverses the flow. Atomic droplets at the deepest level run firs
 
 <!-- TODO populate post-dogfood with measured benchmarks -->
 
+## Subagent Discipline (2026-05-27)
+
+Cross-project rule set hardened after the tillsyn `B.8` cascade exposed two failure modes (builders silently dropping spec scope + self-grading BUILD COMPLETE; plan-QA missing upstream-dependency TODOs at integration seams). Canonical source: tillsyn's `feedback_subagent_scope_tightening.md` memory. Mirrored into every project's `CLAUDE.md` + every persona file.
+
+**Per-persona test surface — minimum only.**
+- Planners: NO test execution. Specify test commands for builders; do not execute mage targets.
+- Plan-QA (proof + falsification): `mage test-pkg <full-import-path>` for read-only verification of a plan's code claim. NEVER `mage ci` or `mage test-func`.
+- Builders: `mage test-func <full-import-path> <TestFuncName>` ONLY for each new/modified test func they wrote. NEVER `mage test-pkg`, `mage ci`, `mage build`, raw `go test`/`go build`/`go vet`, `gofmt`/`gofumpt`, `go list`. `mage format` allowed ONCE at the end.
+- Build-QA (proof + falsification): `mage test-func <full-import-path> <SpecificFunc>` ONLY for the funcs they verify / attack-test.
+- Closeout: `mage ci` ONCE (unique role privilege; cascade-end final gate; no concurrent builders).
+
+**Hylla mandate for planners + plan-QA.** PRIMARY for committed Go code; Read/LSP only when Hylla is offline or the path is stale per `git diff`. Zero Hylla calls in `## Hylla Feedback` = automatic FAIL.
+
+**Plan-QA-falsification — Rule 3.5: hunt deferred-infrastructure TODOs at integration seams.** For EVERY integration seam the plan wires, `hylla_node_full` the seam's surrounding code (~30 lines either side). Inline `// TODO`, `// DEFERRED`, `// follow-up droplet`, `// not yet`, "blocked on" comments = plan FAIL. PLUS family-level existence checks: query Hylla for sibling/caller/called-by symbols (partial families are common planning traps).
+
+**Failure-attribution rule (sibling-WIP coexistence).** When `mage test-*` errors, file-path check FIRST: error OUTSIDE your declared `paths` → `BLOCKED-by-sibling-WIP`, STOP, never edit it; error inside → MINE, attack it; test failure in a func NOT yours → observation only, don't touch. Preserves cross-droplet parallelism by serializing only when there's a real conflict.
+
+**No self-rescoping.** Work exceeding the atomicity budget (>80 prod LOC, >3 prod files, ≥3 distinct top-level production symbols) → STOP and report BLOCKED for re-split. NEVER ship partial work + grade BUILD COMPLETE. The B.8 cascade-of-2026-05-27 anti-example: builder dropped the populate-seam wiring + self-graded COMPLETE → had to be superseded after the fact.
+
+**Closing-comment veracity.** Every closing comment MUST list every Hylla call, every mage invocation by FULL name, every distinct Read/Grep/LSP call, LOC counts from `wc -l`. `## Hylla Feedback` + `## Tools Used` MANDATORY.
+
+**Orchestrator audits EVERY agent EVERY time** via jq-filter on the JSONL transcript checking for raw `go *`, `mage ci`/`mage test-pkg` from builders, zero Hylla from planners/plan-QA, Edit/Write outside declared `paths`, git mutations, `till.auth_request operation=create` mid-run, cross-droplet snooping, `grep`/`sed`/`awk` via Bash, missing closing-comment sections.
+
+**Test-concurrency escalation criterion.** Prompt-tightening + failure-attribution sufficient today; add per-package flock to `mage test-*` only if 3+ cascade groups observe runtime test-state collision.
+
+<!-- TODO populate post-dogfood with measured benchmarks -->
+
 ## Three Orthogonal Axes — `kind` × `metadata.role` × `metadata.structural_type`
 
 Every non-project node in the cascade is classified along three independent axes, set explicitly at create time. None of them are inferred from the others. Templates' `child_rules`, gate rules, and agent bindings dispatch on combinations of all three. The orthogonality matters: collapsing any two axes into one produces ambiguity at the dispatch layer and breaks plan-QA's ability to attack misclassification.

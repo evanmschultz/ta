@@ -4133,23 +4133,167 @@ updated = 2026-05-24T16:36:16.117883Z
 
 [drop_017]
 [drop_017.drop]
+[drop_017.drop.builder_l2a_loader_merged]
+created = 2026-05-27T04:32:05.398838Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:32:05.398838Z
+
+[drop_017.drop.builder_l2a_loader_merged-qa-falsification]
+created = 2026-05-27T04:32:05.427692Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:32:05.427692Z
+
+[drop_017.drop.builder_l2a_loader_merged-qa-proof]
+created = 2026-05-27T04:32:05.414069Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:32:05.414069Z
+
+[drop_017.drop.builder_l2a_loader_project_override]
+created = 2026-05-27T04:31:47.734404Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:31:47.734404Z
+
+[drop_017.drop.builder_l2a_loader_project_override-qa-falsification]
+created = 2026-05-27T04:31:47.77069Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:31:47.77069Z
+
+[drop_017.drop.builder_l2a_loader_project_override-qa-proof]
+created = 2026-05-27T04:31:47.75423Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:31:47.75423Z
+
+[drop_017.drop.builder_l2a_loader_user_override]
+created = 2026-05-27T04:31:37.858299Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:31:37.858299Z
+
+[drop_017.drop.builder_l2a_loader_user_override-qa-falsification]
+created = 2026-05-27T04:31:37.891343Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:31:37.891343Z
+
+[drop_017.drop.builder_l2a_loader_user_override-qa-proof]
+created = 2026-05-27T04:31:37.876039Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:31:37.876039Z
+
+[drop_017.drop.builder_l2b_template_cmd_consumer_wiring]
+created = 2026-05-27T04:32:47.032048Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:32:47.032048Z
+
+[drop_017.drop.builder_l2b_template_cmd_consumer_wiring-qa-falsification]
+created = 2026-05-27T04:32:47.060068Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:32:47.060068Z
+
+[drop_017.drop.builder_l2b_template_cmd_consumer_wiring-qa-proof]
+created = 2026-05-27T04:32:47.046163Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:32:47.046163Z
+
+[drop_017.drop.builder_l2b_templates_installconfig_wiring]
+created = 2026-05-27T04:32:46.989167Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:32:46.989167Z
+
+[drop_017.drop.builder_l2b_templates_installconfig_wiring-qa-falsification]
+created = 2026-05-27T04:32:47.017972Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:32:47.017972Z
+
+[drop_017.drop.builder_l2b_templates_installconfig_wiring-qa-proof]
+created = 2026-05-27T04:32:47.004271Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:32:47.004271Z
+
+[drop_017.drop.builder_readme_install_toml_layers]
+created = 2026-05-27T03:45:08.821889Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T03:45:08.821889Z
+
+[drop_017.drop.builder_readme_install_toml_layers-qa-falsification]
+created = 2026-05-27T03:45:08.847166Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T03:45:08.847166Z
+
+[drop_017.drop.builder_readme_install_toml_layers-qa-proof]
+created = 2026-05-27T03:45:08.835215Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T03:45:08.835215Z
+
 [drop_017.drop.install_toml_overlays]
 created = 2026-05-24T06:45:18.406848Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-24T06:45:18.406848Z
+updated = 2026-05-27T03:46:05.495201Z
 
 [drop_017.drop.install_toml_overlays-plan-qa-falsification]
 created = 2026-05-24T06:45:18.434604Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T06:45:18.434604Z
+updated = 2026-05-27T04:22:08.222607Z
 
 [drop_017.drop.install_toml_overlays-plan-qa-proof]
 created = 2026-05-24T06:45:18.420945Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T06:45:18.420945Z
+updated = 2026-05-27T04:19:42.383617Z
+
+[drop_017.drop.planner_l2_install_consumers]
+created = 2026-05-27T03:45:08.860157Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-27T04:48:25.820401Z
+
+[drop_017.drop.planner_l2_install_consumers-plan-qa-falsification]
+created = 2026-05-27T03:45:08.885943Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:48:06.038439Z
+
+[drop_017.drop.planner_l2_install_consumers-plan-qa-proof]
+created = 2026-05-27T03:45:08.873299Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:46:27.190314Z
+
+[drop_017.drop.planner_l2_installconfig_override_loaders]
+created = 2026-05-27T03:45:08.777886Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-27T04:32:51.792707Z
+
+[drop_017.drop.planner_l2_installconfig_override_loaders-plan-qa-falsification]
+created = 2026-05-27T03:45:08.808676Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:45:40.490104Z
+
+[drop_017.drop.planner_l2_installconfig_override_loaders-plan-qa-proof]
+created = 2026-05-27T03:45:08.794007Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:45:26.707965Z
 
 [drop_018]
 [drop_018.drop]
@@ -4313,23 +4457,95 @@ updated = 2026-05-24T06:45:18.506103Z
 
 [drop_020]
 [drop_020.drop]
+[drop_020.drop.droplet_l1_mage_no_seeds_install]
+created = 2026-05-27T04:22:23.269171Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:22:23.269171Z
+
+[drop_020.drop.droplet_l1_mage_no_seeds_install-qa-falsification]
+created = 2026-05-27T04:22:23.312183Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:22:23.312183Z
+
+[drop_020.drop.droplet_l1_mage_no_seeds_install-qa-proof]
+created = 2026-05-27T04:22:23.297576Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:22:23.297576Z
+
+[drop_020.drop.droplet_l1_readme_seeds_story]
+created = 2026-05-27T04:22:23.326721Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:22:23.326721Z
+
+[drop_020.drop.droplet_l1_readme_seeds_story-qa-falsification]
+created = 2026-05-27T04:22:23.354187Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:22:23.354187Z
+
+[drop_020.drop.droplet_l1_readme_seeds_story-qa-proof]
+created = 2026-05-27T04:22:23.34017Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:22:23.34017Z
+
+[drop_020.drop.planner_l1_init_defaults_cmd]
+created = 2026-05-27T04:21:25.723777Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-27T04:21:25.723777Z
+
+[drop_020.drop.planner_l1_init_defaults_cmd-plan-qa-falsification]
+created = 2026-05-27T04:21:25.751463Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:21:25.751463Z
+
+[drop_020.drop.planner_l1_init_defaults_cmd-plan-qa-proof]
+created = 2026-05-27T04:21:25.737444Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:21:25.737444Z
+
+[drop_020.drop.planner_l1_seed_content]
+created = 2026-05-27T04:21:25.675102Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-27T04:21:25.675102Z
+
+[drop_020.drop.planner_l1_seed_content-plan-qa-falsification]
+created = 2026-05-27T04:21:25.709515Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:21:25.709515Z
+
+[drop_020.drop.planner_l1_seed_content-plan-qa-proof]
+created = 2026-05-27T04:21:25.695595Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:21:25.695595Z
+
 [drop_020.drop.seed_library_init_defaults]
 created = 2026-05-24T06:45:18.533057Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-24T06:45:18.533057Z
+updated = 2026-05-27T04:23:26.552854Z
 
 [drop_020.drop.seed_library_init_defaults-plan-qa-falsification]
 created = 2026-05-24T06:45:18.560086Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T06:45:18.560086Z
+updated = 2026-05-27T04:35:13.019553Z
 
 [drop_020.drop.seed_library_init_defaults-plan-qa-proof]
 created = 2026-05-24T06:45:18.546805Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T06:45:18.546805Z
+updated = 2026-05-27T04:32:14.126895Z
 
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]
