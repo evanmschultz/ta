@@ -15,7 +15,7 @@ func TestValidate_AcceptsValidConfig(t *testing.T) {
 			FlattenStrategy: "by_basename",
 			MergeStrategy:   "merge",
 			Register: []Registration{
-				{Event: "PreToolUse", Matcher: "Bash", SettingsFile: ".claude/settings.local.json"},
+				{Event: "PreToolUse", Matcher: "Bash", SettingsFile: ".claude/settings.local.json", SourceFile: "pre_tooluse_bash.sh"},
 			},
 		},
 		"minimal": {
@@ -82,7 +82,7 @@ func TestValidate_RejectsBadMergeStrategy(t *testing.T) {
 }
 
 // TestValidate_RejectsMissingRegisterFields confirms that Register entries
-// have their own required-field gates: Event and SettingsFile.
+// have their own required-field gates: Event, SettingsFile, and SourceFile.
 func TestValidate_RejectsMissingRegisterFields(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -91,13 +91,18 @@ func TestValidate_RejectsMissingRegisterFields(t *testing.T) {
 	}{
 		{
 			name:    "missing event",
-			reg:     Registration{Matcher: "Bash", SettingsFile: ".claude/settings.local.json"},
+			reg:     Registration{Matcher: "Bash", SettingsFile: ".claude/settings.local.json", SourceFile: "pre_tooluse_bash.sh"},
 			wantSub: "event",
 		},
 		{
 			name:    "missing settings_file",
-			reg:     Registration{Event: "PreToolUse", Matcher: "Bash"},
+			reg:     Registration{Event: "PreToolUse", Matcher: "Bash", SourceFile: "pre_tooluse_bash.sh"},
 			wantSub: "settings_file",
+		},
+		{
+			name:    "missing source_file",
+			reg:     Registration{Event: "PreToolUse", Matcher: "Bash", SettingsFile: ".claude/settings.local.json"},
+			wantSub: "source_file",
 		},
 	}
 	for _, tc := range cases {

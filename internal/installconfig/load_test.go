@@ -96,6 +96,7 @@ destination = ".claude/hooks"
   event = "PreToolUse"
   matcher = "Bash"
   settings_file = ".claude/settings.local.json"
+  source_file = "pre_tooluse_bash.sh"
 `)
 
 	cfg, err := LoadBytes(src)
@@ -130,16 +131,19 @@ destination = ".claude/hooks"
   event = "PreToolUse"
   matcher = "Bash"
   settings_file = ".claude/settings.local.json"
+  source_file = "pre_tooluse_bash.sh"
 
   [[substrate.hooks.register]]
   event = "PostToolUse"
   matcher = "Edit"
   settings_file = ".claude/settings.local.json"
+  source_file = "post_tooluse_edit.sh"
 
   [[substrate.hooks.register]]
   event = "SessionStart"
   matcher = ""
   settings_file = ".claude/settings.json"
+  source_file = "session_start.sh"
 `)
 
 	cfg, err := LoadBytes(src)

@@ -111,6 +111,9 @@ func TestEmbeddedDefaults_HooksRegisterTriple(t *testing.T) {
 		if reg.SettingsFile == "" {
 			t.Errorf("claude_hooks.Register[%d].SettingsFile is empty", i)
 		}
+		if reg.SourceFile == "" {
+			t.Errorf("claude_hooks.Register[%d].SourceFile is empty", i)
+		}
 	}
 }
 

@@ -251,6 +251,42 @@ func TestLineMerger_NoExisting(t *testing.T) {
 
 // ---- Round-trip stability -----------------------------------------
 
+func TestJSONMerger_ArrayDedupeByMatcherAndCommandTuple(t *testing.T) {
+	merger := configmerge.NewJSONMerger(map[string]string{"hooks": "matcher,command"})
+	existing := []byte(`{"hooks":[{"matcher":"bash","command":"bash_guard","args":["1"]}]}`)
+	incoming := []byte(`{"hooks":[{"matcher":"bash","command":"bash_guard","args":["2"]}, {"matcher":"bash","command":"other_guard","args":["3"]}, {"matcher":"git","command":"bash_guard","args":["4"]}]}`)
+	out, _, err := merger.Merge(existing, incoming)
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	hooks, _ := got["hooks"].([]any)
+	if len(hooks) != 3 {
+		t.Errorf("dedupe by (matcher,command) tuple should keep 3 entries (1 existing + 2 incoming unique), got %d (%+v)", len(hooks), hooks)
+	}
+}
+
+func TestJSONMerger_ArrayDedupeSameMatcherDifferentCommandSurvives(t *testing.T) {
+	merger := configmerge.NewJSONMerger(map[string]string{"hooks": "matcher,command"})
+	existing := []byte(`{}`)
+	incoming := []byte(`{"hooks":[{"matcher":"bash","command":"guard_a"}, {"matcher":"bash","command":"guard_b"}]}`)
+	out, _, err := merger.Merge(existing, incoming)
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	hooks, _ := got["hooks"].([]any)
+	if len(hooks) != 2 {
+		t.Errorf("same matcher with different commands should produce 2 distinct entries, got %d", len(hooks))
+	}
+}
+
 func TestJSONMerger_IdempotentReapply(t *testing.T) {
 	merger := configmerge.NewJSONMerger(nil)
 	a := []byte(`{"a":1,"b":{"c":2}}`)

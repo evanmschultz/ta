@@ -15,6 +15,7 @@
 package install
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -25,6 +26,22 @@ import (
 	"github.com/evanmschultz/ta/internal/installconfig"
 )
 
+// RegistrationOutcome records the result of applying one registration entry.
+// Substrate is the substrate key (e.g. "claude_hooks"); SettingsFile is the
+// destination settings file path; Event is the top-level hook event key;
+// Matcher is the registration matcher; Command is the resolved destination
+// hook path (join(sub.Destination, reg.SourceFile)); Status is one of
+// {added, deduped, error}; Error is populated only when Status=="error".
+type RegistrationOutcome struct {
+	Substrate    string
+	SettingsFile string
+	Event        string
+	Matcher      string
+	Command      string
+	Status       string
+	Error        string
+}
+
 // Report aggregates the outcome of one Apply run.
 //
 // Written and Skipped entries are formatted "<substrate-name>:<dst-rel-path>"
@@ -33,19 +50,21 @@ import (
 // for callers to filter by substrate.
 //
 // Registrations holds the registration directives recorded during this run.
-// D4 records them as a STUB — no settings_file writes happen here. L3-I5
-// layers the real settings-file mutation on top via a callback or follow-up
-// pass.
+// This field is preserved as the directive echo (required by existing callers).
+//
+// RegistrationOutcomes holds the actual results of applying each registration:
+// added/deduped/error status for each registration processed.
 //
 // Errors collects "<substrate>:<err-message>" entries. Apply short-circuits
 // on the first hard error per the L3-I3 planner's Unknown #3 routing, so
 // this slice typically has length 0 or 1; the slice shape leaves room for
 // a future continue-on-error mode without changing the Report API.
 type Report struct {
-	Written       []string
-	Skipped       []string
-	Registrations []installconfig.Registration
-	Errors        []string
+	Written              []string
+	Skipped              []string
+	Registrations        []installconfig.Registration
+	RegistrationOutcomes []RegistrationOutcome
+	Errors               []string
 }
 
 // arrayDedupeRegistry maps substrate name → the configmerge.NewJSONMerger /
@@ -54,19 +73,18 @@ type Report struct {
 //
 // The shape is documented per substrate to keep canonical destinations
 // (e.g. .claude/settings.json) free of duplicate matcher entries when an
-// install is re-run. L3-I5 may refine the map; for L3-I3 we ship the
-// canonical claude_settings_fragments keys (hooks.PreToolUse,
-// hooks.SubagentStop, hooks.SessionStart all dedupe by "matcher"), and a
-// documented empty map for the other merge-strategy substrates so callers
-// see the seam.
+// install is re-run. L3-I3 shipped with wrapped keys (hooks.PreToolUse, etc.);
+// L3-I5 migrates to top-level event arrays (PreToolUse, SessionStart, etc.)
+// deduping still by "matcher" alone (existing wins when merging different
+// commands for the same matcher).
 //
 // Substrates not listed here resolve to nil at lookup time, which the
 // configmerge JSON/TOML mergers treat as "no array dedupe keys configured".
 var arrayDedupeRegistry = map[string]map[string]string{
 	"claude_settings_fragments": {
-		"hooks.PreToolUse":   "matcher",
-		"hooks.SubagentStop": "matcher",
-		"hooks.SessionStart": "matcher",
+		"PreToolUse":   "matcher",
+		"SubagentStop": "matcher",
+		"SessionStart": "matcher",
 	},
 	"claude_mcp_servers":     {},
 	"codex_mcp_servers":      {},
@@ -155,7 +173,7 @@ func Apply(cfg installconfig.Config, dottaTree dotta.Tree, projectRoot string) (
 			}
 		}
 
-		applyRegistrations(&rep, sub)
+		applyRegistrations(&rep, name, sub)
 	}
 
 	return rep, nil
@@ -278,16 +296,122 @@ func shouldMerge(onConflict, mergeStrategy string) bool {
 	return onConflict == dotta.OnConflictMerge
 }
 
-// applyRegistrations is the STUB recorder for substrate.Register
-// entries. L3-I3 records them in rep.Registrations only; L3-I5 layers
-// the real settings_file mutation on top (likely via a callback
-// override threaded through Apply's signature, or a follow-up pass
-// over rep.Registrations).
-//
-// Recording happens regardless of substrate registry presence so the
-// seam is observable for tests today.
-func applyRegistrations(rep *Report, sub installconfig.Substrate) {
+// applyRegistrations records substrate.Register entries in rep.Registrations
+// (as the directive echo) and invokes the real D3 writer to mutate the
+// declared settings files. For each registration, it captures the outcome
+// (added/deduped/error) in rep.RegistrationOutcomes.
+func applyRegistrations(rep *Report, substrateName string, sub installconfig.Substrate) {
+	// Record directives as the directive echo (required by existing callers).
 	rep.Registrations = append(rep.Registrations, sub.Register...)
+
+	// Invoke the real D3 writer for each registration's settings_file group.
+	// Group registrations by settings_file to reduce redundant file I/O.
+	regsByFile := make(map[string][]installconfig.Registration)
+	for _, reg := range sub.Register {
+		if reg.SettingsFile != "" {
+			regsByFile[reg.SettingsFile] = append(regsByFile[reg.SettingsFile], reg)
+		}
+	}
+
+	// Process each settings file group.
+	for settingsFile, regs := range regsByFile {
+		// Capture state BEFORE applying registrations to detect added vs deduped.
+		beforeState := captureSettingsState(settingsFile)
+
+		if err := ApplyRegistrations(settingsFile, sub, regs); err != nil {
+			// Record error outcome for each registration in this group.
+			for _, reg := range regs {
+				rep.RegistrationOutcomes = append(rep.RegistrationOutcomes, RegistrationOutcome{
+					Substrate:    substrateName,
+					SettingsFile: settingsFile,
+					Event:        reg.Event,
+					Matcher:      reg.Matcher,
+					Command:      filepath.Join(sub.Destination, reg.SourceFile),
+					Status:       "error",
+					Error:        err.Error(),
+				})
+			}
+			continue
+		}
+
+		// For each registration, determine if it was added or deduped.
+		for _, reg := range regs {
+			if reg.Event == "" {
+				// Skip registrations with no event (ApplyRegistrations skips them too).
+				continue
+			}
+
+			command := filepath.Join(sub.Destination, reg.SourceFile)
+			command = filepath.ToSlash(command)
+
+			// Check: did the entry exist before? If so, it's deduped. Otherwise, added.
+			status := "added"
+			if entryExistsInState(beforeState, reg.Event, reg.Matcher, command) {
+				status = "deduped"
+			}
+
+			rep.RegistrationOutcomes = append(rep.RegistrationOutcomes, RegistrationOutcome{
+				Substrate:    substrateName,
+				SettingsFile: settingsFile,
+				Event:        reg.Event,
+				Matcher:      reg.Matcher,
+				Command:      command,
+				Status:       status,
+				Error:        "",
+			})
+		}
+	}
+}
+
+// captureSettingsState reads and parses the settings file, returning a map
+// of {eventKey: []{matcher, command}} for dedup detection.
+func captureSettingsState(settingsPath string) map[string]map[string]bool {
+	state := make(map[string]map[string]bool)
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		// File does not exist or cannot be read — return empty state.
+		return state
+	}
+
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		// Invalid JSON — return empty state.
+		return state
+	}
+
+	// For each event array, populate the state map with (matcher:command) keys.
+	for eventKey, eventValue := range settings {
+		eventArray, ok := eventValue.([]any)
+		if !ok {
+			continue
+		}
+
+		entryMap := make(map[string]bool)
+		for _, entry := range eventArray {
+			entryObj, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			m, okM := entryObj["matcher"].(string)
+			c, okC := entryObj["command"].(string)
+			if okM && okC {
+				// Store as "matcher:command" key.
+				entryMap[m+":"+c] = true
+			}
+		}
+		state[eventKey] = entryMap
+	}
+
+	return state
+}
+
+// entryExistsInState checks if a (matcher, command) entry exists in the captured state.
+func entryExistsInState(state map[string]map[string]bool, event, matcher, command string) bool {
+	eventMap, ok := state[event]
+	if !ok {
+		return false
+	}
+	return eventMap[matcher+":"+command]
 }
 
 // pathExists reports whether path is present on disk. A genuine

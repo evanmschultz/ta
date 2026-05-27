@@ -4153,23 +4153,95 @@ updated = 2026-05-24T06:45:18.420945Z
 
 [drop_018]
 [drop_018.drop]
+[drop_018.drop.builder_d1_registration_sourcefile_contract]
+created = 2026-05-26T22:53:42.776208Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-26T23:04:10.606814Z
+
+[drop_018.drop.builder_d1_registration_sourcefile_contract-qa-falsification]
+created = 2026-05-26T22:53:42.80752Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-26T22:53:42.80752Z
+
+[drop_018.drop.builder_d1_registration_sourcefile_contract-qa-proof]
+created = 2026-05-26T22:53:42.79272Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-26T22:53:42.79272Z
+
+[drop_018.drop.builder_d2_configmerge_composite_registration_dedupe]
+created = 2026-05-26T22:53:42.825802Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-26T23:04:10.625563Z
+
+[drop_018.drop.builder_d2_configmerge_composite_registration_dedupe-qa-falsification]
+created = 2026-05-26T22:53:42.859228Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-26T22:53:42.859228Z
+
+[drop_018.drop.builder_d2_configmerge_composite_registration_dedupe-qa-proof]
+created = 2026-05-26T22:53:42.843594Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-26T22:53:42.843594Z
+
+[drop_018.drop.builder_d3_claude_hook_shape_and_writer]
+created = 2026-05-26T22:53:42.871584Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T00:06:54.798487Z
+
+[drop_018.drop.builder_d3_claude_hook_shape_and_writer-qa-falsification]
+created = 2026-05-26T22:53:42.89709Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-26T22:53:42.89709Z
+
+[drop_018.drop.builder_d3_claude_hook_shape_and_writer-qa-proof]
+created = 2026-05-26T22:53:42.885047Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-26T22:53:42.885047Z
+
+[drop_018.drop.builder_d4_apply_integration_and_registration_outcomes]
+created = 2026-05-26T22:53:42.911125Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T00:06:54.777022Z
+
+[drop_018.drop.builder_d4_apply_integration_and_registration_outcomes-qa-falsification]
+created = 2026-05-26T22:53:42.937848Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-26T22:53:42.937848Z
+
+[drop_018.drop.builder_d4_apply_integration_and_registration_outcomes-qa-proof]
+created = 2026-05-26T22:53:42.924677Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-26T22:53:42.924677Z
+
 [drop_018.drop.planner_l1_real_apply_registrations]
 created = 2026-05-24T06:45:54.362648Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-24T22:05:24.285579Z
+updated = 2026-05-26T22:40:02.693966Z
 
 [drop_018.drop.planner_l1_real_apply_registrations-plan-qa-falsification]
 created = 2026-05-24T06:45:54.390611Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T22:05:24.267034Z
+updated = 2026-05-26T22:51:26.913097Z
 
 [drop_018.drop.planner_l1_real_apply_registrations-plan-qa-proof]
 created = 2026-05-24T06:45:54.3763Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T17:53:21.332522Z
+updated = 2026-05-26T22:44:57.030471Z
 
 [drop_018.drop.real_apply_registrations]
 created = 2026-05-24T06:45:18.449899Z
@@ -4293,19 +4365,19 @@ updated = 2026-05-26T21:42:20.339829Z
 created = 2026-05-24T22:34:51.981197Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T21:42:20.442381Z
+updated = 2026-05-26T23:40:13.714522Z
 
 [ta-fe-plan-qa-proof]
 created = 2026-05-24T22:34:51.965313Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T21:42:20.408634Z
+updated = 2026-05-26T23:40:13.73413Z
 
 [ta-fe-planning]
 created = 2026-05-19T04:14:08.958005Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T21:44:05.256104Z
+updated = 2026-05-26T23:40:13.692125Z
 
 [ta-fe-qa-falsification]
 created = 2026-05-19T04:14:08.942606Z
@@ -4341,19 +4413,19 @@ updated = 2026-05-26T21:42:20.319909Z
 created = 2026-05-24T22:34:51.900393Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T21:42:20.425822Z
+updated = 2026-05-26T23:38:46.971243Z
 
 [ta-go-plan-qa-proof]
 created = 2026-05-24T22:34:51.883521Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T21:42:20.391542Z
+updated = 2026-05-26T23:38:46.990216Z
 
 [ta-go-planning]
 created = 2026-05-16T23:22:18.871549Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-26T21:44:05.236316Z
+updated = 2026-05-26T23:38:46.952525Z
 
 [ta-go-qa-falsification]
 created = 2026-05-16T23:22:18.895437Z

@@ -58,6 +58,9 @@ func validateSubstrate(name string, sub Substrate) error {
 		if reg.SettingsFile == "" {
 			return fmt.Errorf("installconfig: substrate %q: register[%d]: missing required field %q", name, i, "settings_file")
 		}
+		if reg.SourceFile == "" {
+			return fmt.Errorf("installconfig: substrate %q: register[%d]: missing required field %q", name, i, "source_file")
+		}
 	}
 	return nil
 }

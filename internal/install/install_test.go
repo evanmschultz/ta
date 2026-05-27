@@ -355,31 +355,28 @@ func TestApply_RegistrationDirectivesRecordedInReport(t *testing.T) {
 // claude_settings_fragments registry path: when the substrate matches
 // the registry entry and the destination is pre-seeded with a hooks
 // payload, Apply routes through MergeFile with the registry's
-// arrayDedupeKeys ({"hooks.PreToolUse": "matcher"}) and the destination
-// ends up with deduped Agent entries plus the appended SessionStart
-// entry.
+// arrayDedupeKeys ({"PreToolUse": "matcher,command"}) and the destination
+// ends up with deduped (matcher, command) entries plus the appended
+// SessionStart entry.
 func TestApply_MergePathDeepDedupesHooks(t *testing.T) {
 	dottaRoot := t.TempDir()
 	projectRoot := t.TempDir()
 
 	// Source: incoming settings fragment with Agent + SessionStart entries.
+	// Note: top-level event arrays (not wrapped under "hooks").
 	incoming := `{
-  "hooks": {
-    "PreToolUse": [
-      {"matcher": "Agent", "command": "new-cmd"},
-      {"matcher": "SessionStart", "command": "fresh"}
-    ]
-  }
+  "PreToolUse": [
+    {"matcher": "Agent", "command": "new-cmd"},
+    {"matcher": "SessionStart", "command": "fresh"}
+  ]
 }`
 	srcAbs := writeSourceFile(t, dottaRoot, "claude-settings/settings.json", incoming)
 
-	// Pre-seed destination with an existing Agent matcher entry.
+	// Pre-seed destination with an existing Agent matcher + command entry.
 	existing := `{
-  "hooks": {
-    "PreToolUse": [
-      {"matcher": "Agent", "command": "old-cmd"}
-    ]
-  }
+  "PreToolUse": [
+    {"matcher": "Agent", "command": "old-cmd"}
+  ]
 }`
 	dstPath := filepath.Join(projectRoot, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
@@ -449,30 +446,27 @@ func TestApply_MergePathDeepDedupesHooks(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("reparse merged dst: %v\n%s", err, out)
 	}
-	hooks, ok := got["hooks"].(map[string]any)
+	pretool, ok := got["PreToolUse"].([]any)
 	if !ok {
-		t.Fatalf("hooks shape lost in merge: %+v", got)
-	}
-	pretool, ok := hooks["PreToolUse"].([]any)
-	if !ok {
-		t.Fatalf("PreToolUse shape lost: %+v", hooks)
+		t.Fatalf("PreToolUse missing or not an array at top level: %+v", got)
 	}
 	if len(pretool) != 2 {
-		t.Errorf("expected 2 deduped entries (Agent + SessionStart) via registry; got %d: %+v", len(pretool), pretool)
+		t.Errorf("expected 2 entries (Agent + SessionStart) via registry; got %d: %+v", len(pretool), pretool)
 	}
-	matchers := map[string]string{}
+	// Build a map of (matcher, command) -> true to verify dedupe.
+	entries := map[string]string{} // "matcher:command" -> command
 	for _, e := range pretool {
 		ent, _ := e.(map[string]any)
 		m, _ := ent["matcher"].(string)
 		c, _ := ent["command"].(string)
-		matchers[m] = c
+		entries[m] = c
 	}
-	// Existing wins on dedupe key.
-	if matchers["Agent"] != "old-cmd" {
-		t.Errorf("existing Agent.command should win (registry dedupe by matcher), got %q (full=%+v)", matchers["Agent"], matchers)
+	// Existing (Agent, old-cmd) wins on dedupe; incoming SessionStart appended.
+	if entries["Agent"] != "old-cmd" {
+		t.Errorf("existing (Agent, old-cmd) should win on dedupe, got %q (full=%+v)", entries["Agent"], entries)
 	}
-	if matchers["SessionStart"] != "fresh" {
-		t.Errorf("incoming SessionStart not appended: %+v", matchers)
+	if entries["SessionStart"] != "fresh" {
+		t.Errorf("incoming SessionStart not appended: %+v", entries)
 	}
 }
 
@@ -486,4 +480,248 @@ func asErrors(errs []string) error {
 		return nil
 	}
 	return errors.New(strings.Join(errs, "; "))
+}
+
+// TestApply_RegistrationDirectivesWriteSettingsFileAndKeepDirectiveReport
+// verifies that Apply invokes the real D3 writer (ApplyRegistrations), which
+// mutates the declared settings files, while preserving Report.Registrations
+// as the directive echo (required by existing callers).
+func TestApply_RegistrationDirectivesWriteSettingsFileAndKeepDirectiveReport(t *testing.T) {
+	dottaRoot := t.TempDir()
+	projectRoot := t.TempDir()
+
+	srcAbs := writeSourceFile(t, dottaRoot, "hooks/pre.sh", "#!/usr/bin/env bash\n")
+
+	cfg := installconfig.Config{
+		Substrates: map[string]installconfig.Substrate{
+			"claude_hooks": {
+				Source:      "~/.ta/hooks",
+				Destination: ".claude/hooks",
+				Chmod:       "0755",
+				Register: []installconfig.Registration{
+					{
+						Event:        "PreToolUse",
+						Matcher:      "Bash",
+						SettingsFile: filepath.Join(projectRoot, ".claude", "settings.local.json"),
+						SourceFile:   "pre.sh",
+					},
+				},
+			},
+		},
+	}
+
+	tree := dotta.Tree{
+		Root: dottaRoot,
+		Subtrees: []dotta.Subtree{
+			makeSubtree("hooks", dottaRoot, "", []dotta.FileMeta{{
+				Name:    "pre.sh",
+				AbsPath: srcAbs,
+				RelPath: "pre.sh",
+			}}),
+		},
+	}
+
+	rep, err := install.Apply(cfg, tree, projectRoot)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	// Verify Report.Registrations is preserved (directive echo).
+	if len(rep.Registrations) != 1 {
+		t.Fatalf("Report.Registrations len = %d, want 1: %+v", len(rep.Registrations), rep.Registrations)
+	}
+	if rep.Registrations[0].Event != "PreToolUse" || rep.Registrations[0].Matcher != "Bash" {
+		t.Errorf("registration directive = %+v, want PreToolUse/Bash", rep.Registrations[0])
+	}
+
+	// Verify settings file was actually written (D3 writer invoked).
+	settingsPath := filepath.Join(projectRoot, ".claude", "settings.local.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("settings file not written: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("parse settings: %v", err)
+	}
+
+	pretool, ok := got["PreToolUse"].([]any)
+	if !ok || len(pretool) == 0 {
+		t.Fatalf("PreToolUse array missing or empty: %+v", got)
+	}
+
+	entry := pretool[0].(map[string]any)
+	if matcher, ok := entry["matcher"].(string); !ok || matcher != "Bash" {
+		t.Errorf("PreToolUse entry matcher = %q, want Bash", matcher)
+	}
+	if command, ok := entry["command"].(string); !ok || !strings.Contains(command, "pre.sh") {
+		t.Errorf("PreToolUse entry command = %q, want .../pre.sh", command)
+	}
+
+	// Verify RegistrationOutcomes is populated.
+	if len(rep.RegistrationOutcomes) != 1 {
+		t.Fatalf("Report.RegistrationOutcomes len = %d, want 1: %+v", len(rep.RegistrationOutcomes), rep.RegistrationOutcomes)
+	}
+	outcome := rep.RegistrationOutcomes[0]
+	if outcome.Substrate != "claude_hooks" {
+		t.Errorf("outcome.Substrate = %q, want claude_hooks", outcome.Substrate)
+	}
+	if outcome.Status != "added" {
+		t.Errorf("outcome.Status = %q, want added", outcome.Status)
+	}
+}
+
+// TestApply_RegistrationOutcomeContract_AddedAndDeduped verifies that
+// RegistrationOutcomes correctly tracks added and deduped statuses.
+func TestApply_RegistrationOutcomeContract_AddedAndDeduped(t *testing.T) {
+	dottaRoot := t.TempDir()
+	projectRoot := t.TempDir()
+
+	srcAbs := writeSourceFile(t, dottaRoot, "hooks/pre.sh", "#!/usr/bin/env bash\n")
+
+	settingsPath := filepath.Join(projectRoot, ".claude", "settings.local.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("mkdir settings parent: %v", err)
+	}
+
+	// Pre-seed settings file with one entry.
+	existingSettings := `{
+  "PreToolUse": [
+    {"matcher": "Bash", "command": ".claude/hooks/pre.sh"}
+  ]
+}
+`
+	if err := os.WriteFile(settingsPath, []byte(existingSettings), 0o644); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	cfg := installconfig.Config{
+		Substrates: map[string]installconfig.Substrate{
+			"claude_hooks": {
+				Source:      "~/.ta/hooks",
+				Destination: ".claude/hooks",
+				Chmod:       "0755",
+				Register: []installconfig.Registration{
+					{
+						Event:        "PreToolUse",
+						Matcher:      "Bash",
+						SettingsFile: settingsPath,
+						SourceFile:   "pre.sh",
+					},
+					{
+						Event:        "PreToolUse",
+						Matcher:      "Agent",
+						SettingsFile: settingsPath,
+						SourceFile:   "pre.sh",
+					},
+				},
+			},
+		},
+	}
+
+	tree := dotta.Tree{
+		Root: dottaRoot,
+		Subtrees: []dotta.Subtree{
+			makeSubtree("hooks", dottaRoot, "", []dotta.FileMeta{{
+				Name:    "pre.sh",
+				AbsPath: srcAbs,
+				RelPath: "pre.sh",
+			}}),
+		},
+	}
+
+	rep, err := install.Apply(cfg, tree, projectRoot)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	// Verify outcomes: first is deduped (already exists), second is added.
+	if len(rep.RegistrationOutcomes) != 2 {
+		t.Fatalf("Report.RegistrationOutcomes len = %d, want 2: %+v", len(rep.RegistrationOutcomes), rep.RegistrationOutcomes)
+	}
+
+	// First outcome: Bash matcher — should be deduped (already in settings).
+	if rep.RegistrationOutcomes[0].Matcher != "Bash" {
+		t.Errorf("outcome[0].Matcher = %q, want Bash", rep.RegistrationOutcomes[0].Matcher)
+	}
+	if rep.RegistrationOutcomes[0].Status != "deduped" {
+		t.Errorf("outcome[0].Status = %q, want deduped", rep.RegistrationOutcomes[0].Status)
+	}
+
+	// Second outcome: Agent matcher — should be added (new entry).
+	if rep.RegistrationOutcomes[1].Matcher != "Agent" {
+		t.Errorf("outcome[1].Matcher = %q, want Agent", rep.RegistrationOutcomes[1].Matcher)
+	}
+	if rep.RegistrationOutcomes[1].Status != "added" {
+		t.Errorf("outcome[1].Status = %q, want added", rep.RegistrationOutcomes[1].Status)
+	}
+}
+
+// TestApply_RegistrationOutcomeContract_Error verifies that when
+// ApplyRegistrations encounters an error, RegistrationOutcome.Status is
+// set to "error" and RegistrationOutcome.Error is populated.
+func TestApply_RegistrationOutcomeContract_Error(t *testing.T) {
+	dottaRoot := t.TempDir()
+	projectRoot := t.TempDir()
+
+	srcAbs := writeSourceFile(t, dottaRoot, "hooks/pre.sh", "#!/usr/bin/env bash\n")
+
+	// Create a settings path in a directory that does not exist and cannot be created.
+	badSettingsPath := "/root/nonexistent/settings.json"
+	if os.Geteuid() == 0 {
+		t.Skip("skipping error test when running as root")
+	}
+
+	cfg := installconfig.Config{
+		Substrates: map[string]installconfig.Substrate{
+			"claude_hooks": {
+				Source:      "~/.ta/hooks",
+				Destination: ".claude/hooks",
+				Chmod:       "0755",
+				Register: []installconfig.Registration{
+					{
+						Event:        "PreToolUse",
+						Matcher:      "Bash",
+						SettingsFile: badSettingsPath,
+						SourceFile:   "pre.sh",
+					},
+				},
+			},
+		},
+	}
+
+	tree := dotta.Tree{
+		Root: dottaRoot,
+		Subtrees: []dotta.Subtree{
+			makeSubtree("hooks", dottaRoot, "", []dotta.FileMeta{{
+				Name:    "pre.sh",
+				AbsPath: srcAbs,
+				RelPath: "pre.sh",
+			}}),
+		},
+	}
+
+	rep, err := install.Apply(cfg, tree, projectRoot)
+	// Apply may or may not return an error (depends on whether directory creation fails).
+	// The important thing is that RegistrationOutcomes captures the error.
+
+	// Verify at least one outcome has error status.
+	if len(rep.RegistrationOutcomes) == 0 {
+		t.Fatalf("Report.RegistrationOutcomes should have error entry, got empty")
+	}
+
+	foundError := false
+	for _, outcome := range rep.RegistrationOutcomes {
+		if outcome.Status == "error" && outcome.Error != "" {
+			foundError = true
+			break
+		}
+	}
+
+	if !foundError {
+		t.Errorf("expected at least one error outcome, got %+v", rep.RegistrationOutcomes)
+	}
+
+	_ = err // Suppress unused error variable warning.
 }

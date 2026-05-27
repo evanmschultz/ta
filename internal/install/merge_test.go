@@ -176,31 +176,27 @@ func TestMergeFile_SurfacesConflictAsLoudError(t *testing.T) {
 
 func TestMergeFile_MergePathDeepDedupesNamedArray(t *testing.T) {
 	dir := t.TempDir()
-	// Canonical claude-settings.json shape: hooks live under
-	// .hooks.PreToolUse[] and identify themselves by their "matcher"
-	// field. arrayDedupeKeys passes through verbatim to NewJSONMerger,
-	// so the dedupe key "hooks.PreToolUse" → "matcher" must be honored
-	// when both sides declare an entry with matcher="Agent".
+	// Claude user-settings shape: hooks live under top-level event arrays
+	// (PreToolUse[], SessionStart[], etc.) and identify themselves by
+	// "matcher" field. arrayDedupeKeys passes through verbatim to NewJSONMerger,
+	// so the dedupe key "PreToolUse" → "matcher" must be honored when both
+	// sides declare an entry with matcher="Agent".
 	existingJSON := `{
-  "hooks": {
-    "PreToolUse": [
-      {"matcher": "Agent", "command": "old-cmd"}
-    ]
-  }
+  "PreToolUse": [
+    {"matcher": "Agent", "command": "old-cmd"}
+  ]
 }`
 	incomingJSON := `{
-  "hooks": {
-    "PreToolUse": [
-      {"matcher": "Agent", "command": "new-cmd"},
-      {"matcher": "SessionStart", "command": "fresh"}
-    ]
-  }
+  "PreToolUse": [
+    {"matcher": "Agent", "command": "new-cmd"},
+    {"matcher": "SessionStart", "command": "fresh"}
+  ]
 }`
 
 	src := writeFile(t, dir, "src.json", incomingJSON)
 	dst := writeFile(t, dir, "dst.json", existingJSON)
 
-	dedupe := map[string]string{"hooks.PreToolUse": "matcher"}
+	dedupe := map[string]string{"PreToolUse": "matcher"}
 	if err := install.MergeFile(src, dst, installconfig.Substrate{}, dedupe); err != nil {
 		t.Fatalf("MergeFile: %v", err)
 	}
@@ -213,30 +209,27 @@ func TestMergeFile_MergePathDeepDedupesNamedArray(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("reparse dst: %v\n%s", err, out)
 	}
-	hooks, ok := got["hooks"].(map[string]any)
+	pretool, ok := got["PreToolUse"].([]any)
 	if !ok {
-		t.Fatalf("hooks shape lost: %+v", got)
+		t.Fatalf("PreToolUse missing or not an array at top level: %+v", got)
 	}
-	pretool, ok := hooks["PreToolUse"].([]any)
-	if !ok {
-		t.Fatalf("PreToolUse shape lost: %+v", hooks)
-	}
-	// Dedupe key honored → matcher="Agent" appears exactly once and
-	// existing wins (old-cmd), and matcher="SessionStart" is appended.
+	// Dedupe key honored → matcher="Agent" appears exactly once (existing wins),
+	// and matcher="SessionStart" is appended.
 	if len(pretool) != 2 {
-		t.Errorf("expected 2 deduped entries (Agent + SessionStart), got %d: %+v", len(pretool), pretool)
+		t.Errorf("expected 2 deduped entries, got %d: %+v", len(pretool), pretool)
 	}
-	matchers := map[string]string{}
+	entries := map[string]string{} // "matcher" -> "command"
 	for _, e := range pretool {
 		ent, _ := e.(map[string]any)
 		m, _ := ent["matcher"].(string)
 		c, _ := ent["command"].(string)
-		matchers[m] = c
+		entries[m] = c
 	}
-	if matchers["Agent"] != "old-cmd" {
-		t.Errorf("existing Agent.command should win, got %q (full=%+v)", matchers["Agent"], matchers)
+	// Existing Agent entry wins on dedupe by matcher; incoming SessionStart appended.
+	if entries["Agent"] != "old-cmd" {
+		t.Errorf("existing Agent.command should win, got %q (full=%+v)", entries["Agent"], entries)
 	}
-	if matchers["SessionStart"] != "fresh" {
-		t.Errorf("incoming SessionStart not appended: %+v", matchers)
+	if entries["SessionStart"] != "fresh" {
+		t.Errorf("incoming SessionStart not appended: %+v", entries)
 	}
 }

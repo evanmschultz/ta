@@ -38,16 +38,19 @@ chmod = "0755"
   event = "PreToolUse"
   matcher = "Bash"
   settings_file = ".claude/settings.local.json"
+  source_file = "pre_tooluse_bash.sh"
 
   [[substrate.claude_hooks.register]]
   event = "PreToolUse"
   matcher = "Agent"
   settings_file = ".claude/settings.local.json"
+  source_file = "pre_tooluse_agent.sh"
 
   [[substrate.claude_hooks.register]]
   event = "SessionStart"
   matcher = ""
   settings_file = ".claude/settings.json"
+  source_file = "session_start.sh"
 
 # --- 3. claude_skills -------------------------------------------------------
 # Claude Code skill bundles. Each skill is a subdirectory whose name carries

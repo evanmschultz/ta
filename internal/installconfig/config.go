@@ -45,9 +45,11 @@ type Substrate struct {
 }
 
 // Registration is one Claude Code hook registration entry: which event fires
-// it, an optional matcher, and the settings file the substrate writes to.
+// it, an optional matcher, the settings file the substrate writes to, and the
+// source script basename that names the hook implementation.
 type Registration struct {
 	Event        string `toml:"event"`
 	Matcher      string `toml:"matcher"`
 	SettingsFile string `toml:"settings_file"`
+	SourceFile   string `toml:"source_file"`
 }

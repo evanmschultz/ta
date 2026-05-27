@@ -329,24 +329,42 @@ func mergeArrays(existing, incoming []any, path string, dedupe map[string]string
 // arrayContains reports whether arr already holds candidate. When
 // matchKey is non-empty AND candidate is an object, the
 // candidate[matchKey] scalar is compared against each existing
-// object's matchKey scalar. Otherwise deep-equal is used.
+// object's matchKey scalar. matchKey may be a single field name or
+// a comma-separated tuple (e.g. "matcher,command") for composite
+// identity matching. Otherwise deep-equal is used.
 func arrayContains(arr []any, candidate any, matchKey string) bool {
 	candObj, candIsObj := candidate.(map[string]any)
 	if matchKey != "" && candIsObj {
-		want, hasWant := candObj[matchKey]
-		if !hasWant {
-			return false
+		// Parse matchKey as a tuple of field names (comma-separated).
+		// Single key has no comma; composite key has comma(s).
+		keys := strings.Split(matchKey, ",")
+		wantVals := make([]any, len(keys))
+		for i, k := range keys {
+			val, has := candObj[strings.TrimSpace(k)]
+			if !has {
+				return false
+			}
+			wantVals[i] = val
 		}
 		for _, v := range arr {
 			obj, ok := v.(map[string]any)
 			if !ok {
 				continue
 			}
-			got, has := obj[matchKey]
-			if !has {
-				continue
+			// Check if all fields in the tuple match.
+			allMatch := true
+			for i, k := range keys {
+				got, has := obj[strings.TrimSpace(k)]
+				if !has {
+					allMatch = false
+					break
+				}
+				if !reflect.DeepEqual(got, wantVals[i]) {
+					allMatch = false
+					break
+				}
 			}
-			if reflect.DeepEqual(got, want) {
+			if allMatch {
 				return true
 			}
 		}

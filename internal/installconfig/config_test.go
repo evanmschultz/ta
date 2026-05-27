@@ -23,6 +23,7 @@ merge_path = "hooks"
   event = "PreToolUse"
   matcher = "Bash"
   settings_file = ".claude/settings.local.json"
+  source_file = "pre_tooluse_bash.sh"
 `)
 
 	cfg, err := LoadBytes(src)
@@ -48,6 +49,7 @@ merge_path = "hooks"
 				Event:        "PreToolUse",
 				Matcher:      "Bash",
 				SettingsFile: ".claude/settings.local.json",
+				SourceFile:   "pre_tooluse_bash.sh",
 			},
 		},
 	}
