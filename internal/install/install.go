@@ -173,7 +173,7 @@ func Apply(cfg installconfig.Config, dottaTree dotta.Tree, projectRoot string) (
 			}
 		}
 
-		applyRegistrations(&rep, name, sub)
+		applyRegistrations(&rep, name, sub, projectRoot)
 	}
 
 	return rep, nil
@@ -299,8 +299,9 @@ func shouldMerge(onConflict, mergeStrategy string) bool {
 // applyRegistrations records substrate.Register entries in rep.Registrations
 // (as the directive echo) and invokes the real D3 writer to mutate the
 // declared settings files. For each registration, it captures the outcome
-// (added/deduped/error) in rep.RegistrationOutcomes.
-func applyRegistrations(rep *Report, substrateName string, sub installconfig.Substrate) {
+// (added/deduped/error) in rep.RegistrationOutcomes. Relative settingsFile
+// paths are resolved against projectRoot.
+func applyRegistrations(rep *Report, substrateName string, sub installconfig.Substrate, projectRoot string) {
 	// Record directives as the directive echo (required by existing callers).
 	rep.Registrations = append(rep.Registrations, sub.Register...)
 
@@ -315,18 +316,26 @@ func applyRegistrations(rep *Report, substrateName string, sub installconfig.Sub
 
 	// Process each settings file group.
 	for settingsFile, regs := range regsByFile {
-		// Capture state BEFORE applying registrations to detect added vs deduped.
-		beforeState := captureSettingsState(settingsFile)
+		// Resolve relative settingsFile paths against projectRoot.
+		resolvedPath := settingsFile
+		if !filepath.IsAbs(resolvedPath) {
+			resolvedPath = filepath.Join(projectRoot, resolvedPath)
+		}
 
-		if err := ApplyRegistrations(settingsFile, sub, regs); err != nil {
+		// Capture state BEFORE applying registrations to detect added vs deduped.
+		beforeState := captureSettingsState(resolvedPath)
+
+		if err := ApplyRegistrations(resolvedPath, sub, regs); err != nil {
 			// Record error outcome for each registration in this group.
 			for _, reg := range regs {
+				command := filepath.Join(sub.Destination, reg.SourceFile)
+				command = filepath.ToSlash(command)
 				rep.RegistrationOutcomes = append(rep.RegistrationOutcomes, RegistrationOutcome{
 					Substrate:    substrateName,
 					SettingsFile: settingsFile,
 					Event:        reg.Event,
 					Matcher:      reg.Matcher,
-					Command:      filepath.Join(sub.Destination, reg.SourceFile),
+					Command:      command,
 					Status:       "error",
 					Error:        err.Error(),
 				})

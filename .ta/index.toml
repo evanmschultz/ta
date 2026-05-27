@@ -4163,13 +4163,13 @@ updated = 2026-05-26T23:04:10.606814Z
 created = 2026-05-26T22:53:42.80752Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T22:53:42.80752Z
+updated = 2026-05-27T03:20:27.117668Z
 
 [drop_018.drop.builder_d1_registration_sourcefile_contract-qa-proof]
 created = 2026-05-26T22:53:42.79272Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T22:53:42.79272Z
+updated = 2026-05-27T03:20:27.098141Z
 
 [drop_018.drop.builder_d2_configmerge_composite_registration_dedupe]
 created = 2026-05-26T22:53:42.825802Z
@@ -4181,13 +4181,13 @@ updated = 2026-05-26T23:04:10.625563Z
 created = 2026-05-26T22:53:42.859228Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T22:53:42.859228Z
+updated = 2026-05-27T03:20:27.151861Z
 
 [drop_018.drop.builder_d2_configmerge_composite_registration_dedupe-qa-proof]
 created = 2026-05-26T22:53:42.843594Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T22:53:42.843594Z
+updated = 2026-05-27T03:20:27.134642Z
 
 [drop_018.drop.builder_d3_claude_hook_shape_and_writer]
 created = 2026-05-26T22:53:42.871584Z
@@ -4199,13 +4199,13 @@ updated = 2026-05-27T00:06:54.798487Z
 created = 2026-05-26T22:53:42.89709Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T22:53:42.89709Z
+updated = 2026-05-27T03:20:27.186662Z
 
 [drop_018.drop.builder_d3_claude_hook_shape_and_writer-qa-proof]
 created = 2026-05-26T22:53:42.885047Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T22:53:42.885047Z
+updated = 2026-05-27T03:20:27.168516Z
 
 [drop_018.drop.builder_d4_apply_integration_and_registration_outcomes]
 created = 2026-05-26T22:53:42.911125Z
@@ -4217,19 +4217,49 @@ updated = 2026-05-27T00:06:54.777022Z
 created = 2026-05-26T22:53:42.937848Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T22:53:42.937848Z
+updated = 2026-05-27T03:20:27.220848Z
 
 [drop_018.drop.builder_d4_apply_integration_and_registration_outcomes-qa-proof]
 created = 2026-05-26T22:53:42.924677Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T22:53:42.924677Z
+updated = 2026-05-27T03:20:27.203849Z
+
+[drop_018.drop.builder_d5_apply_registrations_projectroot_resolution]
+created = 2026-05-27T02:41:14.244453Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T03:20:27.038597Z
+
+[drop_018.drop.builder_d5_apply_registrations_projectroot_resolution-qa-falsification]
+created = 2026-05-27T02:41:14.28082Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T02:41:14.28082Z
+
+[drop_018.drop.builder_d5_apply_registrations_projectroot_resolution-qa-proof]
+created = 2026-05-27T02:41:14.261733Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T02:41:14.261733Z
 
 [drop_018.drop.planner_l1_real_apply_registrations]
 created = 2026-05-24T06:45:54.362648Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-26T22:40:02.693966Z
+updated = 2026-05-27T02:28:23.384659Z
+
+[drop_018.drop.planner_l1_real_apply_registrations-build-qa-falsification]
+created = 2026-05-27T02:25:30.557475Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T03:20:27.060645Z
+
+[drop_018.drop.planner_l1_real_apply_registrations-build-qa-proof]
+created = 2026-05-27T02:25:30.544499Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T03:20:27.079224Z
 
 [drop_018.drop.planner_l1_real_apply_registrations-plan-qa-falsification]
 created = 2026-05-24T06:45:54.390611Z
@@ -4247,19 +4277,19 @@ updated = 2026-05-26T22:44:57.030471Z
 created = 2026-05-24T06:45:18.449899Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-24T06:45:18.449899Z
+updated = 2026-05-27T03:20:27.27201Z
 
 [drop_018.drop.real_apply_registrations-plan-qa-falsification]
 created = 2026-05-24T06:45:18.477244Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T06:45:18.477244Z
+updated = 2026-05-27T03:20:27.254878Z
 
 [drop_018.drop.real_apply_registrations-plan-qa-proof]
 created = 2026-05-24T06:45:18.462736Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T06:45:18.462736Z
+updated = 2026-05-27T03:20:27.23777Z
 
 [drop_019]
 [drop_019.drop]

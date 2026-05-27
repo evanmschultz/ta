@@ -291,66 +291,6 @@ func TestApply_ReplaceStrategyRoutesToCopyFile(t *testing.T) {
 	}
 }
 
-// TestApply_RegistrationDirectivesRecordedInReport verifies the
-// applyRegistrations STUB: each substrate.Register entry lands in
-// Report.Registrations, and no settings_file is mutated by Apply at
-// the L3-I3 layer.
-func TestApply_RegistrationDirectivesRecordedInReport(t *testing.T) {
-	dottaRoot := t.TempDir()
-	projectRoot := t.TempDir()
-
-	srcAbs := writeSourceFile(t, dottaRoot, "hooks/pre.sh", "#!/usr/bin/env bash\n")
-
-	cfg := installconfig.Config{
-		Substrates: map[string]installconfig.Substrate{
-			"claude_hooks": {
-				Source:      "~/.ta/hooks",
-				Destination: ".claude/hooks",
-				Chmod:       "0755",
-				Register: []installconfig.Registration{
-					{Event: "PreToolUse", Matcher: "Bash", SettingsFile: ".claude/settings.local.json"},
-					{Event: "SessionStart", Matcher: "", SettingsFile: ".claude/settings.json"},
-				},
-			},
-		},
-	}
-
-	tree := dotta.Tree{
-		Root: dottaRoot,
-		Subtrees: []dotta.Subtree{
-			makeSubtree("hooks", dottaRoot, "", []dotta.FileMeta{{
-				Name:    "pre.sh",
-				AbsPath: srcAbs,
-				RelPath: "pre.sh",
-			}}),
-		},
-	}
-
-	rep, err := install.Apply(cfg, tree, projectRoot)
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	if len(rep.Registrations) != 2 {
-		t.Fatalf("Report.Registrations len = %d, want 2: %+v", len(rep.Registrations), rep.Registrations)
-	}
-	if rep.Registrations[0].Event != "PreToolUse" || rep.Registrations[0].Matcher != "Bash" {
-		t.Errorf("registration[0] = %+v, want PreToolUse/Bash", rep.Registrations[0])
-	}
-	if rep.Registrations[1].Event != "SessionStart" {
-		t.Errorf("registration[1] = %+v, want SessionStart", rep.Registrations[1])
-	}
-
-	// STUB contract: no settings.json file at the recorded settings_file
-	// paths should have been created by Apply.
-	for _, reg := range rep.Registrations {
-		settingsAbs := filepath.Join(projectRoot, reg.SettingsFile)
-		if _, err := os.Stat(settingsAbs); err == nil {
-			t.Errorf("settings_file %s should NOT exist after L3-I3 stub apply", settingsAbs)
-		}
-	}
-}
-
 // TestApply_MergePathDeepDedupesHooks pins the
 // claude_settings_fragments registry path: when the substrate matches
 // the registry entry and the destination is pre-seeded with a hooks
@@ -502,7 +442,7 @@ func TestApply_RegistrationDirectivesWriteSettingsFileAndKeepDirectiveReport(t *
 					{
 						Event:        "PreToolUse",
 						Matcher:      "Bash",
-						SettingsFile: filepath.Join(projectRoot, ".claude", "settings.local.json"),
+						SettingsFile: ".claude/settings.local.json",
 						SourceFile:   "pre.sh",
 					},
 				},
@@ -606,13 +546,13 @@ func TestApply_RegistrationOutcomeContract_AddedAndDeduped(t *testing.T) {
 					{
 						Event:        "PreToolUse",
 						Matcher:      "Bash",
-						SettingsFile: settingsPath,
+						SettingsFile: ".claude/settings.local.json",
 						SourceFile:   "pre.sh",
 					},
 					{
 						Event:        "PreToolUse",
 						Matcher:      "Agent",
-						SettingsFile: settingsPath,
+						SettingsFile: ".claude/settings.local.json",
 						SourceFile:   "pre.sh",
 					},
 				},
