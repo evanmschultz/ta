@@ -17,19 +17,43 @@ Decomposition rationale:
 - The loader API names three new production functions (LoadUserOverride, LoadProjectOverride, LoadMerged), which exceeds the droplet cap if bundled. Created L2 planner drop_017.drop.planner_l2_installconfig_override_loaders to split them.
 - Consumer wiring spans command/install/template surfaces and may require multiple symbols/tests. Created L2 planner drop_017.drop.planner_l2_install_consumers, blocked on the loader segment.
 - README documentation is one file and no production symbols, so it is an atomic droplet blocked on both implementation segments.
+""", id = "l1-planning-evidence-2026-05-27", role = "planner", timestamp = "2026-05-27T00:00:00Z"}, {author = "orchestrator", body = """
+## Round-2 Amendment Rulings (2026-05-27)
 
-## Hylla Feedback
+### L1 plan-QA round-1 verdict: joint PASS-WITH-FINDINGS.
+- Proof: PASS-WITH-NITS
+- Falsif: PASS-WITH-FINDINGS (1 soft-critical N1 on consumer-L2 blocker; 3 NITs N2-N4)
 
-Query: vector search for "user and project install.toml override loader installconfig cmd ta init defaults settings file registration overlays".
-Missed because: provider requires OPENAI_API_KEY in this sandbox.
-Worked via: Hylla keyword searches over install.toml/installconfig/overlay/SettingsFile/applyRegistrations and MergeDefaults/Defaults/Validate, plus local read-only inspection of the live working tree.
-Suggestion: Configure an embedding provider key for the planning sandbox or provide a keyword-only fallback path in Hylla vector search responses.
+### L2-A plan-QA round-1 verdict: joint PASS-WITH-FINDINGS (1 CRITICAL on D3 + 3 NITs).
 
-Query: keyword search for cmd ta install init defaults apply registrations LoadFile Defaults.
-Missed because: results were broad and did not identify a concrete cmd/ta install command path; local tree also lacks cmd/ta/install_cmd.go.
-Worked via: `rg --files cmd/ta internal/installconfig internal/install` and targeted `rg`/`sed` reads.
-Suggestion: Improve ranking for command-file path queries when the queried filename is absent but related command surfaces exist.
-""", id = "l1-planning-evidence-2026-05-27", role = "planner", timestamp = "2026-05-27T00:00:00Z"}]
+### L2-B plan-QA round-1 verdict: joint FAIL (2 CRITICAL on D2 + D1 + 3 NITs).
+
+### Q3 ruling (L2-A D3 validation-gate test): reframe D3 bullet 4 to doc-comment defensive-only.
+- mergeSubstrate is monotone-non-clearing (verified via Hylla read of merge.go) → merging two individually-valid Configs always produces a valid merged Config under current per-substrate-only Validate.
+- LoadBytes already calls Validate inside LoadUserOverride/LoadProjectOverride → the post-merge Validate gate is structurally defensive but practically untestable.
+- Resolution: keep the post-merge Validate call in code as defense-in-depth; drop the test demand; doc-comment explains why the gate exists despite being untestable today.
+- Reasoning: cheaper than (b) adding a cross-substrate Validate prerequisite droplet (out of L2-A scope) and cleaner than (c) removing the gate entirely (loses defense-in-depth posture).
+
+### Q4 ruling (L2-B D2 projectPath derivation): cwd-direct via os.Getwd().
+- D2 builder will NOT use resolveCLIPath(c) (flag collision with substrate-save's --path source-file flag breaks all 3 substrate tests via ENOTDIR + IsNotExist mismatch per golang/go#18974).
+- D2 builder calls os.Getwd() directly in runTemplateSaveSubstrate. Aligns with existing pattern in runTemplateSave (schema-kind) at cmd/ta/template_cmd.go:619.
+- Reasoning: (a) is the cheapest of the 4 options and reuses an existing tested pattern in the same file.
+
+### Additional round-2 corrections:
+- L2-A NIT-1 (D3 LOC borderline ~95): add 'subtest tables expected' note + shared mkProjectDir helper to D3 description.
+- L2-A NIT-2 (idiom drift): D1/D2 use errors.Is(err, os.ErrNotExist) modern idiom, NOT os.IsNotExist.
+- L2-A NIT-3 (empty-projectPath): LoadProjectOverride("") pinned behavior — error explicitly (don't silently read cwd/.ta/install.toml).
+- L2-B CRIT-2 (D1 evidence undercount): fix evidence trail from '4 test functions' to '5 functions, 8 textual call sites' (matches reality at internal/templates/multi_test.go).
+- L2-B NIT N1 (planner-node blocker on L2-A): after L2-A round-2 lands its builder_l2a_loader_merged droplet, tighten L2-B D1's blocked_by to that specific droplet id (currently points to the L2-A planner node).
+- L2-B NIT N2 (newTemplateSaveCmd RunE edit): enumerate the 3-line RunE-closure edit alongside runTemplateSaveSubstrate signature change.
+- L2-B NIT N3 (D1 test count): same as CRIT-2 above.
+
+### Round-2 dispatch sequence (after Q1+Q2 rulings on drop_020 also locked):
+1. drop_017.drop.planner_l2_installconfig_override_loaders re-dispatch (codex) with Q3 + L2-A NITs encoded.
+2. drop_017.drop.planner_l2_install_consumers re-dispatch (codex) with Q4 + L2-B critical/NITs encoded.
+3. Plan-QA pairs re-run on both (codex-first falsif per corrected discipline).
+4. On joint PASS → builder fan-out begins.
+""", id = "round-2-amendment-rulings-2026-05-27", role = "orchestrator", timestamp = "2026-05-27T06:00:00Z"}]
 created_at = "2026-05-24T06:00:00Z"
 definition_of_complete = "1. New installconfig.LoadUserOverride() reads ~/.ta/install.toml if exists, returns empty Config + nil error if not. 2. New installconfig.LoadProjectOverride(projectPath) reads <projectPath>/.ta/install.toml if exists, same nil-on-missing semantics. 3. New installconfig.LoadMerged(projectPath) chains Defaults() <- LoadUserOverride() <- LoadProjectOverride(projectPath) via MergeDefaults. 4. cmd/ta/template_cmd.go and cmd/ta/install_cmd.go use LoadMerged. 5. Custom substrates declared in user override are visible to template save (drop_016 dependency) and install. 6. Tests: layering precedence (project beats user beats defaults); missing-file gracefulness; substrate override semantics."
 drop_number = 17.0
@@ -41,7 +65,7 @@ role = "planner"
 state = "todo"
 structural_type = "drop"
 title = "user + project install.toml override loaders"
-updated_at = "2026-05-27T00:00:00Z"
+updated_at = "2026-05-27T06:00:00Z"
 [install_toml_overlays-plan-qa-proof]
 comments = [{author = "agent:ta-go-plan-qa-proof", body = """
 ## Plan-QA Proof Verdict: PASS-WITH-NITS
@@ -199,27 +223,29 @@ Decomposed L2-A planner into 3 atomic builder droplets for the 3 new production 
 
 Evidence used:
 - Hylla package node `github.com/evanmschultz/ta/internal/installconfig` (snapshot 19, commit dbeafca): confirmed existing symbols LoadFile, LoadBytes, Defaults, Config.MergeDefaults, Validate, mergeSubstrate.
-- Hylla content field for `LoadFile`: strict `os.ReadFile` with no IsNotExist grace — confirmed the override loaders need different semantics.
-- Hylla content field for `Config.MergeDefaults`: `func (c Config) MergeDefaults(defaults Config) Config` — receiver wins over argument. Proved the merge expression `proj.MergeDefaults(user.MergeDefaults(*def))` gives project > user > defaults precedence. Pinned verbatim in builder_l2a_loader_merged definition_of_complete per N3 directive.
-- Hylla content field for `Validate`: iterates cfg.Substrates; empty map returns nil — confirmed empty file is valid.
-- Hylla content field for `Defaults`: returns `(*Config, error)` — LoadMerged return type matches.
-- Read of `internal/config/config.go`: confirmed `SchemaDirName = ".ta"`. Decided NOT to import `internal/config` in installconfig to avoid a new package-level dependency in a low-level package; use inline literal `".ta"` with comment per QA Falsification attack 5.
-- Read of `internal/installconfig/load.go` at HEAD: confirmed current imports (os, fmt, go-toml).
+- Hylla content field for `LoadFile`: strict `os.ReadFile` with no IsNotExist grace.
+- Hylla content field for `Config.MergeDefaults`: receiver wins over argument. Pinned merge expression `proj.MergeDefaults(user.MergeDefaults(*def))` in builder_l2a_loader_merged def-of-complete per N3 directive.
+- Hylla content field for `Validate`: iterates Substrates; empty map = nil error.
+- Read of `internal/installconfig/load.go` at HEAD: confirmed current imports.
 
-Decomposition:
-- D1 (builder_l2a_loader_user_override): LoadUserOverride — `os.UserHomeDir()` + IsNotExist grace. No blockers.
-- D2 (builder_l2a_loader_project_override): LoadProjectOverride(projectPath) — `filepath.Join(projectPath, ".ta", "install.toml")` + IsNotExist grace. Blocked on D1 (shared load.go).
-- D3 (builder_l2a_loader_merged): LoadMerged(projectPath) — chains Defaults + LoadUserOverride + LoadProjectOverride via pinned merge expression, then Validate. N4 test cases (ADD + CHANGE + project-beats-user) in definition_of_complete. Blocked on D2 (shared load.go).
+Decomposition: D1 (LoadUserOverride, no blockers), D2 (LoadProjectOverride, blocked on D1), D3 (LoadMerged, blocked on D2).
+""", id = "l2a-planning-evidence-2026-05-27", role = "planner", timestamp = "2026-05-27T00:00:00Z"}, {author = "orchestrator", body = """
+## Round-2 Amendment Scope (rulings 2026-05-27)
 
-Return type decision: override loaders return `(Config, error)` value (missing file returns empty Config, not nil pointer). LoadMerged returns `(*Config, error)` to match Defaults() pattern.
+### Round-1 plan-QA: joint PASS-WITH-FINDINGS (1 CRITICAL on D3 + 3 NITs).
 
-## Hylla Feedback
+### Required changes for round-2:
 
-Query: `mcp__hylla__hylla_search_keyword` for "LoadFile LoadBytes Defaults MergeDefaults Validate installconfig".
-Missed because: `Attribute summary is not indexed with type term` and `Attribute content is not indexed with type term` errors on both keyword and content-field searches.
-Worked via: `mcp__hylla__hylla_node_full` on specific known node IDs (package node, then individual function nodes by id). All required content fields retrieved successfully.
-Suggestion: keyword index for content/summary fields appears offline in this snapshot; node_full by id is the reliable fallback when package structure is already known.
-""", id = "l2a-planning-evidence-2026-05-27", role = "planner", timestamp = "2026-05-27T00:00:00Z"}]
+1. **CRITICAL fix — D3 bullet 4 (validation-gate test).** Reframe to doc-comment defensive-only per Q3 ruling. mergeSubstrate is monotone-non-clearing (verified via Hylla read of merge.go); merging two individually-valid Configs always produces a valid merged Config under current per-substrate-only Validate. LoadBytes already calls Validate inside LoadUserOverride/LoadProjectOverride. Post-merge Validate stays in code as defense-in-depth; doc-comment explains why; test demand DROPPED.
+
+2. **NIT-1 fix — D3 LOC borderline.** D3 estimated ~95 LOC vs ≤80 budget. Add 'subtest tables expected' note + shared `mkProjectDir(t, body)` helper to D3 description so builder is steered toward LOC compression.
+
+3. **NIT-2 fix — idiom.** D1/D2 use `errors.Is(err, os.ErrNotExist)` modern idiom, NOT `os.IsNotExist`. Pinned in def-of-complete.
+
+4. **NIT-3 fix — empty-projectPath.** LoadProjectOverride("") MUST return an error (e.g. `installconfig: project override: empty projectPath`), NOT silently read cwd-relative `.ta/install.toml`. Pin behavior in D2 def-of-complete.
+
+### Auto-spawned QA twins on D1/D2/D3 already exist; the round-2 plan-QA pair on THIS L2-A planner record fires after re-dispatch.
+""", id = "round-2-amendment-scope-2026-05-27", role = "orchestrator", timestamp = "2026-05-27T06:00:00Z"}]
 created_at = "2026-05-27T00:00:00Z"
 description = """
 Objective: Split internal/installconfig override loading into atomic builder droplets.
@@ -259,7 +285,7 @@ role = "planner"
 state = "complete"
 structural_type = "segment"
 title = "L2 planner — installconfig override loader API"
-updated_at = "2026-05-27T00:00:00Z"
+updated_at = "2026-05-27T06:00:00Z"
 [planner_l2_installconfig_override_loaders-plan-qa-proof]
 comments = [{author = "agent:ta-go-plan-qa-proof", body = """
 ## Plan-QA-Proof Verdict on `drop_017.drop.planner_l2_installconfig_override_loaders`
@@ -473,7 +499,25 @@ L2-B is unbuildable as written. D2's `projectPath := resolveCLIPath(c)` collides
 Mitigation: re-decompose D2 with either (a) cwd-direct via `os.Getwd()` (skip flag), (b) rename substrate-save's `--path` to `--source`, or (c) add a separate `--project-path` flag in newTemplateSaveCmd. Choice (a) is the cheapest and aligns with `runTemplateSave` (schema-kind) at template_cmd.go:619.
 
 See QA-falsification record `drop_017.drop.planner_l2_install_consumers-plan-qa-falsification` for full evidence trail.
-""", id = "l2b-falsification-critical-2026-05-27", role = "qa-falsification", timestamp = "2026-05-27T05:00:00Z"}]
+""", id = "l2b-falsification-critical-2026-05-27", role = "qa-falsification", timestamp = "2026-05-27T05:00:00Z"}, {author = "orchestrator", body = """
+## Round-2 Amendment Scope (rulings 2026-05-27)
+
+### Round-1 plan-QA: joint FAIL (2 CRITICAL on D2 + D1 + 3 NITs).
+
+### Required changes for round-2:
+
+1. **CRITICAL-1 fix — D2 projectPath derivation.** Per Q4 ruling: D2 builder will NOT use resolveCLIPath(c). D2 builder calls `os.Getwd()` directly in runTemplateSaveSubstrate to derive projectPath. Aligns with existing pattern in runTemplateSave (schema-kind) at cmd/ta/template_cmd.go:619. Avoids the `--path` flag collision that breaks all 3 substrate tests via ENOTDIR + IsNotExist mismatch (golang/go#18974).
+
+2. **CRITICAL-2 fix — D1 evidence accuracy.** Update D1 evidence trail from '4 test functions in multi_test.go' to '5 functions with 8 textual call sites' (TestSaveSubstrateFile_FileShapedSuccess has 2 calls; TestSaveSubstrateFile_ConflictWithoutOverwrite has 3 calls). Diff stays within ~16-18 LOC and on-budget.
+
+3. **N1 (orch-action, not builder-action) — blocker tightening.** AFTER drop_017.drop.planner_l2_installconfig_override_loaders round-2 lands its builder_l2a_loader_merged droplet, orchestrator tightens THIS L2-B D1's blocked_by from the L2-A planner node to that specific droplet id.
+
+4. **N2 fix — newTemplateSaveCmd RunE-closure edit.** D2 description must enumerate the 3-line RunE-closure edit alongside the runTemplateSaveSubstrate signature change (currently described in prose but not enumerated in the symbol list).
+
+5. **N3 fix — D1 test count.** Same as CRITICAL-2 above (test-count off-by-one).
+
+### Round-2 plan-QA pair on THIS L2-B planner record fires after re-dispatch.
+""", id = "round-2-amendment-scope-2026-05-27", role = "orchestrator", timestamp = "2026-05-27T06:00:00Z"}]
 created_at = "2026-05-27T00:00:00Z"
 description = """
 Objective: Decompose downstream consumer integration after the installconfig loader API exists.
@@ -507,7 +551,7 @@ role = "planner"
 state = "complete"
 structural_type = "segment"
 title = "L2 planner — wire merged install config into consumers"
-updated_at = "2026-05-27T05:00:00Z"
+updated_at = "2026-05-27T06:00:00Z"
 [planner_l2_install_consumers-plan-qa-proof]
 comments = [{author = "agent:ta-go-plan-qa-proof", body = """
 ## Plan-QA Proof Verdict: PASS-WITH-NITS

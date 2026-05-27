@@ -1,0 +1,30 @@
+[init_defaults_alongside_flag]
+acceptance_criteria = "1. --alongside flag handler added to init-defaults command. 2. When --alongside is set AND a file already exists at the destination: write new default to <destination>.new (sibling file). 3. Existing skip-if-exists (default) + --overwrite (force-replace) semantics preserved. 4. --alongside is mutually-exclusive with --overwrite (one or the other; both = error). 5. --alongside compatible with --interactive (interactive prompt can offer alongside as a per-file/per-substrate choice). 6. JSON output (--json) reports outcome status 'alongside' when a .new sibling is written. 7. Tests cover: file-exists + --alongside → .new sibling written; file-absent + --alongside → normal write (no .new suffix); file-exists + neither --alongside nor --overwrite → skipped (default); --alongside + --overwrite → error."
+created_at = "2026-05-27T06:00:00Z"
+definition_of_complete = "1. cmd/ta/init_defaults_cmd.go gains --alongside flag handler. 2. copySubstrateSeed (or equivalent helper) gains alongside mode. 3. Tests added covering all 4 cases in AC#7. 4. README documents the 3-mode flow. 5. mage check green; CI green."
+drop_number = 22.0
+labels = ["init-defaults", "drop_020-followon", "update-semantics"]
+objective = "Add --alongside flag to ta init-defaults command: when an existing seed file would be overwritten, write the new default to <file>.new sibling instead so the user can manually diff/merge. Deferred from drop_020 per dev directive 2026-05-27 (update-over-time semantics scope). Pairs with drop_020's existing skip-if-exists (default) + --overwrite (force-replace) flags to give users a 3-mode update flow: PRESERVE (skip) / REPLACE (overwrite) / PRESENT-FOR-MERGE (alongside)."
+packages = ["cmd/ta"]
+paths = ["cmd/ta/init_defaults_cmd.go", "cmd/ta/init_defaults_cmd_test.go", "README.md"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "ta init-defaults --alongside flag — write <file>.new sibling for user-merge"
+updated_at = "2026-05-27T06:00:00Z"
+
+[init_defaults_alongside_flag-plan-qa-proof]
+created_at = "2026-05-27T06:28:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_022.drop.init_defaults_alongside_flag"
+title = "Plan-QA proof of ta init-defaults --alongside flag — write <file>.new sibling for user-merge"
+updated_at = "2026-05-27T06:28:12Z"
+
+[init_defaults_alongside_flag-plan-qa-falsification]
+created_at = "2026-05-27T06:28:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_022.drop.init_defaults_alongside_flag"
+title = "Plan-QA falsif of ta init-defaults --alongside flag — write <file>.new sibling for user-merge"
+updated_at = "2026-05-27T06:28:12Z"

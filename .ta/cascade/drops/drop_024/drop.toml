@@ -1,0 +1,30 @@
+[ta_mcp_scope_id_prefix]
+acceptance_criteria = "1. mcp__ta__list_sections scope=<id-prefix> returns ALL record ids in the project matching that prefix (any depth). 2. mcp__ta__search scope=<id-prefix> filters search results to ids matching that prefix. 3. Existing scope=<db>.<type> form continues to work unchanged. 4. Existing scope=<db>.<type>.<exact-id> form (single-record lookup via list_sections) continues to work. 5. Tests cover prefix-matching across all cascade types (drop, planner, droplet, qa_proof, qa_falsification) AND non-cascade dbs (plans, agents_md, claude_agents) to confirm fix doesn't regress other dbs. 6. Trailing-dot scopes (e.g. scope=drop_020.) either work (treating dot as prefix terminator) OR error with a clear message (currently errors 'invalid scope: \"drop_020.\"')."
+created_at = "2026-05-27T06:00:00Z"
+definition_of_complete = "1. Locate the scope walker (likely in internal/db or internal/ops list/search code paths). 2. Fix prefix-matching for cascade records. 3. Tests added covering AC#5 + AC#6. 4. mage check green; CI green. 5. mcp__ta__list_sections scope=drop_020.drop.seed_library_init_defaults returns at least the L1 children records that exist there."
+drop_number = 24.0
+labels = ["ta-mcp", "bug-fix", "tech-debt"]
+objective = "Fix mcp__ta__list_sections + mcp__ta__search scope=<id-prefix> form returning empty for cascade records. Currently scope=cascade.<type> works (e.g. scope=cascade.drop returns all 19 drop roots) but scope=drop_020 / scope=drop_020.drop / scope=drop_020.drop.seed_library_init_defaults all return empty even when matching records exist + are addressable via mcp__ta__get. Confirmed 2026-05-27 across drop_017, drop_018, drop_020. Tool description explicitly says 'Optional id prefix to narrow traversal' so this is a documented-but-broken capability."
+packages = ["internal/db", "internal/ops"]
+paths = ["internal/db/**", "internal/ops/**"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "ta MCP scope=<id-prefix> support for cascade records"
+updated_at = "2026-05-27T06:00:00Z"
+
+[ta_mcp_scope_id_prefix-plan-qa-proof]
+created_at = "2026-05-27T06:28:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_024.drop.ta_mcp_scope_id_prefix"
+title = "Plan-QA proof of ta MCP scope=<id-prefix> support for cascade records"
+updated_at = "2026-05-27T06:28:12Z"
+
+[ta_mcp_scope_id_prefix-plan-qa-falsification]
+created_at = "2026-05-27T06:28:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_024.drop.ta_mcp_scope_id_prefix"
+title = "Plan-QA falsif of ta MCP scope=<id-prefix> support for cascade records"
+updated_at = "2026-05-27T06:28:12Z"

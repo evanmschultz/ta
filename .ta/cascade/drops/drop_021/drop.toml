@@ -1,0 +1,30 @@
+[claude_plugins_seeds]
+acceptance_criteria = "1. Disposition decision recorded in this drop's planning evidence trail: sample-minimal-plugin / placeholder-with-README / or no-seed-document-purpose-elsewhere. 2. If sample-minimal-plugin: ships a minimal viable Claude Code plugin bundle (plugin.json + at least one functional hook or command) at internal/installconfig/seeds/claude_plugins/<plugin-name>/. 3. If placeholder: ships .gitkeep + README.md explaining 'drop plugin bundles here'. 4. If no-seed: removes claude_plugins from defaults.toml's seed-needed enumeration + documents the absence in the substrate comment. 5. Seed content (if any) avoids ta-internal references. 6. README updated to reflect the chosen disposition."
+created_at = "2026-05-27T06:00:00Z"
+definition_of_complete = "1. Survey Claude Code plugin authoring conventions (Claude Code docs + plugin marketplace existing plugins) recorded in planning evidence. 2. Disposition decision in drop record. 3. Seed content (if applicable) under internal/installconfig/seeds/claude_plugins/. 4. SeedFS walk + per-substrate file-count tests cover claude_plugins (or correctly skip it if no-seed). 5. mage check green; CI green. 6. README updated."
+drop_number = 21.0
+labels = ["seed-library", "claude-plugins", "drop_020-followon"]
+objective = "Design + ship starter content for the claude_plugins substrate, deferred from drop_020 per dev ruling Q1 2026-05-27. claude_plugins is the only one of the 12 unseeded substrates whose starter content story needs deliberate design (container-for-plugin-bundles semantics; source=~/.ta/plugins, destination=.claude/plugins; per-plugin enable wiring lives in claude_settings_fragments NOT here per defaults.toml:69-73). drop_020 ships seeds for the OTHER 11 substrates; this drop handles claude_plugins separately."
+packages = ["internal/installconfig"]
+paths = ["internal/installconfig/seeds/claude_plugins/**", "internal/installconfig/defaults.toml", "README.md"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "claude_plugins seed library — design + content"
+updated_at = "2026-05-27T06:00:00Z"
+
+[claude_plugins_seeds-plan-qa-proof]
+created_at = "2026-05-27T06:28:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_021.drop.claude_plugins_seeds"
+title = "Plan-QA proof of claude_plugins seed library — design + content"
+updated_at = "2026-05-27T06:28:12Z"
+
+[claude_plugins_seeds-plan-qa-falsification]
+created_at = "2026-05-27T06:28:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_021.drop.claude_plugins_seeds"
+title = "Plan-QA falsif of claude_plugins seed library — design + content"
+updated_at = "2026-05-27T06:28:12Z"

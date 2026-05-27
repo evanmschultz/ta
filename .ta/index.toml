@@ -4245,7 +4245,7 @@ updated = 2026-05-27T03:45:08.835215Z
 created = 2026-05-24T06:45:18.406848Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-27T03:46:05.495201Z
+updated = 2026-05-27T06:30:17.675071Z
 
 [drop_017.drop.install_toml_overlays-plan-qa-falsification]
 created = 2026-05-24T06:45:18.434604Z
@@ -4263,7 +4263,7 @@ updated = 2026-05-27T04:19:42.383617Z
 created = 2026-05-27T03:45:08.860157Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-27T04:48:25.820401Z
+updated = 2026-05-27T06:30:17.717465Z
 
 [drop_017.drop.planner_l2_install_consumers-plan-qa-falsification]
 created = 2026-05-27T03:45:08.885943Z
@@ -4281,7 +4281,7 @@ updated = 2026-05-27T04:46:27.190314Z
 created = 2026-05-27T03:45:08.777886Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-27T04:32:51.792707Z
+updated = 2026-05-27T06:30:17.69682Z
 
 [drop_017.drop.planner_l2_installconfig_override_loaders-plan-qa-falsification]
 created = 2026-05-27T03:45:08.808676Z
@@ -4497,7 +4497,7 @@ updated = 2026-05-27T04:22:23.34017Z
 created = 2026-05-27T04:21:25.723777Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-27T04:21:25.723777Z
+updated = 2026-05-27T06:30:17.755165Z
 
 [drop_020.drop.planner_l1_init_defaults_cmd-plan-qa-falsification]
 created = 2026-05-27T04:21:25.751463Z
@@ -4515,7 +4515,7 @@ updated = 2026-05-27T04:21:25.737444Z
 created = 2026-05-27T04:21:25.675102Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-27T04:21:25.675102Z
+updated = 2026-05-27T06:30:17.736175Z
 
 [drop_020.drop.planner_l1_seed_content-plan-qa-falsification]
 created = 2026-05-27T04:21:25.709515Z
@@ -4533,7 +4533,7 @@ updated = 2026-05-27T04:21:25.695595Z
 created = 2026-05-24T06:45:18.533057Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-27T04:23:26.552854Z
+updated = 2026-05-27T06:30:17.651839Z
 
 [drop_020.drop.seed_library_init_defaults-plan-qa-falsification]
 created = 2026-05-24T06:45:18.560086Z
@@ -4546,6 +4546,86 @@ created = 2026-05-24T06:45:18.546805Z
 db_name = 'cascade'
 type = 'qa_proof'
 updated = 2026-05-27T04:32:14.126895Z
+
+[drop_021]
+[drop_021.drop]
+[drop_021.drop.claude_plugins_seeds]
+created = 2026-05-27T06:28:12.203515Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-27T06:28:12.203515Z
+
+[drop_021.drop.claude_plugins_seeds-plan-qa-falsification]
+created = 2026-05-27T06:28:12.235498Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T06:28:12.235498Z
+
+[drop_021.drop.claude_plugins_seeds-plan-qa-proof]
+created = 2026-05-27T06:28:12.220775Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T06:28:12.220775Z
+
+[drop_022]
+[drop_022.drop]
+[drop_022.drop.init_defaults_alongside_flag]
+created = 2026-05-27T06:28:12.249151Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-27T06:28:12.249151Z
+
+[drop_022.drop.init_defaults_alongside_flag-plan-qa-falsification]
+created = 2026-05-27T06:28:12.277304Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T06:28:12.277304Z
+
+[drop_022.drop.init_defaults_alongside_flag-plan-qa-proof]
+created = 2026-05-27T06:28:12.263248Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T06:28:12.263248Z
+
+[drop_023]
+[drop_023.drop]
+[drop_023.drop.ta_action_gate_hardening]
+created = 2026-05-27T06:28:12.291944Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-27T06:28:12.291944Z
+
+[drop_023.drop.ta_action_gate_hardening-plan-qa-falsification]
+created = 2026-05-27T06:28:12.32002Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T06:28:12.32002Z
+
+[drop_023.drop.ta_action_gate_hardening-plan-qa-proof]
+created = 2026-05-27T06:28:12.306396Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T06:28:12.306396Z
+
+[drop_024]
+[drop_024.drop]
+[drop_024.drop.ta_mcp_scope_id_prefix]
+created = 2026-05-27T06:28:12.335341Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-27T06:28:12.335341Z
+
+[drop_024.drop.ta_mcp_scope_id_prefix-plan-qa-falsification]
+created = 2026-05-27T06:28:12.363125Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T06:28:12.363125Z
+
+[drop_024.drop.ta_mcp_scope_id_prefix-plan-qa-proof]
+created = 2026-05-27T06:28:12.34882Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T06:28:12.34882Z
 
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]

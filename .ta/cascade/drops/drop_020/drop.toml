@@ -28,7 +28,36 @@ C2 (README): prose only, independent.
 ### Hylla Feedback
 
 Keyword search returned rpc error (summary attribute not indexed with type term). Vector search returned empty for package-level queries. All evidence gathered via Read+Bash on working tree. Suggestion: use hylla_search with query_text for vector; keyword index needs repair.
-""", id = "plan-l1-complete", timestamp = "2026-05-26T10:00:00Z"}]
+""", id = "plan-l1-complete", timestamp = "2026-05-26T10:00:00Z"}, {author = "orchestrator", body = """
+## Round-2 Amendment Scope (rulings 2026-05-27)
+
+### Plan-QA-falsification verdict round-1: FAIL (2 counterexamples + 4 NITs).
+
+### Q1 ruling: claude_plugins DEFERRED to drop_021 (drop_021.drop.claude_plugins_seeds).
+- Scope reduces from 12 substrates to 11. L1-A enumeration drops claude_plugins entirely (was the only outlier without a clear opinionated-starter-content story).
+- Reasoning: claude_plugins is a container-for-plugin-bundles substrate (defaults.toml:69-73); per-plugin enable wiring lives in claude_settings_fragments not here; real Claude Code plugins are typically marketplace-installed, not hand-authored. Starter content design needs its own deliberate pass.
+- Root drop's objective + def-of-complete update from '10/12 substrates' to '11 substrates (claude_plugins deferred to drop_021)'.
+
+### Q2 ruling: NEW B0 droplet calling install_hygiene.SeedHomeSchema.
+- B0 (atomic builder droplet) gets created in L1-B as a serial blocker for B2.
+- Calls install_hygiene.SeedHomeSchema directly. Single source of truth for ~/.ta schema; future schema changes cascade automatically. install_hygiene is mkdir-only per L2-B falsif's read of the function body — no side-effect baggage.
+- Reasoning: option (b) over (a) inline MkdirAll (avoids duplication) and over (c) named-helper wrapper (avoids overlap with SeedHomeSchema).
+
+### --alongside flag DEFERRED to drop_022 (drop_022.drop.init_defaults_alongside_flag).
+- The update-over-time dev concern (users updating ta and wanting selectively pick / overwrite / add alongside) translates to a 3-mode update flow: PRESERVE (skip-if-exists default) / REPLACE (--overwrite, already in L1-B) / PRESENT-FOR-MERGE (--alongside writes <file>.new sibling). The first two stay in drop_020; the third gets its own drop because adding it to B2 pushes that droplet over the ≤2-block / ≤80 LOC budget.
+- L1-B B2 SHOULD enhance interactive mode to surface 'X new files since last init-defaults' per substrate (counts + sample filenames) so users see what would change before answering Y/N. This is a UX clarification within the existing --interactive scope, not the alongside flag.
+
+### NITs to address in round-2:
+- N4: A1a possible LOC overflow (7 substrates of content); L2-A sub-planner re-split if it exceeds budget.
+- N5: B2 possible re-split (interactive prompts + sample-name preview + JSON output + skip-if-exists + iteration may overflow); L2-B sub-planner re-split if needed.
+- N6: B2 substrate->destination mapping must use installconfig.Defaults() (NOT hardcoded), via the Substrate.Source field per defaults.toml.
+- N7: internal/installconfig/defaults.go header comment claims '12 substrates' but defaults.toml ships 14. Cosmetic fix; fold into round-2.
+
+### Round-2 dispatch sequence:
+1. drop_020.drop.seed_library_init_defaults L1 root planner re-dispatch (codex via bin/agent-dispatch.sh) with this amendment scope.
+2. L1 plan-QA pair (proof + codex-first falsif) re-runs.
+3. On joint PASS → descend to L2 sub-planners (round-2).
+""", id = "round-2-amendment-rulings-2026-05-27", role = "orchestrator", timestamp = "2026-05-27T06:00:00Z"}]
 created_at = "2026-05-24T06:00:00Z"
 definition_of_complete = "1. internal/installconfig/seeds/<substrate>/<file> contains opinionated useful starter content for the 10 substrates. 2. Seeds are embedded via //go:embed and exposed via installconfig.SeedFS(substrateName) -> fs.FS. 3. New cmd/ta init_defaults_cmd.go implements ta init-defaults [--interactive | --all | --none] [--overwrite] [--substrate=<name>]. 4. Per-file skip-if-exists unless --overwrite. 5. magefile.go gains InstallNoSeeds target; existing Install adds the init-defaults step at the end (interactive). 6. Tests: seed FS walk; per-substrate file count + non-empty assertion; init-defaults idempotency; --all flag bypass; --none flag bypass. 7. mage check green; CI green. 8. README updated with the bundled-seeds story."
 drop_number = 20.0
@@ -40,7 +69,7 @@ role = "planner"
 state = "in_progress"
 structural_type = "drop"
 title = "shipped seed library + ta init-defaults opt-in install"
-updated_at = "2026-05-26T10:00:00Z"
+updated_at = "2026-05-27T06:00:00Z"
 [seed_library_init_defaults-plan-qa-proof]
 comments = [{author = "agent:qa-proof", body = """
 ## Plan-QA Proof Verdict (L1)
@@ -270,6 +299,27 @@ title = "Plan-QA falsif of shipped seed library + ta init-defaults opt-in instal
 updated_at = "2026-05-24T06:45:18Z"
 [planner_l1_seed_content]
 blockers = []
+comments = [{author = "orchestrator", body = """
+## Round-2 Amendment Scope (rulings 2026-05-27)
+
+### Round-1 plan-QA: parent drop_020 root falsif FAIL on Axis 2 (claude_plugins missing) and Axis 4 (~/.ta creation seam unspecified).
+
+### Required changes for round-2 dispatch of L1-A sub-planner:
+
+1. **Q1 ruling — scope reduction (drop claude_plugins).** L1-A enumeration drops claude_plugins entirely. claude_plugins is deferred to drop_021 (drop_021.drop.claude_plugins_seeds) per dev directive 2026-05-27. Updated substrate count: 11 substrates need seeds in drop_020 scope (was 12 incorrectly enumerated; was 10 in root objective).
+
+2. **A1a remains: claude_hooks, claude_skills, claude_agents, claude_md_fragments, claude_settings_fragments, claude_mcp_servers, claude_output_styles (7 substrates).**
+
+3. **A1b remains: codex_agents, codex_config_fragments, codex_mcp_servers, agents_md (4 substrates).**
+
+4. **A2 unchanged: seedsFS embed.FS var + SeedFS(name) -> fs.FS func + tests.**
+
+5. **N4 — A1a LOC overflow risk.** 7 substrates of opinionated useful starter content may exceed ≤80 LOC budget. If L2 sub-planner decomposition projects A1a >80 LOC, split into A1a-claude-hooks-skills + A1a-claude-others or per-substrate droplets.
+
+6. **N6 — destination mapping.** A2 SeedFS must use installconfig.Defaults() Substrate.Source field to map substrate name -> ~/.ta/<dir> destination, NOT hardcoded paths. Reuses the existing single-source-of-truth defaults.toml.
+
+### Auto-spawned QA twins on THIS L1-A planner already exist; round-2 plan-QA pair fires after re-dispatch.
+""", id = "round-2-amendment-scope-2026-05-27", role = "orchestrator", timestamp = "2026-05-27T06:00:00Z"}]
 created_at = "2026-05-26T10:00:00Z"
 description = """
 Objective: Materialize the embedded seed library backing `ta init-defaults`. Two concerns in sequence: (1) create seed content files under `internal/installconfig/seeds/<substrate>/`; (2) add `seeds.go` with the `//go:embed all:seeds` directive and exported `SeedFS(name string) (fs.FS, error)` accessor, plus `seeds_test.go` with FS-walk + per-substrate file-count + non-empty assertions.
@@ -290,8 +340,7 @@ role = "planner"
 state = "todo"
 structural_type = "segment"
 title = "L1-A: seed content files + SeedFS embed API"
-updated_at = "2026-05-26T10:00:00Z"
-
+updated_at = "2026-05-27T06:00:00Z"
 [planner_l1_seed_content-plan-qa-proof]
 created_at = "2026-05-27T04:21:25Z"
 role = "qa-proof"
@@ -310,6 +359,27 @@ updated_at = "2026-05-27T04:21:25Z"
 
 [planner_l1_init_defaults_cmd]
 blockers = []
+comments = [{author = "orchestrator", body = """
+## Round-2 Amendment Scope (rulings 2026-05-27)
+
+### Round-1 plan-QA: parent drop_020 root falsif FAIL on Axis 4 (~/.ta creation seam unspecified for standalone `ta init-defaults`).
+
+### Required changes for round-2 dispatch of L1-B sub-planner:
+
+1. **Q2 ruling — NEW B0 droplet calling install_hygiene.SeedHomeSchema.** Add B0 at the head of L1-B's serial chain: B0 (atomic) -> B1 (initDefaultsFlags + newInitDefaultsCmd, blocked on A2 for SeedFS) -> B2 (runInitDefaults + copySubstrateSeed, blocked on B0+B1) -> B3 (test file, blocked on B2). B0 calls install_hygiene.SeedHomeSchema() to ensure ~/.ta + subdirs exist before B2's per-substrate copy loop runs. Single source of truth for ~/.ta schema; future schema changes (e.g. new top-level dir for claude_plugins drop_021) cascade automatically.
+
+2. **B0 spec:** 1 production symbol (e.g. `ensureHomeSchema()` calling `install_hygiene.SeedHomeSchema()`); 1 file (cmd/ta/init_defaults_cmd.go); ~10-15 LOC; ATOMIC. Test verifies B0 returns nil + idempotent (safe to call multiple times even when ~/.ta already exists). Test file may overlap with B3.
+
+3. **N5 — B2 LOC overflow risk.** Interactive prompts + sample-name preview + JSON output + skip-if-exists + iteration may exceed ≤80 LOC. If L2 sub-planner decomposition projects B2 >80 LOC, split into B2a (per-substrate iteration + skip/overwrite policy) + B2b (interactive prompt/preview UX) + JSON output as separate sub-droplet OR fold into B2a.
+
+4. **--alongside flag DEFERRED to drop_022.** Do NOT include --alongside in B2 spec. drop_020 keeps the 2-mode flow (skip-if-exists default; --overwrite force-replace). drop_022 (drop_022.drop.init_defaults_alongside_flag) handles the 3rd mode (--alongside writes <file>.new sibling). Cross-reference noted.
+
+5. **Update-semantics UX enhancement (within --interactive scope, NOT --alongside scope):** B2's interactive mode MUST surface 'X new files since last init-defaults' per substrate (count + sample filenames) BEFORE asking Y/N. This makes the recurring-tool nature visible to users picking which substrate updates to apply when ta is upgraded.
+
+6. **N6 — B2 destination mapping.** B2 substrate -> destination directory mapping must use installconfig.Defaults() Substrate.Source field (matches the existing defaults.toml as source of truth), NOT hardcoded paths.
+
+### Auto-spawned QA twins on THIS L1-B planner already exist; round-2 plan-QA pair fires after re-dispatch.
+""", id = "round-2-amendment-scope-2026-05-27", role = "orchestrator", timestamp = "2026-05-27T06:00:00Z"}]
 created_at = "2026-05-26T10:00:00Z"
 description = """
 Objective: Implement the `ta init-defaults` cobra subcommand.
@@ -328,8 +398,7 @@ role = "planner"
 state = "todo"
 structural_type = "segment"
 title = "L1-B: ta init-defaults cobra command"
-updated_at = "2026-05-26T10:00:00Z"
-
+updated_at = "2026-05-27T06:00:00Z"
 [planner_l1_init_defaults_cmd-plan-qa-proof]
 created_at = "2026-05-27T04:21:25Z"
 role = "qa-proof"

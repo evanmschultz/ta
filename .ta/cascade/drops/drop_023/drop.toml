@@ -1,0 +1,30 @@
+[ta_action_gate_hardening]
+acceptance_criteria = "1. _bash_write_vector regex updated to NOT false-positive when 'install' / 'cp' / 'mv' / 'ln' / 'rm' / 'chmod' / etc appear inside path components (i.e. preceded by / AND followed by / or .). 2. Hook gains hardcoded baseline _raw_go_tooling denying go test/vet/build/run/install/get/mod/work/tool/generate, gofmt/gofumpt for ALL scoped agents (independent of bash_deny; mirror the _git_mutation baseline pattern). 3. Existing legitimate uses (cp src dst, install -m 0755, mage targets) still pass the gate. 4. Tests cover the false-positive cases (internal/install/install.go in git diff arg, mage testFunc with internal/install path) + the new baseline denies + the existing legitimate uses. 5. Empirical re-verification: re-dispatch a probe builder against an internal/install/* path and confirm mage commands + git diff are no longer denied."
+created_at = "2026-05-27T06:00:00Z"
+definition_of_complete = "1. .claude/hooks/ta_action_gate.py edits to _bash_write_vector + new _raw_go_tooling baseline. 2. .claude/hooks/test_ta_action_gate.py (or equivalent) tests for both fixes. 3. mage check green. 4. Probe-scoped-agent dispatch (or equivalent integration test) verifies legitimate read-only commands against internal/install/* pass + raw `go build` is denied. 5. CI green."
+drop_number = 23.0
+labels = ["hook-discipline", "bug-fix", "tech-debt", "2026-05-27-discipline-followon"]
+objective = "Fix two known hook bugs surfaced during drop_018 D5 build (2026-05-27): (1) _bash_write_vector regex matches bare command 'install' but also falsely fires when 'install' (or cp/mv/ln/etc) appears inside path components like internal/install/install.go — denies legitimate read-only commands (mage testFunc, git diff, grep) that reference those paths. (2) Hook has no hardcoded no-raw-go-tooling baseline; currently relies on per-dispatch bash_deny to block raw go test/vet/build/run/install/get/mod/gofmt/gofumpt — an orchestrator that forgets to list these in bash_deny can let an agent through. Per CLAUDE.md '2026-05-27 Subagent Discipline Update' line 12: 'Builders ... NEVER `mage test-pkg`, `mage ci`, `mage build`, raw `go test`/`go build`/`go vet`, `gofmt`/`gofumpt`, `go list`.'"
+packages = [".claude/hooks"]
+paths = [".claude/hooks/ta_action_gate.py", ".claude/hooks/test_ta_action_gate.py"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "ta_action_gate.py hook hardening — install-path false-positive + raw-go baseline"
+updated_at = "2026-05-27T06:00:00Z"
+
+[ta_action_gate_hardening-plan-qa-proof]
+created_at = "2026-05-27T06:28:12Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_023.drop.ta_action_gate_hardening"
+title = "Plan-QA proof of ta_action_gate.py hook hardening — install-path false-positive + raw-go baseline"
+updated_at = "2026-05-27T06:28:12Z"
+
+[ta_action_gate_hardening-plan-qa-falsification]
+created_at = "2026-05-27T06:28:12Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_023.drop.ta_action_gate_hardening"
+title = "Plan-QA falsif of ta_action_gate.py hook hardening — install-path false-positive + raw-go baseline"
+updated_at = "2026-05-27T06:28:12Z"
