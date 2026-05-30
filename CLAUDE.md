@@ -2,6 +2,23 @@
 
 Project-local guidance for working inside the `ta` tree. Global rules (Tillsyn coordination, Section 0 reasoning, evidence sources, worktree hygiene, output style) live at `~/.claude/CLAUDE.md` and are NOT duplicated here.
 
+## 2026-05-29 Architecture Sync from tillsyn (LOAD-BEARING)
+
+ta is the source-of-truth sibling for the cross-project agent-dispatch + persona architecture. Files in ta's lane sync'd from tillsyn via the **R-SHIP-TA refinement** (Tillsyn action_item `b8ee83b2-1e5c-4002-bdef-60dfb191ba30`):
+
+- `bin/agent-dispatch.sh` + `bin/agent-audit-toon.py` — **byte-identical** with tillsyn.
+- `.claude/hooks/ta_action_gate.py` + `.claude/hooks/post_tooluse_agent_audit.py` — **byte-identical** with tillsyn.
+- `.claude/agents/<persona>/settings.json` × 13 — **adapted**: `mcp__tillsyn__*` + `mcp__tillsyn-dev__*` entries stripped.
+- `.claude/agents/<persona>.md` × 13 — **adapted** (Path B 2.2.A): tillsyn tool refs stripped from `tools:` frontmatter; **Sibling-Context Note** prepended explaining any leftover textual `mcp__tillsyn__*` refs in the body are INERT here.
+- `CASCADE_METHODOLOGY.md` — byte-identical with tillsyn (the methodology canon lives in tillsyn; ta consumes it).
+- `magefile.go` — updated to the canonical 12-target shape (Test/Race/RacePkg/Vet/VetPkg/Tidy/FormatCheck added; FormatPath→FormatFile renamed; CI body rewired). Preserved: VHS/serve/templatesA11y/Cover/Clean.
+
+**Cascade tracking on ta uses `ta` MCP**, NEVER `tillsyn` MCP — only the `tillsyn` repo has Tillsyn MCP wired. The orchestrator (when working on ta) handles cascade-state tracking via `ta` records (`mcp__ta__*` create/update/get/search on `.ta/`-managed MD files) or in-session memory; persona bodies do NOT make `mcp__tillsyn__*` calls.
+
+After R-SHIP-TA lands + is dev-verified, **ta becomes the cp source for the other 4 siblings**: sand, valv, lagom, bage, polyglot-foundation.
+
+See `R_SHIP_HANDOFF.md` at repo root for the dev verification + commit + push + Hylla ingest checklist.
+
 ## 2026-05-27 Subagent Discipline Update (LOAD-BEARING)
 
 Cross-project rule set hardened after the tillsyn `B.8` cascade exposed two failure modes (silent self-rescoping + plan-QA missing upstream TODOs). Canonical source: tillsyn's `feedback_subagent_scope_tightening.md` memory + `CASCADE_METHODOLOGY.md § Subagent Discipline (2026-05-27)`. Mirrored here so ta-managed cascades enforce the same discipline.
