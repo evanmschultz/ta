@@ -1,0 +1,30 @@
+[test_delete_verbose_flake]
+acceptance_criteria = "1. Identify the root cause: file-permissions race (CI runs as different uid)? schema-fixture cleanup race? ta CLI vs ./bin/ta resolution? index-write ordering? per-process global state in ops.Update? other. 2. Reproduce reliably on CI (run the test in a loop on a branch CI configuration if needed). 3. Fix the test to be deterministic OR fix the underlying production bug if the flake exposes one. 4. Verify the test passes 10x consecutively on CI before declaring closed (e.g. via a temporary CI matrix or `-count=10` invocation). 5. No regression on the test's existing coverage of the verbose-delete remaining-count contract."
+created_at = "2026-05-27T06:45:00Z"
+definition_of_complete = "1. Root cause documented in this drop's planning evidence. 2. Fix applied (test code, production code, or both). 3. CI green 10x in a row on a stress-test branch (or equivalent determinism evidence). 4. Drop closed; flake memory note (project_ta_handoff_2026_05_27_drop_018_closed_r2_launched mentions it) updated to point at this drop."
+drop_number = 25.0
+labels = ["test-flake", "ci-stability", "bug-fix", "tech-debt"]
+objective = "Investigate + fix the recurring CI flake on TestDeleteCmdVerboseEmitsRemainingCount (cmd/ta package). Test passes locally + sometimes passes on CI, but has flaked TWICE consecutively on CI runs of unrelated commits: (1) commit 7a589af on 2026-05-27 (drop_018 D5 commit) — passed on rerun; (2) commit 845d3df on 2026-05-27 (drop_017/020 round-2 amendment scope commit) — passed on rerun. Both commits made ZERO changes to cmd/ta/* source code, so the flake is environment/timing dependent, not code-change-induced. Pre-existing intermittent that needs root-cause + fix."
+packages = ["cmd/ta"]
+paths = ["cmd/ta/commands_test.go", "cmd/ta/delete_cmd.go", "cmd/ta/delete_cmd_test.go", "internal/ops"]
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "TestDeleteCmdVerboseEmitsRemainingCount flake investigation + stabilization"
+updated_at = "2026-05-27T06:45:00Z"
+
+[test_delete_verbose_flake-plan-qa-proof]
+created_at = "2026-05-27T06:37:04Z"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_025.drop.test_delete_verbose_flake"
+title = "Plan-QA proof of TestDeleteCmdVerboseEmitsRemainingCount flake investigation + stabilization"
+updated_at = "2026-05-27T06:37:04Z"
+
+[test_delete_verbose_flake-plan-qa-falsification]
+created_at = "2026-05-27T06:37:04Z"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_025.drop.test_delete_verbose_flake"
+title = "Plan-QA falsif of TestDeleteCmdVerboseEmitsRemainingCount flake investigation + stabilization"
+updated_at = "2026-05-27T06:37:04Z"

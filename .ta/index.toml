@@ -4627,6 +4627,26 @@ db_name = 'cascade'
 type = 'qa_proof'
 updated = 2026-05-27T06:28:12.34882Z
 
+[drop_025]
+[drop_025.drop]
+[drop_025.drop.test_delete_verbose_flake]
+created = 2026-05-27T06:37:04.786558Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-27T06:37:04.786558Z
+
+[drop_025.drop.test_delete_verbose_flake-plan-qa-falsification]
+created = 2026-05-27T06:37:04.818433Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T06:37:04.818433Z
+
+[drop_025.drop.test_delete_verbose_flake-plan-qa-proof]
+created = 2026-05-27T06:37:04.803194Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T06:37:04.803194Z
+
 [hylla_graph_integration]
 [hylla_graph_integration.tracker]
 created = 2026-05-16T00:32:08.792073Z
