@@ -164,7 +164,7 @@ ALL on-disk TOML bracket fixtures rewrite to drop type segment. ALL id-string li
 ### 3.5 Docs
 
 - `docs/PLAN.md` — wholesale-restructured version (in-flight). All id-vocabulary fixes from QA review (id form everywhere, no `<file-relpath>.<id-tail>` framing in user-facing prose, no chronology lexicon, F3 + F16 included or explicitly subsumed, three sentinels named, MCP `dbView.Format` asymmetry stated, F12 ordering reconciled, etc.).
-- `docs/cascade-methodology.md` — audit for id-vocabulary leakage; verify §11 Canonical Node Shape uses id form.
+- `docs/cascade-reference.md` — audit for id-vocabulary leakage; verify §4 Canonical Node Shape uses id form.
 - `E2E_FIXES.md` — close-out F10 entry with corrected diagnosis paragraph; F11 entry retires (its reason-to-exist dissolves once bracket-form is uniform).
 
 ---
@@ -191,7 +191,7 @@ One commit. Everything coherent. No partial states. No stop-gaps. After commit: 
 - **Q2 — One slice, no intermediate states.** Format-version v2, `canonicalForBracket` rewrite, on-disk bracket alignment, walker cleanup, CLI/MCP surface — ALL in this commit. Anything that lands here breaks if any other piece hasn't landed; that is the point. No "T1 introduces a key-miss until T3."
 - **Q3 — `Resolved.BracketKey`.** `Address` struct renames to `Resolved`. `ID` field gone — the whole address IS the id; the field that holds the bracket-tail-after-file-relpath is `BracketKey`. `Type` field gone.
 - **Q4 — `format` is an unknown field.** No special-case rejection logic. The standard meta-schema validator already errors on unknown keys; `format` is removed from the meta-schema's recognized-keys set, so any input with `format` errors via the existing unknown-field path. Same fast-fail-loud-clear-message rule that applies to every other unknown field.
-- **Q5 — Everything consistent in this commit.** MCP `section` parameter renames to `id`. CLI positional named `id` everywhere. `--type` is db-qualified. Tool descriptions update. Goldens regen. cascade-methodology + examples README + E2E_FIXES audit happen here too.
+- **Q5 — Everything consistent in this commit.** MCP `section` parameter renames to `id`. CLI positional named `id` everywhere. `--type` is db-qualified. Tool descriptions update. Goldens regen. cascade-reference + examples README + E2E_FIXES audit happen here too.
 
 #### Files In Scope
 
@@ -231,7 +231,7 @@ One commit. Everything coherent. No partial states. No stop-gaps. After commit: 
 - `Dogfood` target deleted. `seedHomeSchema` review for id-vocabulary; if it referenced legacy bracket forms, update.
 
 **`docs/`:**
-- `cascade-methodology.md` — final id-vocabulary audit.
+- `cascade-reference.md` — final id-vocabulary audit.
 - `PLAN.md` — already at id vocabulary.
 
 **`examples/`:**
@@ -282,7 +282,7 @@ One commit. Everything coherent. No partial states. No stop-gaps. After commit: 
 
 ### T2 — Docs Closeout
 
-- `docs/cascade-methodology.md`: final id-vocabulary audit (was already done in PLAN.md restructure; verify nothing slipped).
+- `docs/cascade-reference.md`: final id-vocabulary audit (was already done in PLAN.md restructure; verify nothing slipped).
 - `examples/README.md`: final pass for id consistency.
 - `E2E_FIXES.md`: F10 close-out paragraph; F11 retirement note.
 - Verification: visual review.

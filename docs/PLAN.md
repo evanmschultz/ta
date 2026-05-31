@@ -2,7 +2,7 @@
 
 This document describes ta's locked architecture and the remaining forward-looking work. Three sections: **A. What ta is**, **B. Why (rationale)**, **C. Remaining action items**.
 
-Cross-references: per-fix detail lives in `E2E_FIXES.md`; cascade-methodology lives in `docs/cascade-methodology.md`; per-category default-bundle layout lives in `examples/README.md`; F10 implementation breakdown lives in `workflow/ta/F10-PLAN.md`.
+Cross-references: per-fix detail lives in `E2E_FIXES.md`; cascade methodology lives in `CASCADE_METHODOLOGY.md` (+ ta addenda in `docs/cascade-reference.md`); per-category default-bundle layout lives in `examples/README.md`; F10 implementation breakdown lives in `workflow/ta/F10-PLAN.md`.
 
 ---
 
@@ -160,7 +160,7 @@ Bare `ta` on a TTY opens the huh subcommand menu. Bare `ta` on stdio launches th
 
 ### A.10 Cascade methodology compatibility
 
-Cascade nodes (action items, drops, droplets, planners, qa records) are storable as ta records once F21 + F22 + F23 land — F21 gives typed array elements and shape validation, F22 gives schema inheritance for the NodeBase / ActionItem common fields, F23 gives auto-spawn for the QA-twin pattern. The orchestration layer that walks the cascade tree (LLM client OR Tillsyn dispatcher) sits **above** ta — ta provides the storage substrate and the structured-CRUD surface; cascade dispatching is not coupled into ta itself. Detailed methodology lives in `docs/cascade-methodology.md`. Cascade schema fragment lives at `examples/schemas/cascade.toml` (planned).
+Cascade nodes (action items, drops, droplets, planners, qa records) are storable as ta records once F21 + F22 + F23 land — F21 gives typed array elements and shape validation, F22 gives schema inheritance for the NodeBase / ActionItem common fields, F23 gives auto-spawn for the QA-twin pattern. The orchestration layer that walks the cascade tree (LLM client OR Tillsyn dispatcher) sits **above** ta — ta provides the storage substrate and the structured-CRUD surface; cascade dispatching is not coupled into ta itself. Detailed methodology lives in `CASCADE_METHODOLOGY.md`. Cascade schema fragment lives at `examples/schemas/cascade.toml` (planned).
 
 ### A.11 Build tooling
 
@@ -220,7 +220,7 @@ Drops type from the id; all reads/writes use the canonical id form. Type lives o
 - **T4** — TOML data file bracket alignment: `ta index rebuild` walks each declared db's data files and ensures every bracket header equals its record id. Reads of files whose brackets do not match their id fire `ErrFileFormatTooOld` and direct the user to `ta index rebuild`.
 - **T5** — search + list-sections rewires (remove `firstDeclaredTypeIndex`; rewrite `parseScope` for id-prefix shape; index-once-loaded type filter). F11's read-path bug dissolves once the bracket form is uniform with the id (no per-mount-shape decision exists to misalign).
 - **T6** — CLI + MCP surface: db-qualified `--type`; the MCP record-targeting parameter is `id`; tool descriptions and goldens regen.
-- **T7** — docs closeout (cascade-methodology.md audit; E2E_FIXES.md F10 close-out).
+- **T7** — docs closeout (cascade-reference.md audit; E2E_FIXES.md F10 close-out).
 
 ### Phase 2 — F15: template save merges into ~/.ta/schema.toml
 

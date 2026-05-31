@@ -148,7 +148,7 @@ mage testPkg ./internal/ops                     # full package, end-to-end
 mage check                                      # full module — orchestrator-level
 ```
 
-Test output auto-detects TTY status via `laslig/gotestout` — agents and CI pipes get plain text, humans on a terminal get a styled summary. No env-var prefix needed; the targets above just work in either context. Cascade methodology § "QA Placement" (`docs/cascade-methodology.md`) covers the level-by-level discipline; the rule of thumb is **agents test only what their slice owns; QA escalates one level up**.
+Test output auto-detects TTY status via `laslig/gotestout` — agents and CI pipes get plain text, humans on a terminal get a styled summary. No env-var prefix needed; the targets above just work in either context. Cascade methodology § "QA Placement" ([`CASCADE_METHODOLOGY.md`](CASCADE_METHODOLOGY.md)) covers the level-by-level discipline, and [`docs/cascade-reference.md`](docs/cascade-reference.md) §1 "Test-scope Isolation" details the slice-scoping; the rule of thumb is **agents test only what their slice owns; QA escalates one level up**.
 
 ## Cascade-agent workflow hooks
 
@@ -182,7 +182,7 @@ Register in `~/.claude/settings.json`:
 }
 ```
 
-The concept is **universal** across LSP-based languages — extend the script with `tsserver`, `pylsp`, `rust-analyzer` etc. when needed. Documented in [`docs/cascade-methodology.md`](docs/cascade-methodology.md) §4.7 "Pre-QA LSP Refresh — Universal Discipline".
+The concept is **universal** across LSP-based languages — extend the script with `tsserver`, `pylsp`, `rust-analyzer` etc. when needed. Documented in [`docs/cascade-reference.md`](docs/cascade-reference.md) §2 "Pre-QA LSP Refresh — Universal Discipline".
 
 **Dogfood plan**: the long-term goal is for ta itself to manage these hooks (alongside agents, instructions docs, skills, rules) via shipped schemas. Once the dogfood phase lands `claude_hooks` schema support, `ta init` will install the hook into `<project>/.claude/hooks/` automatically and every ta dev gets it without manual setup. Until then, install machine-local from this section.
 

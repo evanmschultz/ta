@@ -519,18 +519,20 @@ on_create = [
 	}
 }
 
-// TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair — drop_004 L2-J J1
-// pin. The live `.ta/schema.toml` declares `[cascade.droplet.auto_spawn]`
-// (mirrored verbatim from examples/schemas/cascade.toml:586-599) so that
-// every cascade.droplet record materializes a build-QA twin pair on
-// create. This test exercises the load-time half of that contract:
-// a synthetic schema declaring cascade.droplet + cascade.qa_proof +
-// cascade.qa_falsification + the auto_spawn block parses cleanly and
-// exposes both specs in declaration order with the F23-v2 token strings
-// preserved verbatim on each spec's Fields map. Runtime materialization
-// (token interpolation, on-disk write, target_id resolution) is locked
-// downstream in internal/ops/auto_spawn_test.go.
-func TestAutoSpawn_DropletCreates_SpawnsBuildQATwinPair(t *testing.T) {
+// TestAutoSpawn_LeafTypeDeclaringSpawn_ParsesTwinPair — generic engine
+// coverage: any type that declares [<type>.auto_spawn] exposes its specs
+// at load, in declaration order, with the F23-v2 token strings preserved
+// verbatim (interpolation is a runtime concern, locked downstream in
+// internal/ops/auto_spawn_test.go).
+//
+// NOTE: the LIVE cascade schema intentionally does NOT declare
+// cascade.droplet.auto_spawn — per CASCADE_METHODOLOGY.md § "Why No
+// Droplet-Level LLM QA" the droplet gate is the automated `mage ci` pass.
+// Only drop + planner auto_spawn (plan-QA twins) ship live; see
+// TestAutoSpawn_DropCreates_SpawnsPlanQATwinPair /
+// TestAutoSpawn_PlannerCreates_SpawnsPlanQATwinPair. The synthetic schema
+// below uses cascade.droplet purely as an arbitrary leaf fixture.
+func TestAutoSpawn_LeafTypeDeclaringSpawn_ParsesTwinPair(t *testing.T) {
 	src := `
 [cascade]
 paths = ["cascade.toml"]

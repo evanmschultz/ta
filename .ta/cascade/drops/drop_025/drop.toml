@@ -4,15 +4,14 @@ created_at = "2026-05-27T06:45:00Z"
 definition_of_complete = "1. Root cause documented in this drop's planning evidence. 2. Fix applied (test code, production code, or both). 3. CI green 10x in a row on a stress-test branch (or equivalent determinism evidence). 4. Drop closed; flake memory note (project_ta_handoff_2026_05_27_drop_018_closed_r2_launched mentions it) updated to point at this drop."
 drop_number = 25.0
 labels = ["test-flake", "ci-stability", "bug-fix", "tech-debt"]
-objective = "Investigate + fix the recurring CI flake on TestDeleteCmdVerboseEmitsRemainingCount (cmd/ta package). Test passes locally + sometimes passes on CI, but has flaked TWICE consecutively on CI runs of unrelated commits: (1) commit 7a589af on 2026-05-27 (drop_018 D5 commit) — passed on rerun; (2) commit 845d3df on 2026-05-27 (drop_017/020 round-2 amendment scope commit) — passed on rerun. Both commits made ZERO changes to cmd/ta/* source code, so the flake is environment/timing dependent, not code-change-induced. Pre-existing intermittent that needs root-cause + fix."
+objective = "Investigate + fix the recurring CI flake on TestDeleteCmdVerboseEmitsRemainingCount (cmd/ta package). Test passes locally + sometimes passes on CI, but has flaked on runs of unrelated commits: (1) commit 7a589af on 2026-05-27 (drop_018 D5 commit) — passed on rerun; (2) commit 845d3df on 2026-05-27 (drop_017/020 round-2 amendment scope commit) — passed on rerun; (3) 2026-05-31 during R-SHIP-TA P5 docs/schema ship — flaked LOCALLY under full-module `mage ci` (-race full-suite Cover run): 'stdout missing remaining count 2 / remaining in file: 0'. PASSED on `mage testFunc` isolation, PASSED on `mage racePkg ./cmd/ta` (510/510), PASSED on full `mage ci` rerun. First LOCAL repro — narrows root cause to ops per-process global state (ops.ResetDefaultCacheForTest default-cache singleton) racing across parallel cmd/ta tests, only surfacing under full-module -race scheduling pressure (not CI-env-specific). All three commits made ZERO cmd/ta/* source changes — environment/timing dependent, not code-change-induced."
 packages = ["cmd/ta"]
 paths = ["cmd/ta/commands_test.go", "cmd/ta/delete_cmd.go", "cmd/ta/delete_cmd_test.go", "internal/ops"]
 role = "planner"
 state = "todo"
 structural_type = "drop"
 title = "TestDeleteCmdVerboseEmitsRemainingCount flake investigation + stabilization"
-updated_at = "2026-05-27T06:45:00Z"
-
+updated_at = "2026-05-31T00:00:00Z"
 [test_delete_verbose_flake-plan-qa-proof]
 created_at = "2026-05-27T06:37:04Z"
 role = "qa-proof"

@@ -14,7 +14,7 @@ ta is pre-MVP-feature-completion. The first tagged release will be `v0.1.0` — 
 
 - **F18 picker UI fix + F16 + F17 — CLOSED via huh-removal track (F38d)**. Replaced with pure bubbletea; VHS demos under `cmd/ta/testdata/vhs/picker_*.gif` prove the picker renders + select-all + filter work.
 
-- **TUI verification artifacts (gifs + ascii) — CLOSED**. Committed under `cmd/ta/testdata/vhs/`. Cross-linked from `README.md` §"TUI demos" (8 tape index entries), `examples/README.md`, and `docs/cascade-methodology.md`. Re-record with `mage Vhs`.
+- **TUI verification artifacts (gifs + ascii) — CLOSED**. Committed under `cmd/ta/testdata/vhs/`. Cross-linked from `README.md` §"TUI demos" (8 tape index entries), `examples/README.md`, and `docs/cascade-reference.md` §3.1. Re-record with `mage Vhs`.
 
 - **`/schema` route 500 bug — CLOSED**. Fixed in drop_008 corrective slice (commit 7c507b5): `internal/serverview/render.go` `RenderSchema` now converts the typed `SchemaLoaderResult` to `map[string]any` with lowercase keys (`scopeViewsToMaps`/`typeViewsToMaps`/`fieldViewsToMaps` helpers) matching the template's `{{ .scopes }}`/`.types`/`.fields` accesses.
 

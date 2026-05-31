@@ -72,7 +72,7 @@ The earlier hermetic design IS still available if you want to use a small local 
 
 ## Cascade Methodology Constraint (Read This First)
 
-The cascade agent methodology — documented in [`docs/cascade-methodology.md`](cascade-methodology.md) for ta, and adapted per-project elsewhere — defines a **strict atomicity contract** for builder droplets:
+The cascade agent methodology — documented in [`CASCADE_METHODOLOGY.md`](../CASCADE_METHODOLOGY.md) for ta, and adapted per-project elsewhere — defines a **strict atomicity contract** for builder droplets:
 
 > A builder droplet touches **≤4 small blocks of code**. If more, the planner has under-decomposed and must split further. Builders are NOT general-purpose programmers; they are focused leaf-level workers.
 
@@ -388,5 +388,5 @@ If `OLLAMA_NUM_PARALLEL=4` and you run 5+ projects, expect 4 concurrent local-bu
 - [Qwen3-Coder:30B HF model card](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct) — the recommended builder primary (since 2026-05-21).
 - [Qwen2.5-Coder:7B HF model card](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct) — historical; dropped 2026-05-21 due to silent-failure on tool calls.
 - [OpenAI Codex subagents docs](https://developers.openai.com/codex/subagents) — codex subagent .toml schema (we don't use this; persona injection goes via prompt prefix).
-- `docs/cascade-methodology.md` (in `ta/main`) — the cascade contract whose atomic-builder rule justifies the small-model-primary design for builders.
+- `CASCADE_METHODOLOGY.md` (in `ta/main`) — the cascade contract whose atomic-builder rule justifies the small-model-primary design for builders.
 - `docs/agent-routing-options.md` — the five capacity-management options considered, with rationale for the file-lock-semaphore choice and the eventual `agentq` broker.

@@ -59,7 +59,7 @@ run inside the sandbox.
 ## Why this is orchestrator-direct
 
 VHS needs a real terminal allocation; builder agents commonly run under a
-PTY-less sandbox. Per `docs/cascade-methodology.md`, work that cannot run
+PTY-less sandbox. Per `CASCADE_METHODOLOGY.md`, work that cannot run
 inside an agent's sandbox lives outside the builder droplet contract.
 
 ## Determinism contract

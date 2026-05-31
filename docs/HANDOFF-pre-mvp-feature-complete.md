@@ -163,7 +163,7 @@ The cascade methodology hasn't changed. Only the spawn mechanism for builder/pla
   - `.claude/agents/ta-*.md` — 9 personas, mage-scoped Bash allowlists, read-only-on-cascade-records by design.
 - 6.2 **Project guidance**:
   - `CLAUDE.md` — Cascade-managed dev, Agent Routing — Backend Dispatch, Persona Bash Scoping, Hylla discipline, ta CLI usage, Cascade isolation, pre-mvp-feature-complete tracker.
-  - `docs/cascade-methodology.md` — methodology contract.
+  - `CASCADE_METHODOLOGY.md` — methodology contract (+ ta addenda in `docs/cascade-reference.md`).
   - `docs/agent-backend-routing.md` — dispatch explainer.
   - `docs/pre-mvp-tracker.md` — open items tracker.
 - 6.3 **HTML template substrate**:

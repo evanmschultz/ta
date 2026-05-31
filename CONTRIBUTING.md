@@ -28,7 +28,7 @@ Agents working on the same checkout in a cascade share one working tree. Running
 - **Package-level** (segment / confluence work that owns one package): `mage testPkg ./internal/ops`. End-to-end verdict for the package.
 - **Module-level** (orchestrator / drop close): `mage check`. Full integration verdict — the ONLY level that runs the full suite.
 
-The discipline mirrors `docs/cascade-methodology.md` §4.5 "Test-scope Isolation". The principle is universal across languages — wherever the build runner exposes a name-pattern test target (Cargo, vitest, pytest -k, etc.), the same level-by-level escalation applies.
+The discipline mirrors [`docs/cascade-reference.md`](docs/cascade-reference.md) §1 "Test-scope Isolation". The principle is universal across languages — wherever the build runner exposes a name-pattern test target (Cargo, vitest, pytest -k, etc.), the same level-by-level escalation applies.
 
 ## Cascade-agent workflow rules
 
@@ -40,7 +40,7 @@ Build agents edit code on disk. The next QA agent spawned reads from disk via th
 
 **Refresh the LSP daemon BEFORE spawning a QA agent.** The build runner (mage check) stays the authoritative gate; the LSP refresh ensures the QA agent's evidence-gathering layer matches that truth.
 
-The recommended pattern is a Claude Code `PreToolUse` hook on the `Agent` tool that recycles the active LSP daemon when the spawned `subagent_type` matches `qa-proof` or `qa-falsification`. See [`README.md`](README.md) § "Cascade-agent workflow hooks" for a concrete `~/.claude/hooks/pre_agent_lsp_refresh.sh` reference + `~/.claude/settings.json` registration snippet. Concept documented in [`docs/cascade-methodology.md`](docs/cascade-methodology.md) §4.6 "Pre-QA LSP Refresh — Universal Discipline".
+The recommended pattern is a Claude Code `PreToolUse` hook on the `Agent` tool that recycles the active LSP daemon when the spawned `subagent_type` matches `qa-proof` or `qa-falsification`. See [`README.md`](README.md) § "Cascade-agent workflow hooks" for a concrete `~/.claude/hooks/pre_agent_lsp_refresh.sh` reference + `~/.claude/settings.json` registration snippet. Concept documented in [`docs/cascade-reference.md`](docs/cascade-reference.md) §2 "Pre-QA LSP Refresh — Universal Discipline".
 
 **Authoritative verification stays the build runner.** Never trust LSP diagnostics over a passing `mage check`. The hook is UX polish on the QA agent's evidence layer, not a substitute for the build gate.
 
@@ -75,7 +75,8 @@ Examples:
 ## Reference docs
 
 - [`README.md`](README.md) — install, MCP setup, schema overview, cascade-agent workflow hooks.
-- [`docs/cascade-methodology.md`](docs/cascade-methodology.md) — app-agnostic agent cascade methodology (thesis, droplet shape, QA placement, etc.).
+- [`CASCADE_METHODOLOGY.md`](CASCADE_METHODOLOGY.md) — the cascade methodology canon (thesis, droplet shape, QA placement, role/model bindings, failure handling).
+- [`docs/cascade-reference.md`](docs/cascade-reference.md) — ta cascade reference addenda (test-scope isolation, pre-QA LSP refresh, substrates, node-shape field spec, benchmarking).
 - [`docs/PLAN.md`](docs/PLAN.md) — ta-specific plan / drop sequencing.
 - [`docs/ta.md`](docs/ta.md) — long-form ta design notes.
 - [`CLAUDE.md`](CLAUDE.md) — Claude Code project rules (CLI usage, agent rules, cascade pointer).

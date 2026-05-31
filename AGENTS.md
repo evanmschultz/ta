@@ -39,9 +39,9 @@ Mirrors `CLAUDE.md` § "Cascade isolation — agents test ONLY their slice". An 
 
 ## Cascade methodology — canonical reference
 
-The agent cascade methodology that ta dogfoods (and the future article / blog post seeds from) lives at [`docs/cascade-methodology.md`](docs/cascade-methodology.md). It's the **app-agnostic** version: thesis, droplet shape, role and model bindings, QA placement, nesting model, failure handling, audit trail, reference implementations.
+The agent cascade methodology that ta dogfoods lives at [`CASCADE_METHODOLOGY.md`](CASCADE_METHODOLOGY.md) (repo root) — the canon: thesis, droplet shape, role and model bindings, QA placement, nesting model, failure handling, audit trail. ta-specific reference addenda — substrate comparison, the canonical node-shape field spec, benchmarking, and the future article / blog post seeds — live at [`docs/cascade-reference.md`](docs/cascade-reference.md).
 
-When orchestrating a cascade in this project — point at `docs/cascade-methodology.md` first, then `docs/PLAN.md` for ta-specific plan/drop sequencing.
+When orchestrating a cascade in this project — point at `CASCADE_METHODOLOGY.md` first, then `docs/PLAN.md` for ta-specific plan/drop sequencing.
 
 ## Ta CLI usage
 
